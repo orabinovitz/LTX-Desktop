@@ -1,0 +1,71 @@
+appId: com.lightricks.ltx-video
+productName: LTX Video
+copyright: Copyright © 2024 Lightricks
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+extraResources:
+  - from: backend
+    to: backend
+    filter:
+      - "**/*"
+      - "!.venv/**"
+      - "!__pycache__/**"
+      - "!*.pyc"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: resources/icon.ico
+  artifactName: ${productName}-${version}-Setup.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico
+  installerHeaderIcon: resources/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: LTX Video
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  icon: resources/icon.icns
+  category: public.app-category.video
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: resources/icon.png
+  category: Video
+  artifactName: ${productName}-${version}.${ext}
+
+publish:
+  provider: generic
+  url: https://github.com/Lightricks/ltx-video/releases/download/
