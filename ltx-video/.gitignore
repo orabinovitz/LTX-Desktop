@@ -55,3 +55,6 @@ coverage/
 
 # Models (too large for git)
 backend/models/
+
+# Generated video outputs
+backend/outputs/*.mp4
