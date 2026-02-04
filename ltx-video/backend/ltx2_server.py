@@ -95,6 +95,7 @@ CAMERA_MOTION_PROMPTS = {
     "jib_down": ", jib down, camera lowering down, downward crane movement",
 }
 
+
 # Default negative prompt for Pro model
 DEFAULT_NEGATIVE_PROMPT = """blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, inconsistent perspective, camera shake, incorrect depth of field"""
 
