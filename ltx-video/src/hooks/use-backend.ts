@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 
+interface WarmupStatus {
+  status: 'pending' | 'loading' | 'warming' | 'ready' | 'error'
+  currentStep: string
+  progress: number
+  error: string | null
+}
+
 interface BackendStatus {
   connected: boolean
   modelsLoaded: boolean
@@ -8,6 +15,7 @@ interface BackendStatus {
     vram: number
     vramUsed: number
   } | null
+  warmup: WarmupStatus
 }
 
 interface ModelStatus {
@@ -32,10 +40,29 @@ export function useBackend(): UseBackendReturn {
     connected: false,
     modelsLoaded: false,
     gpuInfo: null,
+    warmup: {
+      status: 'pending',
+      currentStep: '',
+      progress: 0,
+      error: null,
+    },
   })
   const [models, setModels] = useState<ModelStatus[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const checkWarmup = useCallback(async (): Promise<WarmupStatus | null> => {
+    try {
+      const backendUrl = await window.electronAPI.getBackendUrl()
+      const response = await fetch(`${backendUrl}/api/warmup/status`)
+      if (response.ok) {
+        return await response.json()
+      }
+      return null
+    } catch {
+      return null
+    }
+  }, [])
 
   const checkHealth = useCallback(async (): Promise<boolean> => {
     try {
@@ -46,10 +73,20 @@ export function useBackend(): UseBackendReturn {
       if (response.ok) {
         const data = await response.json()
         console.log('Backend health:', data)
+        
+        // Also check warmup status
+        const warmup = await checkWarmup()
+        
         setStatus({
           connected: true,
           modelsLoaded: data.models_loaded,
           gpuInfo: data.gpu_info,
+          warmup: warmup || {
+            status: 'pending',
+            currentStep: '',
+            progress: 0,
+            error: null,
+          },
         })
         return true
       }
@@ -60,7 +97,7 @@ export function useBackend(): UseBackendReturn {
       setStatus(prev => ({ ...prev, connected: false }))
       return false
     }
-  }, [])
+  }, [checkWarmup])
 
   const fetchModels = useCallback(async () => {
     try {
@@ -151,8 +188,22 @@ export function useBackend(): UseBackendReturn {
         console.log('Setting isLoading to false, connected:', connected)
         setIsLoading(false)
 
-        // Continue polling every 5 seconds
-        intervalId = setInterval(checkHealth, 5000)
+        // Poll frequently during warmup, then slower once ready
+        const pollInterval = async () => {
+          if (cancelled) return
+          
+          await checkHealth()
+          
+          // Check warmup status to determine poll frequency
+          const warmupStatus = await checkWarmup()
+          const isWarmingUp = warmupStatus?.status !== 'ready' && warmupStatus?.status !== 'error'
+          const nextInterval = isWarmingUp ? 1000 : 5000
+          
+          if (!cancelled) {
+            intervalId = setTimeout(pollInterval, nextInterval)
+          }
+        }
+        intervalId = setTimeout(pollInterval, 1000)
       }
     }
 
@@ -160,9 +211,9 @@ export function useBackend(): UseBackendReturn {
 
     return () => {
       cancelled = true
-      if (intervalId) clearInterval(intervalId)
+      if (intervalId) clearTimeout(intervalId)
     }
-  }, [checkHealth, fetchModels])
+  }, [checkHealth, checkWarmup, fetchModels])
 
   return {
     status,

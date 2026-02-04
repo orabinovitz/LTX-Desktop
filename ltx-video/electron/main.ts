@@ -159,7 +159,7 @@ function createWindow(): void {
   // Load the app
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
-    mainWindow.webContents.openDevTools()
+    // DevTools can be opened manually with Ctrl+Shift+I or F12
   } else {
     mainWindow.loadFile(path.join(process.resourcesPath, 'dist', 'index.html'))
   }

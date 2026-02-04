@@ -1,7 +1,6 @@
-import React, { useRef, useEffect } from 'react'
-import { Play, Pause, Download, RefreshCw } from 'lucide-react'
+import React, { useRef, useEffect, useState, useCallback } from 'react'
+import { Play, Pause, Download, RefreshCw, RotateCcw } from 'lucide-react'
 import { Button } from './ui/button'
-import { cn } from '@/lib/utils'
 
 interface VideoPlayerProps {
   videoUrl: string | null
@@ -10,17 +9,61 @@ interface VideoPlayerProps {
   statusMessage: string
 }
 
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
 export function VideoPlayer({ videoUrl, isGenerating, progress, statusMessage }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [isPlaying, setIsPlaying] = React.useState(false)
+  const progressRef = useRef<HTMLDivElement>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
+  const [isLooping, setIsLooping] = useState(true)
 
   useEffect(() => {
     if (videoUrl && videoRef.current) {
       videoRef.current.load()
       videoRef.current.play()
       setIsPlaying(true)
+      setCurrentTime(0)
     }
   }, [videoUrl])
+
+  // Update time display
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const handleTimeUpdate = () => {
+      if (!isDragging) {
+        setCurrentTime(video.currentTime)
+      }
+    }
+
+    const handleLoadedMetadata = () => {
+      setDuration(video.duration)
+    }
+
+    const handleEnded = () => {
+      if (!isLooping) {
+        setIsPlaying(false)
+      }
+    }
+
+    video.addEventListener('timeupdate', handleTimeUpdate)
+    video.addEventListener('loadedmetadata', handleLoadedMetadata)
+    video.addEventListener('ended', handleEnded)
+
+    return () => {
+      video.removeEventListener('timeupdate', handleTimeUpdate)
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      video.removeEventListener('ended', handleEnded)
+    }
+  }, [isDragging, isLooping])
 
   const togglePlayPause = () => {
     if (videoRef.current) {
@@ -33,6 +76,54 @@ export function VideoPlayer({ videoUrl, isGenerating, progress, statusMessage }:
     }
   }
 
+  const toggleLoop = () => {
+    if (videoRef.current) {
+      videoRef.current.loop = !isLooping
+      setIsLooping(!isLooping)
+    }
+  }
+
+  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (progressRef.current && videoRef.current && duration > 0) {
+      const rect = progressRef.current.getBoundingClientRect()
+      const clickX = e.clientX - rect.left
+      const percentage = clickX / rect.width
+      const newTime = percentage * duration
+      videoRef.current.currentTime = newTime
+      setCurrentTime(newTime)
+    }
+  }
+
+  const handleProgressDrag = useCallback((e: MouseEvent) => {
+    if (progressRef.current && videoRef.current && duration > 0 && isDragging) {
+      const rect = progressRef.current.getBoundingClientRect()
+      const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width))
+      const percentage = clickX / rect.width
+      const newTime = percentage * duration
+      videoRef.current.currentTime = newTime
+      setCurrentTime(newTime)
+    }
+  }, [duration, isDragging])
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    setIsDragging(true)
+    handleProgressClick(e)
+  }
+
+  useEffect(() => {
+    const handleMouseUp = () => setIsDragging(false)
+    
+    if (isDragging) {
+      window.addEventListener('mousemove', handleProgressDrag)
+      window.addEventListener('mouseup', handleMouseUp)
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleProgressDrag)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging, handleProgressDrag])
+
   const handleDownload = () => {
     if (videoUrl) {
       const a = document.createElement('a')
@@ -43,6 +134,8 @@ export function VideoPlayer({ videoUrl, isGenerating, progress, statusMessage }:
       document.body.removeChild(a)
     }
   }
+
+  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -73,42 +166,89 @@ export function VideoPlayer({ videoUrl, isGenerating, progress, statusMessage }:
             </div>
           </div>
         ) : videoUrl ? (
-          <>
-            <video
-              ref={videoRef}
-              className="max-w-full max-h-full object-contain"
-              loop
-              playsInline
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
-            >
-              <source src={videoUrl} type="video/mp4" />
-            </video>
-            
-            {/* Video controls overlay */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-              <Button
-                size="icon"
-                variant="secondary"
-                onClick={togglePlayPause}
-                className="bg-black/50 hover:bg-black/70"
+          <div className="w-full h-full flex flex-col">
+            {/* Video container */}
+            <div className="flex-1 flex items-center justify-center bg-black min-h-0">
+              <video
+                ref={videoRef}
+                className="max-w-full max-h-full object-contain"
+                loop={isLooping}
+                playsInline
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
               >
-                {isPlaying ? (
-                  <Pause className="h-4 w-4" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-              </Button>
-              <Button
-                size="icon"
-                variant="secondary"
-                onClick={handleDownload}
-                className="bg-black/50 hover:bg-black/70"
-              >
-                <Download className="h-4 w-4" />
-              </Button>
+                <source src={videoUrl} type="video/mp4" />
+              </video>
             </div>
-          </>
+            
+            {/* Video controls bar */}
+            <div className="bg-zinc-900 border-t border-zinc-800 px-4 py-3">
+              {/* Progress bar / Playhead */}
+              <div 
+                ref={progressRef}
+                className="w-full h-1.5 bg-zinc-700 rounded-full cursor-pointer mb-3 group relative"
+                onClick={handleProgressClick}
+                onMouseDown={handleMouseDown}
+              >
+                {/* Progress fill */}
+                <div 
+                  className="h-full bg-violet-500 rounded-full relative"
+                  style={{ width: `${progressPercent}%` }}
+                >
+                  {/* Playhead dot */}
+                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-md transform translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+              </div>
+              
+              {/* Controls row */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {/* Play/Pause */}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={togglePlayPause}
+                    className="h-8 w-8 text-white hover:bg-zinc-800"
+                  >
+                    {isPlaying ? (
+                      <Pause className="h-4 w-4" />
+                    ) : (
+                      <Play className="h-4 w-4 ml-0.5" />
+                    )}
+                  </Button>
+                  
+                  {/* Time display */}
+                  <span className="text-xs text-zinc-400 font-mono min-w-[80px]">
+                    {formatTime(currentTime)} / {formatTime(duration)}
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-1">
+                  {/* Loop toggle */}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={toggleLoop}
+                    className={`h-8 w-8 hover:bg-zinc-800 ${isLooping ? 'text-violet-400' : 'text-zinc-500'}`}
+                    title={isLooping ? 'Loop: On' : 'Loop: Off'}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                  
+                  {/* Download */}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={handleDownload}
+                    className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-800"
+                    title="Download video"
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center text-zinc-500">
             <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mb-4">

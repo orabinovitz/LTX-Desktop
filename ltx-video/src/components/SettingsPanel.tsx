@@ -31,15 +31,22 @@ export function SettingsPanel({ settings, onSettingsChange, disabled }: Settings
   return (
     <div className="space-y-4">
       {/* Model Selection */}
-      <Select
-        label="Model"
-        value={settings.model}
-        onChange={(e) => handleChange('model', e.target.value)}
-        disabled={disabled}
-      >
-        <option value="fast">Fast - Optimized for speed</option>
-        <option value="pro">Pro - Balanced for quality and speed</option>
-      </Select>
+      <div>
+        <Select
+          label="Model"
+          value={settings.model}
+          onChange={(e) => handleChange('model', e.target.value)}
+          disabled={disabled}
+        >
+          <option value="fast">Fast - Optimized for speed</option>
+          <option value="pro">Pro - Balanced for quality and speed</option>
+        </Select>
+        {settings.model === 'pro' && (
+          <p className="text-[10px] text-zinc-500 mt-1">
+            First generation with Pro may take longer to load
+          </p>
+        )}
+      </div>
 
       {/* Duration, Resolution, FPS Row */}
       <div className="grid grid-cols-3 gap-3">
@@ -63,9 +70,9 @@ export function SettingsPanel({ settings, onSettingsChange, disabled }: Settings
           onChange={(e) => handleChange('resolution', e.target.value)}
           disabled={disabled}
         >
-          <option value="4k">4K</option>
-          <option value="1440p">1440p</option>
           <option value="1080p">1080p</option>
+          <option value="720p">720p</option>
+          <option value="480p">480p</option>
         </Select>
 
         <Select
@@ -75,7 +82,8 @@ export function SettingsPanel({ settings, onSettingsChange, disabled }: Settings
           disabled={disabled}
         >
           <option value={25}>25</option>
-          <option value={50}>50</option>
+          <option value={24}>24</option>
+          <option value={16}>16</option>
         </Select>
       </div>
 

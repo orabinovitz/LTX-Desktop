@@ -9,10 +9,36 @@ interface GenerationState {
   error: string | null
 }
 
+interface GenerationProgress {
+  status: string
+  phase: string
+  progress: number
+  currentStep: number
+  totalSteps: number
+}
+
 interface UseGenerationReturn extends GenerationState {
   generate: (prompt: string, image: File | null, settings: GenerationSettings) => Promise<void>
   cancel: () => void
   reset: () => void
+}
+
+// Map phase to user-friendly message
+function getPhaseMessage(phase: string, currentStep: number, totalSteps: number): string {
+  switch (phase) {
+    case 'loading_model':
+      return 'Loading model...'
+    case 'encoding_text':
+      return 'Encoding prompt...'
+    case 'inference':
+      return totalSteps > 0 ? `Generating (${totalSteps} steps)...` : 'Generating...'
+    case 'decoding':
+      return 'Decoding video...'
+    case 'complete':
+      return 'Complete!'
+    default:
+      return 'Generating...'
+  }
 }
 
 export function useGeneration(): UseGenerationReturn {
@@ -31,11 +57,15 @@ export function useGeneration(): UseGenerationReturn {
     image: File | null,
     settings: GenerationSettings
   ) => {
-    // Reset state
+    // Reset state - show different message if using Pro model (may need to load)
+    const statusMsg = settings.model === 'pro' 
+      ? 'Loading Pro model & generating...' 
+      : 'Generating video...'
+    
     setState({
       isGenerating: true,
       progress: 0,
-      statusMessage: 'Generating video...',
+      statusMessage: statusMsg,
       videoUrl: null,
       error: null,
     })
@@ -60,13 +90,45 @@ export function useGeneration(): UseGenerationReturn {
         formData.append('image', image)
       }
 
-      // Show progress animation while waiting
-      const progressInterval = setInterval(() => {
-        setState(prev => ({
-          ...prev,
-          progress: Math.min(prev.progress + 5, 90),
-        }))
-      }, 300)
+      // Poll for real progress from backend with time-based interpolation
+      let lastPhase = ''
+      let inferenceStartTime = 0
+      // Estimated inference time in seconds based on model
+      const estimatedInferenceTime = settings.model === 'pro' ? 120 : 45
+      
+      const pollProgress = async () => {
+        try {
+          const res = await fetch(`${backendUrl}/api/generation/progress`)
+          if (res.ok) {
+            const data: GenerationProgress = await res.json()
+            
+            let displayProgress = data.progress
+            
+            // Time-based interpolation during inference phase
+            if (data.phase === 'inference') {
+              if (lastPhase !== 'inference') {
+                inferenceStartTime = Date.now()
+              }
+              const elapsed = (Date.now() - inferenceStartTime) / 1000
+              // Interpolate from 15% to 95% based on estimated time
+              const inferenceProgress = Math.min(elapsed / estimatedInferenceTime, 0.95)
+              displayProgress = 15 + Math.floor(inferenceProgress * 80)
+            }
+            
+            lastPhase = data.phase
+            
+            setState(prev => ({
+              ...prev,
+              progress: displayProgress,
+              statusMessage: getPhaseMessage(data.phase, data.currentStep, data.totalSteps),
+            }))
+          }
+        } catch {
+          // Ignore polling errors
+        }
+      }
+      
+      const progressInterval = setInterval(pollProgress, 500)
 
       // Start generation (HTTP POST - synchronous, returns when done)
       const response = await fetch(`${backendUrl}/api/generate`, {

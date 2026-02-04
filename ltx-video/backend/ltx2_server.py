@@ -14,10 +14,9 @@ import cgi
 import time
 import tempfile
 import threading
-import signal
 
-# Set environment for CUDA
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+# Note: expandable_segments is not supported on all platforms
+# With 32GB VRAM on RTX 5090, it's not needed anyway
 
 import torch
 from PIL import Image
@@ -53,12 +52,35 @@ pro_pipeline = None
 current_generation = {
     "id": None,
     "cancelled": False,
-    "thread": None,
     "result": None,
     "error": None,
     "status": "idle",  # idle, running, complete, cancelled, error
+    "phase": "",  # loading_model, encoding_text, inference, decoding, complete
+    "progress": 0,  # 0-100
+    "current_step": 0,
+    "total_steps": 0,
 }
 generation_lock = threading.Lock()
+
+# Warmup state
+warmup_state = {
+    "status": "pending",  # pending, loading, warming, ready, error
+    "current_step": "",
+    "progress": 0,  # 0-100
+    "error": None,
+}
+warmup_lock = threading.Lock()
+
+# App settings
+app_settings = {
+    "keep_models_loaded": False,  # If True, keep text encoder in VRAM between generations
+    "use_torch_compile": False,  # Disabled by default - can cause long compile times
+    "load_on_startup": False,  # If True, preload models at startup; if False, load on first generation
+}
+settings_lock = threading.Lock()
+
+# Cached text encoder (only used when keep_models_loaded is True)
+cached_text_encoder = None
 
 # Camera motion prompt enhancements
 CAMERA_MOTION_PROMPTS = {
@@ -114,6 +136,64 @@ def download_models():
         logger.info("Found text_encoder")
 
 
+# Track if models have been compiled
+compiled_models = {"fast": False, "pro": False}
+
+
+def compile_pipeline_transformer(pipeline, model_type: str):
+    """Compile the transformer model using torch.compile() for faster inference.
+    
+    torch.compile() optimizes the model by tracing and compiling it to efficient
+    kernels. The first run after compilation is slower (compilation happens), 
+    but subsequent runs are significantly faster (20-40% speedup).
+    """
+    global compiled_models
+    
+    # Check if torch.compile is enabled
+    if not app_settings.get("use_torch_compile", True):
+        logger.info(f"torch.compile() disabled in settings, skipping for {model_type}")
+        return
+    
+    if compiled_models.get(model_type):
+        logger.info(f"Transformer for {model_type} already compiled")
+        return
+    
+    try:
+        # Access the transformer through the model_ledger
+        # The transformer is loaded lazily, so we need to get it first
+        transformer = pipeline.model_ledger.transformer()
+        
+        if transformer is not None:
+            logger.info(f"Compiling {model_type} transformer with torch.compile()...")
+            start = time.time()
+            
+            # Use 'reduce-overhead' mode for best inference speed
+            # Other options: 'default', 'max-autotune' (slower compile, faster run)
+            compiled_transformer = torch.compile(
+                transformer,
+                mode="reduce-overhead",
+                fullgraph=False,  # Allow graph breaks for compatibility
+            )
+            
+            # Replace the transformer in the model_ledger
+            # Store the original method
+            original_transformer_method = pipeline.model_ledger.transformer
+            
+            def compiled_transformer_method():
+                return compiled_transformer
+            
+            pipeline.model_ledger.transformer = compiled_transformer_method
+            compiled_models[model_type] = True
+            
+            logger.info(f"Transformer compiled in {time.time() - start:.1f}s")
+        else:
+            logger.warning(f"Could not access transformer for {model_type}")
+            
+    except Exception as e:
+        logger.warning(f"Failed to compile transformer for {model_type}: {e}")
+        logger.warning("Continuing without torch.compile() optimization")
+
+
 def load_pipeline(model_type: str = "fast"):
     """Load the appropriate LTX-2 pipeline based on model type."""
     global distilled_pipeline, pro_pipeline
@@ -122,9 +202,13 @@ def load_pipeline(model_type: str = "fast"):
         if model_type == "fast" and distilled_pipeline is None:
             from ltx_pipelines.distilled import DistilledPipeline
             
-            logger.info("Loading LTX-2 Distilled Pipeline (Fast)...")
+            logger.info("Loading LTX-2 Distilled Pipeline (Fast, 2-stage with upsampling)...")
             start = time.time()
             
+            # DistilledPipeline is two-stage:
+            # Stage 1: Generate at half resolution (fast, 8 steps)
+            # Stage 2: Upsample 2x + refine (slower, 4 steps)
+            # Spatial upsampler is REQUIRED for this pipeline
             distilled_pipeline = DistilledPipeline(
                 checkpoint_path=str(CHECKPOINT_PATH),
                 gemma_root=str(GEMMA_PATH),
@@ -133,6 +217,12 @@ def load_pipeline(model_type: str = "fast"):
                 device=DEVICE,
                 fp8transformer=True,
             )
+            
+            # Patch the model_ledger to support caching
+            patch_model_ledger_for_caching(distilled_pipeline.model_ledger)
+            
+            # Compile the transformer for faster inference
+            compile_pipeline_transformer(distilled_pipeline, "fast")
             
             logger.info(f"Distilled Pipeline loaded in {time.time() - start:.1f}s")
             return distilled_pipeline
@@ -143,6 +233,7 @@ def load_pipeline(model_type: str = "fast"):
             logger.info("Loading LTX-2 Two-Stage Pipeline (Pro)...")
             start = time.time()
             
+            # Always provide upsampler path (required by pipeline)
             pro_pipeline = TI2VidTwoStagesPipeline(
                 checkpoint_path=str(CHECKPOINT_PATH),
                 gemma_root=str(GEMMA_PATH),
@@ -153,6 +244,12 @@ def load_pipeline(model_type: str = "fast"):
                 device=DEVICE,
                 fp8transformer=True,
             )
+            
+            # Patch the model_ledger to support caching
+            patch_model_ledger_for_caching(pro_pipeline.model_ledger)
+            
+            # Compile the transformer for faster inference
+            compile_pipeline_transformer(pro_pipeline, "pro")
             
             logger.info(f"Pro Pipeline loaded in {time.time() - start:.1f}s")
             return pro_pipeline
@@ -166,17 +263,82 @@ def load_pipeline(model_type: str = "fast"):
         return None
 
 
-def get_pipeline(model_type: str = "fast"):
-    """Get or load the appropriate pipeline."""
+def patch_model_ledger_for_caching(model_ledger):
+    """Patch the model_ledger to cache text encoder when setting is enabled."""
+    global cached_text_encoder
+    
+    # Store the original method
+    original_text_encoder = model_ledger.text_encoder
+    
+    def cached_text_encoder_method():
+        global cached_text_encoder
+        
+        # Check if caching is enabled
+        if app_settings["keep_models_loaded"]:
+            if cached_text_encoder is not None:
+                logger.info("Using cached text encoder")
+                return cached_text_encoder
+            else:
+                logger.info("Loading and caching text encoder...")
+                cached_text_encoder = original_text_encoder()
+                return cached_text_encoder
+        else:
+            # Caching disabled, use original behavior
+            return original_text_encoder()
+    
+    # Replace the method
+    model_ledger.text_encoder = cached_text_encoder_method
+    logger.info("Model ledger patched for text encoder caching")
+
+
+def unload_pipeline(model_type: str):
+    """Unload a pipeline to free VRAM."""
+    global distilled_pipeline, pro_pipeline
+    
+    if model_type == "fast" and distilled_pipeline is not None:
+        logger.info("Unloading Fast pipeline to free VRAM...")
+        del distilled_pipeline
+        distilled_pipeline = None
+        torch.cuda.empty_cache()
+        logger.info("Fast pipeline unloaded")
+    elif model_type == "pro" and pro_pipeline is not None:
+        logger.info("Unloading Pro pipeline to free VRAM...")
+        del pro_pipeline
+        pro_pipeline = None
+        torch.cuda.empty_cache()
+        logger.info("Pro pipeline unloaded")
+
+
+def get_pipeline(model_type: str = "fast", skip_warmup: bool = False):
+    """Get or load the appropriate pipeline.
+    
+    Only one model is loaded at a time to conserve VRAM.
+    Switching models will unload the previous one.
+    
+    Args:
+        model_type: "fast" or "pro"
+        skip_warmup: If True, skip warmup (user's generation serves as warmup)
+    """
     global distilled_pipeline, pro_pipeline
     
     if model_type == "fast":
         if distilled_pipeline is None:
+            # Unload Pro if loaded to free VRAM
+            if pro_pipeline is not None:
+                unload_pipeline("pro")
             load_pipeline("fast")
+            # Only warmup if preloading at startup (not on-demand loading)
+            if not skip_warmup:
+                warmup_pipeline("fast")
         return distilled_pipeline
     else:
         if pro_pipeline is None:
+            # Unload Fast if loaded to free VRAM
+            if distilled_pipeline is not None:
+                unload_pipeline("fast")
             load_pipeline("pro")
+            if not skip_warmup:
+                warmup_pipeline("pro")
         return pro_pipeline
 
 
@@ -193,29 +355,35 @@ def warmup_pipeline(model_type: str):
         from ltx_core.tiling import TilingConfig
         
         # Minimal generation to force weight loading
+        # Use smallest valid dimensions to minimize warmup time
         warmup_path = OUTPUTS_DIR / f"_warmup_{model_type}.mp4"
+        
+        # Minimum valid: 9 frames (8*1+1), small resolution divisible by 32
+        warmup_height = 320
+        warmup_width = 480
+        warmup_frames = 9  # Minimum valid for 8n+1
         
         if model_type == "fast":
             pipeline(
-                prompt="test",
+                prompt="test warmup",
                 output_path=str(warmup_path),
                 seed=42,
-                height=256,
-                width=256,
-                num_frames=9,
+                height=warmup_height,
+                width=warmup_width,
+                num_frames=warmup_frames,
                 frame_rate=8,
                 images=[],
                 tiling_config=TilingConfig.default(),
             )
         else:
             pipeline(
-                prompt="test",
+                prompt="test warmup",
                 output_path=str(warmup_path),
                 negative_prompt="",
                 seed=42,
-                height=256,
-                width=256,
-                num_frames=9,
+                height=warmup_height,
+                width=warmup_width,
+                num_frames=warmup_frames,
                 frame_rate=8,
                 num_inference_steps=5,  # Minimal steps for warmup
                 cfg_guidance_scale=3.0,
@@ -233,6 +401,16 @@ def warmup_pipeline(model_type: str):
         logger.error(f"Warmup failed for {model_type}: {e}")
         import traceback
         traceback.print_exc()
+
+
+def update_generation_progress(phase: str, progress: int, current_step: int = 0, total_steps: int = 0):
+    """Update the current generation progress."""
+    global current_generation
+    with generation_lock:
+        current_generation["phase"] = phase
+        current_generation["progress"] = progress
+        current_generation["current_step"] = current_step
+        current_generation["total_steps"] = total_steps
 
 
 def generate_video(
@@ -255,11 +433,18 @@ def generate_video(
     if current_generation["cancelled"]:
         raise RuntimeError("Generation was cancelled")
     
-    pipeline = get_pipeline(model_type)
+    # Determine total steps for this model
+    total_steps = 8 if model_type == "fast" else 40
+    update_generation_progress("loading_model", 5, 0, total_steps)
+    
+    # Skip warmup - the user's generation itself serves as the warmup
+    pipeline = get_pipeline(model_type, skip_warmup=True)
     if pipeline is None:
         raise RuntimeError(f"Failed to load {model_type} pipeline")
     
     from ltx_core.tiling import TilingConfig
+    
+    update_generation_progress("encoding_text", 10, 0, total_steps)
     
     # Enhance prompt with camera motion
     enhanced_prompt = prompt + CAMERA_MOTION_PROMPTS.get(camera_motion, "")
@@ -287,6 +472,9 @@ def generate_video(
         start = time.time()
         
         tiling_config = TilingConfig.default()
+        
+        # Update progress to inference phase (this is where most time is spent)
+        update_generation_progress("inference", 15, 0, total_steps)
         
         if model_type == "fast":
             # Distilled pipeline (fast, 8 steps)
@@ -326,6 +514,10 @@ def generate_video(
                 output_path.unlink()
             raise RuntimeError("Generation was cancelled")
         
+        # Update progress to complete
+        total_steps = 8 if model_type == "fast" else 40
+        update_generation_progress("complete", 100, total_steps, total_steps)
+        
         logger.info(f"Generation took {time.time() - start:.1f}s")
         logger.info(f"Saved to {output_path}")
         return str(output_path)
@@ -356,9 +548,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
     
     def do_GET(self):
         if self.path == "/health":
+            # Determine which model is currently active
+            active_model = None
+            if distilled_pipeline is not None:
+                active_model = "fast"
+            elif pro_pipeline is not None:
+                active_model = "pro"
+            
             self.send_json_response(200, {
                 "status": "ok",
-                "models_loaded": distilled_pipeline is not None and pro_pipeline is not None,
+                "models_loaded": distilled_pipeline is not None or pro_pipeline is not None,
+                "active_model": active_model,
                 "fast_loaded": distilled_pipeline is not None,
                 "pro_loaded": pro_pipeline is not None,
                 "gpu_info": get_gpu_info(),
@@ -389,6 +589,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json_response(200, {
                 "id": current_generation["id"],
                 "status": current_generation["status"],
+            })
+        elif self.path == "/api/warmup/status":
+            self.send_json_response(200, {
+                "status": warmup_state["status"],
+                "currentStep": warmup_state["current_step"],
+                "progress": warmup_state["progress"],
+                "error": warmup_state["error"],
+            })
+        elif self.path == "/api/generation/progress":
+            with generation_lock:
+                self.send_json_response(200, {
+                    "status": current_generation["status"],
+                    "phase": current_generation["phase"],
+                    "progress": current_generation["progress"],
+                    "currentStep": current_generation["current_step"],
+                    "totalSteps": current_generation["total_steps"],
+                })
+        elif self.path == "/api/settings":
+            self.send_json_response(200, {
+                "keepModelsLoaded": app_settings["keep_models_loaded"],
+                "useTorchCompile": app_settings["use_torch_compile"],
+                "loadOnStartup": app_settings["load_on_startup"],
             })
         else:
             self.send_response(404)
@@ -430,14 +652,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 fps = int(get_form_value('fps', '24'))
                 
                 # Resolution mapping (dimensions must be divisible by 32)
+                # Based on LTX-2 VRAM requirements for RTX 5090 (32GB)
                 resolution_map = {
-                    "4k": (3840, 2160),
-                    "1440p": (2560, 1440),
-                    "1080p": (1920, 1088),
-                    "720p": (1280, 704),
-                    "512p": (768, 512),
+                    "1080p": (1920, 1088),  # Stable up to 12-20 sec
+                    "720p": (1280, 736),    # Very stable, recommended
+                    "480p": (768, 512),     # Fast preview mode
                 }
-                width, height = resolution_map.get(resolution, (1920, 1088))
+                width, height = resolution_map.get(resolution, (1280, 736))
                 
                 # Calculate frames (must be 8n+1 for LTX-2)
                 num_frames = ((duration * fps) // 8) * 8 + 1
@@ -476,7 +697,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     current_generation["error"] = None
                     current_generation["status"] = "running"
                 
-                # Generate (synchronously for now, as pipeline doesn't support async well)
+                # Generate synchronously (fast - models stay loaded)
                 seed = int(time.time()) % 2147483647
                 output_path = generate_video(
                     prompt=prompt,
@@ -519,10 +740,51 @@ class Handler(http.server.BaseHTTPRequestHandler):
             with generation_lock:
                 if current_generation["status"] == "running":
                     current_generation["cancelled"] = True
-                    logger.info(f"Cancellation requested for generation {current_generation['id']}")
+                    logger.info(f"Cancel requested for generation {current_generation['id']}")
+                    # Note: Cancel flag is checked between generation phases
+                    # Cannot interrupt mid-inference (GPU operations are atomic)
                     self.send_json_response(200, {"status": "cancelling", "id": current_generation["id"]})
                 else:
                     self.send_json_response(200, {"status": "no_active_generation"})
+        elif self.path == "/api/settings":
+            try:
+                content_len = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_len).decode('utf-8')
+                data = json.loads(body)
+                
+                with settings_lock:
+                    if 'keepModelsLoaded' in data:
+                        old_value = app_settings["keep_models_loaded"]
+                        app_settings["keep_models_loaded"] = bool(data['keepModelsLoaded'])
+                        if old_value != app_settings["keep_models_loaded"]:
+                            logger.info(f"Setting 'keep_models_loaded' changed to: {app_settings['keep_models_loaded']}")
+                            # Clear cached encoder if disabling
+                            if not app_settings["keep_models_loaded"]:
+                                global cached_text_encoder
+                                if cached_text_encoder is not None:
+                                    del cached_text_encoder
+                                    cached_text_encoder = None
+                                    torch.cuda.empty_cache()
+                                    logger.info("Cleared cached text encoder")
+                    
+                    if 'useTorchCompile' in data:
+                        old_value = app_settings["use_torch_compile"]
+                        app_settings["use_torch_compile"] = bool(data['useTorchCompile'])
+                        if old_value != app_settings["use_torch_compile"]:
+                            logger.info(f"Setting 'use_torch_compile' changed to: {app_settings['use_torch_compile']}")
+                            logger.info("Restart required for torch.compile changes to take effect")
+                    
+                    if 'loadOnStartup' in data:
+                        old_value = app_settings["load_on_startup"]
+                        app_settings["load_on_startup"] = bool(data['loadOnStartup'])
+                        if old_value != app_settings["load_on_startup"]:
+                            logger.info(f"Setting 'load_on_startup' changed to: {app_settings['load_on_startup']}")
+                            logger.info("Restart required for this change to take effect")
+                
+                self.send_json_response(200, {"status": "ok"})
+            except Exception as e:
+                logger.error(f"Failed to update settings: {e}")
+                self.send_json_response(500, {"error": str(e)})
         else:
             self.send_response(404)
             self.end_headers()
@@ -546,44 +808,89 @@ def get_gpu_info():
         return {"name": "Unknown", "vram": 0, "vramUsed": 0}
 
 
+def background_warmup():
+    """Run model loading and warmup in background thread.
+    
+    If load_on_startup is False (default), just download models and mark ready.
+    Models will load on first generation.
+    """
+    global warmup_state
+    
+    try:
+        with warmup_lock:
+            warmup_state["status"] = "loading"
+            warmup_state["current_step"] = "Checking models..."
+            warmup_state["progress"] = 10
+        
+        # Download models if needed
+        logger.info("Checking models...")
+        download_models()
+        
+        # Check if we should preload models at startup
+        if not app_settings.get("load_on_startup", False):
+            # Lazy loading - don't load models until first generation
+            with warmup_lock:
+                warmup_state["status"] = "ready"
+                warmup_state["current_step"] = "Ready (models load on first use)"
+                warmup_state["progress"] = 100
+            
+            logger.info("="*60)
+            logger.info("Models downloaded and ready!")
+            logger.info("Models will load on first generation (lazy loading)")
+            logger.info("="*60)
+            return
+        
+        # Preload models at startup (if setting enabled)
+        with warmup_lock:
+            warmup_state["current_step"] = "Loading Fast model..."
+            warmup_state["progress"] = 30
+        
+        logger.info("[1/2] Loading Fast (Distilled) pipeline...")
+        if load_pipeline("fast"):
+            logger.info("[1/2] Fast pipeline ready!")
+        else:
+            logger.warning("[1/2] Fast pipeline failed to load")
+        
+        with warmup_lock:
+            warmup_state["status"] = "warming"
+            warmup_state["current_step"] = "Warming up Fast model..."
+            warmup_state["progress"] = 60
+        
+        logger.info("[2/2] Warming up Fast pipeline (loading text encoder)...")
+        warmup_pipeline("fast")
+        logger.info("[2/2] Fast pipeline warmed up!")
+        
+        with warmup_lock:
+            warmup_state["status"] = "ready"
+            warmup_state["current_step"] = "Ready!"
+            warmup_state["progress"] = 100
+        
+        logger.info("="*60)
+        logger.info("Fast model loaded and ready!")
+        logger.info("Pro model will load on first use (to conserve VRAM)")
+        logger.info("="*60)
+        
+    except Exception as e:
+        logger.error(f"Background warmup failed: {e}")
+        import traceback
+        traceback.print_exc()
+        with warmup_lock:
+            warmup_state["status"] = "error"
+            warmup_state["error"] = str(e)
+
+
 if __name__ == "__main__":
     logger.info("="*60)
-    logger.info("LTX-2 Video Generation Server")
+    logger.info("LTX-2 Video Generation Server (Fast Mode)")
+    logger.info("Models stay loaded for fastest inference")
     logger.info("="*60)
     
-    # Download models if needed
-    logger.info("Checking models...")
-    download_models()
+    # Start warmup in background thread
+    warmup_thread = threading.Thread(target=background_warmup, daemon=True)
+    warmup_thread.start()
     
-    # Pre-load ALL pipelines on startup for instant generation
-    logger.info("Pre-loading all pipelines (this may take a minute)...")
-    
-    logger.info("[1/4] Loading Fast (Distilled) pipeline...")
-    if load_pipeline("fast"):
-        logger.info("[1/4] Fast pipeline ready!")
-    else:
-        logger.warning("[1/4] Fast pipeline failed to load")
-    
-    logger.info("[2/4] Warming up Fast pipeline (loading text encoder)...")
-    warmup_pipeline("fast")
-    logger.info("[2/4] Fast pipeline warmed up!")
-    
-    logger.info("[3/4] Loading Pro (Two-Stage) pipeline...")
-    if load_pipeline("pro"):
-        logger.info("[3/4] Pro pipeline ready!")
-    else:
-        logger.warning("[3/4] Pro pipeline failed to load")
-    
-    logger.info("[4/4] Warming up Pro pipeline (loading text encoder)...")
-    warmup_pipeline("pro")
-    logger.info("[4/4] Pro pipeline warmed up!")
-    
-    logger.info("="*60)
-    logger.info("All pipelines loaded and warmed up!")
-    logger.info("Text encoder weights are cached - instant generation ready!")
-    logger.info("="*60)
-    
-    # Start server
+    # Start server immediately so frontend can connect
     with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
         logger.info(f"Server running on http://127.0.0.1:{PORT}")
+        logger.info("Models will load in background - frontend can connect now")
         httpd.serve_forever()
