@@ -42,15 +42,15 @@ export function ImageUploader({ onImageSelect, selectedImage }: ImageUploaderPro
 
   return (
     <div className="w-full">
-      <label className="block text-xs font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">
+      <label className="block text-[12px] font-semibold text-zinc-500 mb-2 uppercase leading-4">
         Image
       </label>
       <div
         {...getRootProps()}
         className={cn(
-          'relative border-2 border-dashed border-border rounded-lg p-6 cursor-pointer transition-colors',
-          'hover:border-muted-foreground',
-          isDragActive && 'border-primary bg-primary/5',
+          'relative border border-dashed border-zinc-600 rounded-lg p-6 cursor-pointer transition-colors',
+          'hover:border-zinc-500',
+          isDragActive && 'border-violet-500 bg-violet-500/5',
           preview && 'p-2'
         )}
       >
@@ -71,24 +71,26 @@ export function ImageUploader({ onImageSelect, selectedImage }: ImageUploaderPro
             </button>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center text-center">
-            <div className="p-3 bg-secondary rounded-lg mb-3">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-zinc-700 rounded-lg">
               {isDragActive ? (
-                <Upload className="h-6 w-6 text-primary" />
+                <Upload className="h-6 w-6 text-violet-400" />
               ) : (
-                <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                <ImageIcon className="h-6 w-6 text-zinc-400" />
               )}
             </div>
-            <p className="text-sm font-medium text-foreground">
-              Drag image file here
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Or <span className="text-primary underline">upload a file</span>
-            </p>
+            <div>
+              <p className="text-sm font-medium text-white">
+                Drag image file here
+              </p>
+              <p className="text-sm text-zinc-500">
+                Or <span className="text-violet-400 underline">upload a file</span>
+              </p>
+            </div>
           </div>
         )}
       </div>
-      <p className="text-xs text-muted-foreground mt-1.5">
+      <p className="text-xs text-zinc-500 mt-2">
         png, jpeg, webp. Max size is 10MB
       </p>
     </div>

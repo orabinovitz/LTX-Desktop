@@ -1,28 +1,38 @@
 import React, { useState } from 'react'
-import { Sparkles, Trash2, AlertCircle, Loader2 } from 'lucide-react'
+import { Sparkles, Trash2, AlertCircle, Loader2, Square } from 'lucide-react'
 import { ImageUploader } from './components/ImageUploader'
 import { VideoPlayer } from './components/VideoPlayer'
 import { SettingsPanel, type GenerationSettings } from './components/SettingsPanel'
+import { ModeTabs, type GenerationMode } from './components/ModeTabs'
 import { Textarea } from './components/ui/textarea'
 import { Button } from './components/ui/button'
 import { useGeneration } from './hooks/use-generation'
 import { useBackend } from './hooks/use-backend'
 
 const DEFAULT_SETTINGS: GenerationSettings = {
-  model: 'fast',
-  duration: 5,
-  resolution: '720p',
-  fps: 24,
+  model: 'pro',
+  duration: 8,
+  resolution: '1080p',
+  fps: 25,
   audio: true,
   cameraMotion: 'none',
 }
 
 export default function App() {
+  const [mode, setMode] = useState<GenerationMode>('text-to-video')
   const [prompt, setPrompt] = useState('')
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [settings, setSettings] = useState<GenerationSettings>(DEFAULT_SETTINGS)
 
   const { status, isLoading: backendLoading, error: backendError } = useBackend()
+  
+  // Handle mode change
+  const handleModeChange = (newMode: GenerationMode) => {
+    setMode(newMode)
+    if (newMode === 'text-to-video') {
+      setSelectedImage(null) // Clear image when switching to T2V
+    }
+  }
   const { 
     isGenerating, 
     progress, 
@@ -30,6 +40,7 @@ export default function App() {
     videoUrl, 
     error: generationError,
     generate,
+    cancel,
     reset,
   } = useGeneration()
 
@@ -44,10 +55,16 @@ export default function App() {
     setPrompt('')
     setSelectedImage(null)
     setSettings(DEFAULT_SETTINGS)
+    setMode('text-to-video')
     reset()
   }
 
-  const canGenerate = (prompt.trim() || selectedImage) && status.connected && !isGenerating
+  // For T2V: prompt is required
+  // For I2V: image is required, prompt is optional
+  const canGenerate = status.connected && !isGenerating && (
+    (mode === 'text-to-video' && prompt.trim()) ||
+    (mode === 'image-to-video' && selectedImage)
+  )
 
   // Show loading screen while connecting to backend
   if (backendLoading) {
@@ -79,18 +96,19 @@ export default function App() {
   return (
     <div className="h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold">
-            <span className="text-foreground">LTX Video</span>
-            {' '}
-            <span className="text-primary">Image-to-Video</span>
-          </h1>
+      <header className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
+        <div className="flex items-center gap-4">
+          <img src="/ltx-logo.png" alt="LTX" className="h-6" />
+          <ModeTabs 
+            mode={mode} 
+            onModeChange={handleModeChange}
+            disabled={isGenerating}
+          />
         </div>
         
         {status.gpuInfo && (
-          <div className="text-sm text-muted-foreground">
-            GPU: {status.gpuInfo.name} ({Math.round(status.gpuInfo.vramUsed / 1024)}GB / {Math.round(status.gpuInfo.vram / 1024)}GB VRAM)
+          <div className="text-sm text-zinc-500">
+            {status.gpuInfo.name} ({Math.round(status.gpuInfo.vramUsed / 1024)}GB / {Math.round(status.gpuInfo.vram / 1024)}GB)
           </div>
         )}
       </header>
@@ -98,13 +116,15 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 flex overflow-hidden">
         {/* Left Panel - Controls */}
-        <div className="w-[480px] border-r border-border p-6 overflow-y-auto">
+        <div className="w-[500px] border-r border-zinc-800 p-6 overflow-y-auto">
           <div className="space-y-6">
-            {/* Image Upload */}
-            <ImageUploader 
-              selectedImage={selectedImage}
-              onImageSelect={setSelectedImage}
-            />
+            {/* Image Upload - Only shown in I2V mode */}
+            {mode === 'image-to-video' && (
+              <ImageUploader 
+                selectedImage={selectedImage}
+                onImageSelect={setSelectedImage}
+              />
+            )}
 
             {/* Prompt Input */}
             <Textarea
@@ -138,20 +158,30 @@ export default function App() {
                 variant="outline"
                 onClick={handleClearAll}
                 disabled={isGenerating}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 border-zinc-700 bg-zinc-800 text-white hover:bg-zinc-700"
               >
                 <Trash2 className="h-4 w-4" />
                 Clear all
               </Button>
               
-              <Button
-                onClick={handleGenerate}
-                disabled={!canGenerate}
-                className="flex-1 flex items-center justify-center gap-2"
-              >
-                <Sparkles className="h-4 w-4" />
-                Generate video
-              </Button>
+              {isGenerating ? (
+                <Button
+                  onClick={cancel}
+                  className="flex-1 flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white"
+                >
+                  <Square className="h-4 w-4" />
+                  Stop generation
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleGenerate}
+                  disabled={!canGenerate}
+                  className="flex-1 flex items-center justify-center gap-2 bg-zinc-600 hover:bg-zinc-500 text-white disabled:bg-zinc-700 disabled:text-zinc-500"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Generate video
+                </Button>
+              )}
             </div>
           </div>
         </div>

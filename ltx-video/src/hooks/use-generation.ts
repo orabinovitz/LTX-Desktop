@@ -54,7 +54,7 @@ export function useGeneration(): UseGenerationReturn {
       formData.append('resolution', settings.resolution)
       formData.append('fps', String(settings.fps))
       formData.append('audio', String(settings.audio))
-      formData.append('camera_motion', settings.cameraMotion)
+      formData.append('cameraMotion', settings.cameraMotion)
       
       if (image) {
         formData.append('image', image)
@@ -96,6 +96,12 @@ export function useGeneration(): UseGenerationReturn {
           videoUrl: fileUrl,
           error: null,
         })
+      } else if (result.status === 'cancelled') {
+        setState(prev => ({
+          ...prev,
+          isGenerating: false,
+          statusMessage: 'Cancelled',
+        }))
       } else if (result.error) {
         throw new Error(result.error)
       }
@@ -117,8 +123,20 @@ export function useGeneration(): UseGenerationReturn {
     }
   }, [])
 
-  const cancel = useCallback(() => {
+  const cancel = useCallback(async () => {
+    // Abort the fetch request
     abortControllerRef.current?.abort()
+    
+    // Also tell the backend to cancel
+    try {
+      const backendUrl = await window.electronAPI.getBackendUrl()
+      await fetch(`${backendUrl}/api/generate/cancel`, {
+        method: 'POST',
+      })
+    } catch (e) {
+      // Ignore errors from cancel request
+    }
+    
     setState(prev => ({
       ...prev,
       isGenerating: false,
