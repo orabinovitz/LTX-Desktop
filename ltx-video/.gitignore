@@ -53,8 +53,12 @@ coverage/
 *.local
 .cache/
 
-# Models (too large for git)
+# Models (too large for git - auto-downloaded on first run)
+# Keep the README but ignore all model files
+models/*
+!models/README.md
 backend/models/
 
-# Generated video outputs
+# Generated outputs (videos and images)
 backend/outputs/*.mp4
+backend/outputs/*.png

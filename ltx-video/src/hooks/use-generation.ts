@@ -6,6 +6,7 @@ interface GenerationState {
   progress: number
   statusMessage: string
   videoUrl: string | null
+  imageUrl: string | null
   error: string | null
 }
 
@@ -19,6 +20,7 @@ interface GenerationProgress {
 
 interface UseGenerationReturn extends GenerationState {
   generate: (prompt: string, image: File | null, settings: GenerationSettings) => Promise<void>
+  generateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
   cancel: () => void
   reset: () => void
 }
@@ -47,6 +49,7 @@ export function useGeneration(): UseGenerationReturn {
     progress: 0,
     statusMessage: '',
     videoUrl: null,
+    imageUrl: null,
     error: null,
   })
 
@@ -67,6 +70,7 @@ export function useGeneration(): UseGenerationReturn {
       progress: 0,
       statusMessage: statusMsg,
       videoUrl: null,
+      imageUrl: null,
       error: null,
     })
 
@@ -156,6 +160,7 @@ export function useGeneration(): UseGenerationReturn {
           progress: 100,
           statusMessage: 'Complete!',
           videoUrl: fileUrl,
+          imageUrl: null,
           error: null,
         })
       } else if (result.status === 'cancelled') {
@@ -206,12 +211,128 @@ export function useGeneration(): UseGenerationReturn {
     }))
   }, [])
 
+  const generateImage = useCallback(async (
+    prompt: string,
+    settings: GenerationSettings
+  ) => {
+    setState({
+      isGenerating: true,
+      progress: 0,
+      statusMessage: 'Generating image...',
+      videoUrl: null,
+      imageUrl: null,
+      error: null,
+    })
+
+    abortControllerRef.current = new AbortController()
+
+    try {
+      const backendUrl = await window.electronAPI.getBackendUrl()
+
+      // Aspect ratio to dimensions mapping for images (base size ~1024px on short side)
+      const aspectRatioMap: Record<string, { width: number; height: number }> = {
+        '1:1': { width: 1024, height: 1024 },
+        '16:9': { width: 1280, height: 720 },
+        '9:16': { width: 720, height: 1280 },
+        '4:3': { width: 1024, height: 768 },
+        '3:4': { width: 768, height: 1024 },
+        '21:9': { width: 1344, height: 576 },
+      }
+      const dims = aspectRatioMap[settings.imageAspectRatio || '16:9'] || { width: 1280, height: 720 }
+      const numSteps = settings.imageSteps || 4
+
+      // Poll for progress
+      const pollProgress = async () => {
+        try {
+          const res = await fetch(`${backendUrl}/api/generation/progress`)
+          if (res.ok) {
+            const data = await res.json()
+            setState(prev => ({
+              ...prev,
+              progress: data.progress,
+              statusMessage: data.phase === 'loading_model' 
+                ? 'Loading Flux model...' 
+                : data.phase === 'inference'
+                  ? 'Generating image...'
+                  : data.phase === 'complete'
+                    ? 'Complete!'
+                    : 'Generating...',
+            }))
+          }
+        } catch {
+          // Ignore polling errors
+        }
+      }
+      
+      const progressInterval = setInterval(pollProgress, 500)
+
+      const response = await fetch(`${backendUrl}/api/generate-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          width: dims.width,
+          height: dims.height,
+          numSteps,
+        }),
+        signal: abortControllerRef.current.signal,
+      })
+
+      clearInterval(progressInterval)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || 'Image generation failed')
+      }
+
+      const result = await response.json()
+      
+      if (result.status === 'complete' && result.image_path) {
+        const imagePath = result.image_path.replace(/\\/g, '/')
+        const fileUrl = imagePath.startsWith('/') ? `file://${imagePath}` : `file:///${imagePath}`
+        
+        setState({
+          isGenerating: false,
+          progress: 100,
+          statusMessage: 'Complete!',
+          videoUrl: null,
+          imageUrl: fileUrl,
+          error: null,
+        })
+      } else if (result.status === 'cancelled') {
+        setState(prev => ({
+          ...prev,
+          isGenerating: false,
+          statusMessage: 'Cancelled',
+        }))
+      } else if (result.error) {
+        throw new Error(result.error)
+      }
+
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        setState(prev => ({
+          ...prev,
+          isGenerating: false,
+          statusMessage: 'Cancelled',
+        }))
+      } else {
+        setState(prev => ({
+          ...prev,
+          isGenerating: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }))
+      }
+    }
+  }, [])
+
   const reset = useCallback(() => {
     setState({
       isGenerating: false,
       progress: 0,
       statusMessage: '',
       videoUrl: null,
+      imageUrl: null,
       error: null,
     })
   }, [])
@@ -219,6 +340,7 @@ export function useGeneration(): UseGenerationReturn {
   return {
     ...state,
     generate,
+    generateImage,
     cancel,
     reset,
   }

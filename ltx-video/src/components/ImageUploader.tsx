@@ -1,6 +1,6 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useState, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, X, Image as ImageIcon } from 'lucide-react'
+import { Upload, X, Image as ImageIcon, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface ImageUploaderProps {
@@ -11,19 +11,28 @@ interface ImageUploaderProps {
 export function ImageUploader({ onImageSelect, selectedImage }: ImageUploaderProps) {
   const [preview, setPreview] = useState<string | null>(null)
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    const file = acceptedFiles[0]
-    if (file) {
-      onImageSelect(file)
+  // Sync preview with selectedImage (handles programmatic changes like "Create video")
+  useEffect(() => {
+    if (selectedImage) {
       const reader = new FileReader()
       reader.onload = () => {
         setPreview(reader.result as string)
       }
-      reader.readAsDataURL(file)
+      reader.readAsDataURL(selectedImage)
+    } else {
+      setPreview(null)
+    }
+  }, [selectedImage])
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    const file = acceptedFiles[0]
+    if (file) {
+      onImageSelect(file)
+      // Preview will be set by the useEffect above
     }
   }, [onImageSelect])
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     accept: {
       'image/png': ['.png'],
@@ -32,12 +41,30 @@ export function ImageUploader({ onImageSelect, selectedImage }: ImageUploaderPro
     },
     maxSize: 10 * 1024 * 1024, // 10MB
     multiple: false,
+    noClick: !!preview, // Disable click when image is loaded
   })
 
   const clearImage = (e: React.MouseEvent) => {
     e.stopPropagation()
     onImageSelect(null)
     setPreview(null)
+  }
+
+  const replaceImage = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    open()
+  }
+
+  // Truncate filename for display
+  const getDisplayName = (file: File | null): string => {
+    if (!file) return ''
+    const name = file.name
+    const maxLength = 28
+    if (name.length <= maxLength) return name
+    const ext = name.split('.').pop() || ''
+    const baseName = name.slice(0, name.length - ext.length - 1)
+    const truncatedBase = baseName.slice(0, maxLength - ext.length - 4) // 4 for '...' and '.'
+    return `${truncatedBase}...${ext ? '.' + ext : ''}`
   }
 
   return (
@@ -48,27 +75,49 @@ export function ImageUploader({ onImageSelect, selectedImage }: ImageUploaderPro
       <div
         {...getRootProps()}
         className={cn(
-          'relative border border-dashed border-zinc-600 rounded-lg p-6 cursor-pointer transition-colors',
+          'relative border border-dashed border-zinc-600 rounded-lg cursor-pointer transition-colors',
           'hover:border-zinc-500',
           isDragActive && 'border-violet-500 bg-violet-500/5',
-          preview && 'p-2'
+          preview ? 'p-3' : 'p-6'
         )}
       >
         <input {...getInputProps()} />
         
-        {preview ? (
-          <div className="relative">
-            <img
-              src={preview}
-              alt="Selected"
-              className="w-full h-32 object-cover rounded-md"
-            />
-            <button
-              onClick={clearImage}
-              className="absolute top-2 right-2 p-1 bg-black/50 rounded-full hover:bg-black/70 transition-colors"
-            >
-              <X className="h-4 w-4 text-white" />
-            </button>
+        {preview && selectedImage ? (
+          <div className="flex items-center gap-3">
+            {/* Thumbnail */}
+            <div className="w-14 h-14 flex-shrink-0 rounded-md overflow-hidden bg-zinc-800">
+              <img
+                src={preview}
+                alt="Selected"
+                className="w-full h-full object-cover"
+              />
+            </div>
+            
+            {/* Filename */}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-white truncate" title={selectedImage.name}>
+                {getDisplayName(selectedImage)}
+              </p>
+            </div>
+            
+            {/* Action buttons */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={clearImage}
+                className="p-2 hover:bg-zinc-700 rounded-lg transition-colors"
+                title="Remove image"
+              >
+                <Trash2 className="h-5 w-5 text-zinc-400 hover:text-white" />
+              </button>
+              <button
+                onClick={replaceImage}
+                className="p-2 hover:bg-zinc-700 rounded-lg transition-colors"
+                title="Replace image"
+              >
+                <RefreshCw className="h-5 w-5 text-zinc-400 hover:text-white" />
+              </button>
+            </div>
           </div>
         ) : (
           <div className="flex items-center gap-4">

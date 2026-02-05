@@ -1,7 +1,7 @@
 import React from 'react'
 import { cn } from '@/lib/utils'
 
-export type GenerationMode = 'text-to-video' | 'image-to-video'
+export type GenerationMode = 'text-to-video' | 'image-to-video' | 'text-to-image'
 
 interface ModeTabsProps {
   mode: GenerationMode
@@ -12,6 +12,7 @@ interface ModeTabsProps {
 const tabs: { id: GenerationMode; label: string }[] = [
   { id: 'text-to-video', label: 'Text-to-Video' },
   { id: 'image-to-video', label: 'Image-to-Video' },
+  { id: 'text-to-image', label: 'Text-to-Image' },
 ]
 
 export function ModeTabs({ mode, onModeChange, disabled }: ModeTabsProps) {

@@ -6,6 +6,7 @@ interface AppSettings {
   keepModelsLoaded: boolean
   useTorchCompile: boolean
   loadOnStartup: boolean
+  ltxApiKey: string
 }
 
 interface SettingsModalProps {
@@ -18,13 +19,6 @@ interface SettingsModalProps {
 export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: SettingsModalProps) {
   if (!isOpen) return null
 
-  const handleToggleKeepModelsLoaded = () => {
-    onSettingsChange({
-      ...settings,
-      keepModelsLoaded: !settings.keepModelsLoaded,
-    })
-  }
-
   const handleToggleTorchCompile = () => {
     onSettingsChange({
       ...settings,
@@ -36,6 +30,13 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
     onSettingsChange({
       ...settings,
       loadOnStartup: !settings.loadOnStartup,
+    })
+  }
+
+  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onSettingsChange({
+      ...settings,
+      ltxApiKey: e.target.value,
     })
   }
 
@@ -67,48 +68,49 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
         
         {/* Content */}
         <div className="px-6 py-5 space-y-6">
-          {/* Keep Models Loaded Setting */}
+          {/* LTX API Key */}
           <div className="space-y-3">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <HardDrive className="h-4 w-4 text-violet-400" />
-                  <label className="text-sm font-medium text-white">
-                    Keep models loaded
-                  </label>
-                </div>
-                <p className="text-xs text-zinc-500 leading-relaxed">
-                  When enabled, the text encoder stays in GPU memory between generations, 
-                  making subsequent videos generate faster. Uses more VRAM (~8GB extra). 
-                  Recommended for GPUs with 24GB+ VRAM.
-                </p>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <svg className="h-4 w-4 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                </svg>
+                <label className="text-sm font-medium text-white">
+                  LTX API Key
+                </label>
               </div>
-              
-              {/* Toggle Switch */}
-              <button
-                onClick={handleToggleKeepModelsLoaded}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  settings.keepModelsLoaded ? 'bg-violet-500' : 'bg-zinc-700'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    settings.keepModelsLoaded ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
+              <p className="text-xs text-zinc-500 leading-relaxed mb-2">
+                Use the free LTX API for text encoding (~1s instead of 23s local load). 
+                Get your key from{' '}
+                <a 
+                  href="https://console.ltx.io" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-violet-400 hover:text-violet-300 underline"
+                >
+                  console.ltx.io
+                </a>
+              </p>
+              <input
+                type="password"
+                value={settings.ltxApiKey || ''}
+                onChange={handleApiKeyChange}
+                placeholder="Enter your LTX API key..."
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+              />
             </div>
             
             {/* Status indicator */}
             <div className={`text-xs px-2 py-1 rounded inline-flex items-center gap-1.5 ${
-              settings.keepModelsLoaded 
-                ? 'bg-violet-500/10 text-violet-400' 
+              settings.ltxApiKey 
+                ? 'bg-green-500/10 text-green-400' 
                 : 'bg-zinc-800 text-zinc-500'
             }`}>
               <div className={`w-1.5 h-1.5 rounded-full ${
-                settings.keepModelsLoaded ? 'bg-violet-400' : 'bg-zinc-600'
+                settings.ltxApiKey ? 'bg-green-400' : 'bg-zinc-600'
               }`} />
-              {settings.keepModelsLoaded ? 'Faster generation, higher VRAM' : 'Lower VRAM, slower generation'}
+              {settings.ltxApiKey ? 'Fast text encoding enabled (~1s)' : 'Using local encoder (~23s per generation)'}
             </div>
           </div>
           

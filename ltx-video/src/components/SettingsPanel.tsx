@@ -1,5 +1,6 @@
 import React from 'react'
 import { Select } from './ui/select'
+import type { GenerationMode } from './ModeTabs'
 
 export interface GenerationSettings {
   model: 'fast' | 'pro'
@@ -8,15 +9,19 @@ export interface GenerationSettings {
   fps: number
   audio: boolean
   cameraMotion: string
+  // Image-specific settings
+  imageAspectRatio: string
+  imageSteps: number
 }
 
 interface SettingsPanelProps {
   settings: GenerationSettings
   onSettingsChange: (settings: GenerationSettings) => void
   disabled?: boolean
+  mode?: GenerationMode
 }
 
-export function SettingsPanel({ settings, onSettingsChange, disabled }: SettingsPanelProps) {
+export function SettingsPanel({ settings, onSettingsChange, disabled, mode = 'text-to-video' }: SettingsPanelProps) {
   const handleChange = (key: keyof GenerationSettings, value: string | number | boolean) => {
     // If switching to Pro and duration is 20, reset to 10
     if (key === 'model' && value === 'pro' && settings.duration === 20) {
@@ -27,7 +32,47 @@ export function SettingsPanel({ settings, onSettingsChange, disabled }: Settings
   }
 
   const isPro = settings.model === 'pro'
+  const isImageMode = mode === 'text-to-image'
 
+  // Image mode settings
+  if (isImageMode) {
+    return (
+      <div className="space-y-4">
+        {/* Aspect Ratio */}
+        <div>
+          <Select
+            label="Aspect Ratio"
+            value={settings.imageAspectRatio || '16:9'}
+            onChange={(e) => handleChange('imageAspectRatio', e.target.value)}
+            disabled={disabled}
+          >
+            <option value="1:1">1:1 (Square)</option>
+            <option value="16:9">16:9 (Landscape)</option>
+            <option value="9:16">9:16 (Portrait)</option>
+            <option value="4:3">4:3 (Standard)</option>
+            <option value="3:4">3:4 (Portrait Standard)</option>
+            <option value="21:9">21:9 (Cinematic)</option>
+          </Select>
+        </div>
+
+        {/* Quality */}
+        <div>
+          <Select
+            label="Quality"
+            value={settings.imageSteps || 4}
+            onChange={(e) => handleChange('imageSteps', parseInt(e.target.value))}
+            disabled={disabled}
+          >
+            <option value={4}>Fast</option>
+            <option value={8}>Balanced</option>
+            <option value={12}>High</option>
+          </Select>
+        </div>
+      </div>
+    )
+  }
+
+  // Video mode settings
   return (
     <div className="space-y-4">
       {/* Model Selection */}

@@ -195,6 +195,44 @@ ipcMain.handle('check-backend-health', async () => {
   }
 })
 
+ipcMain.handle('read-local-file', async (_event, filePath: string) => {
+  try {
+    // Normalize the file path (handle file:// URLs)
+    let normalizedPath = filePath
+    if (filePath.startsWith('file:///')) {
+      normalizedPath = filePath.slice(8) // Remove 'file:///'
+    } else if (filePath.startsWith('file://')) {
+      normalizedPath = filePath.slice(7) // Remove 'file://'
+    }
+    
+    // On Windows, paths like 'C:/...' are valid
+    normalizedPath = normalizedPath.replace(/\//g, path.sep)
+    
+    if (!fs.existsSync(normalizedPath)) {
+      throw new Error(`File not found: ${normalizedPath}`)
+    }
+    
+    const data = fs.readFileSync(normalizedPath)
+    const base64 = data.toString('base64')
+    
+    // Determine MIME type from extension
+    const ext = path.extname(normalizedPath).toLowerCase()
+    const mimeTypes: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.gif': 'image/gif',
+    }
+    const mimeType = mimeTypes[ext] || 'image/png'
+    
+    return { data: base64, mimeType }
+  } catch (error) {
+    console.error('Error reading local file:', error)
+    throw error
+  }
+})
+
 // App lifecycle
 app.whenReady().then(async () => {
   try {

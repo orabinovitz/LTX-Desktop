@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react'
-import { Sparkles, Trash2, AlertCircle, Loader2, Square, Settings } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { Sparkles, Trash2, AlertCircle, Loader2, Square, Settings, ImageIcon } from 'lucide-react'
 import { ImageUploader } from './components/ImageUploader'
 import { VideoPlayer } from './components/VideoPlayer'
+import { ImageResult } from './components/ImageResult'
 import { SettingsPanel, type GenerationSettings } from './components/SettingsPanel'
 import { SettingsModal, type AppSettings } from './components/SettingsModal'
 import { ModeTabs, type GenerationMode } from './components/ModeTabs'
@@ -17,12 +18,16 @@ const DEFAULT_SETTINGS: GenerationSettings = {
   fps: 25,
   audio: false,
   cameraMotion: 'none',
+  // Image settings
+  imageAspectRatio: '16:9',
+  imageSteps: 4,
 }
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
-  keepModelsLoaded: false, // Don't keep text encoder loaded by default
+  keepModelsLoaded: true, // Models always stay cached for fast generation
   useTorchCompile: false, // Disabled by default - can cause long compile times
   loadOnStartup: false, // Lazy loading - models load on first generation
+  ltxApiKey: '', // LTX API key for fast text encoding
 }
 
 export default function App() {
@@ -34,6 +39,28 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   const { status, isLoading: backendLoading, error: backendError } = useBackend()
+  
+  // Fetch initial settings from backend
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const backendUrl = await window.electronAPI.getBackendUrl()
+        const response = await fetch(`${backendUrl}/api/settings`)
+        if (response.ok) {
+          const data = await response.json()
+          setAppSettings({
+            keepModelsLoaded: data.keepModelsLoaded ?? DEFAULT_APP_SETTINGS.keepModelsLoaded,
+            useTorchCompile: data.useTorchCompile ?? DEFAULT_APP_SETTINGS.useTorchCompile,
+            loadOnStartup: data.loadOnStartup ?? DEFAULT_APP_SETTINGS.loadOnStartup,
+            ltxApiKey: data.ltxApiKey ?? DEFAULT_APP_SETTINGS.ltxApiKey,
+          })
+        }
+      } catch (e) {
+        console.error('Failed to fetch settings:', e)
+      }
+    }
+    fetchSettings()
+  }, [])
   
   // Sync app settings with backend
   useEffect(() => {
@@ -47,6 +74,7 @@ export default function App() {
             keepModelsLoaded: appSettings.keepModelsLoaded,
             useTorchCompile: appSettings.useTorchCompile,
             loadOnStartup: appSettings.loadOnStartup,
+            ltxApiKey: appSettings.ltxApiKey,
           }),
         })
       } catch (e) {
@@ -67,18 +95,58 @@ export default function App() {
     isGenerating, 
     progress, 
     statusMessage, 
-    videoUrl, 
+    videoUrl,
+    imageUrl, 
     error: generationError,
     generate,
+    generateImage,
     cancel,
     reset,
   } = useGeneration()
+  
+  // Ref to store generated image URL for "Create video" flow
+  const generatedImageRef = useRef<string | null>(null)
 
   const handleGenerate = () => {
-    if (!prompt.trim() && !selectedImage) {
+    if (mode === 'text-to-image') {
+      if (!prompt.trim()) return
+      generateImage(prompt, settings)
+    } else {
+      if (!prompt.trim() && !selectedImage) return
+      generate(prompt, selectedImage, settings)
+    }
+  }
+  
+  // Handle "Create video" from generated image
+  const handleCreateVideoFromImage = async () => {
+    if (!imageUrl) {
+      console.error('No image URL available')
       return
     }
-    generate(prompt, selectedImage, settings)
+    
+    try {
+      // Read the local file via Electron IPC
+      const { data, mimeType } = await window.electronAPI.readLocalFile(imageUrl)
+      
+      // Convert base64 to Blob then File
+      const byteCharacters = atob(data)
+      const byteNumbers = new Array(byteCharacters.length)
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i)
+      }
+      const byteArray = new Uint8Array(byteNumbers)
+      const blob = new Blob([byteArray], { type: mimeType })
+      const file = new File([blob], 'generated-image.png', { type: mimeType })
+      
+      // Switch to image-to-video mode with the generated image
+      setSelectedImage(file)
+      setMode('image-to-video')
+      
+      // Store the image URL for reference
+      generatedImageRef.current = imageUrl
+    } catch (error) {
+      console.error('Failed to prepare image for video:', error)
+    }
   }
 
   const handleClearAll = () => {
@@ -94,9 +162,11 @@ export default function App() {
   
   // For T2V: prompt is required
   // For I2V: image is required, prompt is optional
+  // For T2I: prompt is required
   const canGenerate = status.connected && !isGenerating && !isWarmingUp && (
     (mode === 'text-to-video' && prompt.trim()) ||
-    (mode === 'image-to-video' && selectedImage)
+    (mode === 'image-to-video' && selectedImage) ||
+    (mode === 'text-to-image' && prompt.trim())
   )
 
   // Show loading screen while connecting to backend
@@ -210,6 +280,7 @@ export default function App() {
               settings={settings}
               onSettingsChange={setSettings}
               disabled={isGenerating}
+              mode={mode}
             />
 
             {/* Error Display */}
@@ -245,22 +316,41 @@ export default function App() {
                   disabled={!canGenerate}
                   className="flex-1 flex items-center justify-center gap-2 bg-zinc-600 hover:bg-zinc-500 text-white disabled:bg-zinc-700 disabled:text-zinc-500"
                 >
-                  <Sparkles className="h-4 w-4" />
-                  Generate video
+                  {mode === 'text-to-image' ? (
+                    <>
+                      <ImageIcon className="h-4 w-4" />
+                      Generate image
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4" />
+                      Generate video
+                    </>
+                  )}
                 </Button>
               )}
             </div>
           </div>
         </div>
 
-        {/* Right Panel - Video Preview */}
+        {/* Right Panel - Result Preview */}
         <div className="flex-1 p-6">
-          <VideoPlayer
-            videoUrl={videoUrl}
-            isGenerating={isGenerating}
-            progress={progress}
-            statusMessage={statusMessage}
-          />
+          {mode === 'text-to-image' ? (
+            <ImageResult
+              imageUrl={imageUrl}
+              isGenerating={isGenerating}
+              progress={progress}
+              statusMessage={statusMessage}
+              onCreateVideo={handleCreateVideoFromImage}
+            />
+          ) : (
+            <VideoPlayer
+              videoUrl={videoUrl}
+              isGenerating={isGenerating}
+              progress={progress}
+              statusMessage={statusMessage}
+            />
+          )}
         </div>
       </main>
       
