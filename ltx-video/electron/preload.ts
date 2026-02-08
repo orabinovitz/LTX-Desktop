@@ -38,6 +38,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getModelDownloadProgress: (): Promise<ModelDownloadProgress> => 
     ipcRenderer.invoke('get-model-download-progress'),
   
+  // Log viewer
+  getLogs: (): Promise<LogsResponse> => ipcRenderer.invoke('get-logs'),
+  getLogPath: (): Promise<{ logPath: string; logDir: string }> => ipcRenderer.invoke('get-log-path'),
+  openLogFolder: (): Promise<boolean> => ipcRenderer.invoke('open-log-folder'),
+  
+  // Get resources path (for video assets in production)
+  getResourcePath: (): Promise<string | null> => ipcRenderer.invoke('get-resource-path'),
+  
   // Platform info
   platform: process.platform,
 })
@@ -74,6 +82,12 @@ interface ModelDownloadProgress {
   speedMbps: number
 }
 
+interface LogsResponse {
+  logPath: string
+  lines: string[]
+  error?: string
+}
+
 // Type definitions for the exposed API
 declare global {
   interface Window {
@@ -90,6 +104,10 @@ declare global {
       getModelsStatus: () => Promise<ModelsStatus>
       startModelDownload: () => Promise<{ status: string; message?: string; error?: string }>
       getModelDownloadProgress: () => Promise<ModelDownloadProgress>
+      getLogs: () => Promise<LogsResponse>
+      getLogPath: () => Promise<{ logPath: string; logDir: string }>
+      openLogFolder: () => Promise<boolean>
+      getResourcePath: () => Promise<string | null>
       platform: string
     }
   }

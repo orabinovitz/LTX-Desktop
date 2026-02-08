@@ -12,6 +12,9 @@
     "dist-electron/**/*",
     "!**/*.map"
   ],
+  "asarUnpack": [
+    "dist/splash/**"
+  ],
   "extraResources": [
     {
       "from": "backend",
@@ -42,20 +45,11 @@
   "win": {
     "target": [
       {
-        "target": "nsis",
+        "target": "zip",
         "arch": ["x64"]
       }
     ],
-    "artifactName": "${productName}-Setup-${version}.${ext}"
-  },
-  "nsis": {
-    "oneClick": false,
-    "allowToChangeInstallationDirectory": true,
-    "createDesktopShortcut": true,
-    "createStartMenuShortcut": true,
-    "shortcutName": "LTX Video Studio",
-    "runAfterFinish": true,
-    "deleteAppDataOnUninstall": false
+    "artifactName": "${productName}-${version}-win64.${ext}"
   },
   "publish": null
 }

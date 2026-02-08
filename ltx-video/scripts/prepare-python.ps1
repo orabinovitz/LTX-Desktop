@@ -70,11 +70,11 @@ $PythonExe = Join-Path $OutputPath "python.exe"
 & $PythonExe $GetPipPath --no-warn-script-location
 Write-Host "pip installed successfully"
 
-Write-Host "`nStep 6: Installing PyTorch with CUDA..." -ForegroundColor Yellow
+Write-Host "`nStep 6: Installing PyTorch nightly with CUDA 12.8..." -ForegroundColor Yellow
 
-# Install PyTorch with CUDA 12.1 support (stable, widely compatible)
-& $PythonExe -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 --no-warn-script-location
-Write-Host "PyTorch with CUDA 12.1 installed"
+# Install PyTorch nightly with CUDA 12.8 support (required for RTX 5090/Blackwell GPUs - nightly has best performance)
+& $PythonExe -m pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128 --no-warn-script-location
+Write-Host "PyTorch nightly with CUDA 12.8 installed"
 
 Write-Host "`nStep 7: Installing backend dependencies..." -ForegroundColor Yellow
 
@@ -91,7 +91,6 @@ $CommonDeps = @(
     "huggingface-hub>=0.23.0",
     "tqdm>=4.66.0",
     "pynvml>=11.5.0",
-    "diffusers>=0.32.2",
     "ftfy>=6.0.0",
     "imageio>=2.37.2",
     "imageio-ffmpeg>=0.6.0",
@@ -102,13 +101,19 @@ $CommonDeps = @(
     "accelerate>=0.30.0",
     "safetensors>=0.4.0",
     "einops>=0.7.0",
-    "sageattention>=1.0.0"
+    "sageattention>=1.0.0",
+    "triton-windows",
+    "av"
 )
 
 foreach ($dep in $CommonDeps) {
     Write-Host "Installing $dep..."
     & $PythonExe -m pip install $dep --no-warn-script-location --quiet
 }
+
+# Install diffusers from main branch (needed for Flux2KleinPipeline)
+Write-Host "Installing diffusers from main branch (for Flux2KleinPipeline)..."
+& $PythonExe -m pip install git+https://github.com/huggingface/diffusers.git --no-warn-script-location --quiet
 
 # Copy ltx-core and ltx-pipelines from existing venv (these are from private repo)
 if (Test-Path $VenvSitePackages) {
@@ -124,6 +129,31 @@ if (Test-Path $VenvSitePackages) {
 } else {
     Write-Host "WARNING: Existing venv not found at $VenvSitePackages" -ForegroundColor Yellow
     Write-Host "ltx-core and ltx-pipelines must be installed manually" -ForegroundColor Yellow
+}
+
+# Step 7b: Copy Python headers and libs (required for Triton/SageAttention JIT compilation)
+Write-Host "`nStep 7b: Copying Python development files for Triton..." -ForegroundColor Yellow
+
+$SystemPython = "$env:LOCALAPPDATA\Programs\Python\Python311"
+if (Test-Path $SystemPython) {
+    # Copy Include folder (Python.h and other headers)
+    $IncludeSrc = Join-Path $SystemPython "Include"
+    $IncludeDst = Join-Path $OutputPath "Include"
+    if (Test-Path $IncludeSrc) {
+        Copy-Item -Path $IncludeSrc -Destination $IncludeDst -Recurse -Force
+        Write-Host "  Copied Include folder (Python headers)"
+    }
+    
+    # Copy libs folder (python311.lib for linking)
+    $LibsSrc = Join-Path $SystemPython "libs"
+    $LibsDst = Join-Path $OutputPath "libs"
+    if (Test-Path $LibsSrc) {
+        Copy-Item -Path $LibsSrc -Destination $LibsDst -Recurse -Force
+        Write-Host "  Copied libs folder (Python libraries)"
+    }
+} else {
+    Write-Host "WARNING: System Python 3.11 not found at $SystemPython" -ForegroundColor Yellow
+    Write-Host "SageAttention/Triton JIT compilation may not work" -ForegroundColor Yellow
 }
 
 Write-Host "`nStep 8: Cleaning up unnecessary files..." -ForegroundColor Yellow

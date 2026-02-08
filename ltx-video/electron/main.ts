@@ -395,6 +395,63 @@ ipcMain.handle('get-model-download-progress', async () => {
   }
 })
 
+// Log viewer handlers
+ipcMain.handle('get-logs', async () => {
+  try {
+    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/logs`)
+    if (response.ok) {
+      return await response.json()
+    }
+    throw new Error('Failed to get logs')
+  } catch (error) {
+    console.error('Error getting logs:', error)
+    return { logPath: '', lines: [], error: String(error) }
+  }
+})
+
+ipcMain.handle('get-log-path', async () => {
+  try {
+    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/logs/path`)
+    if (response.ok) {
+      return await response.json()
+    }
+    throw new Error('Failed to get log path')
+  } catch (error) {
+    // Fallback to expected path
+    const logDir = path.join(process.env.LOCALAPPDATA || '', 'LTX-desktop', 'logs')
+    return { logPath: path.join(logDir, 'backend.log'), logDir }
+  }
+})
+
+ipcMain.handle('open-log-folder', async () => {
+  try {
+    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/logs/path`)
+    if (response.ok) {
+      const { logDir } = await response.json()
+      const { shell } = await import('electron')
+      shell.openPath(logDir)
+      return true
+    }
+  } catch (error) {
+    // Fallback to expected path
+    const logDir = path.join(process.env.LOCALAPPDATA || '', 'LTX-desktop', 'logs')
+    if (fs.existsSync(logDir)) {
+      const { shell } = await import('electron')
+      shell.openPath(logDir)
+      return true
+    }
+  }
+  return false
+})
+
+// Get resource path for unpacked assets (like splash video)
+ipcMain.handle('get-resource-path', () => {
+  if (app.isPackaged) {
+    return process.resourcesPath
+  }
+  return null
+})
+
 // App lifecycle
 app.whenReady().then(async () => {
   try {

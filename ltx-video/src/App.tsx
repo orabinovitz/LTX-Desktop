@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Sparkles, Trash2, AlertCircle, Loader2, Square, Settings, ImageIcon } from 'lucide-react'
+import { Sparkles, Trash2, AlertCircle, Loader2, Square, Settings, ImageIcon, FileText } from 'lucide-react'
 import { ImageUploader } from './components/ImageUploader'
 import { VideoPlayer } from './components/VideoPlayer'
 import { ImageResult } from './components/ImageResult'
@@ -9,6 +9,7 @@ import { ModeTabs, type GenerationMode } from './components/ModeTabs'
 import { FirstRunSetup } from './components/FirstRunSetup'
 import { LtxLogo } from './components/LtxLogo'
 import { ModelStatusDropdown } from './components/ModelStatusDropdown'
+import { LogViewer } from './components/LogViewer'
 import { Textarea } from './components/ui/textarea'
 import { Button } from './components/ui/button'
 import { useGeneration } from './hooks/use-generation'
@@ -43,6 +44,7 @@ export default function App() {
   const [settings, setSettings] = useState<GenerationSettings>(DEFAULT_SETTINGS)
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isLogViewerOpen, setIsLogViewerOpen] = useState(false)
   const [isFirstRun, setIsFirstRun] = useState<boolean | null>(null)
 
   const { status, isLoading: backendLoading, error: backendError } = useBackend()
@@ -260,6 +262,17 @@ export default function App() {
             </div>
           )}
           
+          {/* Logs Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsLogViewerOpen(true)}
+            className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-800"
+            title="View Backend Logs"
+          >
+            <FileText className="h-4 w-4" />
+          </Button>
+          
           {/* Settings Button */}
           <Button
             variant="ghost"
@@ -272,6 +285,9 @@ export default function App() {
           </Button>
         </div>
       </header>
+      
+      {/* Log Viewer Modal */}
+      <LogViewer isOpen={isLogViewerOpen} onClose={() => setIsLogViewerOpen(false)} />
 
       {/* Main Content */}
       <main className="flex-1 flex overflow-hidden">

@@ -4,7 +4,8 @@
 param(
     [switch]$SkipPython,
     [switch]$SkipNpm,
-    [switch]$Clean
+    [switch]$Clean,
+    [switch]$Unpack  # Build unpacked app only (faster, no installer)
 )
 
 $ErrorActionPreference = "Stop"
@@ -93,12 +94,17 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Step 4: Build installer with electron-builder
-Write-Host "`n[4/4] Building installer..." -ForegroundColor Yellow
+# Step 4: Build with electron-builder
+if ($Unpack) {
+    Write-Host "`n[4/4] Building unpacked app (fast mode)..." -ForegroundColor Yellow
+    npx electron-builder --win --dir --config electron-builder.json
+} else {
+    Write-Host "`n[4/4] Building installer..." -ForegroundColor Yellow
+    npx electron-builder --win --config electron-builder.json
+}
 
-npx electron-builder --win --config electron-builder.json
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to build installer!" -ForegroundColor Red
+    Write-Host "Failed to build!" -ForegroundColor Red
     exit 1
 }
 
@@ -107,12 +113,20 @@ Write-Host "`n========================================" -ForegroundColor Green
 Write-Host "  Build Complete!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 
-$Installer = Get-ChildItem -Path $ReleaseDir -Filter "*.exe" | Select-Object -First 1
-if ($Installer) {
-    $InstallerSize = [math]::Round($Installer.Length / 1MB, 2)
-    Write-Host "`nInstaller: $($Installer.Name)" -ForegroundColor Cyan
-    Write-Host "Size: $InstallerSize MB" -ForegroundColor Cyan
-    Write-Host "Location: $($Installer.FullName)" -ForegroundColor Cyan
+if ($Unpack) {
+    $UnpackedDir = Join-Path $ReleaseDir "win-unpacked"
+    $ExePath = Join-Path $UnpackedDir "LTX Video Studio.exe"
+    Write-Host "`nUnpacked app ready!" -ForegroundColor Cyan
+    Write-Host "Run: $ExePath" -ForegroundColor Cyan
+    Write-Host "`nTip: Just restart the app after code changes - no rebuild needed!" -ForegroundColor Green
+} else {
+    $Installer = Get-ChildItem -Path $ReleaseDir -Filter "*.exe" | Where-Object { $_.Name -like "*Setup*" } | Select-Object -First 1
+    if ($Installer) {
+        $InstallerSize = [math]::Round($Installer.Length / 1MB, 2)
+        Write-Host "`nInstaller: $($Installer.Name)" -ForegroundColor Cyan
+        Write-Host "Size: $InstallerSize MB" -ForegroundColor Cyan
+        Write-Host "Location: $($Installer.FullName)" -ForegroundColor Cyan
+    }
 }
 
 Write-Host "`nNote: AI models (~150GB) will be downloaded on first run." -ForegroundColor Yellow

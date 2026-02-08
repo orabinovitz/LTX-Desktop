@@ -31,6 +31,12 @@ interface ModelDownloadProgress {
   speedMbps: number
 }
 
+interface LogsResponse {
+  logPath: string
+  lines: string[]
+  error?: string
+}
+
 interface Window {
   electronAPI: {
     getBackendUrl: () => Promise<string>
@@ -45,6 +51,10 @@ interface Window {
     getModelsStatus: () => Promise<ModelsStatus>
     startModelDownload: () => Promise<{ status: string; message?: string; error?: string }>
     getModelDownloadProgress: () => Promise<ModelDownloadProgress>
+    getLogs: () => Promise<LogsResponse>
+    getLogPath: () => Promise<{ logPath: string; logDir: string }>
+    openLogFolder: () => Promise<boolean>
+    getResourcePath: () => Promise<string | null>
     platform: string
   }
 }

@@ -98,7 +98,8 @@ export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatu
   }, [isOpen])
 
   const isDownloading = downloadProgress?.status === 'downloading'
-  const isWarming = warmupStatus.status === 'warming' || warmupStatus.status === 'loading' || warmupStatus.status === 'pending'
+  const isPending = warmupStatus.status === 'pending' || !modelsStatus?.all_downloaded
+  const isWarming = warmupStatus.status === 'warming' || warmupStatus.status === 'loading'
   const isLoading = isWarming || isDownloading
   const isReady = warmupStatus.status === 'ready' && modelsStatus?.all_downloaded
   const hasError = warmupStatus.status === 'error' || downloadProgress?.status === 'error'
@@ -128,7 +129,8 @@ export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatu
   const getStatusLabel = (): string => {
     if (hasError) return 'Error'
     if (isDownloading) return `Downloading... ${overallProgress}%`
-    if (warmupStatus.status === 'warming') {
+    if (warmupStatus.status === 'pending') return 'Models needed'
+    if (isWarming) {
       return warmupStatus.currentStep || `Loading... ${overallProgress}%`
     }
     if (isReady) return 'Ready'
@@ -154,14 +156,18 @@ export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatu
           transition-all cursor-pointer
           ${hasError ? 'bg-red-500/20 hover:bg-red-500/30' : 
             isReady ? 'bg-green-500/10 hover:bg-green-500/20' : 
+            isPending ? 'bg-yellow-500/10 hover:bg-yellow-500/20' :
             'bg-zinc-800 hover:bg-zinc-700'}
         `}
       >
         {isLoading && (
           <Loader2 className="h-3.5 w-3.5 text-violet-400 animate-spin" />
         )}
-        {isReady && (
+        {isReady && !isLoading && (
           <div className="w-2 h-2 bg-green-500 rounded-full" />
+        )}
+        {isPending && !isLoading && !isReady && (
+          <Download className="h-3.5 w-3.5 text-yellow-400" />
         )}
         {hasError && (
           <AlertCircle className="h-3.5 w-3.5 text-red-400" />
@@ -170,6 +176,7 @@ export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatu
         <span className={`text-xs font-medium ${
           hasError ? 'text-red-400' : 
           isReady ? 'text-green-400' : 
+          isPending ? 'text-yellow-400' :
           'text-zinc-300'
         }`}>
           {getStatusLabel()}

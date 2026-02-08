@@ -13,11 +13,13 @@
     "build:frontend": "tsc && vite build",
     "build:installer": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1",
     "build:installer:skip-python": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -SkipPython",
+    "build:fast": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -Unpack -SkipPython -SkipNpm",
     "prepare:python": "powershell -ExecutionPolicy Bypass -File scripts/prepare-python.ps1",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run build:frontend && electron-builder --config electron-builder.json",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "start:unpacked": "powershell -Command \"& '.\\release\\win-unpacked\\LTX Video Studio.exe'\""
   },
   "dependencies": {
     "react": "^18.3.1",

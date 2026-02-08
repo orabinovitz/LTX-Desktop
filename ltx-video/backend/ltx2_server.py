@@ -25,8 +25,45 @@ from PIL import Image
 from io import BytesIO
 from huggingface_hub import hf_hub_download, snapshot_download
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# ============================================================
+# Logging Configuration
+# ============================================================
+# Log to both console and file for debugging installed app
+
+# Determine log file location
+import platform
+if platform.system() == "Windows":
+    _log_app_data = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    LOG_DIR = _log_app_data / "LTX-desktop" / "logs"
+else:
+    LOG_DIR = Path.home() / ".ltx-video-studio" / "logs"
+
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "backend.log"
+
+# Create formatters and handlers
+log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(log_formatter)
+
+# File handler with rotation (max 5MB, keep 3 backups)
+from logging.handlers import RotatingFileHandler
+file_handler = RotatingFileHandler(
+    LOG_FILE, 
+    maxBytes=5*1024*1024,  # 5 MB
+    backupCount=3,
+    encoding='utf-8'
+)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(log_formatter)
+
+# Configure root logger
+logging.basicConfig(level=logging.INFO, handlers=[console_handler, file_handler])
 logger = logging.getLogger(__name__)
+logger.info(f"Log file: {LOG_FILE}")
 
 # ============================================================
 # Memory Optimization Settings
@@ -80,15 +117,28 @@ PORT = 8000
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.bfloat16
 
-# Model paths - project folder (gitignored, auto-downloaded on first run)
-PROJECT_ROOT = Path(__file__).parent.parent  # ltx-video folder
-MODELS_DIR = PROJECT_ROOT / "models" / "ltx-2"
+# Model paths - use persistent user folder so models survive app reinstalls
+# Windows: %LOCALAPPDATA%\LTX-desktop\models
+# Linux/Mac: ~/.ltx-video-studio/models
+import platform
+if platform.system() == "Windows":
+    _app_data = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    APP_DATA_DIR = _app_data / "LTX-desktop"
+else:
+    APP_DATA_DIR = Path.home() / ".ltx-video-studio"
+
+MODELS_DIR = APP_DATA_DIR / "models" / "ltx-2"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-FLUX_MODELS_DIR = PROJECT_ROOT / "models" / "FLUX.2-klein-4B"
+FLUX_MODELS_DIR = APP_DATA_DIR / "models" / "FLUX.2-klein-4B"
 
+# Outputs stay in the app folder for easy access
+PROJECT_ROOT = Path(__file__).parent.parent  # ltx-video folder
 OUTPUTS_DIR = Path(__file__).parent / "outputs"
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+
+logger.info(f"Models directory: {MODELS_DIR}")
+logger.info(f"Flux models directory: {FLUX_MODELS_DIR}")
 
 # LTX-2 Model file paths
 CHECKPOINT_PATH = MODELS_DIR / "ltx-2-19b-distilled-fp8.safetensors"
@@ -515,6 +565,8 @@ def download_models():
             local_dir=MODELS_DIR,
             local_dir_use_symlinks=False,
         )
+        # Rename files to match ltx_core expected pattern
+        _rename_text_encoder_files(MODELS_DIR / "text_encoder")
         logger.info("Downloaded text_encoder")
     else:
         logger.info("Found text_encoder")
@@ -564,6 +616,23 @@ def get_models_status():
         "is_folder": True,
     })
     
+    # Check Flux model (for text-to-image)
+    flux_exists = FLUX_MODELS_DIR.exists() and any(FLUX_MODELS_DIR.iterdir()) if FLUX_MODELS_DIR.exists() else False
+    flux_size = sum(f.stat().st_size for f in FLUX_MODELS_DIR.rglob("*") if f.is_file()) if flux_exists else 0
+    expected_flux_size = 15_000_000_000  # ~15GB for Flux Klein 4B
+    total_size += expected_flux_size
+    if flux_exists:
+        downloaded_size += flux_size
+    
+    models.append({
+        "name": "FLUX.2-klein-4B",
+        "description": "Flux model for text-to-image",
+        "downloaded": flux_exists,
+        "size": flux_size if flux_exists else expected_flux_size,
+        "expected_size": expected_flux_size,
+        "is_folder": True,
+    })
+    
     all_downloaded = all(m["downloaded"] for m in models)
     
     return {
@@ -573,7 +642,50 @@ def get_models_status():
         "downloaded_size": downloaded_size,
         "total_size_gb": round(total_size / (1024**3), 1),
         "downloaded_size_gb": round(downloaded_size / (1024**3), 1),
+        "models_path": str(MODELS_DIR),
     }
+
+
+def _rename_text_encoder_files(text_encoder_path: Path):
+    """Rename text encoder files to match ltx_core expected pattern.
+    
+    The Hugging Face repo uses 'diffusion_pytorch_model*.safetensors' naming,
+    but ltx_core expects 'model*.safetensors'. This renames files after download.
+    """
+    if not text_encoder_path.exists():
+        return
+    
+    # Rename safetensors files
+    for f in text_encoder_path.glob("diffusion_pytorch_model*.safetensors"):
+        new_name = f.name.replace("diffusion_pytorch_model", "model")
+        new_path = f.parent / new_name
+        if not new_path.exists():
+            logger.info(f"Renaming {f.name} -> {new_name}")
+            f.rename(new_path)
+    
+    # Rename and update index file
+    index_file = text_encoder_path / "diffusion_pytorch_model.safetensors.index.json"
+    new_index_file = text_encoder_path / "model.safetensors.index.json"
+    if index_file.exists() and not new_index_file.exists():
+        # Read, update references, and write to new file
+        import json
+        with open(index_file, 'r') as f:
+            index_data = json.load(f)
+        
+        # Update weight_map references
+        if "weight_map" in index_data:
+            new_weight_map = {}
+            for key, value in index_data["weight_map"].items():
+                new_value = value.replace("diffusion_pytorch_model", "model")
+                new_weight_map[key] = new_value
+            index_data["weight_map"] = new_weight_map
+        
+        with open(new_index_file, 'w') as f:
+            json.dump(index_data, f, indent=2)
+        
+        # Remove old index file
+        index_file.unlink()
+        logger.info("Updated text encoder index file")
 
 
 def download_models_with_progress():
@@ -594,14 +706,20 @@ def download_models_with_progress():
     
     for filename, local_path, expected_size in models_to_download:
         if not local_path.exists():
-            files_to_download.append((filename, local_path, expected_size, False))
+            files_to_download.append((filename, local_path, expected_size, False, repo_id))
             total_bytes += expected_size
     
     # Check text encoder
     text_encoder_needs_download = not GEMMA_PATH.exists() or not any(GEMMA_PATH.iterdir()) if GEMMA_PATH.exists() else True
     if text_encoder_needs_download:
-        files_to_download.append(("text_encoder", GEMMA_PATH, 8_000_000_000, True))
+        files_to_download.append(("text_encoder", GEMMA_PATH, 8_000_000_000, True, "Lightricks/LTX-2"))
         total_bytes += 8_000_000_000
+    
+    # Check Flux model (for text-to-image)
+    flux_needs_download = not FLUX_MODELS_DIR.exists() or not any(FLUX_MODELS_DIR.iterdir()) if FLUX_MODELS_DIR.exists() else True
+    if flux_needs_download:
+        files_to_download.append(("FLUX.2-klein-4B", FLUX_MODELS_DIR, 15_000_000_000, True, "black-forest-labs/FLUX.2-klein-4B"))
+        total_bytes += 15_000_000_000
     
     if not files_to_download:
         with model_download_lock:
@@ -620,25 +738,36 @@ def download_models_with_progress():
     downloaded_so_far = 0
     
     try:
-        for i, (filename, local_path, expected_size, is_folder) in enumerate(files_to_download):
+        for i, (filename, local_path, expected_size, is_folder, file_repo_id) in enumerate(files_to_download):
             with model_download_lock:
                 model_download_state["current_file"] = filename
                 model_download_state["current_file_progress"] = 0
             
-            logger.info(f"Downloading {filename} ({i+1}/{len(files_to_download)})...")
+            logger.info(f"Downloading {filename} ({i+1}/{len(files_to_download)}) from {file_repo_id}...")
             
             if is_folder:
-                # Download text encoder folder
-                snapshot_download(
-                    repo_id=repo_id,
-                    allow_patterns=["text_encoder/*"],
-                    local_dir=MODELS_DIR,
-                    local_dir_use_symlinks=False,
-                )
+                if filename == "text_encoder":
+                    # Download text encoder folder from LTX-2 repo
+                    snapshot_download(
+                        repo_id=file_repo_id,
+                        allow_patterns=["text_encoder/*"],
+                        local_dir=MODELS_DIR,
+                        local_dir_use_symlinks=False,
+                    )
+                    # Rename files to match ltx_core expected pattern
+                    # (diffusion_pytorch_model*.safetensors -> model*.safetensors)
+                    _rename_text_encoder_files(MODELS_DIR / "text_encoder")
+                else:
+                    # Download full repo (e.g., Flux)
+                    snapshot_download(
+                        repo_id=file_repo_id,
+                        local_dir=str(local_path),
+                        local_dir_use_symlinks=False,
+                    )
             else:
                 # Download individual file
                 hf_hub_download(
-                    repo_id=repo_id,
+                    repo_id=file_repo_id,
                     filename=filename,
                     local_dir=MODELS_DIR,
                     local_dir_use_symlinks=False,
@@ -1378,10 +1507,14 @@ def generate_video(
         total_steps = pro_model_settings.get("steps", 20)
     update_generation_progress("loading_model", 5, 0, total_steps)
     
+    # Check if models are downloaded before attempting to load
+    if not CHECKPOINT_PATH.exists():
+        raise RuntimeError("Models not downloaded. Please download the AI models first using the Model Status menu.")
+    
     # Skip warmup - the user's generation itself serves as the warmup
     pipeline = get_pipeline(model_type, skip_warmup=True)
     if pipeline is None:
-        raise RuntimeError(f"Failed to load {model_type} pipeline")
+        raise RuntimeError(f"Failed to load {model_type} pipeline. Check the console for detailed error messages.")
     
     from ltx_core.tiling import TilingConfig
     
@@ -1631,6 +1764,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "currentStep": warmup_state["current_step"],
                 "progress": warmup_state["progress"],
                 "error": warmup_state["error"],
+            })
+        elif self.path == "/api/logs":
+            # Return last 200 lines of log file for debugging
+            try:
+                lines = []
+                if LOG_FILE.exists():
+                    with open(LOG_FILE, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()[-200:]
+                self.send_json_response(200, {
+                    "logPath": str(LOG_FILE),
+                    "lines": [l.rstrip() for l in lines],
+                })
+            except Exception as e:
+                self.send_json_response(500, {"error": str(e)})
+        elif self.path == "/api/logs/path":
+            # Just return the log file path
+            self.send_json_response(200, {
+                "logPath": str(LOG_FILE),
+                "logDir": str(LOG_DIR),
             })
         elif self.path == "/api/generation/progress":
             with generation_lock:
@@ -2019,7 +2171,7 @@ def get_gpu_info():
 def background_warmup():
     """Run model loading and warmup in background thread.
     
-    If load_on_startup is False (default), just download models and mark ready.
+    If load_on_startup is False (default), just check models and mark ready.
     Models will load on first generation.
     """
     global warmup_state
@@ -2030,9 +2182,18 @@ def background_warmup():
             warmup_state["current_step"] = "Checking models..."
             warmup_state["progress"] = 10
         
-        # Download models if needed
+        # Check if models exist (don't auto-download - let user use the wizard)
         logger.info("Checking models...")
-        download_models()
+        models_status = get_models_status()
+        models_ready = models_status.get("all_downloaded", False)
+        
+        if not models_ready:
+            logger.warning("Models not downloaded. User needs to download via the app.")
+            with warmup_lock:
+                warmup_state["status"] = "pending"
+                warmup_state["current_step"] = "Models need to be downloaded"
+                warmup_state["progress"] = 0
+            return
         
         # Check if we should preload models at startup
         if not app_settings.get("load_on_startup", False):
