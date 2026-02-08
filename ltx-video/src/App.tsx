@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Sparkles, Trash2, AlertCircle, Loader2, Square, Settings, ImageIcon } from 'lucide-react'
 import { ImageUploader } from './components/ImageUploader'
 import { VideoPlayer } from './components/VideoPlayer'
@@ -6,6 +6,9 @@ import { ImageResult } from './components/ImageResult'
 import { SettingsPanel, type GenerationSettings } from './components/SettingsPanel'
 import { SettingsModal, type AppSettings } from './components/SettingsModal'
 import { ModeTabs, type GenerationMode } from './components/ModeTabs'
+import { FirstRunSetup } from './components/FirstRunSetup'
+import { LtxLogo } from './components/LtxLogo'
+import { ModelStatusDropdown } from './components/ModelStatusDropdown'
 import { Textarea } from './components/ui/textarea'
 import { Button } from './components/ui/button'
 import { useGeneration } from './hooks/use-generation'
@@ -15,7 +18,7 @@ const DEFAULT_SETTINGS: GenerationSettings = {
   model: 'fast',
   duration: 6,
   resolution: '720p',
-  fps: 25,
+  fps: 24,
   audio: false,
   cameraMotion: 'none',
   // Image settings
@@ -28,6 +31,9 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   useTorchCompile: false, // Disabled by default - can cause long compile times
   loadOnStartup: false, // Lazy loading - models load on first generation
   ltxApiKey: '', // LTX API key for fast text encoding
+  fastModel: { steps: 8, useUpscaler: true },
+  proModel: { steps: 20, useUpscaler: true },
+  promptCacheSize: 100, // Cache up to 100 prompt embeddings to skip API calls
 }
 
 export default function App() {
@@ -37,8 +43,23 @@ export default function App() {
   const [settings, setSettings] = useState<GenerationSettings>(DEFAULT_SETTINGS)
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isFirstRun, setIsFirstRun] = useState<boolean | null>(null)
 
   const { status, isLoading: backendLoading, error: backendError } = useBackend()
+
+  // Check for first run
+  useEffect(() => {
+    const checkFirstRun = async () => {
+      try {
+        const firstRun = await window.electronAPI.checkFirstRun()
+        setIsFirstRun(firstRun)
+      } catch (e) {
+        console.error('Failed to check first run:', e)
+        setIsFirstRun(false)
+      }
+    }
+    checkFirstRun()
+  }, [])
   
   // Fetch initial settings from backend
   useEffect(() => {
@@ -53,6 +74,9 @@ export default function App() {
             useTorchCompile: data.useTorchCompile ?? DEFAULT_APP_SETTINGS.useTorchCompile,
             loadOnStartup: data.loadOnStartup ?? DEFAULT_APP_SETTINGS.loadOnStartup,
             ltxApiKey: data.ltxApiKey ?? DEFAULT_APP_SETTINGS.ltxApiKey,
+            fastModel: data.fastModel ?? DEFAULT_APP_SETTINGS.fastModel,
+            proModel: data.proModel ?? DEFAULT_APP_SETTINGS.proModel,
+            promptCacheSize: data.promptCacheSize ?? DEFAULT_APP_SETTINGS.promptCacheSize,
           })
         }
       } catch (e) {
@@ -75,6 +99,8 @@ export default function App() {
             useTorchCompile: appSettings.useTorchCompile,
             loadOnStartup: appSettings.loadOnStartup,
             ltxApiKey: appSettings.ltxApiKey,
+            fastModel: appSettings.fastModel,
+            proModel: appSettings.proModel,
           }),
         })
       } catch (e) {
@@ -169,6 +195,20 @@ export default function App() {
     (mode === 'text-to-image' && prompt.trim())
   )
 
+  // Show loading while checking first run
+  if (isFirstRun === null) {
+    return (
+      <div className="h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 text-primary animate-spin" />
+      </div>
+    )
+  }
+
+  // Show first run setup
+  if (isFirstRun) {
+    return <FirstRunSetup onComplete={() => setIsFirstRun(false)} />
+  }
+
   // Show loading screen while connecting to backend
   if (backendLoading) {
     return (
@@ -201,7 +241,7 @@ export default function App() {
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
         <div className="flex items-center gap-4">
-          <img src="/ltx-logo.png" alt="LTX" className="h-6" />
+          <LtxLogo className="h-5 w-auto text-white" />
           <ModeTabs 
             mode={mode} 
             onModeChange={handleModeChange}
@@ -210,27 +250,10 @@ export default function App() {
         </div>
         
         <div className="flex items-center gap-4">
-          {/* Warmup Status Indicator */}
-          {isWarmingUp && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 rounded-full">
-              <Loader2 className="h-3.5 w-3.5 text-violet-400 animate-spin" />
-              <span className="text-xs text-zinc-400">
-                {status.warmup.currentStep || 'Loading models...'}
-              </span>
-              <span className="text-xs text-violet-400 font-medium">
-                {status.warmup.progress}%
-              </span>
-            </div>
-          )}
+          {/* Model Status Dropdown */}
+          <ModelStatusDropdown warmupStatus={status.warmup} />
           
-          {/* Ready indicator */}
-          {status.warmup.status === 'ready' && (
-            <div className="flex items-center gap-1.5 px-2 py-1 bg-green-500/10 rounded-full">
-              <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-              <span className="text-xs text-green-500">Ready</span>
-            </div>
-          )}
-          
+          {/* GPU Info */}
           {status.gpuInfo && (
             <div className="text-sm text-zinc-500">
               {status.gpuInfo.name} ({(status.gpuInfo.vramUsed / 1024).toFixed(1)}GB / {Math.round(status.gpuInfo.vram / 1024)}GB)

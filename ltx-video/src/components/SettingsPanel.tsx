@@ -1,4 +1,3 @@
-import React from 'react'
 import { Select } from './ui/select'
 import type { GenerationMode } from './ModeTabs'
 
@@ -38,8 +37,8 @@ export function SettingsPanel({ settings, onSettingsChange, disabled, mode = 'te
   if (isImageMode) {
     return (
       <div className="space-y-4">
-        {/* Aspect Ratio */}
-        <div>
+        {/* Aspect Ratio and Quality side by side */}
+        <div className="grid grid-cols-2 gap-3">
           <Select
             label="Aspect Ratio"
             value={settings.imageAspectRatio || '16:9'}
@@ -53,10 +52,7 @@ export function SettingsPanel({ settings, onSettingsChange, disabled, mode = 'te
             <option value="3:4">3:4 (Portrait Standard)</option>
             <option value="21:9">21:9 (Cinematic)</option>
           </Select>
-        </div>
 
-        {/* Quality */}
-        <div>
           <Select
             label="Quality"
             value={settings.imageSteps || 4}
@@ -83,8 +79,8 @@ export function SettingsPanel({ settings, onSettingsChange, disabled, mode = 'te
           onChange={(e) => handleChange('model', e.target.value)}
           disabled={disabled}
         >
-          <option value="fast">Fast - Optimized for speed</option>
-          <option value="pro">Pro - Balanced for quality and speed</option>
+          <option value="fast">Fast (Distilled)</option>
+          <option value="pro">Pro (Full)</option>
         </Select>
         {settings.model === 'pro' && (
           <p className="text-[10px] text-zinc-500 mt-1">
@@ -101,6 +97,7 @@ export function SettingsPanel({ settings, onSettingsChange, disabled, mode = 'te
           onChange={(e) => handleChange('duration', parseInt(e.target.value))}
           disabled={disabled}
         >
+          <option value={5}>5 sec</option>
           <option value={6}>6 sec</option>
           <option value={8}>8 sec</option>
           <option value={10}>10 sec</option>
@@ -126,9 +123,9 @@ export function SettingsPanel({ settings, onSettingsChange, disabled, mode = 'te
           onChange={(e) => handleChange('fps', parseInt(e.target.value))}
           disabled={disabled}
         >
-          <option value={25}>25</option>
           <option value={24}>24</option>
-          <option value={16}>16</option>
+          <option value={25}>25</option>
+          <option value={50}>50</option>
         </Select>
       </div>
 

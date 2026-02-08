@@ -26,7 +26,7 @@ interface UseGenerationReturn extends GenerationState {
 }
 
 // Map phase to user-friendly message
-function getPhaseMessage(phase: string, currentStep: number, totalSteps: number): string {
+function getPhaseMessage(phase: string, _currentStep: number, totalSteps: number): string {
   switch (phase) {
     case 'loading_model':
       return 'Loading model...'

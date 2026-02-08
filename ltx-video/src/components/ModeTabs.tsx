@@ -1,4 +1,3 @@
-import React from 'react'
 import { cn } from '@/lib/utils'
 
 export type GenerationMode = 'text-to-video' | 'image-to-video' | 'text-to-image'

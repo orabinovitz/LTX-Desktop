@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
-import { Play, Pause, Download, RefreshCw, RotateCcw } from 'lucide-react'
+import { Play, Pause, Download, RefreshCw, RotateCcw, Volume2, VolumeX } from 'lucide-react'
 import { Button } from './ui/button'
 
 interface VideoPlayerProps {
@@ -23,6 +23,7 @@ export function VideoPlayer({ videoUrl, isGenerating, progress, statusMessage }:
   const [duration, setDuration] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
   const [isLooping, setIsLooping] = useState(true)
+  const [isMuted, setIsMuted] = useState(false)
 
   useEffect(() => {
     if (videoUrl && videoRef.current) {
@@ -80,6 +81,13 @@ export function VideoPlayer({ videoUrl, isGenerating, progress, statusMessage }:
     if (videoRef.current) {
       videoRef.current.loop = !isLooping
       setIsLooping(!isLooping)
+    }
+  }
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted
+      setIsMuted(!isMuted)
     }
   }
 
@@ -195,8 +203,8 @@ export function VideoPlayer({ videoUrl, isGenerating, progress, statusMessage }:
                   className="h-full bg-violet-500 rounded-full relative"
                   style={{ width: `${progressPercent}%` }}
                 >
-                  {/* Playhead dot */}
-                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-md transform translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  {/* Playhead dot - always visible */}
+                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-md transform translate-x-1/2 group-hover:scale-125 transition-transform" />
                 </div>
               </div>
               
@@ -224,6 +232,17 @@ export function VideoPlayer({ videoUrl, isGenerating, progress, statusMessage }:
                 </div>
                 
                 <div className="flex items-center gap-1">
+                  {/* Mute toggle */}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={toggleMute}
+                    className={`h-8 w-8 hover:bg-zinc-800 ${isMuted ? 'text-zinc-500' : 'text-zinc-400 hover:text-white'}`}
+                    title={isMuted ? 'Unmute' : 'Mute'}
+                  >
+                    {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                  </Button>
+                  
                   {/* Loop toggle */}
                   <Button
                     size="icon"

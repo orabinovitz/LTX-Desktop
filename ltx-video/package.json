@@ -11,9 +11,12 @@
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "build:frontend": "tsc && vite build",
+    "build:installer": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1",
+    "build:installer:skip-python": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -SkipPython",
+    "prepare:python": "powershell -ExecutionPolicy Bypass -File scripts/prepare-python.ps1",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "npm run build:frontend && electron-builder",
+    "electron:build": "npm run build:frontend && electron-builder --config electron-builder.json",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

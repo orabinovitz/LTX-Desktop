@@ -99,7 +99,9 @@ DISTILLED_LORA_PATH = MODELS_DIR / "ltx-2-19b-distilled-lora-384.safetensors"
 
 # Global pipelines (lazy loaded)
 distilled_pipeline = None
+distilled_native_pipeline = None  # Fast model at native resolution (no upsampler)
 pro_pipeline = None
+pro_native_pipeline = None  # Single-stage Pro without upscaler
 flux_pipeline = None  # Flux Klein 4B for image generation
 
 # Generation state
@@ -125,20 +127,164 @@ warmup_state = {
 }
 warmup_lock = threading.Lock()
 
-# App settings
+# Model download state
+model_download_state = {
+    "status": "idle",  # idle, downloading, complete, error
+    "current_file": "",
+    "current_file_progress": 0,  # 0-100 for current file
+    "total_progress": 0,  # 0-100 overall
+    "downloaded_bytes": 0,
+    "total_bytes": 0,
+    "files_completed": 0,
+    "total_files": 0,
+    "error": None,
+    "speed_mbps": 0,
+}
+model_download_lock = threading.Lock()
+
+# Model file sizes (approximate, in bytes)
+MODEL_FILES_INFO = [
+    {"name": "ltx-2-19b-distilled-fp8.safetensors", "size": 19_000_000_000, "description": "Main transformer model (FP8)"},
+    {"name": "ltx-2-spatial-upscaler-x2-1.0.safetensors", "size": 1_000_000_000, "description": "2x Upscaler"},
+    {"name": "ltx-2-19b-distilled-lora-384.safetensors", "size": 400_000_000, "description": "LoRA for Pro model"},
+    {"name": "text_encoder", "size": 8_000_000_000, "description": "Gemma text encoder", "is_folder": True},
+]
+
+# App settings (persisted to disk)
+SETTINGS_FILE = PROJECT_ROOT / "settings.json"
+
 app_settings = {
     "keep_models_loaded": True,  # Reserved for future use (e.g., unload pipeline after generation)
     "use_torch_compile": False,  # Disabled by default - can cause long compile times
     "load_on_startup": False,  # If True, preload models at startup; if False, load on first generation
     "ltx_api_key": "",  # LTX API key for fast text encoding (~1s vs 23s local)
+    "fast_model": {"steps": 8, "use_upscaler": True},  # Fast model inference settings
+    "pro_model": {"steps": 20, "use_upscaler": True},  # Pro model inference settings (20 steps with res_2s scheduler)
+    "prompt_cache_size": 100,  # Max number of prompt embeddings to cache (saves ~4s per repeated prompt)
 }
 settings_lock = threading.Lock()
 
+
+def load_settings():
+    """Load settings from disk on startup."""
+    global app_settings
+    if SETTINGS_FILE.exists():
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                saved = json.load(f)
+            with settings_lock:
+                # Only load known keys to avoid issues with old/invalid settings
+                if 'keep_models_loaded' in saved:
+                    app_settings['keep_models_loaded'] = bool(saved['keep_models_loaded'])
+                if 'use_torch_compile' in saved:
+                    app_settings['use_torch_compile'] = bool(saved['use_torch_compile'])
+                if 'load_on_startup' in saved:
+                    app_settings['load_on_startup'] = bool(saved['load_on_startup'])
+                if 'ltx_api_key' in saved:
+                    app_settings['ltx_api_key'] = str(saved['ltx_api_key'])
+                if 'fast_model' in saved and isinstance(saved['fast_model'], dict):
+                    app_settings['fast_model'] = {
+                        'steps': int(saved['fast_model'].get('steps', 8)),
+                        'use_upscaler': bool(saved['fast_model'].get('use_upscaler', True))
+                    }
+                if 'pro_model' in saved and isinstance(saved['pro_model'], dict):
+                    app_settings['pro_model'] = {
+                        'steps': int(saved['pro_model'].get('steps', 20)),
+                        'use_upscaler': bool(saved['pro_model'].get('use_upscaler', True))
+                    }
+                if 'prompt_cache_size' in saved:
+                    app_settings['prompt_cache_size'] = max(0, min(1000, int(saved['prompt_cache_size'])))
+            logger.info(f"Settings loaded from {SETTINGS_FILE}")
+        except Exception as e:
+            logger.warning(f"Could not load settings: {e}")
+
+
+def save_settings():
+    """Save current settings to disk."""
+    try:
+        with settings_lock:
+            settings_to_save = app_settings.copy()
+        with open(SETTINGS_FILE, 'w') as f:
+            json.dump(settings_to_save, f, indent=2)
+        logger.debug(f"Settings saved to {SETTINGS_FILE}")
+    except Exception as e:
+        logger.warning(f"Could not save settings: {e}")
+
+
+# Load settings on module import
+load_settings()
+
 # Text encoder caching (used when not using LTX API)
 cached_text_encoder = None
+_model_ledger_patched = False
 
 # LTX API endpoint for text encoding
 LTX_API_BASE_URL = "https://api.ltx.video"
+
+
+def patch_model_ledger_class():
+    """Patch the ModelLedger class globally to support API embeddings and caching.
+    
+    This patches the class itself, not instances, so ALL ModelLedger instances
+    will use our patched text_encoder method from the moment they're created.
+    """
+    global _model_ledger_patched, cached_text_encoder
+    
+    if _model_ledger_patched:
+        return
+    
+    try:
+        from ltx_core.model.model_ledger import ModelLedger
+        
+        # Store the original method from the class
+        original_text_encoder = ModelLedger.text_encoder
+        
+        def patched_text_encoder(self):
+            global cached_text_encoder, _api_embeddings
+            
+            # If we have API embeddings, return dummy - don't load real encoder
+            if _api_embeddings is not None:
+                logger.info("API embeddings set - returning dummy encoder (skipping load)")
+                return DummyTextEncoder()
+            
+            # If we have a CPU-cached encoder, move it to GPU
+            if cached_text_encoder is not None:
+                logger.info("Moving cached text encoder from CPU to GPU...")
+                start = time.time()
+                cached_text_encoder.to(DEVICE)
+                torch.cuda.synchronize()
+                logger.info(f"Text encoder ready in {time.time() - start:.1f}s (vs 23s from disk)")
+                return cached_text_encoder
+            
+            # First time: load from disk and keep reference
+            logger.info("Loading text encoder from disk (first time, ~23s)...")
+            cached_text_encoder = original_text_encoder(self)
+            logger.info("Text encoder loaded and cached in CPU RAM")
+            return cached_text_encoder
+        
+        # Patch the class method
+        ModelLedger.text_encoder = patched_text_encoder
+        _model_ledger_patched = True
+        logger.info("ModelLedger.text_encoder patched globally for API embeddings support")
+        
+        # Also patch cleanup_memory to move cached encoder to CPU
+        from ltx_pipelines import utils as ltx_utils
+        original_cleanup = ltx_utils.cleanup_memory
+        
+        def patched_cleanup_memory():
+            global cached_text_encoder
+            if cached_text_encoder is not None:
+                try:
+                    cached_text_encoder.to("cpu")
+                    logger.debug("Moved cached text encoder to CPU during cleanup")
+                except Exception:
+                    pass
+            original_cleanup()
+        
+        ltx_utils.cleanup_memory = patched_cleanup_memory
+        
+    except Exception as e:
+        logger.warning(f"Failed to patch ModelLedger class: {e}")
 
 
 def get_model_id_from_checkpoint(checkpoint_path: str) -> str:
@@ -157,15 +303,25 @@ def get_model_id_from_checkpoint(checkpoint_path: str) -> str:
 def encode_text_via_api(prompt: str, api_key: str, model_id: str) -> tuple:
     """Encode text using the LTX API (free, ~1s instead of 23s local).
     
+    Uses an in-memory cache to skip API calls for repeated prompts.
+    
     Returns:
         Tuple of (video_context, audio_context) tensors, or None if failed
     """
+    global _prompt_embeddings_cache
+    
     if not model_id:
         logger.warning("No model_id available for API encoding")
         return None
+    
+    # Check cache first
+    cache_key = prompt.strip()
+    if cache_key in _prompt_embeddings_cache:
+        logger.info("Using cached prompt embeddings (skipping API call)")
+        return _prompt_embeddings_cache[cache_key]
         
     try:
-        logger.info("Encoding text via LTX API (~1s)...")
+        logger.info("Encoding text via LTX API...")
         start = time.time()
         
         response = requests.post(
@@ -206,7 +362,20 @@ def encode_text_via_api(prompt: str, api_key: str, model_id: str) -> tuple:
                 video_context = embeddings.to(dtype=torch.bfloat16, device=DEVICE)
                 audio_context = None
             
-            logger.info(f"Text encoded via API in {time.time() - start:.1f}s")
+            elapsed = time.time() - start
+            logger.info(f"Text encoded via API in {elapsed:.1f}s")
+            
+            # Cache the result (respecting user-configured cache size)
+            max_cache_size = app_settings.get("prompt_cache_size", 100)
+            if max_cache_size > 0:
+                if len(_prompt_embeddings_cache) >= max_cache_size:
+                    # Remove oldest entry (first key) to make room
+                    oldest_key = next(iter(_prompt_embeddings_cache))
+                    del _prompt_embeddings_cache[oldest_key]
+                
+                _prompt_embeddings_cache[cache_key] = (video_context, audio_context)
+                logger.info(f"Cached prompt ({len(_prompt_embeddings_cache)}/{max_cache_size})")
+            
             return (video_context, audio_context)
         
         logger.warning("LTX API returned unexpected conditioning format")
@@ -219,6 +388,10 @@ def encode_text_via_api(prompt: str, api_key: str, model_id: str) -> tuple:
 
 # Cache the model_id after first extraction
 _cached_model_id = None
+
+# Prompt embeddings cache (key: prompt text, value: (video_context, audio_context))
+# This avoids repeated API calls for the same prompt
+_prompt_embeddings_cache = {}
 
 # Thread-local storage for API embeddings injection
 _api_embeddings = None
@@ -248,19 +421,46 @@ def patch_encode_text_for_api():
             # If we have pre-computed API embeddings, use them instead of encoding
             if _api_embeddings is not None:
                 video_context, audio_context = _api_embeddings
-                logger.info("Using pre-computed API embeddings (skipping text encoder entirely)")
+                logger.info("Using API embeddings (patched encode_text)")
                 # Return in the same format as the original function
                 # Original returns list of (video_context, audio_context) tuples
-                return [(video_context, audio_context)]
+                # For pipelines that pass multiple prompts (positive + negative),
+                # we need to return embeddings for each prompt
+                # Note: For negative prompt, we use zeros (unconditioned) for proper CFG
+                num_prompts = len(prompts) if isinstance(prompts, list) else 1
+                results = []
+                for i in range(num_prompts):
+                    if i == 0:
+                        # First prompt is positive - use API embeddings
+                        results.append((video_context, audio_context))
+                    else:
+                        # Subsequent prompts (negative) - use zeros for unconditioned guidance
+                        zero_video = torch.zeros_like(video_context)
+                        zero_audio = torch.zeros_like(audio_context) if audio_context is not None else None
+                        results.append((zero_video, zero_audio))
+                return results
             # Otherwise, use the original encoder
             return original_encode_text(text_encoder, prompts, *args, **kwargs)
         
-        # Patch in both locations
+        # Patch in all pipeline module locations
         pipeline_utils.encode_text = patched_encode_text
         distilled_module.encode_text = patched_encode_text
         
+        # Also patch ti2vid modules if available
+        try:
+            from ltx_pipelines import ti2vid_one_stage as one_stage_module
+            one_stage_module.encode_text = patched_encode_text
+        except ImportError:
+            pass
+        
+        try:
+            from ltx_pipelines import ti2vid_two_stages as two_stages_module
+            two_stages_module.encode_text = patched_encode_text
+        except ImportError:
+            pass
+        
         _encode_text_patched = True
-        logger.info("Patched encode_text for API embeddings injection (both modules)")
+        logger.info("Patched encode_text for API embeddings injection (all pipeline modules)")
     except Exception as e:
         logger.warning(f"Could not patch encode_text: {e}")
 
@@ -318,6 +518,163 @@ def download_models():
         logger.info("Downloaded text_encoder")
     else:
         logger.info("Found text_encoder")
+
+
+def get_models_status():
+    """Get detailed status of all required models."""
+    models = []
+    total_size = 0
+    downloaded_size = 0
+    
+    # Check individual model files
+    model_files = [
+        ("ltx-2-19b-distilled-fp8.safetensors", CHECKPOINT_PATH, 19_000_000_000, "Main transformer model (FP8)"),
+        ("ltx-2-spatial-upscaler-x2-1.0.safetensors", UPSAMPLER_PATH, 1_000_000_000, "2x Upscaler"),
+        ("ltx-2-19b-distilled-lora-384.safetensors", DISTILLED_LORA_PATH, 400_000_000, "LoRA for Pro model"),
+    ]
+    
+    for name, path, expected_size, description in model_files:
+        exists = path.exists()
+        actual_size = path.stat().st_size if exists else 0
+        total_size += expected_size
+        if exists:
+            downloaded_size += actual_size
+        models.append({
+            "name": name,
+            "description": description,
+            "downloaded": exists,
+            "size": actual_size if exists else expected_size,
+            "expected_size": expected_size,
+        })
+    
+    # Check text encoder folder
+    text_encoder_exists = GEMMA_PATH.exists() and any(GEMMA_PATH.iterdir()) if GEMMA_PATH.exists() else False
+    text_encoder_size = sum(f.stat().st_size for f in GEMMA_PATH.rglob("*") if f.is_file()) if text_encoder_exists else 0
+    expected_te_size = 8_000_000_000
+    total_size += expected_te_size
+    if text_encoder_exists:
+        downloaded_size += text_encoder_size
+    
+    models.append({
+        "name": "text_encoder",
+        "description": "Gemma text encoder",
+        "downloaded": text_encoder_exists,
+        "size": text_encoder_size if text_encoder_exists else expected_te_size,
+        "expected_size": expected_te_size,
+        "is_folder": True,
+    })
+    
+    all_downloaded = all(m["downloaded"] for m in models)
+    
+    return {
+        "models": models,
+        "all_downloaded": all_downloaded,
+        "total_size": total_size,
+        "downloaded_size": downloaded_size,
+        "total_size_gb": round(total_size / (1024**3), 1),
+        "downloaded_size_gb": round(downloaded_size / (1024**3), 1),
+    }
+
+
+def download_models_with_progress():
+    """Download models with progress tracking. Runs in a background thread."""
+    global model_download_state
+    
+    repo_id = "Lightricks/LTX-2"
+    
+    models_to_download = [
+        ("ltx-2-19b-distilled-fp8.safetensors", CHECKPOINT_PATH, 19_000_000_000),
+        ("ltx-2-spatial-upscaler-x2-1.0.safetensors", UPSAMPLER_PATH, 1_000_000_000),
+        ("ltx-2-19b-distilled-lora-384.safetensors", DISTILLED_LORA_PATH, 400_000_000),
+    ]
+    
+    # Calculate what needs downloading
+    files_to_download = []
+    total_bytes = 0
+    
+    for filename, local_path, expected_size in models_to_download:
+        if not local_path.exists():
+            files_to_download.append((filename, local_path, expected_size, False))
+            total_bytes += expected_size
+    
+    # Check text encoder
+    text_encoder_needs_download = not GEMMA_PATH.exists() or not any(GEMMA_PATH.iterdir()) if GEMMA_PATH.exists() else True
+    if text_encoder_needs_download:
+        files_to_download.append(("text_encoder", GEMMA_PATH, 8_000_000_000, True))
+        total_bytes += 8_000_000_000
+    
+    if not files_to_download:
+        with model_download_lock:
+            model_download_state["status"] = "complete"
+            model_download_state["total_progress"] = 100
+        return
+    
+    with model_download_lock:
+        model_download_state["status"] = "downloading"
+        model_download_state["total_files"] = len(files_to_download)
+        model_download_state["files_completed"] = 0
+        model_download_state["total_bytes"] = total_bytes
+        model_download_state["downloaded_bytes"] = 0
+        model_download_state["error"] = None
+    
+    downloaded_so_far = 0
+    
+    try:
+        for i, (filename, local_path, expected_size, is_folder) in enumerate(files_to_download):
+            with model_download_lock:
+                model_download_state["current_file"] = filename
+                model_download_state["current_file_progress"] = 0
+            
+            logger.info(f"Downloading {filename} ({i+1}/{len(files_to_download)})...")
+            
+            if is_folder:
+                # Download text encoder folder
+                snapshot_download(
+                    repo_id=repo_id,
+                    allow_patterns=["text_encoder/*"],
+                    local_dir=MODELS_DIR,
+                    local_dir_use_symlinks=False,
+                )
+            else:
+                # Download individual file
+                hf_hub_download(
+                    repo_id=repo_id,
+                    filename=filename,
+                    local_dir=MODELS_DIR,
+                    local_dir_use_symlinks=False,
+                )
+            
+            downloaded_so_far += expected_size
+            
+            with model_download_lock:
+                model_download_state["files_completed"] = i + 1
+                model_download_state["downloaded_bytes"] = downloaded_so_far
+                model_download_state["current_file_progress"] = 100
+                model_download_state["total_progress"] = int((downloaded_so_far / total_bytes) * 100)
+            
+            logger.info(f"Downloaded {filename}")
+        
+        with model_download_lock:
+            model_download_state["status"] = "complete"
+            model_download_state["total_progress"] = 100
+        
+        logger.info("All models downloaded successfully!")
+        
+    except Exception as e:
+        logger.error(f"Model download failed: {e}")
+        with model_download_lock:
+            model_download_state["status"] = "error"
+            model_download_state["error"] = str(e)
+
+
+def start_model_download():
+    """Start model download in a background thread."""
+    if model_download_state["status"] == "downloading":
+        return False  # Already downloading
+    
+    thread = threading.Thread(target=download_models_with_progress, daemon=True)
+    thread.start()
+    return True
 
 
 # Track if models have been compiled
@@ -378,9 +735,170 @@ def compile_pipeline_transformer(pipeline, model_type: str):
         logger.warning("Continuing without torch.compile() optimization")
 
 
+
+
+class DistilledNativePipeline:
+    """Fast Native pipeline - distilled model at native resolution WITHOUT upsampler.
+    
+    Uses the distilled model's 8-step sigma schedule but generates at full resolution.
+    Doesn't load the upsampler to save VRAM.
+    """
+    
+    def __init__(
+        self,
+        checkpoint_path: str,
+        gemma_root: str,
+        device=None,
+        fp8transformer: bool = False,
+    ):
+        import torch
+        from ltx_core.model.model_ledger import ModelLedger
+        from ltx_pipelines.pipeline_utils import PipelineComponents
+        from ltx_pipelines import utils
+        
+        if device is None:
+            device = utils.get_device()
+        
+        self.device = device
+        self.dtype = torch.bfloat16
+        
+        # Initialize ModelLedger WITHOUT upsampler (saves ~2GB VRAM)
+        self.model_ledger = ModelLedger(
+            dtype=self.dtype,
+            device=device,
+            checkpoint_path=checkpoint_path,
+            gemma_root_path=gemma_root,
+            loras=[],
+            fp8transformer=fp8transformer,
+            # No spatial_upsampler_path!
+        )
+        
+        self.pipeline_components = PipelineComponents(
+            dtype=self.dtype,
+            device=device,
+        )
+    
+    @torch.inference_mode()
+    def __call__(
+        self,
+        prompt: str,
+        output_path: str,
+        seed: int,
+        height: int,
+        width: int,
+        num_frames: int,
+        frame_rate: float,
+        images: list,
+        tiling_config=None,
+    ) -> None:
+        from ltx_pipelines import utils
+        from ltx_pipelines.pipeline_utils import (
+            denoise_audio_video,
+            encode_text,
+            euler_denoising_loop,
+            simple_denoising_func,
+        )
+        from ltx_pipelines.pipeline_utils import decode_audio as vae_decode_audio
+        from ltx_pipelines.pipeline_utils import decode_video as vae_decode_video
+        from ltx_pipelines.constants import DISTILLED_SIGMA_VALUES, AUDIO_SAMPLE_RATE
+        from ltx_pipelines.media_io import encode_video
+        from ltx_core.pipeline.components.diffusion_steps import EulerDiffusionStep
+        from ltx_core.pipeline.components.noisers import GaussianNoiser
+        from ltx_core.pipeline.components.protocols import DiffusionStepProtocol, VideoPixelShape
+        from ltx_core.pipeline.conditioning.item import LatentState
+        from ltx_pipelines.utils import image_conditionings_by_replacing_latent
+        
+        logger.info("Fast Native: 8-step distilled model at native resolution (no upsampler)")
+        
+        generator = torch.Generator(device=self.device).manual_seed(seed)
+        noiser = GaussianNoiser(generator=generator)
+        stepper = EulerDiffusionStep()
+        dtype = torch.bfloat16
+
+        text_encoder = self.model_ledger.text_encoder()
+        context_p = encode_text(text_encoder, prompts=[prompt])[0]
+        video_context, audio_context = context_p
+
+        torch.cuda.synchronize()
+        del text_encoder
+        utils.cleanup_memory()
+
+        video_encoder = self.model_ledger.video_encoder()
+        transformer = self.model_ledger.transformer()
+        sigmas = torch.Tensor(DISTILLED_SIGMA_VALUES).to(self.device)
+
+        def denoising_loop(
+            sigmas: torch.Tensor, video_state: LatentState, audio_state: LatentState, stepper: DiffusionStepProtocol
+        ) -> tuple:
+            return euler_denoising_loop(
+                sigmas=sigmas,
+                video_state=video_state,
+                audio_state=audio_state,
+                stepper=stepper,
+                denoise_fn=simple_denoising_func(
+                    video_context=video_context,
+                    audio_context=audio_context,
+                    transformer=transformer,
+                ),
+            )
+
+        output_shape = VideoPixelShape(batch=1, frames=num_frames, width=width, height=height, fps=frame_rate)
+        conditionings = image_conditionings_by_replacing_latent(
+            images=images,
+            height=output_shape.height,
+            width=output_shape.width,
+            video_encoder=video_encoder,
+            dtype=dtype,
+            device=self.device,
+        )
+
+        video_state, audio_state = denoise_audio_video(
+            output_shape=output_shape,
+            conditionings=conditionings,
+            noiser=noiser,
+            sigmas=sigmas,
+            stepper=stepper,
+            denoising_loop_fn=denoising_loop,
+            components=self.pipeline_components,
+            dtype=dtype,
+            device=self.device,
+        )
+
+        torch.cuda.synchronize()
+        del transformer
+        del video_encoder
+        utils.cleanup_memory()
+
+        decoded_video = vae_decode_video(video_state, self.model_ledger.video_decoder(), tiling_config)
+        decoded_audio = vae_decode_audio(audio_state, self.model_ledger.audio_decoder(), self.model_ledger.vocoder())
+
+        encode_video(
+            video=decoded_video,
+            fps=frame_rate,
+            audio=decoded_audio,
+            audio_sample_rate=AUDIO_SAMPLE_RATE,
+            output_path=output_path,
+        )
+
+
 def load_pipeline(model_type: str = "fast"):
     """Load the appropriate LTX-2 pipeline based on model type."""
-    global distilled_pipeline, pro_pipeline
+    global distilled_pipeline, distilled_native_pipeline, pro_pipeline, pro_native_pipeline
+    
+    # Check if required model files exist before attempting to load
+    if not CHECKPOINT_PATH.exists():
+        logger.warning(f"Model checkpoint not found at {CHECKPOINT_PATH}. Models need to be downloaded first.")
+        return None
+    
+    # For pipelines that require upsampler, check if it exists
+    if model_type in ("fast", "pro") and not UPSAMPLER_PATH.exists():
+        logger.warning(f"Upsampler not found at {UPSAMPLER_PATH}. Models need to be downloaded first.")
+        return None
+    
+    # IMPORTANT: Patch these BEFORE importing any pipeline modules
+    # This ensures the patched functions are used when modules are imported
+    patch_encode_text_for_api()
+    patch_model_ledger_class()
     
     try:
         if model_type == "fast" and distilled_pipeline is None:
@@ -402,17 +920,29 @@ def load_pipeline(model_type: str = "fast"):
                 fp8transformer=True,
             )
             
-            # Patch the model_ledger to support caching
-            patch_model_ledger_for_caching(distilled_pipeline.model_ledger)
-            
-            # Patch encode_text to support API embeddings injection
-            patch_encode_text_for_api()
-            
             # Compile the transformer for faster inference
             compile_pipeline_transformer(distilled_pipeline, "fast")
             
             logger.info(f"Distilled Pipeline loaded in {time.time() - start:.1f}s")
             return distilled_pipeline
+        
+        elif model_type == "fast-native" and distilled_native_pipeline is None:
+            logger.info("Loading LTX-2 Fast Native Pipeline (8-step distilled, no upsampler)...")
+            start = time.time()
+            
+            # Fast Native: distilled model at native resolution WITHOUT loading upsampler
+            distilled_native_pipeline = DistilledNativePipeline(
+                checkpoint_path=str(CHECKPOINT_PATH),
+                gemma_root=str(GEMMA_PATH),
+                device=DEVICE,
+                fp8transformer=True,
+            )
+            
+            # Compile the transformer for faster inference
+            compile_pipeline_transformer(distilled_native_pipeline, "fast-native")
+            
+            logger.info(f"Fast Native Pipeline loaded in {time.time() - start:.1f}s")
+            return distilled_native_pipeline
             
         elif model_type == "pro" and pro_pipeline is None:
             from ltx_pipelines.ti2vid_two_stages import TI2VidTwoStagesPipeline
@@ -432,16 +962,42 @@ def load_pipeline(model_type: str = "fast"):
                 fp8transformer=True,
             )
             
-            # Patch the model_ledger to support caching
-            patch_model_ledger_for_caching(pro_pipeline.model_ledger)
-            
             # Compile the transformer for faster inference
             compile_pipeline_transformer(pro_pipeline, "pro")
             
             logger.info(f"Pro Pipeline loaded in {time.time() - start:.1f}s")
             return pro_pipeline
         
-        return distilled_pipeline if model_type == "fast" else pro_pipeline
+        elif model_type == "pro-native" and pro_native_pipeline is None:
+            from ltx_pipelines.ti2vid_one_stage import TI2VidOneStagePipeline
+            
+            logger.info("Loading LTX-2 One-Stage Pipeline (Pro Native, no upscaler)...")
+            start = time.time()
+            
+            # Single-stage pipeline: generates at full resolution without upscaler
+            pro_native_pipeline = TI2VidOneStagePipeline(
+                checkpoint_path=str(CHECKPOINT_PATH),
+                gemma_root=str(GEMMA_PATH),
+                loras=[],
+                device=DEVICE,
+                fp8transformer=True,
+            )
+            
+            # Compile the transformer for faster inference
+            compile_pipeline_transformer(pro_native_pipeline, "pro-native")
+            
+            logger.info(f"Pro Native Pipeline loaded in {time.time() - start:.1f}s")
+            return pro_native_pipeline
+        
+        if model_type == "fast":
+            return distilled_pipeline
+        elif model_type == "fast-native":
+            return distilled_native_pipeline
+        elif model_type == "pro":
+            return pro_pipeline
+        elif model_type == "pro-native":
+            return pro_native_pipeline
+        return None
         
     except Exception as e:
         logger.error(f"Failed to load pipeline: {e}")
@@ -460,73 +1016,9 @@ class DummyTextEncoder:
     pass
 
 
-def patch_model_ledger_for_caching(model_ledger):
-    """Patch the model_ledger to cache text encoder in CPU RAM.
-    
-    LTX-2's architecture unloads the text encoder to free VRAM for the transformer.
-    We cache it in CPU RAM (not GPU) to avoid the 23s disk load on each generation,
-    while still freeing GPU VRAM for the transformer.
-    
-    Trade-off: ~2-3s CPU→GPU transfer instead of 23s disk load.
-    
-    Also: when API embeddings are available, return a dummy encoder to skip loading entirely.
-    """
-    global cached_text_encoder
-    
-    # Store the original method
-    original_text_encoder = model_ledger.text_encoder
-    
-    def cached_text_encoder_method():
-        global cached_text_encoder, _api_embeddings
-        
-        # If we have API embeddings, return dummy - don't load real encoder
-        if _api_embeddings is not None:
-            logger.info("API embeddings available - skipping text encoder load entirely")
-            return DummyTextEncoder()
-        
-        # If we have a CPU-cached encoder, move it to GPU
-        if cached_text_encoder is not None:
-            logger.info("Moving cached text encoder from CPU to GPU...")
-            start = time.time()
-            cached_text_encoder.to(DEVICE)
-            torch.cuda.synchronize()
-            logger.info(f"Text encoder ready in {time.time() - start:.1f}s (vs 23s from disk)")
-            return cached_text_encoder
-        
-        # First time: load from disk and keep reference
-        logger.info("Loading text encoder from disk (first time, ~23s)...")
-        cached_text_encoder = original_text_encoder()
-        logger.info("Text encoder loaded and cached in CPU RAM")
-        return cached_text_encoder
-    
-    # Replace the method
-    model_ledger.text_encoder = cached_text_encoder_method
-    
-    # Patch cleanup_memory to also move our cached encoder to CPU
-    # This ensures VRAM is freed before transformer loads
-    from ltx_pipelines import utils as ltx_utils
-    original_cleanup = ltx_utils.cleanup_memory
-    
-    def patched_cleanup_memory():
-        global cached_text_encoder
-        # Move cached encoder to CPU before cleanup
-        if cached_text_encoder is not None:
-            try:
-                cached_text_encoder.to("cpu")
-                logger.debug("Moved cached text encoder to CPU during cleanup")
-            except Exception:
-                pass
-        # Call original cleanup
-        original_cleanup()
-    
-    ltx_utils.cleanup_memory = patched_cleanup_memory
-    
-    logger.info("Text encoder caching enabled - first gen ~23s, subsequent ~2-3s")
-
-
 def unload_pipeline(model_type: str):
     """Unload a pipeline to free VRAM."""
-    global distilled_pipeline, pro_pipeline, flux_pipeline
+    global distilled_pipeline, distilled_native_pipeline, pro_pipeline, pro_native_pipeline, flux_pipeline
     
     if model_type == "fast" and distilled_pipeline is not None:
         logger.info("Unloading Fast pipeline to free VRAM...")
@@ -535,6 +1027,13 @@ def unload_pipeline(model_type: str):
         torch.cuda.empty_cache()
         gc.collect()
         logger.info("Fast pipeline unloaded")
+    elif model_type == "fast-native" and distilled_native_pipeline is not None:
+        logger.info("Unloading Fast Native pipeline to free VRAM...")
+        del distilled_native_pipeline
+        distilled_native_pipeline = None
+        torch.cuda.empty_cache()
+        gc.collect()
+        logger.info("Fast Native pipeline unloaded")
     elif model_type == "pro" and pro_pipeline is not None:
         logger.info("Unloading Pro pipeline to free VRAM...")
         del pro_pipeline
@@ -542,6 +1041,13 @@ def unload_pipeline(model_type: str):
         torch.cuda.empty_cache()
         gc.collect()
         logger.info("Pro pipeline unloaded")
+    elif model_type == "pro-native" and pro_native_pipeline is not None:
+        logger.info("Unloading Pro Native pipeline to free VRAM...")
+        del pro_native_pipeline
+        pro_native_pipeline = None
+        torch.cuda.empty_cache()
+        gc.collect()
+        logger.info("Pro Native pipeline unloaded")
     elif model_type == "flux" and flux_pipeline is not None:
         logger.info("Unloading Flux pipeline to free VRAM...")
         del flux_pipeline
@@ -716,10 +1222,10 @@ def get_pipeline(model_type: str = "fast", skip_warmup: bool = False):
     Switching models will unload the previous one.
     
     Args:
-        model_type: "fast" or "pro"
+        model_type: "fast", "fast-native", "pro", or "pro-native"
         skip_warmup: If True, skip warmup (user's generation serves as warmup)
     """
-    global distilled_pipeline, pro_pipeline, flux_pipeline
+    global distilled_pipeline, distilled_native_pipeline, pro_pipeline, pro_native_pipeline, flux_pipeline
     
     # Always unload Flux pipeline first to free VRAM for video generation
     if flux_pipeline is not None:
@@ -728,25 +1234,45 @@ def get_pipeline(model_type: str = "fast", skip_warmup: bool = False):
         torch.cuda.empty_cache()
         gc.collect()
     
+    # Unload other video pipelines to free VRAM (only one at a time)
+    def unload_others(keep: str):
+        if keep != "fast" and distilled_pipeline is not None:
+            unload_pipeline("fast")
+        if keep != "fast-native" and distilled_native_pipeline is not None:
+            unload_pipeline("fast-native")
+        if keep != "pro" and pro_pipeline is not None:
+            unload_pipeline("pro")
+        if keep != "pro-native" and pro_native_pipeline is not None:
+            unload_pipeline("pro-native")
+    
     if model_type == "fast":
         if distilled_pipeline is None:
-            # Unload Pro if loaded to free VRAM
-            if pro_pipeline is not None:
-                unload_pipeline("pro")
+            unload_others("fast")
             load_pipeline("fast")
-            # Only warmup if preloading at startup (not on-demand loading)
             if not skip_warmup:
                 warmup_pipeline("fast")
         return distilled_pipeline
-    else:
+    elif model_type == "fast-native":
+        if distilled_native_pipeline is None:
+            unload_others("fast-native")
+            load_pipeline("fast-native")
+            # Skip warmup for fast-native - first gen serves as warmup
+        return distilled_native_pipeline
+    elif model_type == "pro":
         if pro_pipeline is None:
-            # Unload Fast if loaded to free VRAM
-            if distilled_pipeline is not None:
-                unload_pipeline("fast")
+            unload_others("pro")
             load_pipeline("pro")
             if not skip_warmup:
                 warmup_pipeline("pro")
         return pro_pipeline
+    elif model_type == "pro-native":
+        if pro_native_pipeline is None:
+            unload_others("pro-native")
+            load_pipeline("pro-native")
+            # Skip warmup for pro-native - first gen serves as warmup
+        return pro_native_pipeline
+    
+    return None
 
 
 def warmup_pipeline(model_type: str):
@@ -841,8 +1367,15 @@ def generate_video(
     if current_generation["cancelled"]:
         raise RuntimeError("Generation was cancelled")
     
-    # Determine total steps for this model
-    total_steps = 8 if model_type == "fast" else 40
+    # Determine total steps for this model based on user settings
+    with settings_lock:
+        fast_model_settings = app_settings.get("fast_model", {"steps": 8})
+        pro_model_settings = app_settings.get("pro_model", {"steps": 20})
+    
+    if model_type in ("fast", "fast-native"):
+        total_steps = 8  # Distilled model always uses 8 steps
+    else:  # pro or pro-native both use pro settings
+        total_steps = pro_model_settings.get("steps", 20)
     update_generation_progress("loading_model", 5, 0, total_steps)
     
     # Skip warmup - the user's generation itself serves as the warmup
@@ -899,18 +1432,23 @@ def generate_video(
                 if embeddings is not None:
                     # Store embeddings globally - the patched encode_text will use them
                     _api_embeddings = embeddings
-                    logger.info("API embeddings ready for injection")
                 else:
-                    logger.info("API encoding failed, falling back to local encoder")
+                    logger.info("Falling back to local text encoder")
             else:
-                logger.warning("Could not extract model_id from checkpoint, using local encoder")
+                logger.warning("Could not extract model_id, using local encoder")
         
         # Update progress to inference phase (this is where most time is spent)
         update_generation_progress("inference", 15, 0, total_steps)
         
+        # Get inference settings
+        with settings_lock:
+            fast_settings = app_settings.get("fast_model", {"steps": 8, "use_upscaler": True})
+            pro_settings = app_settings.get("pro_model", {"steps": 20, "use_upscaler": True})
+        
         try:
             if model_type == "fast":
-                # Distilled pipeline (fast, 8 steps)
+                # Distilled pipeline - fixed 8 steps (built into distilled model)
+                # Note: DistilledPipeline doesn't accept num_inference_steps and always requires upscaler
                 pipeline(
                     prompt=enhanced_prompt,
                     output_path=str(output_path),
@@ -922,8 +1460,22 @@ def generate_video(
                     images=images,
                     tiling_config=tiling_config,
                 )
-            else:
-                # Pro pipeline (higher quality, more steps)
+            elif model_type == "fast-native":
+                # Fast Native pipeline - 8-step distilled at native resolution (no upsampler loaded)
+                pipeline(
+                    prompt=enhanced_prompt,
+                    output_path=str(output_path),
+                    seed=seed,
+                    height=height,
+                    width=width,
+                    num_frames=num_frames,
+                    frame_rate=fps,
+                    images=images,
+                    tiling_config=tiling_config,
+                )
+            elif model_type == "pro":
+                # Pro pipeline - uses configured steps and upscaler setting
+                pro_steps = pro_settings.get("steps", 20)
                 neg_prompt = negative_prompt if negative_prompt else DEFAULT_NEGATIVE_PROMPT
                 pipeline(
                     prompt=enhanced_prompt,
@@ -934,10 +1486,28 @@ def generate_video(
                     width=width,
                     num_frames=num_frames,
                     frame_rate=fps,
-                    num_inference_steps=40,
+                    num_inference_steps=pro_steps,
                     cfg_guidance_scale=3.0,
                     images=images,
                     tiling_config=tiling_config,
+                )
+            elif model_type == "pro-native":
+                # Pro Native pipeline (configured steps, no upscaler)
+                # Note: TI2VidOneStagePipeline doesn't support tiling_config
+                pro_steps = pro_settings.get("steps", 20)
+                neg_prompt = negative_prompt if negative_prompt else DEFAULT_NEGATIVE_PROMPT
+                pipeline(
+                    prompt=enhanced_prompt,
+                    output_path=str(output_path),
+                    negative_prompt=neg_prompt,
+                    seed=seed,
+                    height=height,
+                    width=width,
+                    num_frames=num_frames,
+                    frame_rate=fps,
+                    num_inference_steps=pro_steps,
+                    cfg_guidance_scale=3.0,
+                    images=images,
                 )
         finally:
             # Clear API embeddings after generation
@@ -950,8 +1520,7 @@ def generate_video(
                 output_path.unlink()
             raise RuntimeError("Generation was cancelled")
         
-        # Update progress to complete
-        total_steps = 8 if model_type == "fast" else 40
+        # Update progress to complete (total_steps already computed at start)
         update_generation_progress("complete", 100, total_steps, total_steps)
         
         logger.info(f"Generation took {time.time() - start:.1f}s")
@@ -990,25 +1559,54 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 active_model = "fast"
             elif pro_pipeline is not None:
                 active_model = "pro"
+            elif pro_native_pipeline is not None:
+                active_model = "pro-native"
             
             self.send_json_response(200, {
                 "status": "ok",
-                "models_loaded": distilled_pipeline is not None or pro_pipeline is not None,
+                "models_loaded": distilled_pipeline is not None or pro_pipeline is not None or pro_native_pipeline is not None,
                 "active_model": active_model,
                 "fast_loaded": distilled_pipeline is not None,
                 "pro_loaded": pro_pipeline is not None,
+                "pro_native_loaded": pro_native_pipeline is not None,
                 "gpu_info": get_gpu_info(),
                 "sage_attention": USE_SAGE_ATTENTION,
                 "models_status": [
                     {"id": "fast", "name": "LTX-2 Fast (Distilled)", "loaded": distilled_pipeline is not None, "downloaded": CHECKPOINT_PATH.exists()},
-                    {"id": "pro", "name": "LTX-2 Pro (Two-Stage)", "loaded": pro_pipeline is not None, "downloaded": CHECKPOINT_PATH.exists()}
+                    {"id": "pro", "name": "LTX-2 Pro (Two-Stage)", "loaded": pro_pipeline is not None, "downloaded": CHECKPOINT_PATH.exists()},
+                    {"id": "pro-native", "name": "LTX-2 Pro Native (One-Stage)", "loaded": pro_native_pipeline is not None, "downloaded": CHECKPOINT_PATH.exists()}
                 ]
             })
         elif self.path == "/api/models":
+            # Get current settings for step counts
+            with settings_lock:
+                fast_steps = app_settings.get("fast_model", {}).get("steps", 8)
+                pro_steps = app_settings.get("pro_model", {}).get("steps", 20)
+                pro_upscaler = app_settings.get("pro_model", {}).get("use_upscaler", True)
+            
             self.send_json_response(200, [
-                {"id": "fast", "name": "Fast (Distilled)", "description": "Quick generation with 8 steps"},
-                {"id": "pro", "name": "Pro (Two-Stage)", "description": "Higher quality with 40 steps"}
+                {"id": "fast", "name": "Fast (Distilled)", "description": f"{fast_steps} steps + 2x upscaler"},
+                {"id": "pro", "name": "Pro (Full)", "description": f"{pro_steps} steps" + (" + 2x upscaler" if pro_upscaler else " (native resolution)")}
             ])
+        elif self.path == "/api/models/status":
+            # Get detailed model download status
+            status = get_models_status()
+            self.send_json_response(200, status)
+        elif self.path == "/api/models/download/progress":
+            # Get current download progress
+            with model_download_lock:
+                self.send_json_response(200, {
+                    "status": model_download_state["status"],
+                    "currentFile": model_download_state["current_file"],
+                    "currentFileProgress": model_download_state["current_file_progress"],
+                    "totalProgress": model_download_state["total_progress"],
+                    "downloadedBytes": model_download_state["downloaded_bytes"],
+                    "totalBytes": model_download_state["total_bytes"],
+                    "filesCompleted": model_download_state["files_completed"],
+                    "totalFiles": model_download_state["total_files"],
+                    "error": model_download_state["error"],
+                    "speedMbps": model_download_state["speed_mbps"],
+                })
         elif self.path == "/api/camera-motions":
             self.send_json_response(200, [
                 {"id": "none", "name": "None"},
@@ -1049,6 +1647,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "useTorchCompile": app_settings["use_torch_compile"],
                 "loadOnStartup": app_settings["load_on_startup"],
                 "ltxApiKey": app_settings.get("ltx_api_key", ""),
+                "fastModel": {
+                    "steps": app_settings["fast_model"]["steps"],
+                    "useUpscaler": app_settings["fast_model"]["use_upscaler"],
+                },
+                "proModel": {
+                    "steps": app_settings["pro_model"]["steps"],
+                    "useUpscaler": app_settings["pro_model"]["use_upscaler"],
+                },
+                "promptCacheSize": app_settings.get("prompt_cache_size", 100),
+            })
+        elif self.path == "/api/gpu-info":
+            # Dedicated GPU info endpoint for first-run checks
+            gpu_info = get_gpu_info()
+            cuda_available = torch.cuda.is_available()
+            gpu_name = None
+            vram_gb = None
+            
+            if cuda_available:
+                try:
+                    gpu_name = torch.cuda.get_device_name(0)
+                    vram_gb = torch.cuda.get_device_properties(0).total_memory // (1024**3)
+                except Exception as e:
+                    print(f"Error getting detailed GPU info: {e}")
+            
+            self.send_json_response(200, {
+                "cuda_available": cuda_available,
+                "gpu_name": gpu_name,
+                "vram_gb": vram_gb,
+                "gpu_info": gpu_info,
             })
         else:
             self.send_response(404)
@@ -1057,7 +1684,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         global current_generation
         
-        if self.path == "/api/generate":
+        if self.path == "/api/models/download":
+            # Start model download
+            try:
+                if model_download_state["status"] == "downloading":
+                    self.send_json_response(409, {"error": "Download already in progress"})
+                    return
+                
+                started = start_model_download()
+                if started:
+                    self.send_json_response(200, {"status": "started", "message": "Model download started"})
+                else:
+                    self.send_json_response(400, {"error": "Failed to start download"})
+            except Exception as e:
+                self.send_json_response(500, {"error": str(e)})
+        
+        elif self.path == "/api/generate":
             try:
                 # Check if already generating
                 if current_generation["status"] == "running":
@@ -1089,14 +1731,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 duration = int(get_form_value('duration', '2'))
                 fps = int(get_form_value('fps', '24'))
                 
-                # Resolution mapping for DistilledPipeline (2-stage with 2x upsampling)
-                # We pass HALF the target resolution since the pipeline upsamples 2x
+                # Check if upscaler is disabled for each model
+                with settings_lock:
+                    fast_settings = app_settings.get("fast_model", {"steps": 8, "use_upscaler": True})
+                    pro_settings = app_settings.get("pro_model", {"steps": 20, "use_upscaler": True})
+                
+                fast_use_upscaler = fast_settings.get("use_upscaler", True)
+                pro_use_upscaler = pro_settings.get("use_upscaler", True)
+                
+                # If upscaler disabled, switch to native pipeline
+                if model_type == "fast" and not fast_use_upscaler:
+                    model_type = "fast-native"
+                    logger.info("Fast model with upscaler disabled - using fast-native pipeline")
+                elif model_type == "pro" and not pro_use_upscaler:
+                    model_type = "pro-native"
+                    logger.info("Pro model with upscaler disabled - using pro-native pipeline")
+                
+                # Determine if we're using native resolution (no upscaler)
+                use_native_resolution = model_type in ("fast-native", "pro-native")
+                
+                # Resolution mapping depends on whether upscaler is used
+                # With upscaler: pass HALF resolution (upscales 2x)
+                # Native: pass FULL resolution (no upscaling)
                 # Dimensions must be divisible by 32
-                resolution_map = {
-                    "1080p": (960, 544),    # Stage1: 960x544 → Stage2: 1920x1088
-                    "720p": (640, 384),     # Stage1: 640x384 → Stage2: 1280x768 (~720p)
-                    "480p": (384, 256),     # Stage1: 384x256 → Stage2: 768x512
-                }
+                if use_native_resolution:
+                    # Full resolution for native/single-stage
+                    resolution_map = {
+                        "1080p": (1920, 1088),  # Full 1080p (height rounded to 32)
+                        "720p": (1280, 704),    # Full 720p (height rounded to 32)
+                        "480p": (768, 512),     # Full 480p
+                    }
+                else:
+                    # Half resolution for 2-stage pipelines (upscales 2x)
+                    resolution_map = {
+                        "1080p": (960, 544),    # Stage1: 960x544 → Stage2: 1920x1088
+                        "720p": (640, 384),     # Stage1: 640x384 → Stage2: 1280x768 (~720p)
+                        "480p": (384, 256),     # Stage1: 384x256 → Stage2: 768x512
+                    }
                 width, height = resolution_map.get(resolution, (640, 384))
                 
                 # Calculate frames (must be 8n+1 for LTX-2)
@@ -1286,6 +1957,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                 logger.info("LTX API key configured - text encoding will use fast API (~1s)")
                             else:
                                 logger.info("LTX API key removed - text encoding will use local encoder (~23s)")
+                    
+                    if 'fastModel' in data and isinstance(data['fastModel'], dict):
+                        new_settings = {
+                            'steps': int(data['fastModel'].get('steps', 8)),
+                            'use_upscaler': bool(data['fastModel'].get('useUpscaler', True))
+                        }
+                        if new_settings != app_settings["fast_model"]:
+                            app_settings["fast_model"] = new_settings
+                            logger.info(f"Fast model settings updated: {new_settings['steps']} steps, upscaler={'on' if new_settings['use_upscaler'] else 'off'}")
+                    
+                    if 'proModel' in data and isinstance(data['proModel'], dict):
+                        new_settings = {
+                            'steps': int(data['proModel'].get('steps', 20)),
+                            'use_upscaler': bool(data['proModel'].get('useUpscaler', True))
+                        }
+                        if new_settings != app_settings["pro_model"]:
+                            app_settings["pro_model"] = new_settings
+                            logger.info(f"Pro model settings updated: {new_settings['steps']} steps, upscaler={'on' if new_settings['use_upscaler'] else 'off'}")
+                    
+                    if 'promptCacheSize' in data:
+                        new_size = max(0, min(1000, int(data['promptCacheSize'])))
+                        if new_size != app_settings.get("prompt_cache_size", 100):
+                            app_settings["prompt_cache_size"] = new_size
+                            # Trim cache if new size is smaller
+                            while len(_prompt_embeddings_cache) > new_size:
+                                oldest_key = next(iter(_prompt_embeddings_cache))
+                                del _prompt_embeddings_cache[oldest_key]
+                            logger.info(f"Prompt cache size set to {new_size}")
+                
+                # Persist settings to disk
+                save_settings()
                 
                 self.send_json_response(200, {"status": "ok"})
             except Exception as e:

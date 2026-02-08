@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.lightricks.ltx-video",
+  "productName": "LTX Video Studio",
+  "copyright": "Copyright © 2024 Lightricks",
+  "directories": {
+    "output": "release",
+    "buildResources": "build-resources"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/**/*",
+    "!**/*.map"
+  ],
+  "extraResources": [
+    {
+      "from": "backend",
+      "to": "backend",
+      "filter": [
+        "**/*.py",
+        "pyproject.toml",
+        "!**/__pycache__/**",
+        "!**/*.pyc",
+        "!.venv/**",
+        "!outputs/**",
+        "!models/**"
+      ]
+    },
+    {
+      "from": "python-embed",
+      "to": "python"
+    },
+    {
+      "from": "dist",
+      "to": "dist"
+    },
+    {
+      "from": "dist-electron",
+      "to": "dist-electron"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "${productName}-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "LTX Video Studio",
+    "runAfterFinish": true,
+    "deleteAppDataOnUninstall": false
+  },
+  "publish": null
+}

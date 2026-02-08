@@ -1,5 +1,5 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
-import { spawn, ChildProcess } from 'child_process'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { spawn, ChildProcess, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 
@@ -19,6 +19,15 @@ let pythonProcess: ChildProcess | null = null
 const PYTHON_PORT = 8000
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
+// Get user data path for models
+function getModelsPath(): string {
+  const modelsPath = path.join(app.getPath('userData'), 'models')
+  if (!fs.existsSync(modelsPath)) {
+    fs.mkdirSync(modelsPath, { recursive: true })
+  }
+  return modelsPath
+}
+
 // Get the path to the backend directory
 function getBackendPath(): string {
   if (isDev) {
@@ -29,7 +38,16 @@ function getBackendPath(): string {
 
 // Get the path to Python executable
 function getPythonPath(): string {
-  // Check for venv in backend directory first
+  // In production, use bundled Python first
+  if (!isDev) {
+    const bundledPython = path.join(process.resourcesPath, 'python', 'python.exe')
+    if (fs.existsSync(bundledPython)) {
+      console.log(`Using bundled Python: ${bundledPython}`)
+      return bundledPython
+    }
+  }
+  
+  // Check for venv in backend directory
   const backendPath = getBackendPath()
   const venvPython = path.join(backendPath, '.venv', 'Scripts', 'python.exe')
   
@@ -59,8 +77,49 @@ function getPythonPath(): string {
     return 'python'
   }
   
-  // In production, use bundled Python
-  return path.join(process.resourcesPath, 'python', 'python.exe')
+  // Fallback
+  return 'python'
+}
+
+// Check if NVIDIA GPU is available
+async function checkGPU(): Promise<{ available: boolean; name?: string; vram?: number }> {
+  try {
+    // Try to get GPU info from the backend API first (more reliable)
+    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/gpu-info`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    
+    if (response.ok) {
+      const data = await response.json()
+      return {
+        available: data.cuda_available ?? false,
+        name: data.gpu_name,
+        vram: data.vram_gb
+      }
+    }
+  } catch (error) {
+    console.log('Backend GPU check failed, trying direct check:', error)
+  }
+  
+  // Fallback: try direct Python check
+  try {
+    const pythonPath = getPythonPath()
+    const result = execSync(`"${pythonPath}" -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else ''); print(torch.cuda.get_device_properties(0).total_memory // (1024**3) if torch.cuda.is_available() else 0)"`, {
+      encoding: 'utf-8',
+      timeout: 30000,
+      windowsHide: true
+    }).trim().split('\n')
+    
+    return {
+      available: result[0] === 'True',
+      name: result[1] || undefined,
+      vram: parseInt(result[2]) || undefined
+    }
+  } catch (error) {
+    console.error('Direct GPU check also failed:', error)
+    return { available: false }
+  }
 }
 
 // Start the Python backend server
@@ -179,11 +238,7 @@ ipcMain.handle('get-backend-url', () => {
 })
 
 ipcMain.handle('get-models-path', () => {
-  const modelsPath = path.join(app.getPath('userData'), 'models')
-  if (!fs.existsSync(modelsPath)) {
-    fs.mkdirSync(modelsPath, { recursive: true })
-  }
-  return modelsPath
+  return getModelsPath()
 })
 
 ipcMain.handle('check-backend-health', async () => {
@@ -193,6 +248,56 @@ ipcMain.handle('check-backend-health', async () => {
   } catch {
     return false
   }
+})
+
+ipcMain.handle('check-gpu', async () => {
+  return await checkGPU()
+})
+
+ipcMain.handle('get-app-info', () => {
+  return {
+    version: app.getVersion(),
+    isPackaged: app.isPackaged,
+    modelsPath: getModelsPath(),
+    userDataPath: app.getPath('userData'),
+  }
+})
+
+ipcMain.handle('check-first-run', () => {
+  const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+  if (!fs.existsSync(settingsPath)) {
+    return true
+  }
+  try {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+    return !settings.setupComplete
+  } catch {
+    return true
+  }
+})
+
+ipcMain.handle('complete-setup', () => {
+  const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+  let settings: Record<string, unknown> = {}
+  
+  try {
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+    }
+  } catch {
+    settings = {}
+  }
+  
+  settings.setupComplete = true
+  settings.setupDate = new Date().toISOString()
+  
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2))
+  return true
+})
+
+ipcMain.handle('open-folder', async (_event, folderPath: string) => {
+  const { shell } = await import('electron')
+  shell.openPath(folderPath)
 })
 
 ipcMain.handle('read-local-file', async (_event, filePath: string) => {
@@ -230,6 +335,63 @@ ipcMain.handle('read-local-file', async (_event, filePath: string) => {
   } catch (error) {
     console.error('Error reading local file:', error)
     throw error
+  }
+})
+
+// Model management handlers
+ipcMain.handle('get-models-status', async () => {
+  try {
+    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/models/status`)
+    if (response.ok) {
+      return await response.json()
+    }
+    throw new Error('Failed to get models status')
+  } catch (error) {
+    console.error('Error getting models status:', error)
+    return {
+      models: [],
+      all_downloaded: false,
+      total_size: 0,
+      downloaded_size: 0,
+      total_size_gb: 0,
+      downloaded_size_gb: 0,
+    }
+  }
+})
+
+ipcMain.handle('start-model-download', async () => {
+  try {
+    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/models/download`, {
+      method: 'POST',
+    })
+    return await response.json()
+  } catch (error) {
+    console.error('Error starting model download:', error)
+    return { status: 'error', error: String(error) }
+  }
+})
+
+ipcMain.handle('get-model-download-progress', async () => {
+  try {
+    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/models/download/progress`)
+    if (response.ok) {
+      return await response.json()
+    }
+    throw new Error('Failed to get download progress')
+  } catch (error) {
+    console.error('Error getting download progress:', error)
+    return {
+      status: 'error',
+      currentFile: '',
+      currentFileProgress: 0,
+      totalProgress: 0,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      filesCompleted: 0,
+      totalFiles: 0,
+      error: String(error),
+      speedMbps: 0,
+    }
   }
 })
 
