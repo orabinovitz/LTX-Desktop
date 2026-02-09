@@ -19,6 +19,12 @@ extraResources:
       - "!.venv/**"
       - "!__pycache__/**"
       - "!*.pyc"
+  - from: python-embed
+    to: python
+    filter:
+      - "**/*"
+      - "!__pycache__/**"
+      - "!*.pyc"
 
 win:
   target:

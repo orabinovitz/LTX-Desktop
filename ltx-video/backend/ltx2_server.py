@@ -200,17 +200,122 @@ MODEL_FILES_INFO = [
     {"name": "text_encoder", "size": 8_000_000_000, "description": "Gemma text encoder", "is_folder": True},
 ]
 
-# App settings (persisted to disk)
-SETTINGS_FILE = PROJECT_ROOT / "settings.json"
+# App settings (persisted to user's AppData - survives app updates)
+# Use the same persistent location as models and logs
+SETTINGS_DIR = APP_DATA_DIR  # %LOCALAPPDATA%\LTX-desktop on Windows
+SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+SETTINGS_FILE = SETTINGS_DIR / "settings.json"
+
+DEFAULT_T2V_SYSTEM_PROMPT = """You are a prompt enhancer for a text-to-video model. Your task is to take user input and expand it into a fully realized, visually and acoustically specific scene.
+
+CRITICAL INSTRUCTIONS:
+Strictly follow all aspects of the user's input: include every element the user requests, such as style, visual details, motions, actions, camera movement, and audio.
+
+The user's input may be vague. To prevent the video model from generating generic or "default" outputs (e.g., shirtless characters, textureless objects), you MUST invent reasonable, concrete details to fill in the visual gaps:
+1. Visual Detail: Add fine-grained visual information about lighting, color palettes, textures, reflections, and atmospheric elements.
+2. Subject Appearance: Define gender, clothing, hair, age and expressions if not specified, describe subjects interaction with the environment. Avoid mentioning charachter names unless specified, they are irrelevant and non visual.
+3. Multiple Characters: When describing more than one person, introduce each with a clear subject (e.g., "A tall man... beside him, a shorter woman...") to avoid attribute confusion.
+4. Object Texture & Environment: Define materials for objects and environments - Is the ground wet asphalt or dry sand? Is the light harsh neon or soft sun? For human skin and faces, keep descriptions natural and avoid "texture" language that could cause exaggerated features.
+5. Physics & Movement: Describe exactly *how* things move (heavy trudging vs. light gliding, rigid impact vs. elastic bounce).
+
+Guidelines for Enhancement:
+- Audio Layer (Mandatory & Concrete): Abstract descriptions like "music plays" result in silent videos. You must describe the *source* and the *texture* of the sound (e.g., "The hollow drone of wind," "The wet splash of tires," "The metallic clank of machinery"). The audio may come from implied or off-screen sources, weave audio descriptions naturally into the chronological flow of the visual description. Do not add speech or dialogue if not mentioned in the input.
+- Camera motion: DO NOT invent camera motion/movement unless requested by the user. Make sure to include camera motion if it is specified in the input.
+- Temporal Flow: Suggest how the scene evolves over a few seconds — subtle changes in light, character movements, or environmental shifts.
+- Avoid freezes: Throughout the prompt, use continuous motion verbs: "continues", "maintains", "keeps [verb]ing", "still [verb]ing" to sustain action from start to finish. NEVER use "static", "still", "frozen", "paused", "captures", "frames", "in the midst of"—even for camera descriptions—unless explicitly requested.
+- Dialogue: Only if the input specifies dialogue, quote the exact lines within the action. Describe each speaker distinctively so it is unambiguous who speaks when. If a language other than English is required, explicitly state the language for the dialogue lines.
+
+Output Format (Strict):
+- Produce a single continuous paragraph in natural language.
+- Length: Moderate (4-6 sentences). Enough to define physics, appearance and audio fully, but without fluff.
+- Do NOT include titles, headings, prefaces, or sections.
+- Do NOT include code fences or Markdown—plain prose only."""
+
+DEFAULT_I2V_SYSTEM_PROMPT = """<OBJECTIVE_AND_PERSONA>
+You are a Creative Assistant specializing in writing detailed, chronological image-to-video prompts in a clear, factual, filmic style for a movie production company.
+</OBJECTIVE_AND_PERSONA>
+
+<CONTEXT>
+You will be provided an image that must be adapted into a short video. You may also receive user input describing desired action or camera motion.
+The input may be visual-only (no audio information) or a combined visual+audio description; adapt accordingly.
+Your task is to write a single, self-contained 'video prompt': a dense, chronological description that precisely states the setting, subjects, actions, gestures, micro-movements, background activity, camera placement and movement, lighting, and other visual details observable in the shot.
+Write in clear, literal visual language that mirrors professional shot descriptions.
+</CONTEXT>
+
+<INSTRUCTIONS>
+1. **Adhere strictly to the user's explicit intent**: include every requested motion/action, camera movement, transition, timing, subject, and on-screen text; do not omit, alter, or contradict any user-specified details.
+2. **Mirror the examples in <FEW SHOT EXAMPLES> section**: Match their tone, density, paragraph structure, and chronological progression. Output should *look like the examples*.
+3. **Chronological flow**: Describe subjects, actions, and camera moves in real-time order ("Initially…", "A moment later…").
+4. **Subjects**: Include observable details—clothing, colors, materials, accessories, posture, gaze, hand/finger positions, micro-expressions—and update them as they change.
+5. **Camera work**: Always specify framing, angle, lens feel (wide, compressed), and mention camera behavior when it's not static (pan, tilt, push, sway, etc.). Keep consistent unless the user requests a change. INITIAL DESCRIPTION MUST MATCH THE REFERENCE FIRST IMAGE, OTHERWISE IT WILL CREATE A SCENE CUT!
+6. **Environment**: Describe setting in concrete detail—architecture, surfaces, textures, signage, background people/objects, props, lighting cues.
+7. **Lighting & color**: Note direction, intensity, quality (soft, harsh, diffused), temperature (warm, cool), shadows, reflections, highlights, and time-of-day cues.
+8. **Continuity**: Default to a single continuous shot. Only include transitions/cuts if explicitly requested.
+9. **Detail density**: Each output should be richly detailed, specific over general ("matte red vinyl booth with subtle creases" vs. "nice red booth").
+10. **Motion defaults**: If no action is specified, describe subtle subject or environmental motion (breathing, blinking, swaying, drifting camera).
+11. **Tone**: Neutral, cinematic, literal. No metaphors, no filler, no meta commentary. Only what is observable.
+12. **Dynamic action handling**: When the image or request implies motion (running, jumping, waving, driving, wind-blown hair, etc.), treat the image description as the starting state of a continuous shot. Begin describing motion within the first 0.5–1.0 seconds; do not hold the opening pose. Prefer present-progressive verbs and include continuous motion cues (follow-through in limbs, cloth/hair drag, footfalls/contacts, parallax in background, camera tracking).
+13. **Anti-freeze bias**: Do not describe the scene or subject as "static/still" when motion is requested unless explicitly specified by the user. If uncertain, bias toward smooth, natural motion consistent with the image and request (light step cadence, breathing, gentle tracking or sway) rather than a freeze-frame.
+14. **Sustain motion throughout**: For dynamic shots, explicitly maintain the subject's action for the full duration of the paragraph (e.g., "continues sprinting," "keeps paddling," "maintains a steady wave"), and avoid mid-shot returns to a held pose unless the user requests a stop. MOTION SHOULD BE SPECIFIED AND INTEGRATED CONTINUOUSLY IN THE DESCRIPTION TO MAINTAIN MOVEMENT.
+15. **Cyclical cues and cadence**: Include repeating motion beats appropriate to the action (stride cycle, arm swing cadence, pedal stroke, breathing rhythm) and persistent parallax or flow in the environment to reinforce ongoing movement.
+16. **End-of-shot default**: If the user does not specify an end action, assume the subject continues the requested motion through the final moment of the shot; avoid concluding with a static tableau.
+17  **Problematic user input**: If user input is problematic or unclear (i.e: illegal, NSFW, unclear or gibberish input) and you cannot generate a prompt - YOU MUST RETURN AN EMPTY STRING ("").
+
+<CONSTRAINTS>
+- Write the video description in strict chronological order, emphasizing visible motion and camera behavior.
+- CRITICAL: Be clear and specific; INITIAL DESCRIPTION MUST MATCH THE IMAGE EXACTLY IN SETTING, SHOT TYPE, AND VISUAL ELEMENTS. Do not invent elements.
+- Use full sentences; avoid telegraphic fragments.
+- Use temporal connectives when helpful (e.g., "Initially", "then", "as", "at 00:02") only if they aid clarity.
+- Include many details but only those you are certain about; avoid guesses.
+- Use neutral, literal language; avoid metaphors and superlatives.
+- If motion is unclear, choose a natural, smooth motion consistent with the image, or add subtle camera movement.
+- When no user request or motion/action intent is provided, still include subtle, appropriate subject or environmental motion.
+- For dynamic requests, never freeze on the first frame; start and sustain motion immediately and consistently with the intent.
+- Prefer present-progressive phrasing ("is sprinting", "camera tracks") over static state descriptors for motion shots.
+- Avoid labeling the shot or subject as "static" unless the user explicitly requests a static camera or stillness.
+- Do not revert to a still pose mid-shot for dynamic actions; MAINTAIN CONTINUOUS MOTION AND CAMERA BEHAVIOR unless a stop is explicitly requested.
+- Reinforce continuity with cyclical motion descriptors and environmental parallax/cadence; avoid one-off action verbs that imply a single discrete movement only.
+- NEVER respond in a conversation context or ask clarifying questions. Take your best guess on uncertainties.
+</CONSTRAINTS>
+
+<OUTPUT_FORMAT>
+Output must be a **single paragraph** in English (regardless of input language) written as a cinematic, chronological shot description. Use present-progressive verbs and explicit continuation language to sustain motion when action is requested.
+</OUTPUT_FORMAT>
+
+<FEW_SHOT_EXAMPLES>
+** Examples of good video prompts **
+- A low-angle shot frames the front of a dark SUV, its headlights cutting through a smoky or hazy atmosphere, as it speeds directly towards the viewer. The camera quickly cuts to a closer view of the car's dark, reflective windshield, illuminated by green and blue neon light reflections. The view abruptly shifts to an extreme close-up of a determined woman with shoulder-length blonde hair, her face adorned with red lipstick. She holds a small automatic weapon, aiming it directly forward with intense focus. The perspective then moves to an over-the-shoulder shot, revealing the black SUV rapidly accelerating away through a dimly lit, green-tinted parking garage. The car makes a sharp turn, its body leaning as it navigates the concrete structure, disappearing out of frame.
+- A first-person perspective in a dimly lit, ornate, art deco interior. Dark wooden walls are visible, and on the left, multiple white papers with the black bold text "SEIZED" are tacked. Ahead, a large doorway reveals an icy patch on the floor, and above it, an ornate sign reads "FRANK FONTAINE" in white metallic letters. Through the doorway, a large, grotesque humanoid creature, covered in icy, crystalline growths, stands frozen, momentarily stunned. The player's left hand, clad in a blue and black armored glove, holds a futuristic weapon with blue glowing accents, positioned centrally and aiming at the creature. The creature's body appears to have exposed flesh and glowing red eyes, distorted in a pained expression, as it faces the viewer.
+- A boy with dark red, messy hair, wearing a red long-sleeved shirt and green shorts, stands in a light-colored room with his eyes closed and hands outstretched, positioned directly in front of a blue doorway. Standing in the doorway, a tall, slender animated girl with light green/blonde hair styled in two pigtails and dark eyebrows, wearing a black crop top and yellow fitted pants, looks down at the boy with an annoyed expression, her hands on her hips. The girl extends her right arm and tosses a yellow glove towards the boy, who catches it in his outstretched hands. The girl then holds a light blue/green cloth, then she tosses the cloth to the boy. The boy's eyes open, and he looks up with a wide-eyed, innocent, and expectant expression, holding both the yellow glove and the light blue/green cloth in his hands.
+</FEW_SHOT_EXAMPLES>
+
+<RECAP>
+- Output one coherent paragraph that defaults to a single continuous shot (no invented cuts). Describe transitions only if explicitly requested.
+- Strictly adhere to the user's intent: INCLUDE ALL USER-SPECIFIED MOTIONS/ACTIONS, CAMERA MOVES, TRANSITIONS, TIMING, SUBJECTS, AND ON-SCREEN TEXT VERBATIM WHEN PROVIDED; do not omit, alter, or contradict these details.
+- When "slow motion" or other temporal effects are requested, explicitly state that in the output and keep all described motion consistent with that effect.
+- Output one richly detailed paragraph, describing a continuous shot.
+- For dynamic prompts, treat the provided image as the opening state and continue motion immediately; do not hold the initial pose.
+- If no explicit stop is provided, the subject continues the requested action through the final moment; do not conclude on a static hold.
+- This role may offer further collaboration based on performance and output quality.
+</RECAP>"""
 
 app_settings = {
     "keep_models_loaded": True,  # Reserved for future use (e.g., unload pipeline after generation)
     "use_torch_compile": False,  # Disabled by default - can cause long compile times
     "load_on_startup": False,  # If True, preload models at startup; if False, load on first generation
     "ltx_api_key": "",  # LTX API key for fast text encoding (~1s vs 23s local)
+    "use_local_text_encoder": False,  # If True, use local text encoder; if False, use LTX API (requires key)
     "fast_model": {"steps": 8, "use_upscaler": True},  # Fast model inference settings
     "pro_model": {"steps": 20, "use_upscaler": True},  # Pro model inference settings (20 steps with res_2s scheduler)
     "prompt_cache_size": 100,  # Max number of prompt embeddings to cache (saves ~4s per repeated prompt)
+    # Prompt Enhancer settings
+    "prompt_enhancer_enabled": True,  # Enable prompt enhancement by default
+    "gemini_api_key": "",  # Gemini API key for prompt enhancement
+    "t2v_system_prompt": DEFAULT_T2V_SYSTEM_PROMPT,  # T2V system prompt
+    "i2v_system_prompt": DEFAULT_I2V_SYSTEM_PROMPT,  # I2V system prompt
+    # Seed settings
+    "seed_locked": False,  # If True, use locked_seed; if False, random seed each time
+    "locked_seed": 42,  # The seed to use when seed_locked is True
 }
 settings_lock = threading.Lock()
 
@@ -232,6 +337,8 @@ def load_settings():
                     app_settings['load_on_startup'] = bool(saved['load_on_startup'])
                 if 'ltx_api_key' in saved:
                     app_settings['ltx_api_key'] = str(saved['ltx_api_key'])
+                if 'use_local_text_encoder' in saved:
+                    app_settings['use_local_text_encoder'] = bool(saved['use_local_text_encoder'])
                 if 'fast_model' in saved and isinstance(saved['fast_model'], dict):
                     app_settings['fast_model'] = {
                         'steps': int(saved['fast_model'].get('steps', 8)),
@@ -244,6 +351,20 @@ def load_settings():
                     }
                 if 'prompt_cache_size' in saved:
                     app_settings['prompt_cache_size'] = max(0, min(1000, int(saved['prompt_cache_size'])))
+                # Prompt Enhancer settings
+                if 'prompt_enhancer_enabled' in saved:
+                    app_settings['prompt_enhancer_enabled'] = bool(saved['prompt_enhancer_enabled'])
+                if 'gemini_api_key' in saved:
+                    app_settings['gemini_api_key'] = str(saved['gemini_api_key'])
+                if 't2v_system_prompt' in saved:
+                    app_settings['t2v_system_prompt'] = str(saved['t2v_system_prompt'])
+                if 'i2v_system_prompt' in saved:
+                    app_settings['i2v_system_prompt'] = str(saved['i2v_system_prompt'])
+                # Seed settings
+                if 'seed_locked' in saved:
+                    app_settings['seed_locked'] = bool(saved['seed_locked'])
+                if 'locked_seed' in saved:
+                    app_settings['locked_seed'] = int(saved['locked_seed'])
             logger.info(f"Settings loaded from {SETTINGS_FILE}")
         except Exception as e:
             logger.warning(f"Could not load settings: {e}")
@@ -572,11 +693,39 @@ def download_models():
         logger.info("Found text_encoder")
 
 
-def get_models_status():
-    """Get detailed status of all required models."""
+def get_text_encoder_status():
+    """Get the status of the text encoder model.
+    
+    Returns:
+        dict with downloaded, size_bytes, size_gb
+    """
+    text_encoder_path = GEMMA_PATH / "text_encoder"
+    exists = text_encoder_path.exists() and any(text_encoder_path.iterdir()) if text_encoder_path.exists() else False
+    size_bytes = sum(f.stat().st_size for f in text_encoder_path.rglob("*") if f.is_file()) if exists else 0
+    expected_size = 8_000_000_000  # ~8GB
+    
+    return {
+        "downloaded": exists,
+        "size_bytes": size_bytes if exists else expected_size,
+        "size_gb": round(size_bytes / (1024**3), 1) if exists else round(expected_size / (1024**3), 1),
+        "expected_size_gb": round(expected_size / (1024**3), 1),
+    }
+
+
+def get_models_status(has_api_key: bool = None):
+    """Get detailed status of all required models.
+    
+    Args:
+        has_api_key: If True, text encoder is optional (API will be used instead).
+                    If None, checks app_settings for ltx_api_key.
+    """
     models = []
     total_size = 0
     downloaded_size = 0
+    
+    # Check if API key is configured (text encoder becomes optional)
+    if has_api_key is None:
+        has_api_key = bool(app_settings.get("ltx_api_key", ""))
     
     # Check individual model files
     model_files = [
@@ -597,23 +746,30 @@ def get_models_status():
             "downloaded": exists,
             "size": actual_size if exists else expected_size,
             "expected_size": expected_size,
+            "required": True,  # Core models are always required
         })
     
     # Check text encoder folder
+    # Text encoder is OPTIONAL if API key is configured (uses LTX API for text encoding)
     text_encoder_exists = GEMMA_PATH.exists() and any(GEMMA_PATH.iterdir()) if GEMMA_PATH.exists() else False
     text_encoder_size = sum(f.stat().st_size for f in GEMMA_PATH.rglob("*") if f.is_file()) if text_encoder_exists else 0
     expected_te_size = 8_000_000_000
-    total_size += expected_te_size
-    if text_encoder_exists:
-        downloaded_size += text_encoder_size
+    text_encoder_required = not has_api_key  # Only required if no API key
+    
+    if text_encoder_required:
+        total_size += expected_te_size
+        if text_encoder_exists:
+            downloaded_size += text_encoder_size
     
     models.append({
         "name": "text_encoder",
-        "description": "Gemma text encoder",
+        "description": "Gemma text encoder" + (" (optional with API key)" if has_api_key else ""),
         "downloaded": text_encoder_exists,
         "size": text_encoder_size if text_encoder_exists else expected_te_size,
         "expected_size": expected_te_size,
         "is_folder": True,
+        "required": text_encoder_required,  # Optional if API key is configured
+        "optional_reason": "Uses LTX API for text encoding" if has_api_key else None,
     })
     
     # Check Flux model (for text-to-image)
@@ -631,9 +787,11 @@ def get_models_status():
         "size": flux_size if flux_exists else expected_flux_size,
         "expected_size": expected_flux_size,
         "is_folder": True,
+        "required": True,
     })
     
-    all_downloaded = all(m["downloaded"] for m in models)
+    # All REQUIRED models must be downloaded (optional ones don't count)
+    all_downloaded = all(m["downloaded"] for m in models if m.get("required", True))
     
     return {
         "models": models,
@@ -643,6 +801,9 @@ def get_models_status():
         "total_size_gb": round(total_size / (1024**3), 1),
         "downloaded_size_gb": round(downloaded_size / (1024**3), 1),
         "models_path": str(MODELS_DIR),
+        "has_api_key": has_api_key,
+        "text_encoder_status": get_text_encoder_status(),
+        "use_local_text_encoder": app_settings.get("use_local_text_encoder", False),
     }
 
 
@@ -688,8 +849,12 @@ def _rename_text_encoder_files(text_encoder_path: Path):
         logger.info("Updated text encoder index file")
 
 
-def download_models_with_progress():
-    """Download models with progress tracking. Runs in a background thread."""
+def download_models_with_progress(skip_text_encoder: bool = False):
+    """Download models with progress tracking. Runs in a background thread.
+    
+    Args:
+        skip_text_encoder: If True, skip downloading the text encoder (when using LTX API).
+    """
     global model_download_state
     
     repo_id = "Lightricks/LTX-2"
@@ -709,11 +874,14 @@ def download_models_with_progress():
             files_to_download.append((filename, local_path, expected_size, False, repo_id))
             total_bytes += expected_size
     
-    # Check text encoder
-    text_encoder_needs_download = not GEMMA_PATH.exists() or not any(GEMMA_PATH.iterdir()) if GEMMA_PATH.exists() else True
-    if text_encoder_needs_download:
-        files_to_download.append(("text_encoder", GEMMA_PATH, 8_000_000_000, True, "Lightricks/LTX-2"))
-        total_bytes += 8_000_000_000
+    # Check text encoder (skip if using API key)
+    if not skip_text_encoder:
+        text_encoder_needs_download = not GEMMA_PATH.exists() or not any(GEMMA_PATH.iterdir()) if GEMMA_PATH.exists() else True
+        if text_encoder_needs_download:
+            files_to_download.append(("text_encoder", GEMMA_PATH, 8_000_000_000, True, "Lightricks/LTX-2"))
+            total_bytes += 8_000_000_000
+    else:
+        logger.info("Skipping text encoder download (using LTX API for text encoding)")
     
     # Check Flux model (for text-to-image)
     flux_needs_download = not FLUX_MODELS_DIR.exists() or not any(FLUX_MODELS_DIR.iterdir()) if FLUX_MODELS_DIR.exists() else True
@@ -796,12 +964,20 @@ def download_models_with_progress():
             model_download_state["error"] = str(e)
 
 
-def start_model_download():
-    """Start model download in a background thread."""
+def start_model_download(skip_text_encoder: bool = False):
+    """Start model download in a background thread.
+    
+    Args:
+        skip_text_encoder: If True, skip downloading the text encoder (when using LTX API).
+    """
     if model_download_state["status"] == "downloading":
         return False  # Already downloading
     
-    thread = threading.Thread(target=download_models_with_progress, daemon=True)
+    thread = threading.Thread(
+        target=download_models_with_progress, 
+        args=(skip_text_encoder,),
+        daemon=True
+    )
     thread.start()
     return True
 
@@ -1496,6 +1672,29 @@ def generate_video(
     if current_generation["cancelled"]:
         raise RuntimeError("Generation was cancelled")
     
+    # Check text encoding configuration
+    with settings_lock:
+        ltx_api_key = app_settings.get("ltx_api_key", "")
+        use_local = app_settings.get("use_local_text_encoder", False)
+    
+    if not use_local and not ltx_api_key:
+        # User needs either an API key or local encoder enabled
+        raise RuntimeError(
+            "TEXT_ENCODING_NOT_CONFIGURED: "
+            "To generate videos, you need to configure text encoding. "
+            "Either enter an LTX API Key in Settings, or enable the Local Text Encoder."
+        )
+    
+    if use_local:
+        # Check if local text encoder is downloaded
+        text_encoder_path = GEMMA_PATH / "text_encoder"
+        if not text_encoder_path.exists() or not any(text_encoder_path.iterdir()):
+            raise RuntimeError(
+                "TEXT_ENCODER_NOT_DOWNLOADED: "
+                "Local text encoder is enabled but not downloaded. "
+                "Please download it from Settings (~8 GB), or switch to using the LTX API."
+            )
+    
     # Determine total steps for this model based on user settings
     with settings_lock:
         fast_model_settings = app_settings.get("fast_model", {"steps": 8})
@@ -1553,8 +1752,10 @@ def generate_video(
         
         with settings_lock:
             ltx_api_key = app_settings.get("ltx_api_key", "")
+            use_local = app_settings.get("use_local_text_encoder", False)
         
-        if ltx_api_key:
+        # Only use API if not using local encoder
+        if ltx_api_key and not use_local:
             # Get or cache the model_id from checkpoint
             if _cached_model_id is None:
                 _cached_model_id = get_model_id_from_checkpoint(str(CHECKPOINT_PATH))
@@ -1799,6 +2000,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "useTorchCompile": app_settings["use_torch_compile"],
                 "loadOnStartup": app_settings["load_on_startup"],
                 "ltxApiKey": app_settings.get("ltx_api_key", ""),
+                "useLocalTextEncoder": app_settings.get("use_local_text_encoder", False),
                 "fastModel": {
                     "steps": app_settings["fast_model"]["steps"],
                     "useUpscaler": app_settings["fast_model"]["use_upscaler"],
@@ -1808,6 +2010,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "useUpscaler": app_settings["pro_model"]["use_upscaler"],
                 },
                 "promptCacheSize": app_settings.get("prompt_cache_size", 100),
+                # Prompt Enhancer settings
+                "promptEnhancerEnabled": app_settings.get("prompt_enhancer_enabled", True),
+                "geminiApiKey": app_settings.get("gemini_api_key", ""),
+                "t2vSystemPrompt": app_settings.get("t2v_system_prompt", DEFAULT_T2V_SYSTEM_PROMPT),
+                "i2vSystemPrompt": app_settings.get("i2v_system_prompt", DEFAULT_I2V_SYSTEM_PROMPT),
+                # Seed settings
+                "seedLocked": app_settings.get("seed_locked", False),
+                "lockedSeed": app_settings.get("locked_seed", 42),
             })
         elif self.path == "/api/gpu-info":
             # Dedicated GPU info endpoint for first-run checks
@@ -1843,12 +2053,199 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.send_json_response(409, {"error": "Download already in progress"})
                     return
                 
-                started = start_model_download()
+                # Check if we should skip text encoder (API key is configured)
+                skip_text_encoder = False
+                try:
+                    content_len = int(self.headers.get('Content-Length', 0))
+                    if content_len > 0:
+                        body = self.rfile.read(content_len).decode('utf-8')
+                        data = json.loads(body)
+                        skip_text_encoder = data.get('skipTextEncoder', False)
+                        # Also check if API key is provided in this request
+                        if data.get('ltxApiKey'):
+                            skip_text_encoder = True
+                except Exception:
+                    pass
+                
+                # Also check current settings for API key
+                if app_settings.get("ltx_api_key"):
+                    skip_text_encoder = True
+                
+                if skip_text_encoder:
+                    logger.info("LTX API key configured - text encoder download will be skipped")
+                
+                started = start_model_download(skip_text_encoder=skip_text_encoder)
                 if started:
-                    self.send_json_response(200, {"status": "started", "message": "Model download started"})
+                    self.send_json_response(200, {
+                        "status": "started", 
+                        "message": "Model download started",
+                        "skippingTextEncoder": skip_text_encoder
+                    })
                 else:
                     self.send_json_response(400, {"error": "Failed to start download"})
             except Exception as e:
+                self.send_json_response(500, {"error": str(e)})
+        
+        elif self.path == "/api/text-encoder/download":
+            # Download just the text encoder
+            try:
+                if model_download_state["status"] == "downloading":
+                    self.send_json_response(409, {"error": "Download already in progress"})
+                    return
+                
+                # Check if already downloaded
+                text_encoder_path = GEMMA_PATH / "text_encoder"
+                if text_encoder_path.exists() and any(text_encoder_path.iterdir()):
+                    self.send_json_response(200, {"status": "already_downloaded", "message": "Text encoder already downloaded"})
+                    return
+                
+                # Start download in background
+                def download_text_encoder():
+                    global model_download_state
+                    try:
+                        with model_download_lock:
+                            model_download_state["status"] = "downloading"
+                            model_download_state["current_file"] = "text_encoder"
+                            model_download_state["total_files"] = 1
+                            model_download_state["files_completed"] = 0
+                            model_download_state["total_bytes"] = 8_000_000_000
+                            model_download_state["downloaded_bytes"] = 0
+                        
+                        logger.info("Downloading text encoder (~8 GB)...")
+                        from huggingface_hub import snapshot_download
+                        snapshot_download(
+                            repo_id="Lightricks/LTX-2",
+                            allow_patterns=["text_encoder/*"],
+                            local_dir=MODELS_DIR,
+                            local_dir_use_symlinks=False,
+                        )
+                        _rename_text_encoder_files(MODELS_DIR / "text_encoder")
+                        
+                        with model_download_lock:
+                            model_download_state["status"] = "complete"
+                            model_download_state["total_progress"] = 100
+                            model_download_state["files_completed"] = 1
+                        logger.info("Text encoder download complete!")
+                    except Exception as e:
+                        logger.error(f"Text encoder download failed: {e}")
+                        with model_download_lock:
+                            model_download_state["status"] = "error"
+                            model_download_state["error"] = str(e)
+                
+                thread = threading.Thread(target=download_text_encoder, daemon=True)
+                thread.start()
+                self.send_json_response(200, {"status": "started", "message": "Text encoder download started"})
+            except Exception as e:
+                self.send_json_response(500, {"error": str(e)})
+        
+        elif self.path == "/api/enhance-prompt":
+            # Enhance prompt using Gemini API
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length).decode('utf-8')
+                data = json.loads(body) if body else {}
+                
+                prompt = data.get("prompt", "").strip()
+                mode = data.get("mode", "t2v")  # t2v, i2v, or t2i
+                
+                if not prompt:
+                    self.send_json_response(400, {"error": "Prompt is required"})
+                    return
+                
+                # Skip enhancement for T2I mode
+                if mode == "t2i":
+                    self.send_json_response(200, {
+                        "status": "success",
+                        "enhanced_prompt": prompt,
+                        "skipped": True,
+                        "reason": "Prompt enhancement disabled for image generation"
+                    })
+                    return
+                
+                # Check if enhancer is enabled
+                if not app_settings.get("prompt_enhancer_enabled", True):
+                    # Return original prompt if enhancer is disabled
+                    self.send_json_response(200, {
+                        "status": "success",
+                        "enhanced_prompt": prompt,
+                        "skipped": True,
+                        "reason": "Prompt enhancer is disabled"
+                    })
+                    return
+                
+                # Check for Gemini API key
+                gemini_api_key = app_settings.get("gemini_api_key", "")
+                if not gemini_api_key:
+                    self.send_json_response(400, {
+                        "error": "GEMINI_API_KEY_MISSING",
+                        "message": "Gemini API key is required for prompt enhancement. Add it in Settings or disable the prompt enhancer."
+                    })
+                    return
+                
+                # Select system prompt based on mode
+                if mode == "i2v":
+                    system_prompt = app_settings.get("i2v_system_prompt", DEFAULT_I2V_SYSTEM_PROMPT)
+                else:  # t2v is default
+                    system_prompt = app_settings.get("t2v_system_prompt", DEFAULT_T2V_SYSTEM_PROMPT)
+                
+                logger.info(f"Enhancing prompt ({mode}): {prompt[:50]}...")
+                
+                # Call Gemini API
+                gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_api_key}"
+                
+                gemini_payload = {
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": prompt}]
+                        }
+                    ],
+                    "systemInstruction": {
+                        "parts": [{"text": system_prompt}]
+                    },
+                    "generationConfig": {
+                        "temperature": 0.7,
+                        "maxOutputTokens": 1024
+                    }
+                }
+                
+                response = requests.post(
+                    gemini_url,
+                    headers={"Content-Type": "application/json"},
+                    json=gemini_payload,
+                    timeout=30
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"Gemini API error: {response.status_code} - {response.text}")
+                    self.send_json_response(response.status_code, {
+                        "error": "GEMINI_API_ERROR",
+                        "message": f"Gemini API error: {response.text}"
+                    })
+                    return
+                
+                result = response.json()
+                
+                # Extract enhanced prompt from response
+                try:
+                    enhanced_prompt = result["candidates"][0]["content"]["parts"][0]["text"]
+                    logger.info(f"Prompt enhanced successfully: {enhanced_prompt[:50]}...")
+                    self.send_json_response(200, {
+                        "status": "success",
+                        "enhanced_prompt": enhanced_prompt,
+                        "original_prompt": prompt
+                    })
+                except (KeyError, IndexError) as e:
+                    logger.error(f"Failed to parse Gemini response: {e}")
+                    self.send_json_response(500, {
+                        "error": "GEMINI_PARSE_ERROR",
+                        "message": "Failed to parse Gemini API response"
+                    })
+                    
+            except requests.exceptions.Timeout:
+                self.send_json_response(504, {"error": "Gemini API request timed out"})
+            except Exception as e:
+                logger.error(f"Prompt enhancement error: {e}")
                 self.send_json_response(500, {"error": str(e)})
         
         elif self.path == "/api/generate":
@@ -1883,44 +2280,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 duration = int(get_form_value('duration', '2'))
                 fps = int(get_form_value('fps', '24'))
                 
-                # Check if upscaler is disabled for each model
-                with settings_lock:
-                    fast_settings = app_settings.get("fast_model", {"steps": 8, "use_upscaler": True})
-                    pro_settings = app_settings.get("pro_model", {"steps": 20, "use_upscaler": True})
+                # Pipeline selection based on resolution:
+                # - 540p and 720p: native pipeline (single pass, no upsampler)
+                # - 1080p: 2-stage pipeline (540p first pass + upsampler to 1080p)
+                use_upsampler = resolution == "1080p"
                 
-                fast_use_upscaler = fast_settings.get("use_upscaler", True)
-                pro_use_upscaler = pro_settings.get("use_upscaler", True)
-                
-                # If upscaler disabled, switch to native pipeline
-                if model_type == "fast" and not fast_use_upscaler:
-                    model_type = "fast-native"
-                    logger.info("Fast model with upscaler disabled - using fast-native pipeline")
-                elif model_type == "pro" and not pro_use_upscaler:
-                    model_type = "pro-native"
-                    logger.info("Pro model with upscaler disabled - using pro-native pipeline")
-                
-                # Determine if we're using native resolution (no upscaler)
-                use_native_resolution = model_type in ("fast-native", "pro-native")
-                
-                # Resolution mapping depends on whether upscaler is used
-                # With upscaler: pass HALF resolution (upscales 2x)
-                # Native: pass FULL resolution (no upscaling)
-                # Dimensions must be divisible by 32
-                if use_native_resolution:
-                    # Full resolution for native/single-stage
-                    resolution_map = {
-                        "1080p": (1920, 1088),  # Full 1080p (height rounded to 32)
-                        "720p": (1280, 704),    # Full 720p (height rounded to 32)
-                        "480p": (768, 512),     # Full 480p
-                    }
+                if not use_upsampler:
+                    # Switch to native pipeline for 540p and 720p
+                    if model_type == "fast":
+                        model_type = "fast-native"
+                        logger.info(f"Resolution {resolution} - using fast-native pipeline (no upsampler)")
+                    elif model_type == "pro":
+                        model_type = "pro-native"
+                        logger.info(f"Resolution {resolution} - using pro-native pipeline (no upsampler)")
                 else:
-                    # Half resolution for 2-stage pipelines (upscales 2x)
-                    resolution_map = {
-                        "1080p": (960, 544),    # Stage1: 960x544 → Stage2: 1920x1088
-                        "720p": (640, 384),     # Stage1: 640x384 → Stage2: 1280x768 (~720p)
-                        "480p": (384, 256),     # Stage1: 384x256 → Stage2: 768x512
-                    }
-                width, height = resolution_map.get(resolution, (640, 384))
+                    logger.info(f"Resolution {resolution} - using 2-stage pipeline with upsampler")
+                
+                # Resolution mapping - all dimensions must be divisible by 32
+                # 540p/720p: direct output at target resolution
+                # 1080p: half resolution (upsampler doubles to final)
+                resolution_map = {
+                    "540p": (960, 544),     # Native 540p output (single pass)
+                    "720p": (1280, 704),    # Native 720p output (single pass)
+                    "1080p": (960, 544),    # Stage1: 960x544 → Stage2: 1920x1088 (with upsampler)
+                }
+                width, height = resolution_map.get(resolution, (960, 544))
                 
                 # Calculate frames (must be 8n+1 for LTX-2)
                 num_frames = ((duration * fps) // 8) * 8 + 1
@@ -1960,7 +2344,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     current_generation["status"] = "running"
                 
                 # Generate synchronously (fast - models stay loaded)
-                seed = int(time.time()) % 2147483647
+                # Use locked seed if enabled, otherwise random
+                if app_settings.get("seed_locked", False):
+                    seed = app_settings.get("locked_seed", 42)
+                    logger.info(f"Using locked seed: {seed}")
+                else:
+                    seed = int(time.time()) % 2147483647
                 output_path = generate_video(
                     prompt=prompt,
                     image=image,
@@ -2039,7 +2428,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     current_generation["status"] = "running"
                 
                 # Generate the image
-                seed = int(time.time()) % 2147483647
+                # Use locked seed if enabled, otherwise random
+                if app_settings.get("seed_locked", False):
+                    seed = app_settings.get("locked_seed", 42)
+                    logger.info(f"Using locked seed for image: {seed}")
+                else:
+                    seed = int(time.time()) % 2147483647
                 output_path = generate_image(
                     prompt=prompt,
                     width=width,
@@ -2110,6 +2504,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             else:
                                 logger.info("LTX API key removed - text encoding will use local encoder (~23s)")
                     
+                    if 'useLocalTextEncoder' in data:
+                        old_value = app_settings.get("use_local_text_encoder", False)
+                        app_settings["use_local_text_encoder"] = bool(data['useLocalTextEncoder'])
+                        if old_value != app_settings["use_local_text_encoder"]:
+                            if app_settings["use_local_text_encoder"]:
+                                logger.info("Switched to local text encoder")
+                            else:
+                                logger.info("Switched to LTX API for text encoding")
+                    
                     if 'fastModel' in data and isinstance(data['fastModel'], dict):
                         new_settings = {
                             'steps': int(data['fastModel'].get('steps', 8)),
@@ -2137,6 +2540,48 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                 oldest_key = next(iter(_prompt_embeddings_cache))
                                 del _prompt_embeddings_cache[oldest_key]
                             logger.info(f"Prompt cache size set to {new_size}")
+                    
+                    # Prompt Enhancer settings
+                    if 'promptEnhancerEnabled' in data:
+                        old_value = app_settings.get("prompt_enhancer_enabled", True)
+                        app_settings["prompt_enhancer_enabled"] = bool(data['promptEnhancerEnabled'])
+                        if old_value != app_settings["prompt_enhancer_enabled"]:
+                            if app_settings["prompt_enhancer_enabled"]:
+                                logger.info("Prompt enhancer enabled")
+                            else:
+                                logger.info("Prompt enhancer disabled")
+                    
+                    if 'geminiApiKey' in data:
+                        old_key = app_settings.get("gemini_api_key", "")
+                        app_settings["gemini_api_key"] = str(data['geminiApiKey'])
+                        if old_key != app_settings["gemini_api_key"]:
+                            if app_settings["gemini_api_key"]:
+                                logger.info("Gemini API key configured for prompt enhancement")
+                            else:
+                                logger.info("Gemini API key removed")
+                    
+                    if 't2vSystemPrompt' in data:
+                        app_settings["t2v_system_prompt"] = str(data['t2vSystemPrompt'])
+                        logger.info("T2V system prompt updated")
+                    
+                    if 'i2vSystemPrompt' in data:
+                        app_settings["i2v_system_prompt"] = str(data['i2vSystemPrompt'])
+                        logger.info("I2V system prompt updated")
+                    
+                    # Seed settings
+                    if 'seedLocked' in data:
+                        old_value = app_settings.get("seed_locked", False)
+                        app_settings["seed_locked"] = bool(data['seedLocked'])
+                        if old_value != app_settings["seed_locked"]:
+                            if app_settings["seed_locked"]:
+                                logger.info(f"Seed locked to {app_settings.get('locked_seed', 42)}")
+                            else:
+                                logger.info("Seed unlocked (random)")
+                    
+                    if 'lockedSeed' in data:
+                        app_settings["locked_seed"] = int(data['lockedSeed'])
+                        if app_settings.get("seed_locked", False):
+                            logger.info(f"Locked seed updated to {app_settings['locked_seed']}")
                 
                 # Persist settings to disk
                 save_settings()
@@ -2145,6 +2590,186 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 logger.error(f"Failed to update settings: {e}")
                 self.send_json_response(500, {"error": str(e)})
+        
+        elif self.path == "/api/upscale":
+            # Upscale video to 4K using LTX API
+            try:
+                content_type = self.headers.get('Content-Type')
+                ctype, pdict = cgi.parse_header(content_type)
+                
+                if ctype == 'multipart/form-data':
+                    pdict['boundary'] = pdict['boundary'].encode()
+                    content_len = int(self.headers.get('Content-Length'))
+                    form_data = cgi.parse_multipart(BytesIO(self.rfile.read(content_len)), pdict)
+                    
+                    video_path = form_data.get('video_path', [None])[0]
+                    if isinstance(video_path, bytes):
+                        video_path = video_path.decode('utf-8')
+                    
+                    width = int(form_data.get('width', [3840])[0])
+                    height = int(form_data.get('height', [2160])[0])
+                else:
+                    content_len = int(self.headers.get('Content-Length', 0))
+                    body = self.rfile.read(content_len).decode('utf-8')
+                    data = json.loads(body)
+                    video_path = data.get('video_path')
+                    width = data.get('width', 3840)
+                    height = data.get('height', 2160)
+                
+                if not video_path:
+                    self.send_json_response(400, {"error": "Missing video_path parameter"})
+                    return
+                
+                video_file = Path(video_path)
+                if not video_file.exists():
+                    self.send_json_response(400, {"error": f"Video file not found: {video_path}"})
+                    return
+                
+                # Get video dimensions and duration using av
+                try:
+                    import av
+                    with av.open(str(video_file)) as container:
+                        stream = container.streams.video[0]
+                        original_width = stream.width
+                        original_height = stream.height
+                        video_duration = float(stream.duration * stream.time_base)
+                except Exception as e:
+                    logger.warning(f"Could not get video info: {e}, using defaults")
+                    original_width = 1280
+                    original_height = 720
+                    video_duration = 5.0
+                
+                # Calculate target resolution: always 2x the original
+                # Model generates at: 960x540 → 1920x1080, 1280x704 → 2560x1408
+                target_width = original_width * 2
+                target_height = original_height * 2
+                
+                # Ensure even dimensions (required for video encoding)
+                target_width = target_width if target_width % 2 == 0 else target_width + 1
+                target_height = target_height if target_height % 2 == 0 else target_height + 1
+                
+                logger.info(f"Upscaling video: {video_path}")
+                logger.info(f"Original: {original_width}x{original_height} -> Target: {target_width}x{target_height}")
+                
+                # Call LTX upscale API (production endpoint)
+                upscale_url = "https://cf.res.lightricks.com/v2/api/ltx2-edit/predict-sync"
+                
+                headers = {
+                    "x-lightricks-api-key": "Sp6MeaxIkqs8rIUBNcV3OqdjmosPLfbqzqFFm8tN4fQHOXLcDzUTKbDbqqrSnBp2",
+                    "x-app-id": "ltxv-api",
+                    "x-platform": "backend",
+                    "x-client-user-id": f"ltx-desktop-{uuid.uuid4().hex[:8]}",
+                    "x-lightricks-org-id": "montage-pro",
+                    "x-request-id": f"upscale-{uuid.uuid4().hex}"
+                }
+                
+                params = {
+                    "upscale_only_mode": True,
+                    "width": target_width,
+                    "height": target_height,
+                    "mask_end_time": video_duration
+                }
+                
+                logger.info(f"Sending to upscale API with params: {params}")
+                
+                with open(video_file, 'rb') as f:
+                    video_content = f.read()
+                
+                # Use files dict for multipart - params as text field, video as file
+                # Format: (filename, content, content_type) or (None, value) for text fields
+                files_payload = [
+                    ('params', (None, json.dumps(params))),
+                    ('input_video', (video_file.name, video_content, 'video/mp4'))
+                ]
+                
+                response = requests.post(
+                    upscale_url, 
+                    headers=headers, 
+                    files=files_payload,
+                    timeout=300
+                )
+                
+                logger.info(f"Upscale API response status: {response.status_code}")
+                logger.info(f"Upscale API response headers: {dict(response.headers)}")
+                
+                # Log raw response for debugging
+                raw_response = response.text[:1000] if response.text else "(empty)"
+                logger.info(f"Upscale API raw response: {raw_response}")
+                
+                if response.status_code == 200:
+                    # Check if response is empty
+                    if not response.text or not response.text.strip():
+                        logger.error("Upscale API returned empty response")
+                        self.send_json_response(500, {"error": "Upscale API returned empty response"})
+                        return
+                    
+                    # Try to parse JSON
+                    try:
+                        result = response.json()
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse upscale response as JSON: {e}")
+                        # Maybe it's returning the video directly?
+                        content_type = response.headers.get('Content-Type', '')
+                        if 'video' in content_type:
+                            # Save directly as video
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            unique_id = uuid.uuid4().hex[:8]
+                            upscaled_filename = f"upscaled_{timestamp}_{unique_id}.mp4"
+                            upscaled_path = OUTPUTS_DIR / upscaled_filename
+                            with open(upscaled_path, 'wb') as f:
+                                f.write(response.content)
+                            logger.info(f"Saved upscaled video directly: {upscaled_path}")
+                            self.send_json_response(200, {
+                                "status": "complete",
+                                "upscaled_path": str(upscaled_path)
+                            })
+                            return
+                        self.send_json_response(500, {"error": f"Invalid response format: {response.text[:200]}"})
+                        return
+                    
+                    # Check if the response contains a video URL
+                    if 'output_video' in result or 'video_url' in result or 'result' in result:
+                        video_url = result.get('output_video') or result.get('video_url') or result.get('result', {}).get('video_url')
+                        
+                        if video_url:
+                            # Download the upscaled video
+                            upscaled_response = requests.get(video_url, timeout=120)
+                            if upscaled_response.status_code == 200:
+                                # Save to outputs folder
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                output_filename = f"upscaled_{timestamp}_{uuid.uuid4().hex[:8]}.mp4"
+                                output_path = str(OUTPUT_DIR / output_filename)
+                                
+                                with open(output_path, 'wb') as out_f:
+                                    out_f.write(upscaled_response.content)
+                                
+                                logger.info(f"Upscaled video saved to: {output_path}")
+                                self.send_json_response(200, {
+                                    "status": "complete",
+                                    "video_path": output_path,
+                                    "width": target_width,
+                                    "height": target_height
+                                })
+                            else:
+                                self.send_json_response(500, {"error": f"Failed to download upscaled video: {upscaled_response.status_code}"})
+                        else:
+                            # Maybe the response has the video data directly
+                            logger.info(f"Upscale API response keys: {result.keys()}")
+                            self.send_json_response(200, {"status": "complete", "result": result})
+                    else:
+                        logger.info(f"Upscale API response: {result}")
+                        self.send_json_response(200, {"status": "complete", "result": result})
+                else:
+                    error_text = response.text[:500] if response.text else "Unknown error"
+                    logger.error(f"Upscale API error: {response.status_code} - {error_text}")
+                    self.send_json_response(response.status_code, {"error": f"Upscale API error: {error_text}"})
+                    
+            except Exception as e:
+                logger.error(f"Upscale error: {e}")
+                import traceback
+                traceback.print_exc()
+                self.send_json_response(500, {"error": str(e)})
+        
         else:
             self.send_response(404)
             self.end_headers()

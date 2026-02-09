@@ -359,10 +359,15 @@ ipcMain.handle('get-models-status', async () => {
   }
 })
 
-ipcMain.handle('start-model-download', async () => {
+ipcMain.handle('start-model-download', async (_event, options: { skipTextEncoder?: boolean; ltxApiKey?: string } = {}) => {
   try {
     const response = await fetch(`http://localhost:${PYTHON_PORT}/api/models/download`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skipTextEncoder: options.skipTextEncoder || false,
+        ltxApiKey: options.ltxApiKey || '',
+      }),
     })
     return await response.json()
   } catch (error) {

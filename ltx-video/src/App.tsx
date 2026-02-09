@@ -17,8 +17,8 @@ import { useBackend } from './hooks/use-backend'
 
 const DEFAULT_SETTINGS: GenerationSettings = {
   model: 'fast',
-  duration: 6,
-  resolution: '720p',
+  duration: 5,
+  resolution: '540p',
   fps: 24,
   audio: false,
   cameraMotion: 'none',
@@ -32,9 +32,18 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   useTorchCompile: false, // Disabled by default - can cause long compile times
   loadOnStartup: false, // Lazy loading - models load on first generation
   ltxApiKey: '', // LTX API key for fast text encoding
+  useLocalTextEncoder: false, // Use LTX API by default (faster, requires key)
   fastModel: { steps: 8, useUpscaler: true },
   proModel: { steps: 20, useUpscaler: true },
   promptCacheSize: 100, // Cache up to 100 prompt embeddings to skip API calls
+  // Prompt Enhancer settings
+  promptEnhancerEnabled: true, // Prompt enhancer on by default
+  geminiApiKey: '', // Gemini API key for prompt enhancement
+  t2vSystemPrompt: '', // Empty means use default (stored in backend)
+  i2vSystemPrompt: '', // Empty means use default (stored in backend)
+  // Seed settings
+  seedLocked: false, // Random seed by default
+  lockedSeed: 42, // Default seed value when locked
 }
 
 export default function App() {
@@ -43,6 +52,7 @@ export default function App() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [settings, setSettings] = useState<GenerationSettings>(DEFAULT_SETTINGS)
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
+  const [settingsLoaded, setSettingsLoaded] = useState(false)  // Track if settings have been loaded
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isLogViewerOpen, setIsLogViewerOpen] = useState(false)
   const [isFirstRun, setIsFirstRun] = useState<boolean | null>(null)
@@ -76,20 +86,35 @@ export default function App() {
             useTorchCompile: data.useTorchCompile ?? DEFAULT_APP_SETTINGS.useTorchCompile,
             loadOnStartup: data.loadOnStartup ?? DEFAULT_APP_SETTINGS.loadOnStartup,
             ltxApiKey: data.ltxApiKey ?? DEFAULT_APP_SETTINGS.ltxApiKey,
+            useLocalTextEncoder: data.useLocalTextEncoder ?? DEFAULT_APP_SETTINGS.useLocalTextEncoder,
             fastModel: data.fastModel ?? DEFAULT_APP_SETTINGS.fastModel,
             proModel: data.proModel ?? DEFAULT_APP_SETTINGS.proModel,
             promptCacheSize: data.promptCacheSize ?? DEFAULT_APP_SETTINGS.promptCacheSize,
+            // Prompt Enhancer settings
+            promptEnhancerEnabled: data.promptEnhancerEnabled ?? DEFAULT_APP_SETTINGS.promptEnhancerEnabled,
+            geminiApiKey: data.geminiApiKey ?? DEFAULT_APP_SETTINGS.geminiApiKey,
+            t2vSystemPrompt: data.t2vSystemPrompt ?? DEFAULT_APP_SETTINGS.t2vSystemPrompt,
+            i2vSystemPrompt: data.i2vSystemPrompt ?? DEFAULT_APP_SETTINGS.i2vSystemPrompt,
+            // Seed settings
+            seedLocked: data.seedLocked ?? DEFAULT_APP_SETTINGS.seedLocked,
+            lockedSeed: data.lockedSeed ?? DEFAULT_APP_SETTINGS.lockedSeed,
           })
         }
       } catch (e) {
         console.error('Failed to fetch settings:', e)
+      } finally {
+        // Mark settings as loaded (even if fetch failed, we can now sync)
+        setSettingsLoaded(true)
       }
     }
     fetchSettings()
   }, [])
   
-  // Sync app settings with backend
+  // Sync app settings with backend (only after initial load)
   useEffect(() => {
+    // Don't sync until we've loaded settings from backend first
+    if (!settingsLoaded) return
+    
     const syncSettings = async () => {
       try {
         const backendUrl = await window.electronAPI.getBackendUrl()
@@ -101,8 +126,18 @@ export default function App() {
             useTorchCompile: appSettings.useTorchCompile,
             loadOnStartup: appSettings.loadOnStartup,
             ltxApiKey: appSettings.ltxApiKey,
+            useLocalTextEncoder: appSettings.useLocalTextEncoder,
             fastModel: appSettings.fastModel,
             proModel: appSettings.proModel,
+            promptCacheSize: appSettings.promptCacheSize,
+            // Prompt Enhancer settings
+            promptEnhancerEnabled: appSettings.promptEnhancerEnabled,
+            geminiApiKey: appSettings.geminiApiKey,
+            t2vSystemPrompt: appSettings.t2vSystemPrompt,
+            i2vSystemPrompt: appSettings.i2vSystemPrompt,
+            // Seed settings
+            seedLocked: appSettings.seedLocked,
+            lockedSeed: appSettings.lockedSeed,
           }),
         })
       } catch (e) {
@@ -110,7 +145,7 @@ export default function App() {
       }
     }
     syncSettings()
-  }, [appSettings])
+  }, [appSettings, settingsLoaded])
   
   // Handle mode change
   const handleModeChange = (newMode: GenerationMode) => {
@@ -124,6 +159,7 @@ export default function App() {
     progress, 
     statusMessage, 
     videoUrl,
+    videoPath,
     imageUrl, 
     error: generationError,
     generate,
@@ -324,8 +360,36 @@ export default function App() {
 
             {/* Error Display */}
             {generationError && (
-              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
-                {generationError}
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm">
+                {generationError.includes('TEXT_ENCODING_NOT_CONFIGURED') ? (
+                  <div className="space-y-2">
+                    <p className="text-red-400 font-medium">Text encoding not configured</p>
+                    <p className="text-red-400/80">
+                      To generate videos, you need to set up text encoding in Settings.
+                    </p>
+                    <button
+                      onClick={() => setIsSettingsOpen(true)}
+                      className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs font-medium transition-colors"
+                    >
+                      Open Settings
+                    </button>
+                  </div>
+                ) : generationError.includes('TEXT_ENCODER_NOT_DOWNLOADED') ? (
+                  <div className="space-y-2">
+                    <p className="text-red-400 font-medium">Text encoder not downloaded</p>
+                    <p className="text-red-400/80">
+                      The local text encoder needs to be downloaded (~8 GB).
+                    </p>
+                    <button
+                      onClick={() => setIsSettingsOpen(true)}
+                      className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs font-medium transition-colors"
+                    >
+                      Download in Settings
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-red-400">{generationError}</span>
+                )}
               </div>
             )}
 
@@ -385,6 +449,8 @@ export default function App() {
           ) : (
             <VideoPlayer
               videoUrl={videoUrl}
+              videoPath={videoPath}
+              videoResolution={settings.resolution}
               isGenerating={isGenerating}
               progress={progress}
               statusMessage={statusMessage}

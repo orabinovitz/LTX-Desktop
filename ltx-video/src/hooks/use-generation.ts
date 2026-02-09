@@ -6,6 +6,7 @@ interface GenerationState {
   progress: number
   statusMessage: string
   videoUrl: string | null
+  videoPath: string | null  // Original file path for upscaling
   imageUrl: string | null
   error: string | null
 }
@@ -49,6 +50,7 @@ export function useGeneration(): UseGenerationReturn {
     progress: 0,
     statusMessage: '',
     videoUrl: null,
+    videoPath: null,
     imageUrl: null,
     error: null,
   })
@@ -61,15 +63,12 @@ export function useGeneration(): UseGenerationReturn {
     settings: GenerationSettings
   ) => {
     // Reset state - show different message if using Pro model (may need to load)
-    const statusMsg = settings.model === 'pro' 
-      ? 'Loading Pro model & generating...' 
-      : 'Generating video...'
-    
     setState({
       isGenerating: true,
       progress: 0,
-      statusMessage: statusMsg,
+      statusMessage: 'Enhancing prompt...',
       videoUrl: null,
+      videoPath: null,
       imageUrl: null,
       error: null,
     })
@@ -80,9 +79,48 @@ export function useGeneration(): UseGenerationReturn {
       // Get backend URL from Electron
       const backendUrl = await window.electronAPI.getBackendUrl()
 
+      // Step 1: Enhance prompt (if enabled) - determine mode based on whether image is provided
+      const enhanceMode = image ? 'i2v' : 't2v'
+      let finalPrompt = prompt
+      try {
+        const enhanceResponse = await fetch(`${backendUrl}/api/enhance-prompt`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, mode: enhanceMode }),
+          signal: abortControllerRef.current.signal,
+        })
+        
+        if (enhanceResponse.ok) {
+          const enhanceResult = await enhanceResponse.json()
+          if (enhanceResult.status === 'success' && enhanceResult.enhanced_prompt) {
+            finalPrompt = enhanceResult.enhanced_prompt
+            console.log(`Prompt enhanced (${enhanceMode}):`, finalPrompt.substring(0, 100) + '...')
+          }
+          // If skipped or no enhanced_prompt, use original
+        } else {
+          // Check for missing API key error
+          const errorData = await enhanceResponse.json().catch(() => ({}))
+          if (errorData.error === 'GEMINI_API_KEY_MISSING') {
+            // Prompt enhancer enabled but no API key - use original prompt
+            console.log('Prompt enhancement skipped: no Gemini API key')
+          } else {
+            console.warn('Prompt enhancement failed, using original:', errorData)
+          }
+        }
+      } catch (enhanceError) {
+        // If enhancement fails, continue with original prompt
+        console.warn('Prompt enhancement error, using original:', enhanceError)
+      }
+      
+      // Update status for video generation
+      const statusMsg = settings.model === 'pro' 
+        ? 'Loading Pro model & generating...' 
+        : 'Generating video...'
+      setState(prev => ({ ...prev, statusMessage: statusMsg }))
+
       // Prepare form data
       const formData = new FormData()
-      formData.append('prompt', prompt)
+      formData.append('prompt', finalPrompt)
       formData.append('model', settings.model)
       formData.append('duration', String(settings.duration))
       formData.append('resolution', settings.resolution)
@@ -152,14 +190,15 @@ export function useGeneration(): UseGenerationReturn {
       
       if (result.status === 'complete' && result.video_path) {
         // Convert Windows path to proper file:// URL
-        const videoPath = result.video_path.replace(/\\/g, '/')
-        const fileUrl = videoPath.startsWith('/') ? `file://${videoPath}` : `file:///${videoPath}`
+        const videoPathNormalized = result.video_path.replace(/\\/g, '/')
+        const fileUrl = videoPathNormalized.startsWith('/') ? `file://${videoPathNormalized}` : `file:///${videoPathNormalized}`
         
         setState({
           isGenerating: false,
           progress: 100,
           statusMessage: 'Complete!',
           videoUrl: fileUrl,
+          videoPath: result.video_path,  // Keep original path for API calls
           imageUrl: null,
           error: null,
         })
@@ -220,6 +259,7 @@ export function useGeneration(): UseGenerationReturn {
       progress: 0,
       statusMessage: 'Generating image...',
       videoUrl: null,
+      videoPath: null,
       imageUrl: null,
       error: null,
     })
@@ -228,6 +268,9 @@ export function useGeneration(): UseGenerationReturn {
 
     try {
       const backendUrl = await window.electronAPI.getBackendUrl()
+
+      // Skip prompt enhancement for T2I - use original prompt directly
+      const finalPrompt = prompt
 
       // Aspect ratio to dimensions mapping for images (base size ~1024px on short side)
       const aspectRatioMap: Record<string, { width: number; height: number }> = {
@@ -270,7 +313,7 @@ export function useGeneration(): UseGenerationReturn {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt,
+          prompt: finalPrompt,
           width: dims.width,
           height: dims.height,
           numSteps,
@@ -296,6 +339,7 @@ export function useGeneration(): UseGenerationReturn {
           progress: 100,
           statusMessage: 'Complete!',
           videoUrl: null,
+          videoPath: null,
           imageUrl: fileUrl,
           error: null,
         })
@@ -332,6 +376,7 @@ export function useGeneration(): UseGenerationReturn {
       progress: 0,
       statusMessage: '',
       videoUrl: null,
+      videoPath: null,
       imageUrl: null,
       error: null,
     })

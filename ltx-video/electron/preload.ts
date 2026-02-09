@@ -33,8 +33,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Model management
   getModelsStatus: (): Promise<ModelsStatus> => ipcRenderer.invoke('get-models-status'),
-  startModelDownload: (): Promise<{ status: string; message?: string; error?: string }> => 
-    ipcRenderer.invoke('start-model-download'),
+  startModelDownload: (options?: { skipTextEncoder?: boolean; ltxApiKey?: string }): Promise<{ status: string; message?: string; error?: string; skippingTextEncoder?: boolean }> => 
+    ipcRenderer.invoke('start-model-download', options || {}),
   getModelDownloadProgress: (): Promise<ModelDownloadProgress> => 
     ipcRenderer.invoke('get-model-download-progress'),
   
@@ -102,7 +102,7 @@ declare global {
       completeSetup: () => Promise<boolean>
       openFolder: (folderPath: string) => Promise<void>
       getModelsStatus: () => Promise<ModelsStatus>
-      startModelDownload: () => Promise<{ status: string; message?: string; error?: string }>
+      startModelDownload: (options?: { skipTextEncoder?: boolean; ltxApiKey?: string }) => Promise<{ status: string; message?: string; error?: string; skippingTextEncoder?: boolean }>
       getModelDownloadProgress: () => Promise<ModelDownloadProgress>
       getLogs: () => Promise<LogsResponse>
       getLogPath: () => Promise<{ logPath: string; logDir: string }>

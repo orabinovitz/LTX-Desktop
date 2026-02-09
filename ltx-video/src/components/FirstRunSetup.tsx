@@ -66,6 +66,7 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
   const [installMessage, setInstallMessage] = useState(INSTALL_MESSAGES[0])
   const [availableSpace, setAvailableSpace] = useState('...')
   const [videoPath, setVideoPath] = useState('/splash/splash.mp4')
+  const [ltxApiKey, setLtxApiKey] = useState('')  // LTX API key for skipping text encoder
 
   // Get recommended model based on VRAM
   const getRecommendedModel = (vram?: number): 'ultimate' | 'pro' | 'light' => {
@@ -186,7 +187,25 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
   const startInstallation = async () => {
     setCurrentStep(3)
     try {
-      await window.electronAPI.startModelDownload()
+      // If API key is provided, save it to settings first and skip text encoder download
+      if (ltxApiKey.trim()) {
+        try {
+          const backendUrl = await window.electronAPI.getBackendUrl()
+          await fetch(`${backendUrl}/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ltxApiKey: ltxApiKey.trim() }),
+          })
+        } catch (e) {
+          console.error('Failed to save API key:', e)
+        }
+      }
+      
+      // Start download - skip text encoder if API key is provided
+      await window.electronAPI.startModelDownload({
+        skipTextEncoder: !!ltxApiKey.trim(),
+        ltxApiKey: ltxApiKey.trim(),
+      })
     } catch (e) {
       console.error('Download start error:', e)
     }
@@ -486,6 +505,54 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
                   <span>Required: <strong style={{ color: '#fff' }}>{MODEL_TIERS[selectedModel].size}</strong></span>
                   <span>Available: <strong style={{ color: '#fff' }}>{availableSpace}</strong></span>
                 </div>
+              </div>
+
+              {/* LTX API Key - Optional but saves ~8GB download */}
+              <div style={{
+                marginTop: 24,
+                background: '#2e3445',
+                borderRadius: 12,
+                padding: '14px 18px'
+              }}>
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#ffffff' }}>
+                    LTX API Key
+                    <span style={{ 
+                      fontSize: 11, 
+                      color: '#A98BD9', 
+                      marginLeft: 8,
+                      fontWeight: 400 
+                    }}>
+                      Optional - Saves ~8GB download
+                    </span>
+                  </label>
+                </div>
+                <input
+                  type="password"
+                  value={ltxApiKey}
+                  onChange={(e) => setLtxApiKey(e.target.value)}
+                  placeholder="Enter API key to skip text encoder download..."
+                  style={{
+                    width: '100%',
+                    background: '#1a1a1a',
+                    border: '1px solid #333',
+                    borderRadius: 8,
+                    padding: '12px 14px',
+                    color: '#ffffff',
+                    fontSize: 13,
+                    boxSizing: 'border-box'
+                  }}
+                />
+                <p style={{ fontSize: 11, color: '#888', marginTop: 8 }}>
+                  {ltxApiKey ? (
+                    <span style={{ color: '#6D28D9' }}>
+                      ✓ Text encoder download will be skipped (using API instead)
+                    </span>
+                  ) : (
+                    'If you have an LTX API key, entering it here skips the 8GB text encoder download. ' +
+                    'The API provides faster text encoding (~1s vs 23s local).'
+                  )}
+                </p>
               </div>
             </div>
           )}

@@ -114,7 +114,7 @@ export function SettingsPanel({ settings, onSettingsChange, disabled, mode = 'te
         >
           <option value="1080p">1080p</option>
           <option value="720p">720p</option>
-          <option value="480p">480p</option>
+          <option value="540p">540p</option>
         </Select>
 
         <Select
