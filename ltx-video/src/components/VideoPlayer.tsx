@@ -33,6 +33,11 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
   const [currentResolution, setCurrentResolution] = useState<string | null>(null)
   const [upscaledVideoUrl, setUpscaledVideoUrl] = useState<string | null>(null)
   const [showingUpscaled, setShowingUpscaled] = useState(false)
+  const [comparisonMode, setComparisonMode] = useState<'toggle' | 'curtain'>('toggle')
+  const [curtainPosition, setCurtainPosition] = useState(50) // Percentage from left
+  const [isDraggingCurtain, setIsDraggingCurtain] = useState(false)
+  const upscaledVideoRef = useRef<HTMLVideoElement>(null)
+  const curtainContainerRef = useRef<HTMLDivElement>(null)
   
   // Calculate upscale target resolution first (needed for displayedResolution)
   const upscaleTargetResolution = videoResolution === '540p' ? '1080p' : videoResolution === '720p' ? '1440p' : '2160p'
@@ -51,8 +56,66 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
       setHasBeenUpscaled(false) // Reset when new video is generated
       setUpscaledVideoUrl(null) // Clear upscaled version
       setShowingUpscaled(false)
+      setComparisonMode('toggle')
+      setCurtainPosition(50)
     }
   }, [videoResolution, videoUrl])
+  
+  // Sync upscaled video with original in curtain mode
+  useEffect(() => {
+    if (comparisonMode === 'curtain' && videoRef.current && upscaledVideoRef.current && upscaledVideoUrl) {
+      const originalVideo = videoRef.current
+      const upscaledVideo = upscaledVideoRef.current
+      
+      const syncVideos = () => {
+        if (Math.abs(originalVideo.currentTime - upscaledVideo.currentTime) > 0.1) {
+          upscaledVideo.currentTime = originalVideo.currentTime
+        }
+      }
+      
+      originalVideo.addEventListener('timeupdate', syncVideos)
+      originalVideo.addEventListener('play', () => upscaledVideo.play())
+      originalVideo.addEventListener('pause', () => upscaledVideo.pause())
+      originalVideo.addEventListener('seeked', () => {
+        upscaledVideo.currentTime = originalVideo.currentTime
+      })
+      
+      // Initial sync
+      upscaledVideo.currentTime = originalVideo.currentTime
+      upscaledVideo.muted = true // Mute upscaled to avoid double audio
+      if (isPlaying) {
+        upscaledVideo.play().catch(() => {})
+      }
+      
+      return () => {
+        originalVideo.removeEventListener('timeupdate', syncVideos)
+      }
+    }
+  }, [comparisonMode, upscaledVideoUrl, isPlaying])
+  
+  // Handle curtain drag
+  const handleCurtainDrag = useCallback((e: MouseEvent | React.MouseEvent) => {
+    if (!curtainContainerRef.current) return
+    const rect = curtainContainerRef.current.getBoundingClientRect()
+    const x = ('clientX' in e ? e.clientX : 0) - rect.left
+    const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100))
+    setCurtainPosition(percentage)
+  }, [])
+  
+  useEffect(() => {
+    if (isDraggingCurtain) {
+      const handleMouseMove = (e: MouseEvent) => handleCurtainDrag(e)
+      const handleMouseUp = () => setIsDraggingCurtain(false)
+      
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+      
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove)
+        window.removeEventListener('mouseup', handleMouseUp)
+      }
+    }
+  }, [isDraggingCurtain, handleCurtainDrag])
 
   // Track if this is a before/after toggle vs a new video
   const prevVideoUrlRef = useRef<string | null>(null)
@@ -282,51 +345,133 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
           <div className="w-full h-full flex flex-col">
             {/* Video container with hover overlay */}
             <div 
-              className="flex-1 flex items-center justify-center bg-black min-h-0 relative"
+              ref={curtainContainerRef}
+              className="flex-1 flex items-center justify-center bg-black min-h-0 relative overflow-hidden"
               onMouseEnter={() => setIsHovering(true)}
               onMouseLeave={() => setIsHovering(false)}
             >
-              <video
-                ref={videoRef}
-                src={displayedVideoUrl || undefined}
-                className="max-w-full max-h-full object-contain"
-                loop={isLooping}
-                playsInline
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-                onError={(e) => console.error('Video error:', e, 'URL:', displayedVideoUrl)}
-              />
+              {/* Normal video display (toggle mode or no upscale) */}
+              {(!hasBeenUpscaled || !upscaledVideoUrl || comparisonMode === 'toggle') && (
+                <video
+                  ref={videoRef}
+                  src={displayedVideoUrl || undefined}
+                  className="max-w-full max-h-full object-contain"
+                  loop={isLooping}
+                  playsInline
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onError={(e) => console.error('Video error:', e, 'URL:', displayedVideoUrl)}
+                />
+              )}
               
-              {/* Resolution badge */}
-              {displayedResolution && (
+              {/* Curtain comparison mode */}
+              {hasBeenUpscaled && upscaledVideoUrl && comparisonMode === 'curtain' && (
+                <div className="relative w-full h-full flex items-center justify-center">
+                  {/* Original video (left side) - scaled to fill container */}
+                  <video
+                    ref={videoRef}
+                    src={videoUrl || undefined}
+                    className="absolute w-full h-full object-contain"
+                    style={{ clipPath: `inset(0 ${100 - curtainPosition}% 0 0)` }}
+                    loop={isLooping}
+                    playsInline
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                  />
+                  
+                  {/* Upscaled video (right side) - scaled to fill container */}
+                  <video
+                    ref={upscaledVideoRef}
+                    src={upscaledVideoUrl}
+                    className="absolute w-full h-full object-contain"
+                    style={{ clipPath: `inset(0 0 0 ${curtainPosition}%)` }}
+                    loop={isLooping}
+                    playsInline
+                    muted
+                  />
+                  
+                  {/* Curtain divider */}
+                  <div
+                    className="absolute top-0 bottom-0 w-1 bg-white cursor-ew-resize z-10 shadow-lg"
+                    style={{ left: `${curtainPosition}%`, transform: 'translateX(-50%)' }}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      setIsDraggingCurtain(true)
+                    }}
+                  >
+                    {/* Handle */}
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-lg">
+                      <span className="text-zinc-800 text-xs font-bold">↔</span>
+                    </div>
+                  </div>
+                  
+                  {/* Labels */}
+                  <div className="absolute bottom-4 left-4 bg-black/70 px-2 py-1 rounded text-xs font-medium text-white">
+                    {videoResolution} (Before)
+                  </div>
+                  <div className="absolute bottom-4 right-4 bg-black/70 px-2 py-1 rounded text-xs font-medium text-white">
+                    {upscaleTargetResolution} (After)
+                  </div>
+                </div>
+              )}
+              
+              {/* Resolution badge (only in toggle mode) */}
+              {comparisonMode === 'toggle' && displayedResolution && (
                 <div className="absolute top-3 left-3 bg-black/70 px-2 py-1 rounded text-xs font-medium text-white">
                   {displayedResolution}
                 </div>
               )}
               
-              {/* Before/After toggle when upscaled version is available */}
-              {hasBeenUpscaled && upscaledVideoUrl && (
-                <div className="absolute top-3 right-3 flex bg-black/70 rounded overflow-hidden">
+              {/* Comparison controls when upscaled version is available */}
+              {hasBeenUpscaled && upscaledVideoUrl && comparisonMode === 'toggle' && (
+                <div className="absolute top-3 right-3 flex gap-2">
+                  {/* Mode switcher */}
                   <button
-                    onClick={() => setShowingUpscaled(false)}
-                    className={`px-3 py-1 text-xs font-medium transition-colors ${
-                      !showingUpscaled 
-                        ? 'bg-violet-600 text-white' 
-                        : 'text-zinc-400 hover:text-white'
-                    }`}
+                    onClick={() => setComparisonMode('curtain')}
+                    className="bg-black/70 px-2 py-1 rounded text-xs font-medium text-zinc-400 hover:text-white transition-colors"
+                    title="Switch to curtain comparison"
                   >
-                    Before
+                    ↔
                   </button>
+                  {/* Before/After toggle */}
+                  <div className="flex bg-black/70 rounded overflow-hidden">
+                    <button
+                      onClick={() => setShowingUpscaled(false)}
+                      className={`px-3 py-1 text-xs font-medium transition-colors ${
+                        !showingUpscaled 
+                          ? 'bg-violet-600 text-white' 
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      Before
+                    </button>
+                    <button
+                      onClick={() => setShowingUpscaled(true)}
+                      className={`px-3 py-1 text-xs font-medium transition-colors ${
+                        showingUpscaled 
+                          ? 'bg-violet-600 text-white' 
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      After
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              {/* Curtain mode controls */}
+              {hasBeenUpscaled && upscaledVideoUrl && comparisonMode === 'curtain' && (
+                <div className="absolute top-3 right-3 flex gap-2">
                   <button
-                    onClick={() => setShowingUpscaled(true)}
-                    className={`px-3 py-1 text-xs font-medium transition-colors ${
-                      showingUpscaled 
-                        ? 'bg-violet-600 text-white' 
-                        : 'text-zinc-400 hover:text-white'
-                    }`}
+                    onClick={() => setComparisonMode('toggle')}
+                    className="bg-black/70 px-2 py-1 rounded text-xs font-medium text-zinc-400 hover:text-white transition-colors"
+                    title="Switch to toggle comparison"
                   >
-                    After
+                    ⇄
                   </button>
+                  <div className="bg-black/70 px-3 py-1 rounded text-xs font-medium text-white">
+                    Drag to compare
+                  </div>
                 </div>
               )}
               
