@@ -2,29 +2,33 @@ import { cn } from '@/lib/utils'
 
 export type GenerationMode = 'text-to-video' | 'image-to-video' | 'text-to-image'
 
+// Simplified tab modes shown in the UI
+type TabMode = 'video' | 'text-to-image'
+
 interface ModeTabsProps {
   mode: GenerationMode
   onModeChange: (mode: GenerationMode) => void
   disabled?: boolean
 }
 
-const tabs: { id: GenerationMode; label: string }[] = [
-  { id: 'text-to-video', label: 'Text-to-Video' },
-  { id: 'image-to-video', label: 'Image-to-Video' },
-  { id: 'text-to-image', label: 'Text-to-Image' },
+const tabs: { id: TabMode; label: string; genMode: GenerationMode }[] = [
+  { id: 'video', label: 'Video', genMode: 'text-to-video' },
+  { id: 'text-to-image', label: 'Image', genMode: 'text-to-image' },
 ]
 
 export function ModeTabs({ mode, onModeChange, disabled }: ModeTabsProps) {
+  const activeTab: TabMode = mode === 'text-to-image' ? 'text-to-image' : 'video'
+  
   return (
     <div className="flex">
       {tabs.map((tab, index) => (
         <button
           key={tab.id}
-          onClick={() => !disabled && onModeChange(tab.id)}
+          onClick={() => !disabled && onModeChange(tab.genMode)}
           disabled={disabled}
           className={cn(
             'px-4 py-1.5 text-sm font-medium transition-all',
-            mode === tab.id
+            activeTab === tab.id
               ? 'text-violet-400'
               : 'text-zinc-500 hover:text-zinc-300',
             disabled && 'opacity-50 cursor-not-allowed',

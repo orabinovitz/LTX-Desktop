@@ -11,6 +11,7 @@ export interface GenerationSettings {
   // Image-specific settings
   imageAspectRatio: string
   imageSteps: number
+  variations?: number  // Number of image variations to generate
 }
 
 interface SettingsPanelProps {

@@ -48,6 +48,7 @@ interface Window {
     checkFirstRun: () => Promise<boolean>
     completeSetup: () => Promise<boolean>
     openFolder: (folderPath: string) => Promise<void>
+    showItemInFolder: (filePath: string) => Promise<void>
     getModelsStatus: () => Promise<ModelsStatus>
     startModelDownload: (options?: { skipTextEncoder?: boolean; ltxApiKey?: string }) => Promise<{ status: string; message?: string; error?: string; skippingTextEncoder?: boolean }>
     getModelDownloadProgress: () => Promise<ModelDownloadProgress>
@@ -55,6 +56,15 @@ interface Window {
     getLogPath: () => Promise<{ logPath: string; logDir: string }>
     openLogFolder: () => Promise<boolean>
     getResourcePath: () => Promise<string | null>
+    showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>
+    saveFile: (filePath: string, data: string, encoding?: string) => Promise<{ success: boolean; path?: string; error?: string }>
+    saveBinaryFile: (filePath: string, data: ArrayBuffer) => Promise<{ success: boolean; path?: string; error?: string }>
+    showOpenDirectoryDialog: (options: { title?: string }) => Promise<string | null>
+    copyFile: (src: string, dest: string) => Promise<{ success: boolean; error?: string }>
+    importFileToStorage: (sourcePath: string, originalName: string) => Promise<{ success: boolean; path?: string; url?: string; error?: string }>
+    checkFileExists: (filePath: string) => Promise<boolean>
+    checkFilesExist: (filePaths: string[]) => Promise<Record<string, boolean>>
+    showOpenFileDialog: (options: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => Promise<string[] | null>
     platform: string
   }
 }

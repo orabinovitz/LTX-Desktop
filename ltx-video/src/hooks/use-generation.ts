@@ -8,6 +8,7 @@ interface GenerationState {
   videoUrl: string | null
   videoPath: string | null  // Original file path for upscaling
   imageUrl: string | null
+  imageUrls: string[]  // For multiple image variations
   error: string | null
 }
 
@@ -52,6 +53,7 @@ export function useGeneration(): UseGenerationReturn {
     videoUrl: null,
     videoPath: null,
     imageUrl: null,
+    imageUrls: [],
     error: null,
   })
 
@@ -70,6 +72,7 @@ export function useGeneration(): UseGenerationReturn {
       videoUrl: null,
       videoPath: null,
       imageUrl: null,
+      imageUrls: [],
       error: null,
     })
 
@@ -200,6 +203,7 @@ export function useGeneration(): UseGenerationReturn {
           videoUrl: fileUrl,
           videoPath: result.video_path,  // Keep original path for API calls
           imageUrl: null,
+          imageUrls: [],
           error: null,
         })
       } else if (result.status === 'cancelled') {
@@ -254,13 +258,16 @@ export function useGeneration(): UseGenerationReturn {
     prompt: string,
     settings: GenerationSettings
   ) => {
+    const numImages = settings.variations || 1
+    
     setState({
       isGenerating: true,
       progress: 0,
-      statusMessage: 'Generating image...',
+      statusMessage: numImages > 1 ? `Generating ${numImages} images...` : 'Generating image...',
       videoUrl: null,
       videoPath: null,
       imageUrl: null,
+      imageUrls: [],
       error: null,
     })
 
@@ -290,13 +297,17 @@ export function useGeneration(): UseGenerationReturn {
           const res = await fetch(`${backendUrl}/api/generation/progress`)
           if (res.ok) {
             const data = await res.json()
+            const currentImage = data.currentStep || 0
+            const totalImages = data.totalSteps || numImages
             setState(prev => ({
               ...prev,
               progress: data.progress,
               statusMessage: data.phase === 'loading_model' 
                 ? 'Loading Flux model...' 
                 : data.phase === 'inference'
-                  ? 'Generating image...'
+                  ? numImages > 1 
+                    ? `Generating image ${currentImage + 1}/${totalImages}...`
+                    : 'Generating image...'
                   : data.phase === 'complete'
                     ? 'Complete!'
                     : 'Generating...',
@@ -317,6 +328,7 @@ export function useGeneration(): UseGenerationReturn {
           width: dims.width,
           height: dims.height,
           numSteps,
+          numImages,
         }),
         signal: abortControllerRef.current.signal,
       })
@@ -330,19 +342,33 @@ export function useGeneration(): UseGenerationReturn {
 
       const result = await response.json()
       
-      if (result.status === 'complete' && result.image_path) {
-        const imagePath = result.image_path.replace(/\\/g, '/')
-        const fileUrl = imagePath.startsWith('/') ? `file://${imagePath}` : `file:///${imagePath}`
+      if (result.status === 'complete') {
+        // Handle both new format (image_paths array) and old format (single image_path)
+        let rawPaths: string[] = []
+        if (result.image_paths && Array.isArray(result.image_paths)) {
+          rawPaths = result.image_paths
+        } else if (result.image_path) {
+          rawPaths = [result.image_path]
+        }
         
-        setState({
-          isGenerating: false,
-          progress: 100,
-          statusMessage: 'Complete!',
-          videoUrl: null,
-          videoPath: null,
-          imageUrl: fileUrl,
-          error: null,
-        })
+        if (rawPaths.length > 0) {
+          // Convert all paths to file URLs
+          const fileUrls = rawPaths.map((path: string) => {
+            const imagePath = path.replace(/\\/g, '/')
+            return imagePath.startsWith('/') ? `file://${imagePath}` : `file:///${imagePath}`
+          })
+          
+          setState({
+            isGenerating: false,
+            progress: 100,
+            statusMessage: 'Complete!',
+            videoUrl: null,
+            videoPath: null,
+            imageUrl: fileUrls[0],  // First image for backwards compatibility
+            imageUrls: fileUrls,    // All images
+            error: null,
+          })
+        }
       } else if (result.status === 'cancelled') {
         setState(prev => ({
           ...prev,
@@ -378,6 +404,7 @@ export function useGeneration(): UseGenerationReturn {
       videoUrl: null,
       videoPath: null,
       imageUrl: null,
+      imageUrls: [],
       error: null,
     })
   }, [])

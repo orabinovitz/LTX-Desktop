@@ -1457,8 +1457,9 @@ def generate_image(
     num_inference_steps: int = 4,
     seed: int = None,
     generation_id: str = None,
-) -> str:
-    """Generate an image using the Flux pipeline."""
+    num_images: int = 1,
+) -> list:
+    """Generate one or more images using the Flux pipeline."""
     global current_generation
     
     # Check if already cancelled before starting
@@ -1473,13 +1474,11 @@ def generate_image(
     
     update_generation_progress("inference", 15, 0, num_inference_steps)
     
-    # Generate image
+    output_paths = []
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_filename = f"flux_image_{timestamp}_{uuid.uuid4().hex[:8]}.png"
-    output_path = OUTPUTS_DIR / output_filename
     
     try:
-        logger.info(f"Generating image: {width}x{height}, seed={seed}")
+        logger.info(f"Generating {num_images} image(s): {width}x{height}, seed={seed}")
         logger.info(f"Prompt: {prompt[:100]}...")
         
         start = time.time()
@@ -1488,32 +1487,49 @@ def generate_image(
         # Use "cuda" device for generator when using CPU offload
         if seed is None:
             seed = int(time.time()) % 2147483647
-        generator = torch.Generator(device="cuda").manual_seed(seed)
         
-        # Generate the image using Flux2KleinPipeline
-        # guidance_scale=1.0, num_inference_steps=4 is recommended
-        result = pipeline(
-            prompt=prompt,
-            height=height,
-            width=width,
-            guidance_scale=1.0,
-            num_inference_steps=num_inference_steps,
-            generator=generator,
-        )
+        # Generate images one by one (Flux Klein works best this way)
+        for i in range(num_images):
+            # Check if cancelled
+            if current_generation["cancelled"]:
+                raise RuntimeError("Generation was cancelled")
+            
+            # Use different seed for each variation
+            current_seed = seed + i
+            generator = torch.Generator(device="cuda").manual_seed(current_seed)
+            
+            # Update progress - distribute across variations
+            progress = 15 + int((i / num_images) * 80)
+            update_generation_progress("inference", progress, i, num_images)
+            
+            # Generate the image using Flux2KleinPipeline
+            result = pipeline(
+                prompt=prompt,
+                height=height,
+                width=width,
+                guidance_scale=1.0,
+                num_inference_steps=num_inference_steps,
+                generator=generator,
+            )
+            
+            # Save the image
+            output_filename = f"flux_image_{timestamp}_{uuid.uuid4().hex[:8]}.png"
+            output_path = OUTPUTS_DIR / output_filename
+            image = result.images[0]
+            image.save(str(output_path))
+            output_paths.append(str(output_path))
+            
+            logger.info(f"Generated image {i+1}/{num_images}: {output_path}")
         
         # Check if cancelled after generation
         if current_generation["cancelled"]:
             raise RuntimeError("Generation was cancelled")
         
-        # Save the image
-        image = result.images[0]
-        image.save(str(output_path))
-        
-        update_generation_progress("complete", 100, num_inference_steps, num_inference_steps)
+        update_generation_progress("complete", 100, num_images, num_images)
         
         logger.info(f"Image generation took {time.time() - start:.1f}s")
-        logger.info(f"Saved to {output_path}")
-        return str(output_path)
+        logger.info(f"Generated {len(output_paths)} image(s)")
+        return output_paths
         
     except Exception as e:
         logger.error(f"Image generation failed: {e}")
@@ -2248,6 +2264,281 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 logger.error(f"Prompt enhancement error: {e}")
                 self.send_json_response(500, {"error": str(e)})
         
+        elif self.path == "/api/suggest-gap-prompt":
+            # Suggest a prompt for a gap in the timeline based on neighboring clips
+            # Accepts: beforeFrame (base64), afterFrame (base64), beforePrompt, afterPrompt, gapDuration, mode
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length).decode('utf-8')
+                data = json.loads(body) if body else {}
+                
+                before_frame = data.get("beforeFrame")  # base64 JPEG or null
+                after_frame = data.get("afterFrame")     # base64 JPEG or null
+                before_prompt = data.get("beforePrompt", "")
+                after_prompt = data.get("afterPrompt", "")
+                gap_duration = data.get("gapDuration", 5)
+                mode = data.get("mode", "t2v")  # t2v or i2v
+                
+                if not before_frame and not after_frame and not before_prompt and not after_prompt:
+                    self.send_json_response(400, {"error": "At least one neighboring frame or prompt is required"})
+                    return
+                
+                gemini_api_key = app_settings.get("gemini_api_key", "")
+                if not gemini_api_key:
+                    self.send_json_response(400, {
+                        "error": "GEMINI_API_KEY_MISSING",
+                        "message": "Gemini API key is required for gap prompt suggestions."
+                    })
+                    return
+                
+                logger.info(f"Suggesting gap prompt: before={'frame+' if before_frame else ''}{bool(before_prompt)}, after={'frame+' if after_frame else ''}{bool(after_prompt)}, dur={gap_duration}s, mode={mode}")
+                
+                # Build the Gemini request with images and text context
+                system_text = (
+                    "You are a video production assistant. The user is editing a video timeline and has a gap "
+                    f"of {gap_duration:.1f} seconds between two shots. Your job is to suggest a detailed prompt "
+                    "for generating a video clip to fill this gap, so that it flows naturally between the "
+                    "preceding and following shots.\n\n"
+                    "Guidelines:\n"
+                    "- Describe the scene, action, camera movement, lighting, and mood\n"
+                    "- Match the visual style and tone of the surrounding shots\n"
+                    "- Create a smooth narrative or visual transition between the two shots\n"
+                    "- Keep the prompt concise (2-4 sentences max)\n"
+                    "- Write only the prompt text, no explanations or labels\n"
+                    "- If only one neighboring shot is available, suggest something that naturally leads into or out of it\n"
+                )
+                
+                # Build multimodal content parts
+                user_parts = []
+                context_text = "Here is the context from the timeline:\n\n"
+                
+                if before_frame or before_prompt:
+                    context_text += "SHOT BEFORE THE GAP:\n"
+                    if before_prompt:
+                        context_text += f"  Prompt: {before_prompt}\n"
+                    if before_frame:
+                        context_text += "  Last frame (see image below):\n"
+                
+                if after_frame or after_prompt:
+                    context_text += "\nSHOT AFTER THE GAP:\n"
+                    if after_prompt:
+                        context_text += f"  Prompt: {after_prompt}\n"
+                    if after_frame:
+                        context_text += "  First frame (see image below):\n"
+                
+                context_text += f"\nGap duration: {gap_duration:.1f} seconds\n"
+                context_text += f"Generation mode: {'image-to-video' if mode == 'i2v' else 'text-to-video'}\n"
+                context_text += "\nPlease suggest a detailed prompt for generating a video clip to fill this gap."
+                
+                user_parts.append({"text": context_text})
+                
+                # Add frame images inline
+                if before_frame:
+                    user_parts.append({"text": "Last frame of the shot BEFORE the gap:"})
+                    user_parts.append({
+                        "inlineData": {
+                            "mimeType": "image/jpeg",
+                            "data": before_frame
+                        }
+                    })
+                
+                if after_frame:
+                    user_parts.append({"text": "First frame of the shot AFTER the gap:"})
+                    user_parts.append({
+                        "inlineData": {
+                            "mimeType": "image/jpeg",
+                            "data": after_frame
+                        }
+                    })
+                
+                gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_api_key}"
+                
+                gemini_payload = {
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": user_parts
+                        }
+                    ],
+                    "systemInstruction": {
+                        "parts": [{"text": system_text}]
+                    },
+                    "generationConfig": {
+                        "temperature": 0.7,
+                        "maxOutputTokens": 512
+                    }
+                }
+                
+                response = requests.post(
+                    gemini_url,
+                    headers={"Content-Type": "application/json"},
+                    json=gemini_payload,
+                    timeout=30
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"Gemini gap suggestion error: {response.status_code} - {response.text}")
+                    self.send_json_response(response.status_code, {
+                        "error": "GEMINI_API_ERROR",
+                        "message": f"Gemini API error: {response.text}"
+                    })
+                    return
+                
+                result = response.json()
+                
+                try:
+                    suggested_prompt = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    logger.info(f"Gap prompt suggested: {suggested_prompt[:80]}...")
+                    self.send_json_response(200, {
+                        "status": "success",
+                        "suggested_prompt": suggested_prompt
+                    })
+                except (KeyError, IndexError) as e:
+                    logger.error(f"Failed to parse Gemini gap suggestion: {e}")
+                    self.send_json_response(500, {
+                        "error": "GEMINI_PARSE_ERROR",
+                        "message": "Failed to parse Gemini response"
+                    })
+                    
+            except requests.exceptions.Timeout:
+                self.send_json_response(504, {"error": "Gemini API request timed out"})
+            except Exception as e:
+                logger.error(f"Gap prompt suggestion error: {e}")
+                self.send_json_response(500, {"error": str(e)})
+        
+        elif self.path == "/api/suggest-gap-prompt":
+            # Use Gemini Flash to suggest a prompt for a gap based on neighboring clips
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length).decode('utf-8')
+                data = json.loads(body) if body else {}
+                
+                gemini_api_key = app_settings.get("gemini_api_key", "")
+                if not gemini_api_key:
+                    self.send_json_response(400, {
+                        "error": "GEMINI_API_KEY_MISSING",
+                        "message": "Gemini API key is required for prompt suggestions."
+                    })
+                    return
+                
+                gap_duration = data.get("gapDuration", 3)
+                mode = data.get("mode", "text-to-video")  # text-to-video, image-to-video, text-to-image
+                before_prompt = data.get("beforePrompt", "")
+                after_prompt = data.get("afterPrompt", "")
+                before_frame = data.get("beforeFrame", "")  # base64 JPEG
+                after_frame = data.get("afterFrame", "")    # base64 JPEG
+                
+                # Build the Gemini request with text + optional images
+                parts = []
+                
+                system_text = (
+                    "You are a professional video editor's AI assistant. "
+                    "The user has a video timeline with a gap between two shots. "
+                    "Based on the surrounding shots (their frames and/or prompts), "
+                    "suggest a single concise prompt that would create a smooth, "
+                    "contextually appropriate shot to fill the gap. "
+                    f"The gap is {gap_duration:.1f} seconds long. "
+                    f"The output will be used for {'video' if 'video' in mode else 'image'} generation. "
+                    "Return ONLY the prompt text, nothing else — no quotes, no explanation, no preamble."
+                )
+                
+                user_parts = []
+                
+                context_desc = "Here is the context from the timeline:\n\n"
+                
+                if before_frame or before_prompt:
+                    context_desc += "=== SHOT BEFORE THE GAP ===\n"
+                    if before_prompt:
+                        context_desc += f"Prompt: {before_prompt}\n"
+                    if before_frame:
+                        context_desc += "(Last frame attached below)\n"
+                    context_desc += "\n"
+                
+                if after_frame or after_prompt:
+                    context_desc += "=== SHOT AFTER THE GAP ===\n"
+                    if after_prompt:
+                        context_desc += f"Prompt: {after_prompt}\n"
+                    if after_frame:
+                        context_desc += "(First frame attached below)\n"
+                    context_desc += "\n"
+                
+                if not before_frame and not after_frame and not before_prompt and not after_prompt:
+                    self.send_json_response(400, {"error": "No context provided (no frames or prompts)"})
+                    return
+                
+                context_desc += f"\nSuggest a prompt for a {gap_duration:.1f}s {'video' if 'video' in mode else 'image'} shot that would fit naturally between these shots."
+                
+                user_parts.append({"text": context_desc})
+                
+                # Add frames as inline images
+                if before_frame:
+                    user_parts.append({
+                        "inlineData": {
+                            "mimeType": "image/jpeg",
+                            "data": before_frame
+                        }
+                    })
+                    user_parts.append({"text": "(Above: last frame of the shot BEFORE the gap)"})
+                
+                if after_frame:
+                    user_parts.append({
+                        "inlineData": {
+                            "mimeType": "image/jpeg",
+                            "data": after_frame
+                        }
+                    })
+                    user_parts.append({"text": "(Above: first frame of the shot AFTER the gap)"})
+                
+                gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_api_key}"
+                
+                gemini_payload = {
+                    "contents": [{"role": "user", "parts": user_parts}],
+                    "systemInstruction": {"parts": [{"text": system_text}]},
+                    "generationConfig": {
+                        "temperature": 0.7,
+                        "maxOutputTokens": 512
+                    }
+                }
+                
+                logger.info(f"Requesting gap prompt suggestion (before: {'frame+' if before_frame else ''}{'prompt' if before_prompt else 'none'}, after: {'frame+' if after_frame else ''}{'prompt' if after_prompt else 'none'})")
+                
+                response = requests.post(
+                    gemini_url,
+                    headers={"Content-Type": "application/json"},
+                    json=gemini_payload,
+                    timeout=30
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"Gemini API error: {response.status_code} - {response.text[:200]}")
+                    self.send_json_response(response.status_code, {
+                        "error": "GEMINI_API_ERROR",
+                        "message": f"Gemini API error: {response.text[:200]}"
+                    })
+                    return
+                
+                result = response.json()
+                try:
+                    suggested_prompt = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    # Remove surrounding quotes if present
+                    if (suggested_prompt.startswith('"') and suggested_prompt.endswith('"')) or \
+                       (suggested_prompt.startswith("'") and suggested_prompt.endswith("'")):
+                        suggested_prompt = suggested_prompt[1:-1]
+                    logger.info(f"Gap prompt suggestion: {suggested_prompt[:80]}...")
+                    self.send_json_response(200, {
+                        "status": "success",
+                        "suggested_prompt": suggested_prompt
+                    })
+                except (KeyError, IndexError) as e:
+                    logger.error(f"Failed to parse Gemini response: {e}")
+                    self.send_json_response(500, {"error": "Failed to parse Gemini response"})
+                    
+            except requests.exceptions.Timeout:
+                self.send_json_response(504, {"error": "Gemini API request timed out"})
+            except Exception as e:
+                logger.error(f"Gap prompt suggestion error: {e}")
+                self.send_json_response(500, {"error": str(e)})
+        
         elif self.path == "/api/generate":
             try:
                 # Check if already generating
@@ -2277,8 +2568,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 camera_motion = get_form_value('cameraMotion', 'none')
                 negative_prompt = get_form_value('negativePrompt', '')
                 
-                duration = int(get_form_value('duration', '2'))
-                fps = int(get_form_value('fps', '24'))
+                duration = int(float(get_form_value('duration', '2')))
+                fps = int(float(get_form_value('fps', '24')))
                 
                 # Pipeline selection based on resolution:
                 # - 540p and 720p: native pipeline (single pass, no upsampler)
@@ -2413,6 +2704,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 width = int(data.get('width', 1024))
                 height = int(data.get('height', 1024))
                 num_steps = int(data.get('numSteps', 4))
+                num_images = int(data.get('numImages', 1))
+                
+                # Clamp num_images to reasonable range
+                num_images = max(1, min(12, num_images))
                 
                 # Ensure dimensions are divisible by 16 for Flux
                 width = (width // 16) * 16
@@ -2427,27 +2722,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     current_generation["error"] = None
                     current_generation["status"] = "running"
                 
-                # Generate the image
+                # Generate the images
                 # Use locked seed if enabled, otherwise random
                 if app_settings.get("seed_locked", False):
                     seed = app_settings.get("locked_seed", 42)
                     logger.info(f"Using locked seed for image: {seed}")
                 else:
                     seed = int(time.time()) % 2147483647
-                output_path = generate_image(
+                output_paths = generate_image(
                     prompt=prompt,
                     width=width,
                     height=height,
                     num_inference_steps=num_steps,
                     seed=seed,
                     generation_id=generation_id,
+                    num_images=num_images,
                 )
                 
                 with generation_lock:
                     current_generation["status"] = "complete"
-                    current_generation["result"] = output_path
+                    current_generation["result"] = output_paths
                 
-                self.send_json_response(200, {"status": "complete", "image_path": output_path})
+                # Return array of image paths
+                self.send_json_response(200, {"status": "complete", "image_paths": output_paths})
                 
             except Exception as e:
                 with generation_lock:
@@ -2592,7 +2889,49 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json_response(500, {"error": str(e)})
         
         elif self.path == "/api/upscale":
-            # Upscale video to 4K using LTX API
+            # Upscale video to 4K using LTX API, then sharpen for quality
+            def sharpen_video(input_path, output_path=None):
+                """Apply sharpening + mild contrast enhancement to upscaled video using FFmpeg."""
+                try:
+                    import subprocess
+                    import imageio_ffmpeg
+                    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+                    
+                    if output_path is None:
+                        output_path = str(input_path).replace('.mp4', '_sharp.mp4')
+                    
+                    # unsharp mask: luma_size:luma_strength:chroma_size:chroma_strength
+                    # 5:0.8 = moderate sharpening (5x5 kernel, 0.8 strength)
+                    # eq=contrast=1.02 = very subtle contrast boost
+                    cmd = [
+                        ffmpeg_path, '-y', '-i', str(input_path),
+                        '-vf', 'unsharp=5:5:0.8:5:5:0.4,eq=contrast=1.02:brightness=0.01',
+                        '-c:v', 'libx264', '-preset', 'slow', '-crf', '17',
+                        '-c:a', 'copy',
+                        '-movflags', '+faststart',
+                        str(output_path)
+                    ]
+                    
+                    logger.info(f"Sharpening video: {input_path}")
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                    
+                    if result.returncode == 0:
+                        # Replace the original with the sharpened version
+                        import shutil
+                        shutil.move(str(output_path), str(input_path))
+                        logger.info(f"Sharpened video saved: {input_path}")
+                        return True
+                    else:
+                        logger.warning(f"FFmpeg sharpen failed: {result.stderr[:500]}")
+                        # Clean up failed output
+                        try:
+                            Path(output_path).unlink(missing_ok=True)
+                        except:
+                            pass
+                        return False
+                except Exception as e:
+                    logger.warning(f"Video sharpening skipped: {e}")
+                    return False
             try:
                 content_type = self.headers.get('Content-Type')
                 ctype, pdict = cgi.parse_header(content_type)
@@ -2632,7 +2971,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         stream = container.streams.video[0]
                         original_width = stream.width
                         original_height = stream.height
-                        video_duration = float(stream.duration * stream.time_base)
+                        # Use container duration if stream duration is unreliable
+                        if container.duration:
+                            video_duration = float(container.duration) / 1_000_000  # microseconds to seconds
+                        elif stream.duration and stream.time_base:
+                            video_duration = float(stream.duration * stream.time_base)
+                        else:
+                            video_duration = 5.0
                 except Exception as e:
                     logger.warning(f"Could not get video info: {e}, using defaults")
                     original_width = 1280
@@ -2650,11 +2995,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 
                 logger.info(f"Upscaling video: {video_path}")
                 logger.info(f"Original: {original_width}x{original_height} -> Target: {target_width}x{target_height}")
+                logger.info(f"Video duration: {video_duration}s")
                 
                 # Call LTX upscale API (production endpoint)
+                # Matches the working curl format exactly:
+                #   -F 'params={"upscale_only_mode":true,"width":W,"height":H,"mask_end_time":D}'
+                #   -F "input_video=@file.mp4"
                 upscale_url = "https://cf.res.lightricks.com/v2/api/ltx2-edit/predict-sync"
                 
-                headers = {
+                api_headers = {
                     "x-lightricks-api-key": "Sp6MeaxIkqs8rIUBNcV3OqdjmosPLfbqzqFFm8tN4fQHOXLcDzUTKbDbqqrSnBp2",
                     "x-app-id": "ltxv-api",
                     "x-platform": "backend",
@@ -2667,25 +3016,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "upscale_only_mode": True,
                     "width": target_width,
                     "height": target_height,
-                    "mask_end_time": video_duration
+                    "mask_end_time": round(video_duration, 3)
                 }
                 
-                logger.info(f"Sending to upscale API with params: {params}")
+                params_json = json.dumps(params, separators=(',', ':'))
+                logger.info(f"Sending to upscale API with params: {params_json}")
                 
-                with open(video_file, 'rb') as f:
-                    video_content = f.read()
-                
-                # Use files dict for multipart - params as text field, video as file
-                # Format: (filename, content, content_type) or (None, value) for text fields
-                files_payload = [
-                    ('params', (None, json.dumps(params))),
-                    ('input_video', (video_file.name, video_content, 'video/mp4'))
-                ]
-                
+                # Build multipart exactly like curl -F does:
+                # 'params' as a plain text form field (no filename, no content-type)
+                # 'input_video' as a file upload
                 response = requests.post(
                     upscale_url, 
-                    headers=headers, 
-                    files=files_payload,
+                    headers=api_headers, 
+                    files={
+                        'params': (None, params_json),
+                        'input_video': (video_file.name, open(video_file, 'rb'), 'video/mp4')
+                    },
                     timeout=300
                 )
                 
@@ -2719,9 +3065,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             with open(upscaled_path, 'wb') as f:
                                 f.write(response.content)
                             logger.info(f"Saved upscaled video directly: {upscaled_path}")
+                            sharpen_video(upscaled_path)
                             self.send_json_response(200, {
                                 "status": "complete",
-                                "upscaled_path": str(upscaled_path)
+                                "upscaled_path": str(upscaled_path),
+                                "width": target_width,
+                                "height": target_height
                             })
                             return
                         self.send_json_response(500, {"error": f"Invalid response format: {response.text[:200]}"})
@@ -2744,9 +3093,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                     out_f.write(upscaled_response.content)
                                 
                                 logger.info(f"Upscaled video saved to: {output_path}")
+                                sharpen_video(output_path)
                                 self.send_json_response(200, {
                                     "status": "complete",
-                                    "video_path": output_path,
+                                    "upscaled_path": output_path,
                                     "width": target_width,
                                     "height": target_height
                                 })

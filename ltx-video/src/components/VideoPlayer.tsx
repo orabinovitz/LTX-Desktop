@@ -150,7 +150,7 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
     }
   }, [displayedVideoUrl])
 
-  // Update time display
+  // Update time display - re-attach listeners when video URL changes
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
@@ -175,12 +175,17 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
     video.addEventListener('loadedmetadata', handleLoadedMetadata)
     video.addEventListener('ended', handleEnded)
 
+    // If metadata is already loaded (e.g. after URL change), update duration immediately
+    if (video.readyState >= 1 && video.duration) {
+      setDuration(video.duration)
+    }
+
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate)
       video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       video.removeEventListener('ended', handleEnded)
     }
-  }, [isDragging, isLooping])
+  }, [isDragging, isLooping, displayedVideoUrl])
 
   const togglePlayPause = () => {
     if (videoRef.current) {
@@ -288,8 +293,9 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
         setCurrentResolution(upscaleTargetResolution)
         
         // Get the upscaled video URL (Windows paths need file:///)
-        if (data.upscaled_path) {
-          const videoPathNormalized = data.upscaled_path.replace(/\\/g, '/')
+        const upscaledFilePath = data.upscaled_path || data.video_path
+        if (upscaledFilePath) {
+          const videoPathNormalized = upscaledFilePath.replace(/\\/g, '/')
           const upscaledUrl = videoPathNormalized.startsWith('/') 
             ? `file://${videoPathNormalized}` 
             : `file:///${videoPathNormalized}`

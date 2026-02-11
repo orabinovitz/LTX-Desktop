@@ -300,6 +300,11 @@ ipcMain.handle('open-folder', async (_event, folderPath: string) => {
   shell.openPath(folderPath)
 })
 
+ipcMain.handle('show-item-in-folder', async (_event, filePath: string) => {
+  const { shell } = await import('electron')
+  shell.showItemInFolder(filePath)
+})
+
 ipcMain.handle('read-local-file', async (_event, filePath: string) => {
   try {
     // Normalize the file path (handle file:// URLs)
@@ -447,6 +452,134 @@ ipcMain.handle('open-log-folder', async () => {
     }
   }
   return false
+})
+
+// File save dialog + write
+ipcMain.handle('show-save-dialog', async (_event, options: {
+  title?: string
+  defaultPath?: string
+  filters?: { name: string; extensions: string[] }[]
+}) => {
+  if (!mainWindow) return null
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: options.title || 'Save File',
+    defaultPath: options.defaultPath,
+    filters: options.filters || [],
+  })
+  if (result.canceled || !result.filePath) return null
+  return result.filePath
+})
+
+ipcMain.handle('save-file', async (_event, filePath: string, data: string, encoding?: string) => {
+  try {
+    if (encoding === 'base64') {
+      fs.writeFileSync(filePath, Buffer.from(data, 'base64'))
+    } else {
+      fs.writeFileSync(filePath, data, 'utf-8')
+    }
+    return { success: true, path: filePath }
+  } catch (error) {
+    console.error('Error saving file:', error)
+    return { success: false, error: String(error) }
+  }
+})
+
+ipcMain.handle('save-binary-file', async (_event, filePath: string, data: ArrayBuffer) => {
+  try {
+    fs.writeFileSync(filePath, Buffer.from(data))
+    return { success: true, path: filePath }
+  } catch (error) {
+    console.error('Error saving binary file:', error)
+    return { success: false, error: String(error) }
+  }
+})
+
+// Show open folder dialog
+ipcMain.handle('show-open-directory-dialog', async (_event, options: { title?: string }) => {
+  if (!mainWindow) return null
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: options.title || 'Select Folder',
+    properties: ['openDirectory', 'createDirectory'],
+  })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+})
+
+// Copy file
+ipcMain.handle('copy-file', async (_event, src: string, dest: string) => {
+  try {
+    const dir = path.dirname(dest)
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+    fs.copyFileSync(src, dest)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
+})
+
+// Copy an imported file to persistent storage and return its new path + file URL
+ipcMain.handle('import-file-to-storage', async (_event, sourcePath: string, originalName: string) => {
+  try {
+    // Use the backend outputs directory so imported assets live alongside generated ones
+    const backendDir = path.join(getCurrentDir(), 'backend', 'outputs')
+    if (!fs.existsSync(backendDir)) fs.mkdirSync(backendDir, { recursive: true })
+    
+    const ext = path.extname(originalName) || path.extname(sourcePath) || ''
+    const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15)
+    const uniqueId = Math.random().toString(36).slice(2, 10)
+    const destName = `imported_${timestamp}_${uniqueId}${ext}`
+    const destPath = path.join(backendDir, destName)
+    
+    fs.copyFileSync(sourcePath, destPath)
+    
+    // Build a file:// URL
+    const normalized = destPath.replace(/\\/g, '/')
+    const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
+    
+    return { success: true, path: destPath, url: fileUrl }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
+})
+
+// Check if a file exists on disk
+ipcMain.handle('check-file-exists', async (_event, filePath: string) => {
+  try {
+    return fs.existsSync(filePath)
+  } catch {
+    return false
+  }
+})
+
+// Check multiple file paths at once (batch)
+ipcMain.handle('check-files-exist', async (_event, filePaths: string[]) => {
+  const results: Record<string, boolean> = {}
+  for (const p of filePaths) {
+    try {
+      results[p] = fs.existsSync(p)
+    } catch {
+      results[p] = false
+    }
+  }
+  return results
+})
+
+// Show open file dialog (for selecting individual files)
+ipcMain.handle('show-open-file-dialog', async (_event, options: {
+  title?: string
+  filters?: { name: string; extensions: string[] }[]
+  properties?: string[]
+}) => {
+  if (!mainWindow) return null
+  const props: any[] = ['openFile']
+  if (options.properties?.includes('multiSelections')) props.push('multiSelections')
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: options.title || 'Select File',
+    filters: options.filters || [],
+    properties: props,
+  })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths
 })
 
 // Get resource path for unpacked assets (like splash video)

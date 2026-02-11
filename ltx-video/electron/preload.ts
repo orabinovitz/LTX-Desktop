@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Open folder in file explorer
   openFolder: (folderPath: string): Promise<void> => ipcRenderer.invoke('open-folder', folderPath),
   
+  // Reveal a specific file in the OS file manager (Explorer/Finder)
+  showItemInFolder: (filePath: string): Promise<void> => ipcRenderer.invoke('show-item-in-folder', filePath),
+  
   // Model management
   getModelsStatus: (): Promise<ModelsStatus> => ipcRenderer.invoke('get-models-status'),
   startModelDownload: (options?: { skipTextEncoder?: boolean; ltxApiKey?: string }): Promise<{ status: string; message?: string; error?: string; skippingTextEncoder?: boolean }> => 
@@ -45,6 +48,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Get resources path (for video assets in production)
   getResourcePath: (): Promise<string | null> => ipcRenderer.invoke('get-resource-path'),
+  
+  // File save/export
+  showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }): Promise<string | null> =>
+    ipcRenderer.invoke('show-save-dialog', options),
+  saveFile: (filePath: string, data: string, encoding?: string): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('save-file', filePath, data, encoding),
+  saveBinaryFile: (filePath: string, data: ArrayBuffer): Promise<{ success: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('save-binary-file', filePath, data),
+  showOpenDirectoryDialog: (options: { title?: string }): Promise<string | null> =>
+    ipcRenderer.invoke('show-open-directory-dialog', options),
+  copyFile: (src: string, dest: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('copy-file', src, dest),
+  
+  // Import a file to persistent storage (copies to outputs dir)
+  importFileToStorage: (sourcePath: string, originalName: string): Promise<{ success: boolean; path?: string; url?: string; error?: string }> =>
+    ipcRenderer.invoke('import-file-to-storage', sourcePath, originalName),
+  
+  // Check if a file exists on disk
+  checkFileExists: (filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke('check-file-exists', filePath),
+  
+  // Check multiple files at once
+  checkFilesExist: (filePaths: string[]): Promise<Record<string, boolean>> =>
+    ipcRenderer.invoke('check-files-exist', filePaths),
+  
+  // Show open file dialog
+  showOpenFileDialog: (options: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }): Promise<string[] | null> =>
+    ipcRenderer.invoke('show-open-file-dialog', options),
   
   // Platform info
   platform: process.platform,
@@ -101,6 +132,7 @@ declare global {
       checkFirstRun: () => Promise<boolean>
       completeSetup: () => Promise<boolean>
       openFolder: (folderPath: string) => Promise<void>
+      showItemInFolder: (filePath: string) => Promise<void>
       getModelsStatus: () => Promise<ModelsStatus>
       startModelDownload: (options?: { skipTextEncoder?: boolean; ltxApiKey?: string }) => Promise<{ status: string; message?: string; error?: string; skippingTextEncoder?: boolean }>
       getModelDownloadProgress: () => Promise<ModelDownloadProgress>
@@ -108,6 +140,15 @@ declare global {
       getLogPath: () => Promise<{ logPath: string; logDir: string }>
       openLogFolder: () => Promise<boolean>
       getResourcePath: () => Promise<string | null>
+      showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>
+      saveFile: (filePath: string, data: string, encoding?: string) => Promise<{ success: boolean; path?: string; error?: string }>
+      saveBinaryFile: (filePath: string, data: ArrayBuffer) => Promise<{ success: boolean; path?: string; error?: string }>
+      showOpenDirectoryDialog: (options: { title?: string }) => Promise<string | null>
+      copyFile: (src: string, dest: string) => Promise<{ success: boolean; error?: string }>
+      importFileToStorage: (sourcePath: string, originalName: string) => Promise<{ success: boolean; path?: string; url?: string; error?: string }>
+      checkFileExists: (filePath: string) => Promise<boolean>
+      checkFilesExist: (filePaths: string[]) => Promise<Record<string, boolean>>
+      showOpenFileDialog: (options: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => Promise<string[] | null>
       platform: string
     }
   }
