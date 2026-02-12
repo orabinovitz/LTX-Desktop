@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('save-binary-file', filePath, data),
   showOpenDirectoryDialog: (options: { title?: string }): Promise<string | null> =>
     ipcRenderer.invoke('show-open-directory-dialog', options),
+  searchDirectoryForFiles: (dir: string, filenames: string[]): Promise<Record<string, string>> =>
+    ipcRenderer.invoke('search-directory-for-files', dir, filenames),
   copyFile: (src: string, dest: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('copy-file', src, dest),
   
@@ -77,6 +79,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showOpenFileDialog: (options: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }): Promise<string[] | null> =>
     ipcRenderer.invoke('show-open-file-dialog', options),
   
+  // Video export via ffmpeg (native compositing — no canvas, no frame-by-frame)
+  exportNative: (data: {
+    clips: { url: string; type: string; startTime: number; duration: number; trimStart: number; speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number; muted: boolean; volume: number }[];
+    outputPath: string; codec: string; width: number; height: number; fps: number; quality: number;
+    letterbox?: { ratio: number; color: string; opacity: number };
+    subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[];
+  }): Promise<{ success?: boolean; error?: string }> =>
+    ipcRenderer.invoke('export-native', data),
+  exportCancel: (sessionId: string): Promise<{ ok?: boolean }> =>
+    ipcRenderer.invoke('export-cancel', sessionId),
+
   // Platform info
   platform: process.platform,
 })
@@ -144,11 +157,19 @@ declare global {
       saveFile: (filePath: string, data: string, encoding?: string) => Promise<{ success: boolean; path?: string; error?: string }>
       saveBinaryFile: (filePath: string, data: ArrayBuffer) => Promise<{ success: boolean; path?: string; error?: string }>
       showOpenDirectoryDialog: (options: { title?: string }) => Promise<string | null>
+      searchDirectoryForFiles: (dir: string, filenames: string[]) => Promise<Record<string, string>>
       copyFile: (src: string, dest: string) => Promise<{ success: boolean; error?: string }>
       importFileToStorage: (sourcePath: string, originalName: string) => Promise<{ success: boolean; path?: string; url?: string; error?: string }>
       checkFileExists: (filePath: string) => Promise<boolean>
       checkFilesExist: (filePaths: string[]) => Promise<Record<string, boolean>>
       showOpenFileDialog: (options: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => Promise<string[] | null>
+      exportNative: (data: {
+        clips: { url: string; type: string; startTime: number; duration: number; trimStart: number; speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number; muted: boolean; volume: number }[];
+        outputPath: string; codec: string; width: number; height: number; fps: number; quality: number;
+        letterbox?: { ratio: number; color: string; opacity: number };
+        subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[];
+      }) => Promise<{ success?: boolean; error?: string }>
+      exportCancel: (sessionId: string) => Promise<{ ok?: boolean }>
       platform: string
     }
   }

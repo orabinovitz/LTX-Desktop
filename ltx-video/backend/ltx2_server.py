@@ -168,6 +168,9 @@ current_generation = {
 }
 generation_lock = threading.Lock()
 
+# Video export sessions (ffmpeg processes)
+export_sessions = {}
+
 # Warmup state
 warmup_state = {
     "status": "pending",  # pending, loading, warming, ready, error
@@ -3118,6 +3121,199 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 logger.error(f"Upscale error: {e}")
                 import traceback
                 traceback.print_exc()
+                self.send_json_response(500, {"error": str(e)})
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # Video Export via FFmpeg (NLE-style frame pipeline)
+        # ═══════════════════════════════════════════════════════════════════
+        
+        elif self.path == "/api/export/start":
+            try:
+                data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                codec = data.get("codec", "h264")         # h264, prores, vp9
+                width = int(data.get("width", 1920))
+                height = int(data.get("height", 1080))
+                fps = int(data.get("fps", 24))
+                quality = data.get("quality", 18)          # CRF for h264, profile for prores, bitrate for vp9
+                output_path = data.get("outputPath", "")
+                
+                if not output_path:
+                    self.send_json_response(400, {"error": "outputPath is required"})
+                    return
+                
+                import imageio_ffmpeg
+                import subprocess
+                ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+                
+                # Build ffmpeg command based on codec
+                if codec == "h264":
+                    crf = int(quality) if quality else 18
+                    cmd = [
+                        ffmpeg_path, '-y',
+                        '-f', 'image2pipe',
+                        '-framerate', str(fps),
+                        '-i', '-',
+                        '-c:v', 'libx264',
+                        '-preset', 'medium',
+                        '-crf', str(crf),
+                        '-pix_fmt', 'yuv420p',
+                        '-movflags', '+faststart',
+                        output_path
+                    ]
+                elif codec == "prores":
+                    profile = int(quality) if quality else 3  # 0=Proxy, 1=LT, 2=Standard, 3=HQ
+                    cmd = [
+                        ffmpeg_path, '-y',
+                        '-f', 'image2pipe',
+                        '-framerate', str(fps),
+                        '-i', '-',
+                        '-c:v', 'prores_ks',
+                        '-profile:v', str(profile),
+                        '-pix_fmt', 'yuva444p10le',
+                        output_path
+                    ]
+                elif codec == "vp9":
+                    bitrate = f"{int(quality)}M" if quality else "8M"
+                    cmd = [
+                        ffmpeg_path, '-y',
+                        '-f', 'image2pipe',
+                        '-framerate', str(fps),
+                        '-i', '-',
+                        '-c:v', 'libvpx-vp9',
+                        '-b:v', bitrate,
+                        '-pix_fmt', 'yuv420p',
+                        output_path
+                    ]
+                else:
+                    self.send_json_response(400, {"error": f"Unknown codec: {codec}"})
+                    return
+                
+                logger.info(f"Export: starting ffmpeg with codec={codec}, {width}x{height}@{fps}fps, output={output_path}")
+                
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                
+                session_id = uuid.uuid4().hex[:12]
+                export_sessions[session_id] = {
+                    "process": proc,
+                    "output_path": output_path,
+                    "codec": codec,
+                    "frame_count": 0,
+                }
+                
+                self.send_json_response(200, {"session_id": session_id})
+                
+            except Exception as e:
+                logger.error(f"Export start error: {e}")
+                import traceback
+                traceback.print_exc()
+                self.send_json_response(500, {"error": str(e)})
+        
+        elif self.path == "/api/export/frame":
+            try:
+                data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                session_id = data.get("session_id", "")
+                frame_data = data.get("frame", "")  # base64 JPEG
+                
+                session = export_sessions.get(session_id)
+                if not session:
+                    self.send_json_response(404, {"error": "Export session not found"})
+                    return
+                
+                proc = session["process"]
+                if proc.poll() is not None:
+                    stderr = proc.stderr.read().decode() if proc.stderr else ""
+                    self.send_json_response(500, {"error": f"FFmpeg process exited unexpectedly: {stderr[-500:]}"})
+                    return
+                
+                # Decode base64 JPEG and write to ffmpeg stdin
+                import base64
+                if frame_data.startswith("data:"):
+                    frame_data = frame_data.split(",", 1)[1]
+                
+                jpeg_bytes = base64.b64decode(frame_data)
+                proc.stdin.write(jpeg_bytes)
+                proc.stdin.flush()
+                session["frame_count"] += 1
+                
+                self.send_json_response(200, {"ok": True, "frames": session["frame_count"]})
+                
+            except Exception as e:
+                logger.error(f"Export frame error: {e}")
+                self.send_json_response(500, {"error": str(e)})
+        
+        elif self.path == "/api/export/finish":
+            try:
+                data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                session_id = data.get("session_id", "")
+                
+                session = export_sessions.pop(session_id, None)
+                if not session:
+                    self.send_json_response(404, {"error": "Export session not found"})
+                    return
+                
+                proc = session["process"]
+                
+                # Close stdin to signal end of input
+                try:
+                    proc.stdin.close()
+                except:
+                    pass
+                
+                # Wait for ffmpeg to finish (timeout 120s)
+                try:
+                    proc.wait(timeout=120)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    self.send_json_response(500, {"error": "FFmpeg timed out"})
+                    return
+                
+                stderr_output = proc.stderr.read().decode() if proc.stderr else ""
+                
+                if proc.returncode == 0:
+                    logger.info(f"Export complete: {session['output_path']} ({session['frame_count']} frames)")
+                    self.send_json_response(200, {
+                        "success": True,
+                        "output_path": session["output_path"],
+                        "frame_count": session["frame_count"],
+                    })
+                else:
+                    logger.error(f"FFmpeg export failed (code {proc.returncode}): {stderr_output[-500:]}")
+                    self.send_json_response(500, {
+                        "error": f"FFmpeg failed (code {proc.returncode}): {stderr_output[-500:]}"
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Export finish error: {e}")
+                import traceback
+                traceback.print_exc()
+                self.send_json_response(500, {"error": str(e)})
+        
+        elif self.path == "/api/export/cancel":
+            try:
+                data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                session_id = data.get("session_id", "")
+                
+                session = export_sessions.pop(session_id, None)
+                if session:
+                    proc = session["process"]
+                    try:
+                        proc.stdin.close()
+                    except:
+                        pass
+                    try:
+                        proc.kill()
+                    except:
+                        pass
+                    logger.info(f"Export cancelled: session {session_id}")
+                
+                self.send_json_response(200, {"ok": True})
+                
+            except Exception as e:
                 self.send_json_response(500, {"error": str(e)})
         
         else:

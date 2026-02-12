@@ -196,12 +196,21 @@ export function Home() {
       
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
-        {/* Header Banner */}
-        <div className="relative h-48 bg-gradient-to-r from-violet-900/50 to-blue-900/50 overflow-hidden">
-          <div className="absolute inset-0 bg-[url('/pattern.svg')] opacity-10" />
-          <div className="absolute bottom-6 left-8">
-            <h1 className="text-3xl font-bold text-white mb-2">LTX Studio OnDev</h1>
-            <p className="text-zinc-300">Create and manage your video projects</p>
+        {/* Header Banner with video background */}
+        <div className="relative h-72 overflow-hidden">
+          <video
+            src="/hero-video.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          {/* Dark overlay for text readability */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/10" />
+          <div className="absolute bottom-6 left-8 z-10">
+            <h1 className="text-3xl font-bold text-white mb-2 drop-shadow-lg">LTX Desktop</h1>
+            <p className="text-zinc-200 drop-shadow-md">Create and manage your video projects</p>
           </div>
         </div>
         

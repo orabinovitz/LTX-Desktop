@@ -7,7 +7,7 @@ import {
   Gauge, ArrowLeftRight, Download, MousePointer2, Hand,
   Magnet, Lock, Unlock, GripVertical, Pencil, Film,
   FlipHorizontal2, FlipVertical2, Sun, Contrast, Palette,
-  Thermometer, Droplets, Eye, SunDim, Moon,
+  Thermometer, Droplets, Eye, EyeOff, SunDim, Moon,
   ChevronDown, ChevronRight, ChevronLeft, RotateCcw,
   Clipboard, ArrowDown, ArrowUp, Music,
   FolderPlus, Folder, FolderOpen, X, RefreshCw, Loader2, GitMerge,
@@ -597,6 +597,8 @@ export function VideoEditor() {
   // Gap selection and generation
   const [selectedGap, setSelectedGap] = useState<{ trackIndex: number; startTime: number; endTime: number } | null>(null)
   const [gapGenerateMode, setGapGenerateMode] = useState<'text-to-video' | 'image-to-video' | 'text-to-image' | null>(null)
+  const gapGenerateModeRef = useRef(gapGenerateMode)
+  gapGenerateModeRef.current = gapGenerateMode
   const [gapPrompt, setGapPrompt] = useState('')
   const [gapSettings, setGapSettings] = useState<GenerationSettings>({
     model: 'fast',
@@ -618,6 +620,9 @@ export function VideoEditor() {
   const [gapSuggesting, setGapSuggesting] = useState(false)
   const [gapSuggestion, setGapSuggestion] = useState<string | null>(null)
   const gapSuggestionAbortRef = useRef<AbortController | null>(null)
+  // Frames extracted from neighboring clips for the gap animation header
+  const [gapBeforeFrame, setGapBeforeFrame] = useState<string | null>(null) // base64 data URI
+  const [gapAfterFrame, setGapAfterFrame] = useState<string | null>(null)   // base64 data URI
   
   // Image-to-Video generation from an image clip on the timeline
   const [i2vClipId, setI2vClipId] = useState<string | null>(null)
@@ -667,6 +672,10 @@ export function VideoEditor() {
   const [renameValue, setRenameValue] = useState('')
   const [timelineContextMenu, setTimelineContextMenu] = useState<{ timelineId: string; x: number; y: number } | null>(null)
   const timelineContextMenuRef = useRef<HTMLDivElement>(null)
+  // Open timeline tabs — only these appear in the tab bar above the timeline.
+  // All timelines are always visible in the library panel on the left.
+  const [openTimelineIds, setOpenTimelineIds] = useState<Set<string>>(new Set())
+  const [timelineAddMenuOpen, setTimelineAddMenuOpen] = useState(false)
   
   // Dragging state
   const [draggingClip, setDraggingClip] = useState<{
@@ -747,7 +756,7 @@ export function VideoEditor() {
   const lastStateUpdateRef = useRef(0)         // timestamp of last React state sync
   const preSeekDoneRef = useRef<string | null>(null) // clipId we already pre-seeked
   const playheadRulerRef = useRef<HTMLDivElement>(null) // direct DOM ref for ruler playhead
-  const playheadTracksRef = useRef<HTMLDivElement>(null) // direct DOM ref for tracks playhead
+  const playheadOverlayRef = useRef<HTMLDivElement>(null) // direct DOM ref for the full-height overlay playhead
   const [previewPan, setPreviewPan] = useState({ x: 0, y: 0 })
   const previewPanRef = useRef({ dragging: false, startX: 0, startY: 0, startPanX: 0, startPanY: 0 })
   const renameInputRef = useRef<HTMLInputElement>(null)
@@ -840,6 +849,33 @@ export function VideoEditor() {
   const assets = currentProject?.assets || []
   const timelines = currentProject?.timelines || []
   
+  // Ensure the active timeline is always in the open tab set.
+  // On first load (empty set), open only the active timeline.
+  useEffect(() => {
+    const activeId = activeTimeline?.id
+    if (!activeId) return
+    setOpenTimelineIds(prev => {
+      // If the set is empty (first load / project switch), seed it with just the active timeline
+      if (prev.size === 0) return new Set([activeId])
+      // Otherwise just make sure the active one is open
+      if (prev.has(activeId)) return prev
+      const next = new Set(prev)
+      next.add(activeId)
+      return next
+    })
+  }, [activeTimeline?.id])
+  
+  // Clean up open IDs when timelines are deleted
+  useEffect(() => {
+    const validIds = new Set(timelines.map(t => t.id))
+    setOpenTimelineIds(prev => {
+      const next = new Set<string>()
+      for (const id of prev) { if (validIds.has(id)) next.add(id) }
+      if (next.size !== prev.size) return next
+      return prev
+    })
+  }, [timelines])
+  
   // Keep assetsRef in sync (declared after assets to avoid forward-reference)
   useEffect(() => { assetsRef.current = assets }, [assets])
   
@@ -903,6 +939,17 @@ export function VideoEditor() {
   )
   
   const pixelsPerSecond = 100 * zoom
+
+  // Dynamic minimum zoom: at min zoom the whole timeline fits in view
+  // Falls back to 0.05 if container isn't mounted yet
+  const getMinZoom = useCallback(() => {
+    const container = trackContainerRef.current
+    if (!container || totalDuration <= 0) return 0.05
+    const containerWidth = container.clientWidth - 20
+    return Math.min(0.5, Math.max(0.01, containerWidth / (totalDuration * 100)))
+  }, [totalDuration])
+  const getMinZoomRef = useRef(getMinZoom)
+  getMinZoomRef.current = getMinZoom
   
   // Detect cut points: adjacent clips on the same track where one ends and another begins
   const cutPoints = useMemo(() => {
@@ -1041,20 +1088,24 @@ export function VideoEditor() {
   //           2) on the same track, the clip placed later (higher array index) wins
   const getClipAtTime = useCallback((time: number): TimelineClip | null => {
     // Only consider video/image clips for the visual preview — audio is heard, not seen
+    // Skip adjustment layers (they apply effects but don't have video content)
+    // Also skip clips on tracks with output disabled (enabled === false)
     const clipsAtTime = clips
       .map((clip, arrayIndex) => ({ clip, arrayIndex }))
       .filter(({ clip }) =>
-        clip.type !== 'audio' &&
+        clip.type !== 'audio' && clip.type !== 'adjustment' &&
+        (tracks[clip.trackIndex]?.enabled !== false) &&
         time >= clip.startTime && time < clip.startTime + clip.duration
       )
     if (clipsAtTime.length === 0) return null
-    // Sort: lower trackIndex first, then higher arrayIndex first (later clip wins on same track)
+    // Sort: higher trackIndex first (NLE rule: V3 is above V2, higher tracks take priority)
+    // Then higher arrayIndex first (later clip wins on same track)
     clipsAtTime.sort((a, b) => {
-      if (a.clip.trackIndex !== b.clip.trackIndex) return a.clip.trackIndex - b.clip.trackIndex
-      return b.arrayIndex - a.arrayIndex // later in array = placed more recently = wins
+      if (a.clip.trackIndex !== b.clip.trackIndex) return b.clip.trackIndex - a.clip.trackIndex
+      return b.arrayIndex - a.arrayIndex
     })
     return clipsAtTime[0].clip
-  }, [clips])
+  }, [clips, tracks])
   
   const activeClip = getClipAtTime(currentTime)
   const clipPlaybackOffset = activeClip ? currentTime - activeClip.startTime : 0
@@ -1189,7 +1240,13 @@ export function VideoEditor() {
           if (e.ctrlKey || e.metaKey) { e.preventDefault(); cutRef.current() }
           break
         case 'escape':
-          setSelectedClipIds(new Set())
+          // Close gap generation panel if open, otherwise deselect clips
+          if (gapGenerateModeRef.current) {
+            setGapGenerateMode(null)
+            setSelectedGap(null)
+          } else {
+            setSelectedClipIds(new Set())
+          }
           break
         
         // In/Out points
@@ -1320,7 +1377,7 @@ export function VideoEditor() {
         case '-': {
           e.preventDefault()
           centerOnPlayheadRef.current = true
-          setZoom(prev => Math.max(0.1, +(prev - 0.25).toFixed(2)))
+          setZoom(prev => Math.max(getMinZoomRef.current(), +(prev - 0.25).toFixed(2)))
           break
         }
         case '0': {
@@ -1358,7 +1415,7 @@ export function VideoEditor() {
         e.preventDefault()
         centerOnPlayheadRef.current = true
         const delta = e.deltaY > 0 ? -0.15 : 0.15
-        setZoom(prev => Math.min(4, Math.max(0.1, +(prev + delta).toFixed(2))))
+        setZoom(prev => Math.min(4, Math.max(getMinZoomRef.current(), +(prev + delta).toFixed(2))))
       }
     }
     
@@ -1372,8 +1429,8 @@ export function VideoEditor() {
     if (!container || totalDuration <= 0) return
     const containerWidth = container.clientWidth - 20 // small padding
     const idealZoom = containerWidth / (totalDuration * 100)
-    setZoom(Math.min(4, Math.max(0.1, +idealZoom.toFixed(2))))
-  }, [totalDuration])
+    setZoom(Math.min(4, Math.max(getMinZoom(), +idealZoom.toFixed(2))))
+  }, [totalDuration, getMinZoom])
   
   // ─── Unified playback engine (rAF) ───────────────────────────────────
   // During playback this loop is the SINGLE authority for:
@@ -1411,15 +1468,18 @@ export function VideoEditor() {
     
     const getClipAtTimeRef = (time: number): TimelineClip | null => {
       const all = clipsRef.current
+      const trks = tracksRef.current
       const clipsAtTime = all
         .map((clip: TimelineClip, arrayIndex: number) => ({ clip, arrayIndex }))
         .filter(({ clip }: { clip: TimelineClip }) =>
           clip.type !== 'audio' && clip.type !== 'adjustment' &&
+          (trks[clip.trackIndex]?.enabled !== false) &&
           time >= clip.startTime && time < clip.startTime + clip.duration
         )
       if (clipsAtTime.length === 0) return null
+      // Higher trackIndex = higher visual track = takes priority (NLE rule)
       clipsAtTime.sort((a: any, b: any) => {
-        if (a.clip.trackIndex !== b.clip.trackIndex) return a.clip.trackIndex - b.clip.trackIndex
+        if (a.clip.trackIndex !== b.clip.trackIndex) return b.clip.trackIndex - a.clip.trackIndex
         return b.arrayIndex - a.arrayIndex
       })
       return clipsAtTime[0].clip
@@ -1511,34 +1571,50 @@ export function VideoEditor() {
           }
           
           // Seek / play the video
-          if (video && video.readyState >= 2) {
-            const timeInClip = next - syncClip.startTime
-            const videoDuration = video.duration
-            if (!isNaN(videoDuration)) {
-              const usableMedia = videoDuration - syncClip.trimStart - syncClip.trimEnd
-              const targetTime = syncClip.reversed
-                ? Math.max(0, Math.min(videoDuration, syncClip.trimStart + usableMedia - timeInClip * syncClip.speed))
-                : Math.max(0, Math.min(videoDuration, syncClip.trimStart + timeInClip * syncClip.speed))
-              
-              if (syncClip.reversed) {
-                if (!video.paused) video.pause()
-                video.playbackRate = 1
-                if (!isNaN(targetTime) && Math.abs(video.currentTime - targetTime) > 0.04) {
-                  if (typeof (video as any).fastSeek === 'function') (video as any).fastSeek(targetTime)
-                  else video.currentTime = targetTime
+          if (video) {
+            const seekAndPlay = (v: HTMLVideoElement) => {
+              const timeInClip = next - syncClip.startTime
+              const videoDuration = v.duration
+              if (!isNaN(videoDuration)) {
+                const usableMedia = videoDuration - syncClip.trimStart - syncClip.trimEnd
+                const targetTime = syncClip.reversed
+                  ? Math.max(0, Math.min(videoDuration, syncClip.trimStart + usableMedia - timeInClip * syncClip.speed))
+                  : Math.max(0, Math.min(videoDuration, syncClip.trimStart + timeInClip * syncClip.speed))
+                
+                if (syncClip.reversed) {
+                  if (!v.paused) v.pause()
+                  v.playbackRate = 1
+                  if (!isNaN(targetTime) && Math.abs(v.currentTime - targetTime) > 0.04) {
+                    if (typeof (v as any).fastSeek === 'function') (v as any).fastSeek(targetTime)
+                    else v.currentTime = targetTime
+                  }
+                } else {
+                  v.playbackRate = syncClip.speed
+                  if (!isNaN(targetTime) && Math.abs(v.currentTime - targetTime) > 0.3) {
+                    if (typeof (v as any).fastSeek === 'function') (v as any).fastSeek(targetTime)
+                    else v.currentTime = targetTime
+                  }
+                  if (v.paused) v.play().catch(() => {})
                 }
-              } else {
-                video.playbackRate = syncClip.speed
-                // Only hard-seek if drift exceeds a threshold (avoid stutter)
-                if (!isNaN(targetTime) && Math.abs(video.currentTime - targetTime) > 0.3) {
-                  if (typeof (video as any).fastSeek === 'function') (video as any).fastSeek(targetTime)
-                  else video.currentTime = targetTime
-                }
-                if (video.paused) video.play().catch(() => {})
+                
+                v.muted = syncClip.muted || tracksRef.current[syncClip.trackIndex]?.muted || false
+                v.volume = syncClip.volume
               }
-              
-              video.muted = syncClip.muted || tracksRef.current[syncClip.trackIndex]?.muted || false
-              video.volume = syncClip.volume
+            }
+            
+            if (video.readyState >= 2) {
+              seekAndPlay(video)
+            } else if (!(video as any).__pendingCanplay) {
+              // Video not decoded yet — seek & play as soon as it's ready (one listener only)
+              (video as any).__pendingCanplay = true
+              const onReady = () => {
+                video.removeEventListener('canplay', onReady)
+                ;(video as any).__pendingCanplay = false
+                video.style.opacity = '1'
+                video.style.zIndex = '1'
+                seekAndPlay(video)
+              }
+              video.addEventListener('canplay', onReady)
             }
           }
           
@@ -1575,7 +1651,11 @@ export function VideoEditor() {
       const pps = zoom * 100 // pixelsPerSecond
       const px = `${next * pps}px`
       if (playheadRulerRef.current) playheadRulerRef.current.style.left = px
-      if (playheadTracksRef.current) playheadTracksRef.current.style.left = px
+      // Update the overlay playhead (scroll-adjusted, positioned on the wrapper)
+      if (playheadOverlayRef.current) {
+        const scrollX = trackContainerRef.current?.scrollLeft || 0
+        playheadOverlayRef.current.style.left = `${next * pps - scrollX}px`
+      }
       
       // ── 5. Auto-scroll timeline ──
       const container = trackContainerRef.current
@@ -2452,8 +2532,9 @@ export function VideoEditor() {
   // Get active letterbox from adjustment layers at playhead
   const activeLetterbox = useMemo(() => {
     // Find the topmost (lowest trackIndex) adjustment layer clip at the current time with letterbox enabled
+    // Skip clips on tracks with output disabled
     const adjClips = clips
-      .filter(c => c.type === 'adjustment' && currentTime >= c.startTime && currentTime < c.startTime + c.duration)
+      .filter(c => c.type === 'adjustment' && (tracks[c.trackIndex]?.enabled !== false) && currentTime >= c.startTime && currentTime < c.startTime + c.duration)
       .sort((a, b) => a.trackIndex - b.trackIndex) // lower trackIndex = higher in visual stack
     
     for (const clip of adjClips) {
@@ -2472,7 +2553,7 @@ export function VideoEditor() {
       }
     }
     return null
-  }, [clips, currentTime])
+  }, [clips, currentTime, tracks])
   
   // --- Gap detection: find empty spaces between clips on each non-subtitle track ---
   const timelineGaps = useMemo(() => {
@@ -2634,6 +2715,8 @@ export function VideoEditor() {
       // Modal closed — reset suggestion state
       setGapSuggesting(false)
       setGapSuggestion(null)
+      setGapBeforeFrame(null)
+      setGapAfterFrame(null)
       gapSuggestionAbortRef.current?.abort()
       return
     }
@@ -2726,6 +2809,10 @@ export function VideoEditor() {
         await Promise.all(framePromises)
         
         if (abortController.signal.aborted) return
+        
+        // Save extracted frames for the animation header
+        if (beforeFrame) setGapBeforeFrame(beforeFrame.startsWith('data:') ? beforeFrame : `data:image/jpeg;base64,${beforeFrame}`)
+        if (afterFrame) setGapAfterFrame(afterFrame.startsWith('data:') ? afterFrame : `data:image/jpeg;base64,${afterFrame}`)
         
         // If we have nothing useful, bail
         if (!beforeFrame && !afterFrame && !beforePrompt && !afterPrompt) {
@@ -2940,7 +3027,7 @@ export function VideoEditor() {
         type: ref.type,
         path: assetPath,
         url,
-        prompt: `Imported from ${parsed.format === 'fcp7xml' ? 'FCP 7 XML' : 'FCPXML'}: ${fileName}`,
+        prompt: fileName,
         resolution,
         duration: ref.duration || undefined,
         bin: 'Imported',
@@ -2978,18 +3065,18 @@ export function VideoEditor() {
         trimStart: pc.sourceIn || 0,
         trimEnd: 0,
         speed: pc.speed || 1,
-        reversed: false,
-        muted: false,
+        reversed: pc.reversed || false,
+        muted: pc.muted || false,
         volume: pc.volume !== undefined ? Math.min(1, Math.max(0, pc.volume)) : 1,
         trackIndex: Math.min(pc.trackIndex, totalTracks - 1),
         asset,
         importedName: pc.name,
-        flipH: false,
-        flipV: false,
+        flipH: pc.flipH || false,
+        flipV: pc.flipV || false,
         transitionIn: { type: 'none', duration: 0 },
         transitionOut: { type: 'none', duration: 0 },
         colorCorrection: { ...DEFAULT_COLOR_CORRECTION },
-        opacity: 100,
+        opacity: pc.opacity !== undefined ? pc.opacity : 100,
       }
       newClips.push(clip)
     }
@@ -3003,8 +3090,9 @@ export function VideoEditor() {
       clips: newClips,
     })
     
-    // Switch to the new timeline
+    // Switch to the new timeline and open its tab
     setActiveTimeline(currentProjectId, newTimeline.id)
+    setOpenTimelineIds(prev => { const next = new Set(prev); next.add(newTimeline.id); return next })
     
     // Load locally
     setTracks(newTracks)
@@ -3121,7 +3209,11 @@ export function VideoEditor() {
     if (rulerScrollRef.current) {
       rulerScrollRef.current.scrollLeft = container.scrollLeft
     }
-  }, [])
+    // Sync overlay playhead horizontal position
+    if (playheadOverlayRef.current) {
+      playheadOverlayRef.current.style.left = `${currentTime * pixelsPerSecond - container.scrollLeft}px`
+    }
+  }, [currentTime, pixelsPerSecond])
   
   // --- Mouse handlers ---
   
@@ -3922,7 +4014,11 @@ export function VideoEditor() {
   
   const handleAddTimeline = () => {
     if (!currentProjectId) return
-    addTimeline(currentProjectId)
+    const newTl = addTimeline(currentProjectId)
+    // Auto-open the new timeline tab
+    if (newTl?.id) {
+      setOpenTimelineIds(prev => { const next = new Set(prev); next.add(newTl.id); return next })
+    }
   }
   
   const handleDeleteTimeline = (timelineId: string) => {
@@ -3934,7 +4030,11 @@ export function VideoEditor() {
   
   const handleDuplicateTimeline = (timelineId: string) => {
     if (!currentProjectId) return
-    duplicateTimeline(currentProjectId, timelineId)
+    const dup = duplicateTimeline(currentProjectId, timelineId)
+    // Auto-open the duplicated timeline tab
+    if (dup?.id) {
+      setOpenTimelineIds(prev => { const next = new Set(prev); next.add(dup.id); return next })
+    }
     setTimelineContextMenu(null)
   }
   
@@ -3947,6 +4047,39 @@ export function VideoEditor() {
     }
     loadedTimelineIdRef.current = null // Reset so the useEffect picks up the new one
     setActiveTimeline(currentProjectId, timelineId)
+    // Auto-open the tab when switching to a timeline
+    setOpenTimelineIds(prev => {
+      if (prev.has(timelineId)) return prev
+      const next = new Set(prev)
+      next.add(timelineId)
+      return next
+    })
+  }
+  
+  const handleCloseTimelineTab = (timelineId: string) => {
+    // Remove from open tabs
+    setOpenTimelineIds(prev => {
+      const next = new Set(prev)
+      next.delete(timelineId)
+      // Must keep at least the active timeline open
+      if (next.size === 0 && activeTimeline?.id) {
+        next.add(activeTimeline.id)
+      }
+      return next
+    })
+    // If closing the active timeline tab, switch to another open one
+    if (timelineId === activeTimeline?.id && currentProjectId) {
+      const remaining = Array.from(openTimelineIds).filter(id => id !== timelineId)
+      if (remaining.length > 0) {
+        handleSwitchTimeline(remaining[remaining.length - 1])
+      } else {
+        // All tabs closed — pick the first timeline from the library
+        const fallback = timelines.find(t => t.id !== timelineId)
+        if (fallback) {
+          handleSwitchTimeline(fallback.id)
+        }
+      }
+    }
   }
   
   const handleStartRename = (timelineId: string, currentName: string) => {
@@ -4124,6 +4257,15 @@ export function VideoEditor() {
     window.addEventListener('click', handler)
     return () => window.removeEventListener('click', handler)
   }, [assetContextMenu])
+  
+  // Close timeline add menu on click elsewhere
+  useEffect(() => {
+    if (!timelineAddMenuOpen) return
+    const handler = () => setTimelineAddMenuOpen(false)
+    // Delay so the toggle click itself doesn't immediately close
+    const timer = setTimeout(() => window.addEventListener('click', handler), 0)
+    return () => { clearTimeout(timer); window.removeEventListener('click', handler) }
+  }, [timelineAddMenuOpen])
   
   // Adjust asset context menu position to stay within viewport
   useEffect(() => {
@@ -4529,6 +4671,7 @@ export function VideoEditor() {
       // Switch to the duplicated timeline so user can see progress
       loadedTimelineIdRef.current = null
       setActiveTimeline(currentProjectId, targetTimelineId)
+      setOpenTimelineIds(prev => { const next = new Set(prev); next.add(targetTimelineId); return next })
       // Wait a tick for state to settle
       await new Promise(r => setTimeout(r, 100))
     }
@@ -5570,13 +5713,33 @@ export function VideoEditor() {
         <div className="flex flex-col min-h-0" style={layout.assetsHeight > 0 ? { flex: '1 1 0%' } : { flex: '0 1 40%', minHeight: 100 }}>
           <div className="p-3 pb-2 flex items-center justify-between flex-shrink-0">
             <h3 className="text-sm font-semibold text-white">Timelines</h3>
-            <button
-              onClick={handleAddTimeline}
-              className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
-              title="New timeline"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setTimelineAddMenuOpen(prev => !prev)}
+                className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                title="Add timeline"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+              {timelineAddMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 w-48 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-50 py-1 overflow-hidden">
+                  <button
+                    onClick={() => { handleAddTimeline(); setTimelineAddMenuOpen(false) }}
+                    className="w-full text-left px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700 flex items-center gap-2"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    New Timeline
+                  </button>
+                  <button
+                    onClick={() => { setShowImportTimelineModal(true); setTimelineAddMenuOpen(false) }}
+                    className="w-full text-left px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700 flex items-center gap-2"
+                  >
+                    <FileUp className="h-3.5 w-3.5" />
+                    Import from XML
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex-1 overflow-auto px-3 pb-3 space-y-1">
             {timelines.map(tl => {
@@ -5621,9 +5784,11 @@ export function VideoEditor() {
                       )}
                     </div>
                   </div>
-                  {isActive && (
+                  {isActive ? (
                     <span className="text-[9px] text-violet-400 font-medium uppercase tracking-wider flex-shrink-0">Active</span>
-                  )}
+                  ) : openTimelineIds.has(tl.id) ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 flex-shrink-0" title="Open in tabs" />
+                  ) : null}
                   {/* Delete button (visible on hover, not for last timeline) */}
                   {timelines.length > 1 && (
                     <button
@@ -5658,7 +5823,7 @@ export function VideoEditor() {
         <div
           ref={previewContainerRef}
           className="flex-1 relative overflow-hidden min-h-0 min-w-0"
-          style={{ backgroundColor: '#333' }}
+          style={{ backgroundColor: '#333', ...(previewZoom !== 'fit' ? { cursor: 'grab' } : {}) }}
           onMouseDown={(e) => {
             // Allow panning when zoomed: middle-click always, left-click when zoomed in
             if (previewZoom === 'fit') return
@@ -5674,7 +5839,6 @@ export function VideoEditor() {
           }}
           onMouseUp={() => { previewPanRef.current.dragging = false }}
           onMouseLeave={() => { previewPanRef.current.dragging = false }}
-          style={previewZoom !== 'fit' ? { cursor: 'grab' } : undefined}
         >
           {clips.length === 0 ? (
             <div className="w-full h-full flex items-center justify-center">
@@ -5818,7 +5982,7 @@ export function VideoEditor() {
               
               {/* Subtitle overlay */}
               {activeSubtitles.length > 0 && (
-                <div className="absolute inset-0 z-[15] pointer-events-none flex flex-col justify-end">
+                <div className="absolute inset-0 z-[25] pointer-events-none flex flex-col justify-end">
                   {activeSubtitles.map(sub => {
                     const track = tracks[sub.trackIndex]
                     const style = { ...DEFAULT_SUBTITLE_STYLE, ...(track?.subtitleStyle || {}), ...sub.style }
@@ -6213,7 +6377,7 @@ export function VideoEditor() {
           
           <div className="flex items-center gap-1.5">
             <button 
-              onClick={() => setZoom(Math.max(0.1, +(zoom - 0.25).toFixed(2)))}
+              onClick={() => setZoom(Math.max(getMinZoom(), +(zoom - 0.25).toFixed(2)))}
               className="p-1 rounded hover:bg-zinc-800 text-zinc-400"
               title="Zoom out (-)"
             >
@@ -6232,10 +6396,10 @@ export function VideoEditor() {
         
         {/* Timeline Tabs */}
         <div className="h-8 bg-zinc-900 border-t border-zinc-800 flex items-center px-1 gap-0.5 overflow-x-auto flex-shrink-0">
-          {timelines.map(tl => (
+          {timelines.filter(tl => openTimelineIds.has(tl.id)).map(tl => (
             <div
               key={tl.id}
-              className={`group flex items-center gap-1 px-3 h-6 rounded-t text-xs font-medium cursor-pointer transition-colors flex-shrink-0 ${
+              className={`group flex items-center gap-1 pl-3 pr-1 h-6 rounded-t text-xs font-medium cursor-pointer transition-colors flex-shrink-0 ${
                 tl.id === activeTimeline?.id
                   ? 'bg-zinc-950 text-white border-t border-l border-r border-zinc-700'
                   : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
@@ -6262,6 +6426,21 @@ export function VideoEditor() {
               ) : (
                 <span className="truncate max-w-[120px]">{tl.name}</span>
               )}
+              {/* Close tab button */}
+              <button
+                className={`ml-0.5 p-0.5 rounded transition-colors flex-shrink-0 ${
+                  tl.id === activeTimeline?.id
+                    ? 'text-zinc-500 hover:text-white hover:bg-zinc-700'
+                    : 'text-zinc-600 opacity-0 group-hover:opacity-100 hover:text-zinc-300 hover:bg-zinc-700'
+                }`}
+                title="Close tab"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleCloseTimelineTab(tl.id)
+                }}
+              >
+                <X className="h-3 w-3" />
+              </button>
             </div>
           ))}
           
@@ -6274,28 +6453,6 @@ export function VideoEditor() {
             <Plus className="h-3.5 w-3.5" />
           </button>
           
-          <div className="w-px h-4 bg-zinc-700 mx-1" />
-          
-          {/* Import timeline from NLE */}
-          <button
-            onClick={() => setShowImportTimelineModal(true)}
-            className="flex items-center gap-1 px-2 h-6 rounded text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors flex-shrink-0 text-[10px]"
-            title="Import timeline from Premiere Pro, DaVinci Resolve, Final Cut Pro (XML)"
-          >
-            <FileUp className="h-3 w-3" />
-            Import XML
-          </button>
-          
-          {/* Export timeline as XML */}
-          <button
-            onClick={handleExportTimelineXml}
-            disabled={clips.length === 0}
-            className="flex items-center gap-1 px-2 h-6 rounded text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors flex-shrink-0 text-[10px] disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Export timeline as FCP 7 XML (compatible with Premiere Pro, DaVinci Resolve)"
-          >
-            <FileDown className="h-3 w-3" />
-            Export XML
-          </button>
           
           {/* Context menu */}
           {timelineContextMenu && (
@@ -6356,9 +6513,19 @@ export function VideoEditor() {
                 <FileDown className="h-3 w-3" />
                 Export as FCP 7 XML
               </button>
+              <div className="h-px bg-zinc-700 my-0.5" />
+              <button
+                onClick={() => {
+                  handleCloseTimelineTab(timelineContextMenu.timelineId)
+                  setTimelineContextMenu(null)
+                }}
+                className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 flex items-center gap-2"
+              >
+                <X className="h-3 w-3" />
+                Close Tab
+              </button>
               {timelines.length > 1 && (
                 <>
-                  <div className="h-px bg-zinc-700 my-0.5" />
                   <button
                     onClick={() => handleDeleteTimeline(timelineContextMenu.timelineId)}
                     className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-700 flex items-center gap-2"
@@ -6499,9 +6666,9 @@ export function VideoEditor() {
             <div className="flex flex-1 min-h-0 flex-col">
               {/* Scrollable tracks area */}
               <div className="flex flex-1 min-h-0">
-              {/* Track headers - synced with vertical scroll */}
-              <div ref={trackHeadersRef} className="w-32 flex-shrink-0 border-r border-zinc-800 bg-zinc-900 overflow-hidden flex flex-col">
-                {/* Add track buttons - pinned at top of headers */}
+              {/* Track headers column */}
+              <div className="w-32 flex-shrink-0 border-r border-zinc-800 bg-zinc-900 flex flex-col overflow-hidden">
+                {/* Add track buttons - pinned above scrollable area */}
                 <div className="flex-shrink-0 h-7 flex items-center px-2 gap-1.5 border-b border-zinc-700/50">
                   <button 
                     onClick={() => addTrack('video')}
@@ -6538,6 +6705,8 @@ export function VideoEditor() {
                     Adj
                   </button>
                 </div>
+                {/* Scrollable track headers - synced with vertical scroll */}
+                <div ref={trackHeadersRef} className="flex-1 overflow-hidden flex flex-col">
                 {orderedTracks.map(({ track, realIndex, displayRow }) => (
                   <React.Fragment key={track.id}>
                     {/* Divider between video and audio sections */}
@@ -6590,6 +6759,15 @@ export function VideoEditor() {
                         </button>
                         {track.type !== 'subtitle' && (
                           <button 
+                            onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, enabled: !(t.enabled !== false)}: t))}
+                            className={`p-1 rounded ${track.enabled === false ? 'text-zinc-600' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            title={track.enabled === false ? 'Enable track output' : 'Disable track output'}
+                          >
+                            {track.enabled === false ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                          </button>
+                        )}
+                        {track.type !== 'subtitle' && (
+                          <button 
                             onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, muted: !t.muted} : t))}
                             className={`p-1 rounded ${track.muted ? 'text-red-400' : 'text-zinc-500 hover:text-zinc-300'}`}
                             title={track.muted ? 'Unmute' : 'Mute'}
@@ -6621,14 +6799,24 @@ export function VideoEditor() {
                 ))}
                 {/* Spacer at bottom of track list */}
                 <div className="h-4 flex-shrink-0" />
-              </div>
+              </div>{/* end trackHeadersRef */}
+              </div>{/* end track headers column */}
               
               {/* Scrollable track content area */}
-              <div 
-                ref={trackContainerRef}
-                className="flex-1 overflow-auto"
-                onScroll={handleTimelineScroll}
-              >
+              <div className="flex-1 flex flex-col min-w-0 relative">
+                {/* Full-height playhead line — spans spacer + tracks, positioned on the wrapper */}
+                <div
+                  ref={playheadOverlayRef}
+                  className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-30 pointer-events-none"
+                  style={{ left: `${currentTime * pixelsPerSecond - (trackContainerRef.current?.scrollLeft || 0)}px` }}
+                />
+                {/* Spacer matching the add-track button bar height */}
+                <div className="flex-shrink-0 h-7 border-b border-zinc-700/50" />
+                <div 
+                  ref={trackContainerRef}
+                  className="flex-1 overflow-auto"
+                  onScroll={handleTimelineScroll}
+                >
                 <div 
                   style={{ minWidth: `${totalDuration * pixelsPerSecond}px` }}
                   className="relative"
@@ -6726,12 +6914,7 @@ export function VideoEditor() {
                       style={{ left: `${outPoint * pixelsPerSecond}px` }}
                     />
                   )}
-                  {/* Playhead (tracks) — position updated by rAF engine during playback */}
-                  <div 
-                    ref={playheadTracksRef}
-                    className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none"
-                    style={{ left: `${currentTime * pixelsPerSecond}px` }}
-                  />
+                  {/* Playhead is now rendered as overlay on the column wrapper (playheadOverlayRef) */}
                   
                   {orderedTracks.map(({ track, realIndex, displayRow }) => (
                     <React.Fragment key={track.id}>
@@ -7425,10 +7608,11 @@ export function VideoEditor() {
                       </div>
                     )
                   })}
-                </div>
-              </div>
-            </div> {/* close scrollable tracks wrapper */}
-            </div> {/* close flex-col tracks body */}
+                </div>{/* close relative inner */}
+              </div>{/* close trackContainerRef */}
+              </div>{/* close content column */}
+            </div>{/* close scrollable area row */}
+            </div>{/* close tracks body flex-col */}
           </div>
         </div>
         
@@ -7533,7 +7717,7 @@ export function VideoEditor() {
           {/* Zoom slider bar */}
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { centerOnPlayheadRef.current = true; setZoom(Math.max(0.1, +(zoom - 0.25).toFixed(2))) }}
+              onClick={() => { centerOnPlayheadRef.current = true; setZoom(Math.max(getMinZoom(), +(zoom - 0.25).toFixed(2))) }}
               className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
               title="Zoom out (-)"
             >
@@ -7541,11 +7725,11 @@ export function VideoEditor() {
             </button>
             <input
               type="range"
-              min={10}
+              min={Math.max(1, Math.round(getMinZoom() * 100))}
               max={400}
               step={5}
               value={Math.round(zoom * 100)}
-              onChange={(e) => { centerOnPlayheadRef.current = true; setZoom(+(parseInt(e.target.value) / 100).toFixed(2)) }}
+              onChange={(e) => { centerOnPlayheadRef.current = true; setZoom(Math.max(getMinZoom(), +(parseInt(e.target.value) / 100).toFixed(2))) }}
               className="w-28 h-1 accent-violet-500 cursor-pointer"
               title={`Zoom: ${Math.round(zoom * 100)}%`}
             />
@@ -9764,6 +9948,90 @@ export function VideoEditor() {
                 <X className="h-4 w-4" />
               </button>
             </div>
+            
+            {/* Animated gap fill visualization */}
+            {(gapBeforeFrame || gapAfterFrame) && (
+              <div className="px-5 pt-4 pb-2">
+                <div className="relative h-20 rounded-lg overflow-hidden bg-zinc-800 border border-zinc-700/50 flex">
+                  {/* Before frame (left) */}
+                  <div className="relative w-1/3 h-full flex-shrink-0 overflow-hidden">
+                    {gapBeforeFrame ? (
+                      <img src={gapBeforeFrame} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+                        <span className="text-zinc-600 text-[9px]">No clip</span>
+                      </div>
+                    )}
+                    {/* Fade edge */}
+                    <div className="absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-zinc-900/80 to-transparent" />
+                  </div>
+                  
+                  {/* Center: animated "new shot" breathing placeholder */}
+                  <div 
+                    className="flex-1 relative overflow-hidden"
+                    style={{ animation: 'gapBreathe 3s ease-in-out infinite' }}
+                  >
+                    {/* Background with breathing glow */}
+                    <div className="absolute inset-0 bg-zinc-900" />
+                    <div 
+                      className="absolute inset-0"
+                      style={{ animation: 'gapGlow 3s ease-in-out infinite' }}
+                    />
+                    {/* Shimmer sweep */}
+                    <div 
+                      className="absolute inset-0"
+                      style={{
+                        background: 'linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.12) 40%, rgba(139,92,246,0.2) 50%, rgba(139,92,246,0.12) 60%, transparent 100%)',
+                        animation: 'gapFillSweep 3s ease-in-out infinite',
+                      }}
+                    />
+                    {/* Border glow pulse */}
+                    <div 
+                      className="absolute inset-0 border border-violet-500/20 rounded-sm"
+                      style={{ animation: 'gapBorderGlow 3s ease-in-out infinite' }}
+                    />
+                    {/* Label */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center px-2">
+                      <Sparkles className="h-3.5 w-3.5 text-violet-400/50 mb-1.5" />
+                      <span className="text-[9px] text-violet-300/60 font-semibold tracking-wide">AI Shot Suggestion</span>
+                      <span className="text-[7px] text-zinc-500 mt-0.5 text-center leading-tight">Visually &amp; narratively consistent with your timeline</span>
+                    </div>
+                  </div>
+                  
+                  {/* After frame (right) */}
+                  <div className="relative w-1/3 h-full flex-shrink-0 overflow-hidden">
+                    {gapAfterFrame ? (
+                      <img src={gapAfterFrame} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+                        <span className="text-zinc-600 text-[9px]">No clip</span>
+                      </div>
+                    )}
+                    {/* Fade edge */}
+                    <div className="absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-zinc-900/80 to-transparent" />
+                  </div>
+                </div>
+                {/* CSS keyframes for the animation */}
+                <style>{`
+                  @keyframes gapFillSweep {
+                    0% { transform: translateX(-100%); }
+                    100% { transform: translateX(100%); }
+                  }
+                  @keyframes gapBreathe {
+                    0%, 100% { transform: scaleX(0.97); opacity: 0.85; }
+                    50% { transform: scaleX(1); opacity: 1; }
+                  }
+                  @keyframes gapGlow {
+                    0%, 100% { background: radial-gradient(ellipse at center, rgba(139,92,246,0.06) 0%, transparent 70%); }
+                    50% { background: radial-gradient(ellipse at center, rgba(139,92,246,0.15) 0%, transparent 70%); }
+                  }
+                  @keyframes gapBorderGlow {
+                    0%, 100% { border-color: rgba(139,92,246,0.1); }
+                    50% { border-color: rgba(139,92,246,0.35); }
+                  }
+                `}</style>
+              </div>
+            )}
             
             {/* Body */}
             <div className="flex-1 overflow-auto p-5 space-y-4">

@@ -140,22 +140,42 @@ export function ImportTimelineModal({ isOpen, onClose, onImport }: ImportTimelin
     setIsSearching(true)
 
     try {
-      // For each missing media ref, try to find the file in the selected directory
-      // We'll check common patterns: direct match, same filename in subdirectories
       const missingRefs = mediaRefs.filter(r => !r.found)
+      if (missingRefs.length === 0) return
 
       // Build list of filenames to search for
-      const searchPaths: string[] = []
+      const filenames: string[] = []
       for (const ref of missingRefs) {
         const filename = ref.name || ref.pathUrl.split('/').pop() || ''
-        if (filename) {
-          // Try direct path in selected directory
+        if (filename) filenames.push(filename)
+      }
+
+      if (filenames.length === 0) return
+
+      // Use recursive directory search (searches subdirectories up to 10 levels deep)
+      if (window.electronAPI.searchDirectoryForFiles) {
+        const results = await window.electronAPI.searchDirectoryForFiles(dir, filenames)
+        // results is { "filename.mp4" (lowercase): "C:\full\path\filename.mp4" }
+
+        setMediaRefs(prev => prev.map(ref => {
+          if (ref.found) return ref
+
+          const filename = ref.name || ref.pathUrl.split('/').pop() || ''
+          const foundPath = results[filename.toLowerCase()]
+
+          if (foundPath) {
+            return { ...ref, relinkedPath: foundPath, resolvedPath: foundPath, found: true }
+          }
+          return ref
+        }))
+      } else {
+        // Fallback: check direct paths only (no recursive search)
+        const searchPaths: string[] = []
+        for (const filename of filenames) {
           const separator = dir.includes('\\') ? '\\' : '/'
           searchPaths.push(`${dir}${separator}${filename}`)
         }
-      }
 
-      if (searchPaths.length > 0) {
         const results = await window.electronAPI.checkFilesExist(searchPaths)
 
         setMediaRefs(prev => prev.map(ref => {

@@ -158,11 +158,20 @@ if (Test-Path $SystemPython) {
 
 Write-Host "`nStep 8: Cleaning up unnecessary files..." -ForegroundColor Yellow
 
-# Remove pip cache to save space
-$PipCache = Join-Path $OutputPath "Lib\site-packages\pip\_vendor\cachecontrol\caches"
-if (Test-Path $PipCache) {
-    Remove-Item -Recurse -Force $PipCache -ErrorAction SilentlyContinue
+# Remove pip cache to save space (check multiple possible locations)
+$PipCachePaths = @(
+    (Join-Path $OutputPath "Lib\site-packages\pip\_vendor\cachecontrol\caches"),
+    (Join-Path $OutputPath "Lib\site-packages\pip\cache"),
+    (Join-Path $OutputPath "Scripts\pip*cache*")
+)
+foreach ($cachePath in $PipCachePaths) {
+    if (Test-Path $cachePath) {
+        Remove-Item -Recurse -Force $cachePath -ErrorAction SilentlyContinue
+        Write-Host "  Removed cache: $cachePath"
+    }
 }
+# Also remove .dist-info for pip itself to save space
+Get-ChildItem -Path (Join-Path $OutputPath "Lib\site-packages") -Directory -Filter "pip-*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 # Remove __pycache__ directories
 Get-ChildItem -Path $OutputPath -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force

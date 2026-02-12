@@ -1,9 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { 
-  Plus, Trash2, Download, Play, Pause, Image, Video, X,
+  Plus, Trash2, Download, Image, Video, X,
   Heart, Pencil, Film, Wrench, Volume2, VolumeX, Sparkles,
-  ChevronDown, Clock, Monitor,
-  Music, Zap, Move3D
+  Music, Zap, Move3D, Clock, Monitor
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import { useGeneration } from '../hooks/use-generation'

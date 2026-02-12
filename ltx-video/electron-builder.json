@@ -1,11 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "com.lightricks.ltx-video",
-  "productName": "LTX Video Studio",
+  "appId": "com.lightricks.ltx-desktop",
+  "productName": "LTX Desktop",
   "copyright": "Copyright © 2024 Lightricks",
   "directories": {
     "output": "release",
-    "buildResources": "build-resources"
+    "buildResources": "resources"
   },
   "files": [
     "dist/**/*",
@@ -49,6 +49,7 @@
         "arch": ["x64"]
       }
     ],
+    "icon": "resources/icon.ico",
     "artifactName": "${productName}-${version}-win64.${ext}"
   },
   "publish": null

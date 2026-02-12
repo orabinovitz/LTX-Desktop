@@ -1,5 +1,5 @@
 # build-installer.ps1
-# Master build script for creating the LTX Video Studio installer
+# Master build script for creating the LTX Desktop installer
 
 param(
     [switch]$SkipPython,
@@ -12,12 +12,12 @@ $ErrorActionPreference = "Stop"
 
 Write-Host @"
 
-  _    _______  __  __     ___     _           ____  _             _ _       
- | |  |_   _\ \/ / | \ \ / (_) __| | ___  ___/ ___|| |_ _   _  __| (_) ___  
- | |    | |  \  /  |  \ V /| |/ _` |/ _ \/ _ \___ \| __| | | |/ _` | |/ _ \ 
- | |___ | |  /  \  |   | | | | (_| |  __/ (_) |__) | |_| |_| | (_| | | (_) |
- |_____|_| /_/\_\ |   |_| |_|\__,_|\___|\___/____/ \__|\__,_|\__,_|_|\___/ 
-                                                                            
+  _   _______  __  ____            _    _              
+ | | |_   _\ \/ / |  _ \  ___  __| | _| |_ ___  _ __  
+ | |   | |  \  /  | | | |/ _ \/ _` |/ _` __/ _ \| '_ \ 
+ | |___| |  /  \  | |_| |  __/ (_| | (_| || (_) | |_) |
+ |_____|_| /_/\_\ |____/ \___|\__,_|\__,_| \___/| .__/ 
+                                                 |_|    
   Installer Build Script
   
 "@ -ForegroundColor Cyan
@@ -115,7 +115,7 @@ Write-Host "========================================" -ForegroundColor Green
 
 if ($Unpack) {
     $UnpackedDir = Join-Path $ReleaseDir "win-unpacked"
-    $ExePath = Join-Path $UnpackedDir "LTX Video Studio.exe"
+    $ExePath = Join-Path $UnpackedDir "LTX Desktop.exe"
     Write-Host "`nUnpacked app ready!" -ForegroundColor Cyan
     Write-Host "Run: $ExePath" -ForegroundColor Cyan
     Write-Host "`nTip: Just restart the app after code changes - no rebuild needed!" -ForegroundColor Green

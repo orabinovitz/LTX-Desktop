@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Sparkles, Trash2, AlertCircle, Loader2, Square, Settings, ImageIcon, FileText, ArrowLeft } from 'lucide-react'
+import { Sparkles, Trash2, Square, Settings, ImageIcon, FileText, ArrowLeft } from 'lucide-react'
 import { ImageUploader } from '../components/ImageUploader'
 import { VideoPlayer } from '../components/VideoPlayer'
 import { ImageResult } from '../components/ImageResult'
@@ -57,7 +57,7 @@ export function Playground() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isLogViewerOpen, setIsLogViewerOpen] = useState(false)
 
-  const { status, isLoading: backendLoading, error: backendError } = useBackend()
+  const { status } = useBackend()
 
   // Fetch initial settings from backend
   useEffect(() => {

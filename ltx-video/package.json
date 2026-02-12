@@ -15,22 +15,24 @@
     "build:installer:skip-python": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -SkipPython",
     "build:fast": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -Unpack -SkipPython -SkipNpm",
     "prepare:python": "powershell -ExecutionPolicy Bypass -File scripts/prepare-python.ps1",
+    "setup:dev": "powershell -ExecutionPolicy Bypass -File scripts/setup-dev.ps1",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run build:frontend && electron-builder --config electron-builder.json",
     "typecheck": "tsc --noEmit",
-    "start:unpacked": "powershell -Command \"& '.\\release\\win-unpacked\\LTX Video Studio.exe'\""
+    "start:unpacked": "powershell -Command \"& '.\\release\\win-unpacked\\LTX Desktop.exe'\""
   },
   "dependencies": {
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.400.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-dropzone": "^14.2.3",
-    "lucide-react": "^0.400.0",
-    "clsx": "^2.1.1",
-    "tailwind-merge": "^2.3.0",
-    "class-variance-authority": "^0.7.0"
+    "tailwind-merge": "^2.3.0"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",

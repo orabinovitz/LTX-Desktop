@@ -1,4 +1,4 @@
-// Project and Asset types for LTX Studio OnDev
+// Project and Asset types for LTX Desktop
 
 // Parameters needed to regenerate a shot
 export interface GenerationParams {
@@ -46,6 +46,7 @@ export interface Track {
   name: string
   muted: boolean
   locked: boolean
+  enabled?: boolean              // Track output toggle: false = clips on this track hidden in preview (default true)
   type?: 'default' | 'subtitle'  // default = media track, subtitle = subtitle track
   kind?: 'video' | 'audio'      // NLE track kind for display ordering (video tracks stack up, audio down)
   subtitleStyle?: Partial<SubtitleStyle>  // Global style for all subtitles on this track (overrides DEFAULT, overridden by per-sub style)

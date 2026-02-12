@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, Sparkles, Film, Settings, FileText } from 'lucide-react'
+import { ArrowLeft, Sparkles, Film, Settings } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import { LtxLogo } from '../components/LtxLogo'
 import { Button } from '../components/ui/button'
@@ -9,7 +9,7 @@ import type { ProjectTab } from '../types/project'
 
 export function Project() {
   const { currentProject, currentTab, setCurrentTab, goHome } = useProjects()
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [_isSettingsOpen, setIsSettingsOpen] = useState(false)
   
   if (!currentProject) {
     return (

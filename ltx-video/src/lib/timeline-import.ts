@@ -33,8 +33,13 @@ export interface ParsedClip {
   duration: number       // duration on timeline in seconds
   sourceIn: number       // source in point in seconds
   sourceOut: number      // source out point in seconds
-  speed?: number
-  volume?: number
+  speed?: number         // playback speed multiplier (1 = normal, 2 = 2x, 0.5 = half)
+  reversed?: boolean     // true if clip is playing in reverse
+  volume?: number        // audio volume 0-1
+  muted?: boolean        // true if audio is muted / clip is disabled
+  flipH?: boolean        // horizontal flip
+  flipV?: boolean        // vertical flip
+  opacity?: number       // opacity 0-100 (100 = fully visible)
 }
 
 export interface ParsedTimeline {
@@ -117,6 +122,137 @@ function detectMediaType(filename: string): 'video' | 'audio' | 'image' {
   if (imageExts.includes(ext)) return 'image'
   if (videoExts.includes(ext)) return 'video'
   return 'video' // default
+}
+
+// ─── Helper: parse clip effects (FCP7) ───────────────────────────────────
+// Extracts speed, reverse, flips, opacity, muted from <filter>/<effect> and
+// other clip-level elements in FCP 7 XML.
+interface ParsedClipEffects {
+  speed: number
+  reversed: boolean
+  flipH: boolean
+  flipV: boolean
+  opacity: number  // 0-100
+  muted: boolean
+}
+
+function parseFcp7ClipEffects(clipEl: Element): ParsedClipEffects {
+  const result: ParsedClipEffects = {
+    speed: 1,
+    reversed: false,
+    flipH: false,
+    flipV: false,
+    opacity: 100,
+    muted: false,
+  }
+
+  // ── Check <enabled>FALSE</enabled> → clip is disabled/muted ──
+  const enabled = getChildText(clipEl, 'enabled')
+  if (enabled.toUpperCase() === 'FALSE') {
+    result.muted = true
+  }
+
+  // ── Collect all effects ──
+  const effects = clipEl.querySelectorAll(':scope > filter > effect')
+  effects.forEach(effect => {
+    const effectId = getChildText(effect, 'effectid').toLowerCase()
+    const effectName = getChildText(effect, 'name').toLowerCase()
+
+    // ── Speed / Time Remap ──
+    if (effectId.includes('timeremap') || effectId.includes('speed') ||
+        effectName.includes('time remap') || effectName.includes('speed')) {
+      // Get all parameters
+      const params = effect.querySelectorAll(':scope > parameter')
+      params.forEach(param => {
+        const paramId = getChildText(param, 'parameterid').toLowerCase()
+        const paramName = getChildText(param, 'name').toLowerCase()
+
+        if (paramId === 'speed' || paramName === 'speed') {
+          const val = getChildText(param, 'value')
+          if (val) {
+            // Speed is stored as percentage (100 = normal, 200 = 2x, 50 = half)
+            const speedPercent = parseFloat(val)
+            if (!isNaN(speedPercent) && speedPercent !== 0) {
+              // Negative speed = reverse (in some exports)
+              if (speedPercent < 0) {
+                result.speed = Math.abs(speedPercent) / 100
+                result.reversed = true
+              } else {
+                result.speed = speedPercent / 100
+              }
+            }
+          }
+        }
+
+        if (paramId === 'reverse' || paramName === 'reverse') {
+          const val = getChildText(param, 'value').toUpperCase()
+          if (val === 'TRUE' || val === '1') {
+            result.reversed = true
+          }
+        }
+      })
+    }
+
+    // ── Horizontal Flip ──
+    if (effectId.includes('horizflip') || effectId.includes('hflip') ||
+        effectName.includes('horizontal flip') || effectName.includes('flip horizontal')) {
+      result.flipH = true
+    }
+
+    // ── Vertical Flip ──
+    if (effectId.includes('vertflip') || effectId.includes('vflip') ||
+        effectName.includes('vertical flip') || effectName.includes('flip vertical')) {
+      result.flipV = true
+    }
+
+    // ── Basic Motion — check for negative scale (flip via scale) ──
+    if (effectId === 'basic' || effectName.includes('basic motion') || effectName.includes('motion')) {
+      const params = effect.querySelectorAll(':scope > parameter')
+      params.forEach(param => {
+        const paramId = getChildText(param, 'parameterid').toLowerCase()
+
+        // Scale X negative = horizontal flip
+        if (paramId === 'scalex' || paramId === 'scale_x') {
+          const val = parseFloat(getChildText(param, 'value'))
+          if (!isNaN(val) && val < 0) result.flipH = true
+        }
+        // Scale Y negative = vertical flip
+        if (paramId === 'scaley' || paramId === 'scale_y') {
+          const val = parseFloat(getChildText(param, 'value'))
+          if (!isNaN(val) && val < 0) result.flipV = true
+        }
+      })
+    }
+
+    // ── Opacity ──
+    if (effectId === 'opacity' || effectId.includes('opacity') ||
+        effectName.includes('opacity')) {
+      const params = effect.querySelectorAll(':scope > parameter')
+      params.forEach(param => {
+        const paramId = getChildText(param, 'parameterid').toLowerCase()
+        if (paramId === 'opacity' || paramId === 'level') {
+          const val = getChildText(param, 'value')
+          if (val) {
+            const opacityVal = parseFloat(val)
+            if (!isNaN(opacityVal)) {
+              result.opacity = Math.max(0, Math.min(100, opacityVal))
+            }
+          }
+        }
+      })
+    }
+  })
+
+  // ── Check <compositemode> for opacity (alternative location) ──
+  const compositeOpacity = clipEl.querySelector(':scope > compositemode > opacity > value')
+  if (compositeOpacity) {
+    const val = parseFloat(compositeOpacity.textContent || '')
+    if (!isNaN(val)) {
+      result.opacity = Math.max(0, Math.min(100, val))
+    }
+  }
+
+  return result
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -223,15 +359,8 @@ function parseFcp7Xml(doc: Document): ParsedTimeline | null {
         }
       }
       
-      // Check for speed/time remap
-      let speed = 1
-      const speedFilter = clipEl.querySelector('filter > effect > name')
-      if (speedFilter?.textContent?.toLowerCase().includes('speed')) {
-        const speedParam = clipEl.querySelector('filter > effect > parameter > value')
-        if (speedParam) {
-          speed = parseFloat(speedParam.textContent || '100') / 100
-        }
-      }
+      // Parse all clip effects (speed, reverse, flips, opacity, muted)
+      const effects = parseFcp7ClipEffects(clipEl)
       
       if (startFrame >= 0 && endFrame > startFrame && mediaRefId) {
         clips.push({
@@ -243,7 +372,12 @@ function parseFcp7Xml(doc: Document): ParsedTimeline | null {
           duration: (endFrame - startFrame) / clipFps,
           sourceIn: inFrame / clipFps,
           sourceOut: outFrame / clipFps,
-          speed: speed !== 1 ? speed : undefined,
+          speed: effects.speed !== 1 ? effects.speed : undefined,
+          reversed: effects.reversed || undefined,
+          flipH: effects.flipH || undefined,
+          flipV: effects.flipV || undefined,
+          opacity: effects.opacity !== 100 ? effects.opacity : undefined,
+          muted: effects.muted || undefined,
         })
       }
     })
@@ -267,7 +401,10 @@ function parseFcp7Xml(doc: Document): ParsedTimeline | null {
       const fileEl = clipEl.querySelector(':scope > file')
       const mediaRefId = fileEl?.getAttribute('id') || ''
       
-      // Check volume
+      // Parse effects (muted via <enabled>FALSE</enabled>)
+      const effects = parseFcp7ClipEffects(clipEl)
+      
+      // Check volume from audio level filter
       let volume: number | undefined
       const volFilter = Array.from(clipEl.querySelectorAll('filter > effect')).find(e => 
         getChildText(e, 'effectid')?.toLowerCase().includes('audiolevel') ||
@@ -301,6 +438,7 @@ function parseFcp7Xml(doc: Document): ParsedTimeline | null {
           sourceIn: inFrame / clipFps,
           sourceOut: outFrame / clipFps,
           volume,
+          muted: effects.muted || undefined,
         })
       }
     })
@@ -318,6 +456,117 @@ function parseFcp7Xml(doc: Document): ParsedTimeline | null {
     clips,
     format: 'fcp7xml',
   }
+}
+
+// ─── Helper: parse clip effects from FCPXML elements ─────────────────────
+// FCPXML stores speed in <timeMap> or <conform-rate>, flips via <filter-video> transform,
+// opacity as an attribute, etc.
+function parseFcpxmlClipEffects(el: Element): Partial<ParsedClipEffects> {
+  const result: Partial<ParsedClipEffects> = {}
+
+  // ── Enabled attribute (enabled="0" = muted/disabled) ──
+  const enabled = el.getAttribute('enabled')
+  if (enabled === '0') {
+    result.muted = true
+  }
+
+  // ── Speed: check for <timeMap> with remapped speed ──
+  const timeMap = el.querySelector(':scope > timeMap')
+  if (timeMap) {
+    const timepts = timeMap.querySelectorAll(':scope > timept')
+    // Simple constant speed: 2 timepts → calculate speed ratio
+    if (timepts.length >= 2) {
+      const parseFcpxmlTimeLocal = (timeStr: string | null): number => {
+        if (!timeStr) return 0
+        const rational = timeStr.trim().match(/^(\d+)\/(\d+)s$/)
+        if (rational) return parseInt(rational[1]) / parseInt(rational[2])
+        const simple = timeStr.trim().match(/^([\d.]+)s$/)
+        if (simple) return parseFloat(simple[1])
+        return 0
+      }
+      const first = timepts[0]
+      const last = timepts[timepts.length - 1]
+      const srcDur = parseFcpxmlTimeLocal(last.getAttribute('time')) - parseFcpxmlTimeLocal(first.getAttribute('time'))
+      const dstDur = parseFcpxmlTimeLocal(last.getAttribute('value')) - parseFcpxmlTimeLocal(first.getAttribute('value'))
+      if (srcDur > 0 && dstDur > 0) {
+        result.speed = dstDur / srcDur
+      }
+    }
+  }
+
+  // ── Speed: check for <conform-rate> ──
+  const conformRate = el.querySelector(':scope > conform-rate')
+  if (conformRate) {
+    const scaleEnabled = conformRate.getAttribute('scaleEnabled')
+    if (scaleEnabled === '1') {
+      const srcFrameDur = conformRate.getAttribute('srcFrameDuration')
+      const frameDur = conformRate.getAttribute('frameDuration')
+      if (srcFrameDur && frameDur) {
+        const parseFcpxmlTimeLocal = (timeStr: string): number => {
+          const rational = timeStr.trim().match(/^(\d+)\/(\d+)s$/)
+          if (rational) return parseInt(rational[1]) / parseInt(rational[2])
+          const simple = timeStr.trim().match(/^([\d.]+)s$/)
+          if (simple) return parseFloat(simple[1])
+          return 0
+        }
+        const src = parseFcpxmlTimeLocal(srcFrameDur)
+        const dst = parseFcpxmlTimeLocal(frameDur)
+        if (src > 0 && dst > 0) {
+          result.speed = src / dst
+        }
+      }
+    }
+  }
+
+  // ── Flips and opacity: check <adjust-transform> ──
+  const adjustTransform = el.querySelector(':scope > adjust-transform')
+  if (adjustTransform) {
+    // Flips: scaleX="-100" or scaleY="-100"
+    const scaleX = parseFloat(adjustTransform.getAttribute('scaleX') || '100')
+    const scaleY = parseFloat(adjustTransform.getAttribute('scaleY') || '100')
+    if (scaleX < 0) result.flipH = true
+    if (scaleY < 0) result.flipV = true
+  }
+
+  // ── Flips: check <filter-video> with "Flipped" or transform ──
+  const filterVideos = el.querySelectorAll(':scope > filter-video')
+  filterVideos.forEach(fv => {
+    const filterName = (fv.getAttribute('name') || '').toLowerCase()
+    const filterRef = (fv.getAttribute('ref') || '').toLowerCase()
+    if (filterName.includes('flipped') || filterName.includes('flip') ||
+        filterRef.includes('flip')) {
+      // Check params for which axis
+      const params = fv.querySelectorAll(':scope > param')
+      let hasSpecificAxis = false
+      params.forEach(p => {
+        const pName = (p.getAttribute('name') || '').toLowerCase()
+        if (pName.includes('horizontal') || pName.includes('horiz')) {
+          result.flipH = true
+          hasSpecificAxis = true
+        }
+        if (pName.includes('vertical') || pName.includes('vert')) {
+          result.flipV = true
+          hasSpecificAxis = true
+        }
+      })
+      // If no specific axis param found, assume horizontal flip
+      if (!hasSpecificAxis) result.flipH = true
+    }
+  })
+
+  // ── Opacity: check <adjust-blend> ──
+  const adjustBlend = el.querySelector(':scope > adjust-blend')
+  if (adjustBlend) {
+    const amount = adjustBlend.getAttribute('amount')
+    if (amount) {
+      const opacityVal = parseFloat(amount) * 100 // FCPXML uses 0-1 range
+      if (!isNaN(opacityVal)) {
+        result.opacity = Math.max(0, Math.min(100, opacityVal))
+      }
+    }
+  }
+
+  return result
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -441,6 +690,7 @@ function parseFcpXml(doc: Document): ParsedTimeline | null {
         videoTrackCount = Math.max(videoTrackCount, trackIdx + 1)
         
         if (ref && mediaRefs.has(ref)) {
+          const fx = parseFcpxmlClipEffects(el)
           clips.push({
             name: clipName,
             mediaRefId: ref,
@@ -450,6 +700,12 @@ function parseFcpXml(doc: Document): ParsedTimeline | null {
             duration: clipDuration,
             sourceIn: clipStart,
             sourceOut: clipStart + clipDuration,
+            speed: fx.speed && fx.speed !== 1 ? fx.speed : undefined,
+            reversed: fx.speed !== undefined && fx.speed < 0 ? true : undefined,
+            flipH: fx.flipH || undefined,
+            flipV: fx.flipV || undefined,
+            opacity: fx.opacity !== undefined && fx.opacity !== 100 ? fx.opacity : undefined,
+            muted: fx.muted || undefined,
           })
         }
         
@@ -473,6 +729,7 @@ function parseFcpXml(doc: Document): ParsedTimeline | null {
           
           if (attRef && mediaRefs.has(attRef)) {
             const isAudio = att.tagName.toLowerCase() === 'audio'
+            const attFx = parseFcpxmlClipEffects(att)
             clips.push({
               name: attName,
               mediaRefId: attRef,
@@ -482,6 +739,12 @@ function parseFcpXml(doc: Document): ParsedTimeline | null {
               duration: attDur,
               sourceIn: attStart,
               sourceOut: attStart + attDur,
+              speed: attFx.speed && attFx.speed !== 1 ? attFx.speed : undefined,
+              reversed: attFx.speed !== undefined && attFx.speed < 0 ? true : undefined,
+              flipH: attFx.flipH || undefined,
+              flipV: attFx.flipV || undefined,
+              opacity: attFx.opacity !== undefined && attFx.opacity !== 100 ? attFx.opacity : undefined,
+              muted: attFx.muted || undefined,
             })
           }
         })
@@ -504,6 +767,7 @@ function parseFcpXml(doc: Document): ParsedTimeline | null {
           videoTrackCount = Math.max(videoTrackCount, attTrackIdx + 1)
           
           if (attRef && mediaRefs.has(attRef)) {
+            const attFx = parseFcpxmlClipEffects(att)
             clips.push({
               name: attName,
               mediaRefId: attRef,
@@ -513,6 +777,12 @@ function parseFcpXml(doc: Document): ParsedTimeline | null {
               duration: attDur,
               sourceIn: attStart,
               sourceOut: attStart + attDur,
+              speed: attFx.speed && attFx.speed !== 1 ? attFx.speed : undefined,
+              reversed: attFx.speed !== undefined && attFx.speed < 0 ? true : undefined,
+              flipH: attFx.flipH || undefined,
+              flipV: attFx.flipV || undefined,
+              opacity: attFx.opacity !== undefined && attFx.opacity !== 100 ? attFx.opacity : undefined,
+              muted: attFx.muted || undefined,
             })
           }
         })

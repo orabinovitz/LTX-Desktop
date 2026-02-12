@@ -65,6 +65,14 @@ interface Window {
     checkFileExists: (filePath: string) => Promise<boolean>
     checkFilesExist: (filePaths: string[]) => Promise<Record<string, boolean>>
     showOpenFileDialog: (options: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => Promise<string[] | null>
+    searchDirectoryForFiles: (directory: string, filenames: string[]) => Promise<Record<string, string | null>>
+    exportNative: (data: {
+      clips: { url: string; type: string; startTime: number; duration: number; trimStart: number; speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number; muted: boolean; volume: number }[]
+      outputPath: string; codec: string; width: number; height: number; fps: number; quality: number
+      letterbox?: { ratio: number; color: string; opacity: number }
+      subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[]
+    }) => Promise<{ success?: boolean; error?: string }>
+    exportCancel: (sessionId: string) => Promise<{ ok?: boolean }>
     platform: string
   }
 }

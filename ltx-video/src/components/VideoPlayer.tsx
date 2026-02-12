@@ -30,7 +30,7 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
   const [upscaleStatus, setUpscaleStatus] = useState<string | null>(null)
   const [isHovering, setIsHovering] = useState(false)
   const [hasBeenUpscaled, setHasBeenUpscaled] = useState(false)
-  const [currentResolution, setCurrentResolution] = useState<string | null>(null)
+  const [_currentResolution, setCurrentResolution] = useState<string | null>(null)
   const [upscaledVideoUrl, setUpscaledVideoUrl] = useState<string | null>(null)
   const [showingUpscaled, setShowingUpscaled] = useState(false)
   const [comparisonMode, setComparisonMode] = useState<'toggle' | 'curtain'>('toggle')
@@ -258,7 +258,7 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
       const a = document.createElement('a')
       a.href = displayedVideoUrl
       const suffix = showingUpscaled ? '-upscaled' : ''
-      a.download = `ltx-video${suffix}-${Date.now()}.mp4`
+      a.download = `ltx-desktop${suffix}-${Date.now()}.mp4`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
