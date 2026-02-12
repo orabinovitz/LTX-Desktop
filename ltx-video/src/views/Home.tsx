@@ -199,7 +199,7 @@ export function Home() {
         {/* Header Banner with video background */}
         <div className="relative h-72 overflow-hidden">
           <video
-            src="/hero-video.mp4"
+            src="./hero-video.mp4"
             autoPlay
             loop
             muted
