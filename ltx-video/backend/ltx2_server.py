@@ -1574,7 +1574,7 @@ def get_pipeline(model_type: str = "fast", skip_warmup: bool = False):
             unload_others("fast")
             load_pipeline("fast")
             if not skip_warmup:
-            warmup_pipeline("fast")
+                warmup_pipeline("fast")
         return distilled_pipeline
     elif model_type == "fast-native":
         if distilled_native_pipeline is None:
@@ -1587,7 +1587,7 @@ def get_pipeline(model_type: str = "fast", skip_warmup: bool = False):
             unload_others("pro")
             load_pipeline("pro")
             if not skip_warmup:
-            warmup_pipeline("pro")
+                warmup_pipeline("pro")
         return pro_pipeline
     elif model_type == "pro-native":
         if pro_native_pipeline is None:
@@ -1799,20 +1799,20 @@ def generate_video(
             pro_settings = app_settings.get("pro_model", {"steps": 20, "use_upscaler": True})
         
         try:
-        if model_type == "fast":
+            if model_type == "fast":
                 # Distilled pipeline - fixed 8 steps (built into distilled model)
                 # Note: DistilledPipeline doesn't accept num_inference_steps and always requires upscaler
-            pipeline(
-                prompt=enhanced_prompt,
-                output_path=str(output_path),
-                seed=seed,
-                height=height,
-                width=width,
-                num_frames=num_frames,
-                frame_rate=fps,
-                images=images,
-                tiling_config=tiling_config,
-            )
+                pipeline(
+                    prompt=enhanced_prompt,
+                    output_path=str(output_path),
+                    seed=seed,
+                    height=height,
+                    width=width,
+                    num_frames=num_frames,
+                    frame_rate=fps,
+                    images=images,
+                    tiling_config=tiling_config,
+                )
             elif model_type == "fast-native":
                 # Fast Native pipeline - 8-step distilled at native resolution (no upsampler loaded)
                 pipeline(
@@ -1829,21 +1829,21 @@ def generate_video(
             elif model_type == "pro":
                 # Pro pipeline - uses configured steps and upscaler setting
                 pro_steps = pro_settings.get("steps", 20)
-            neg_prompt = negative_prompt if negative_prompt else DEFAULT_NEGATIVE_PROMPT
-            pipeline(
-                prompt=enhanced_prompt,
-                output_path=str(output_path),
-                negative_prompt=neg_prompt,
-                seed=seed,
-                height=height,
-                width=width,
-                num_frames=num_frames,
-                frame_rate=fps,
+                neg_prompt = negative_prompt if negative_prompt else DEFAULT_NEGATIVE_PROMPT
+                pipeline(
+                    prompt=enhanced_prompt,
+                    output_path=str(output_path),
+                    negative_prompt=neg_prompt,
+                    seed=seed,
+                    height=height,
+                    width=width,
+                    num_frames=num_frames,
+                    frame_rate=fps,
                     num_inference_steps=pro_steps,
-                cfg_guidance_scale=3.0,
-                images=images,
-                tiling_config=tiling_config,
-            )
+                    cfg_guidance_scale=3.0,
+                    images=images,
+                    tiling_config=tiling_config,
+                )
             elif model_type == "pro-native":
                 # Pro Native pipeline (configured steps, no upscaler)
                 # Note: TI2VidOneStagePipeline doesn't support tiling_config
@@ -2643,7 +2643,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     seed = app_settings.get("locked_seed", 42)
                     logger.info(f"Using locked seed: {seed}")
                 else:
-                seed = int(time.time()) % 2147483647
+                    seed = int(time.time()) % 2147483647
                 output_path = generate_video(
                     prompt=prompt,
                     image=image,
