@@ -147,12 +147,18 @@ UPSAMPLER_PATH = MODELS_DIR / "ltx-2-spatial-upscaler-x2-1.0.safetensors"
 GEMMA_PATH = MODELS_DIR
 DISTILLED_LORA_PATH = MODELS_DIR / "ltx-2-19b-distilled-lora-384.safetensors"
 
+# IC-LoRA model directory
+IC_LORA_DIR = MODELS_DIR / "ic-loras"
+IC_LORA_DIR.mkdir(parents=True, exist_ok=True)
+
 # Global pipelines (lazy loaded)
 distilled_pipeline = None
 distilled_native_pipeline = None  # Fast model at native resolution (no upsampler)
 pro_pipeline = None
 pro_native_pipeline = None  # Single-stage Pro without upscaler
 flux_pipeline = None  # Flux Klein 4B for image generation
+ic_lora_pipeline = None  # IC-LoRA pipeline (cached by lora path)
+ic_lora_pipeline_path = None  # Track which LoRA is currently loaded
 
 # Generation state
 current_generation = {
@@ -630,6 +636,12 @@ def patch_encode_text_for_api():
         try:
             from ltx_pipelines import ti2vid_two_stages as two_stages_module
             two_stages_module.encode_text = patched_encode_text
+        except ImportError:
+            pass
+        
+        try:
+            from ltx_pipelines import ic_lora as ic_lora_module
+            ic_lora_module.encode_text = patched_encode_text
         except ImportError:
             pass
         
@@ -1326,7 +1338,7 @@ class DummyTextEncoder:
 
 def unload_pipeline(model_type: str):
     """Unload a pipeline to free VRAM."""
-    global distilled_pipeline, distilled_native_pipeline, pro_pipeline, pro_native_pipeline, flux_pipeline
+    global distilled_pipeline, distilled_native_pipeline, pro_pipeline, pro_native_pipeline, flux_pipeline, ic_lora_pipeline, ic_lora_pipeline_path
     
     if model_type == "fast" and distilled_pipeline is not None:
         logger.info("Unloading Fast pipeline to free VRAM...")
@@ -1363,6 +1375,77 @@ def unload_pipeline(model_type: str):
         torch.cuda.empty_cache()
         gc.collect()
         logger.info("Flux pipeline unloaded")
+    elif model_type == "ic-lora" and ic_lora_pipeline is not None:
+        logger.info("Unloading IC-LoRA pipeline to free VRAM...")
+        del ic_lora_pipeline
+        ic_lora_pipeline = None
+        ic_lora_pipeline_path = None
+        torch.cuda.empty_cache()
+        gc.collect()
+        logger.info("IC-LoRA pipeline unloaded")
+
+
+def load_ic_lora_pipeline(lora_path: str):
+    """Load the IC-LoRA pipeline with a specific LoRA file. Cached by path."""
+    global ic_lora_pipeline, ic_lora_pipeline_path
+
+    lora_path_str = str(lora_path)
+
+    # Already loaded with the same LoRA
+    if ic_lora_pipeline is not None and ic_lora_pipeline_path == lora_path_str:
+        return ic_lora_pipeline
+
+    # Unload existing IC-LoRA if loaded with a different LoRA
+    if ic_lora_pipeline is not None:
+        logger.info(f"Switching IC-LoRA from {ic_lora_pipeline_path} to {lora_path_str}")
+        del ic_lora_pipeline
+        ic_lora_pipeline = None
+        ic_lora_pipeline_path = None
+        torch.cuda.empty_cache()
+        gc.collect()
+
+    # Unload other heavy pipelines to free VRAM
+    unload_pipeline("fast")
+    unload_pipeline("fast-native")
+    unload_pipeline("pro")
+    unload_pipeline("pro-native")
+
+    # IMPORTANT: Apply patches before loading any pipeline (same as other pipelines)
+    patch_encode_text_for_api()
+    patch_model_ledger_class()
+
+    try:
+        from ltx_pipelines.ic_lora import ICLoraPipeline
+        from ltx_core.loader.primitives import LoraPathStrengthAndSDOps
+        from ltx_core.loader.sd_ops import LTXV_LORA_COMFY_RENAMING_MAP
+
+        logger.info(f"Loading IC-LoRA pipeline with LoRA: {lora_path_str}")
+        start = time.time()
+
+        lora_entry = LoraPathStrengthAndSDOps(path=lora_path_str, strength=1.0, sd_ops=LTXV_LORA_COMFY_RENAMING_MAP)
+
+        ic_lora_pipeline = ICLoraPipeline(
+            checkpoint_path=str(CHECKPOINT_PATH),
+            distilled_lora_path=str(DISTILLED_LORA_PATH),
+            distilled_lora_strength=1.0,
+            spatial_upsampler_path=str(UPSAMPLER_PATH),
+            gemma_root=str(GEMMA_PATH),
+            loras=[lora_entry],
+            device=DEVICE,
+            fp8transformer=True,
+        )
+
+        ic_lora_pipeline_path = lora_path_str
+        logger.info(f"IC-LoRA pipeline loaded in {time.time() - start:.1f}s")
+        return ic_lora_pipeline
+
+    except Exception as e:
+        logger.error(f"Failed to load IC-LoRA pipeline: {e}")
+        import traceback
+        traceback.print_exc()
+        ic_lora_pipeline = None
+        ic_lora_pipeline_path = None
+        raise
 
 
 def download_flux_model():
@@ -1973,6 +2056,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 {"id": "orbit_left", "name": "Orbit Left"},
                 {"id": "orbit_right", "name": "Orbit Right"},
             ])
+        elif self.path == "/api/ic-lora/list-models":
+            # List available IC-LoRA .safetensors files
+            models = []
+            if IC_LORA_DIR.exists():
+                for f in sorted(IC_LORA_DIR.iterdir()):
+                    if f.suffix == '.safetensors' and f.is_file():
+                        # Try to read metadata from safetensors
+                        meta = {}
+                        try:
+                            from safetensors import safe_open
+                            with safe_open(str(f), framework="pt") as sf:
+                                meta = sf.metadata() or {}
+                        except Exception:
+                            pass
+                        conditioning_type = meta.get("conditioning_type", "unknown")
+                        ref_downscale = int(meta.get("reference_downscale_factor", 1))
+                        models.append({
+                            "name": f.stem,
+                            "path": str(f),
+                            "conditioning_type": conditioning_type,
+                            "reference_downscale_factor": ref_downscale,
+                        })
+            self.send_json_response(200, {"models": models, "directory": str(IC_LORA_DIR)})
         elif self.path == "/api/generation/status":
             self.send_json_response(200, {
                 "id": current_generation["id"],
@@ -3123,6 +3229,530 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 traceback.print_exc()
                 self.send_json_response(500, {"error": str(e)})
         
+        # ═══════════════════════════════════════════════════════════════════
+        # LTX Retake — regenerate a section of a video via LTX Cloud API
+        # ═══════════════════════════════════════════════════════════════════
+
+        elif self.path == "/api/retake":
+            try:
+                content_len = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_len).decode('utf-8')
+                data = json.loads(body)
+
+                video_path = data.get('video_path')
+                start_time = data.get('start_time')
+                duration = data.get('duration')
+                prompt = data.get('prompt', '')
+                mode = data.get('mode', 'replace_audio_and_video')
+
+                if not video_path:
+                    self.send_json_response(400, {"error": "Missing video_path parameter"})
+                    return
+                if start_time is None or duration is None:
+                    self.send_json_response(400, {"error": "Missing start_time or duration parameter"})
+                    return
+                if duration < 2:
+                    self.send_json_response(400, {"error": "duration must be at least 2 seconds"})
+                    return
+
+                video_file = Path(video_path)
+                if not video_file.exists():
+                    self.send_json_response(400, {"error": f"Video file not found: {video_path}"})
+                    return
+
+                api_key = app_settings.get("ltx_api_key", "")
+                if not api_key:
+                    self.send_json_response(400, {"error": "LTX API key not configured. Set it in Settings."})
+                    return
+
+                logger.info(f"Retake request: video={video_path}, start={start_time}, dur={duration}, mode={mode}")
+                logger.info(f"Retake prompt: {prompt[:200]}")
+
+                # Step 1: Get a signed upload URL
+                logger.info("Retake step 1/3: requesting upload URL...")
+                upload_resp = requests.post(
+                    "https://api.ltx.video/v1/upload",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=30,
+                )
+                if upload_resp.status_code != 200:
+                    err = upload_resp.text[:500]
+                    logger.error(f"Upload URL request failed: {upload_resp.status_code} - {err}")
+                    self.send_json_response(upload_resp.status_code, {"error": f"Failed to get upload URL: {err}"})
+                    return
+
+                upload_info = upload_resp.json()
+                upload_url = upload_info["upload_url"]
+                storage_uri = upload_info["storage_uri"]
+                required_headers = upload_info.get("required_headers", {})
+                logger.info(f"Got storage_uri: {storage_uri}")
+
+                # Step 2: Upload the video file
+                logger.info("Retake step 2/3: uploading video file...")
+                with open(video_file, 'rb') as f:
+                    put_headers = {"Content-Type": "video/mp4", **required_headers}
+                    put_resp = requests.put(upload_url, data=f, headers=put_headers, timeout=300)
+                if put_resp.status_code not in (200, 201):
+                    err = put_resp.text[:500]
+                    logger.error(f"Video upload failed: {put_resp.status_code} - {err}")
+                    self.send_json_response(500, {"error": f"Video upload failed: {err}"})
+                    return
+                logger.info("Video uploaded successfully")
+
+                # Step 3: Call the retake endpoint
+                logger.info("Retake step 3/3: calling retake API...")
+                retake_payload = {
+                    "video_uri": storage_uri,
+                    "start_time": float(start_time),
+                    "duration": float(duration),
+                    "mode": mode,
+                }
+                if prompt:
+                    retake_payload["prompt"] = prompt
+
+                retake_resp = requests.post(
+                    "https://api.ltx.video/v1/retake",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=retake_payload,
+                    timeout=600,
+                )
+
+                logger.info(f"Retake API response status: {retake_resp.status_code}")
+
+                if retake_resp.status_code == 200:
+                    content_type = retake_resp.headers.get('Content-Type', '')
+
+                    if 'video' in content_type or 'octet-stream' in content_type:
+                        # Binary video response — save directly
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        unique_id = uuid.uuid4().hex[:8]
+                        retake_filename = f"retake_{timestamp}_{unique_id}.mp4"
+                        retake_path = OUTPUTS_DIR / retake_filename
+                        with open(retake_path, 'wb') as out_f:
+                            out_f.write(retake_resp.content)
+                        logger.info(f"Retake video saved: {retake_path} ({len(retake_resp.content)} bytes)")
+                        self.send_json_response(200, {
+                            "status": "complete",
+                            "video_path": str(retake_path),
+                        })
+                    else:
+                        # JSON response — may contain a video URL
+                        try:
+                            result = retake_resp.json()
+                            video_url = result.get('video_url') or result.get('output_video') or result.get('result', {}).get('video_url')
+                            if video_url:
+                                dl_resp = requests.get(video_url, timeout=120)
+                                if dl_resp.status_code == 200:
+                                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                    unique_id = uuid.uuid4().hex[:8]
+                                    retake_filename = f"retake_{timestamp}_{unique_id}.mp4"
+                                    retake_path = OUTPUTS_DIR / retake_filename
+                                    with open(retake_path, 'wb') as out_f:
+                                        out_f.write(dl_resp.content)
+                                    logger.info(f"Retake video downloaded and saved: {retake_path}")
+                                    self.send_json_response(200, {
+                                        "status": "complete",
+                                        "video_path": str(retake_path),
+                                    })
+                                else:
+                                    self.send_json_response(500, {"error": f"Failed to download retake video: {dl_resp.status_code}"})
+                            else:
+                                logger.info(f"Retake API response keys: {list(result.keys())}")
+                                self.send_json_response(200, {"status": "complete", "result": result})
+                        except json.JSONDecodeError:
+                            self.send_json_response(500, {"error": f"Unexpected response format: {retake_resp.text[:200]}"})
+                elif retake_resp.status_code == 422:
+                    self.send_json_response(422, {"error": "Content rejected by safety filters"})
+                else:
+                    error_text = retake_resp.text[:500] if retake_resp.text else "Unknown error"
+                    logger.error(f"Retake API error: {retake_resp.status_code} - {error_text}")
+                    self.send_json_response(retake_resp.status_code, {"error": f"Retake API error: {error_text}"})
+
+            except Exception as e:
+                logger.error(f"Retake error: {e}")
+                import traceback
+                traceback.print_exc()
+                self.send_json_response(500, {"error": str(e)})
+
+        # ═══════════════════════════════════════════════════════════════════
+        # IC-LoRA — Video-to-Video generation with conditioning LoRAs
+        # ═══════════════════════════════════════════════════════════════════
+
+        elif self.path == "/api/ic-lora/extract-conditioning":
+            # Extract a conditioning preview (canny, depth, etc.) from a video frame
+            try:
+                content_len = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_len).decode('utf-8')
+                data = json.loads(body)
+
+                video_path = data.get('video_path')
+                conditioning_type = data.get('conditioning_type', 'canny')
+                frame_time = data.get('frame_time', 0)  # seconds into the video
+
+                if not video_path:
+                    self.send_json_response(400, {"error": "Missing video_path"})
+                    return
+
+                video_file = Path(video_path)
+                if not video_file.exists():
+                    self.send_json_response(400, {"error": f"Video not found: {video_path}"})
+                    return
+
+                import cv2
+                import base64
+
+                cap = cv2.VideoCapture(str(video_file))
+                fps = cap.get(cv2.CAP_PROP_FPS) or 24
+                target_frame = int(frame_time * fps)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+                ret, frame = cap.read()
+                cap.release()
+
+                if not ret or frame is None:
+                    self.send_json_response(400, {"error": "Could not read frame from video"})
+                    return
+
+                if conditioning_type == 'canny':
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    edges = cv2.Canny(gray, 100, 200)
+                    result = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+                elif conditioning_type == 'depth':
+                    # Simple depth approximation using grayscale + blur for preview
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    blurred = cv2.GaussianBlur(gray, (21, 21), 0)
+                    depth_map = cv2.applyColorMap(blurred, cv2.COLORMAP_MAGMA)
+                    result = depth_map
+                else:
+                    # Default: just return the original frame
+                    result = frame
+
+                _, buffer = cv2.imencode('.jpg', result, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                b64_image = base64.b64encode(buffer).decode('utf-8')
+
+                # Also encode the original frame for reference
+                _, orig_buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                b64_original = base64.b64encode(orig_buffer).decode('utf-8')
+
+                self.send_json_response(200, {
+                    "conditioning": f"data:image/jpeg;base64,{b64_image}",
+                    "original": f"data:image/jpeg;base64,{b64_original}",
+                    "conditioning_type": conditioning_type,
+                    "frame_time": frame_time,
+                })
+
+            except Exception as e:
+                logger.error(f"IC-LoRA extract-conditioning error: {e}")
+                import traceback
+                traceback.print_exc()
+                self.send_json_response(500, {"error": str(e)})
+
+        elif self.path == "/api/ic-lora/download-model":
+            # Download an official IC-LoRA model from HuggingFace
+            OFFICIAL_MODELS = {
+                "canny": {
+                    "repo": "Lightricks/LTX-2-19b-IC-LoRA-Canny-Control",
+                    "file": "ltx-2-19b-ic-lora-canny-control.safetensors",
+                },
+                "depth": {
+                    "repo": "Lightricks/LTX-2-19b-IC-LoRA-Depth-Control",
+                    "file": "ltx-2-19b-ic-lora-depth-control.safetensors",
+                },
+                "pose": {
+                    "repo": "Lightricks/LTX-2-19b-IC-LoRA-Pose-Control",
+                    "file": "ltx-2-19b-ic-lora-pose-control.safetensors",
+                },
+                "detailer": {
+                    "repo": "Lightricks/LTX-2-19b-IC-LoRA-Detailer",
+                    "file": "ltx-2-19b-ic-lora-detailer.safetensors",
+                },
+            }
+            try:
+                content_len = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_len).decode('utf-8')
+                data = json.loads(body)
+                model_key = data.get('model', '')
+
+                if model_key not in OFFICIAL_MODELS:
+                    self.send_json_response(400, {"error": f"Unknown model: {model_key}. Must be one of: {list(OFFICIAL_MODELS.keys())}"})
+                    return
+
+                info = OFFICIAL_MODELS[model_key]
+                dest_path = IC_LORA_DIR / info["file"]
+
+                # If already downloaded, return immediately
+                if dest_path.exists() and dest_path.stat().st_size > 1_000_000:
+                    logger.info(f"IC-LoRA model already exists: {dest_path}")
+                    self.send_json_response(200, {"status": "complete", "path": str(dest_path), "already_existed": True})
+                    return
+
+                url = f"https://huggingface.co/{info['repo']}/resolve/main/{info['file']}"
+                logger.info(f"Downloading IC-LoRA model: {url} -> {dest_path}")
+
+                import urllib.request
+                IC_LORA_DIR.mkdir(parents=True, exist_ok=True)
+                tmp_path = dest_path.with_suffix('.tmp')
+
+                req = urllib.request.Request(url, headers={"User-Agent": "LTX-Studio-App/1.0"})
+                with urllib.request.urlopen(req) as response:
+                    total = int(response.headers.get('Content-Length', 0))
+                    downloaded = 0
+                    chunk_size = 1024 * 1024  # 1MB chunks
+
+                    with open(tmp_path, 'wb') as f:
+                        while True:
+                            chunk = response.read(chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total > 0:
+                                pct = (downloaded / total) * 100
+                                logger.info(f"  Download progress: {downloaded / (1024*1024):.1f}MB / {total / (1024*1024):.1f}MB ({pct:.0f}%)")
+
+                # Rename tmp to final
+                if tmp_path.exists():
+                    tmp_path.rename(dest_path)
+
+                logger.info(f"IC-LoRA model downloaded: {dest_path} ({dest_path.stat().st_size / (1024*1024):.1f}MB)")
+                self.send_json_response(200, {"status": "complete", "path": str(dest_path), "already_existed": False})
+
+            except Exception as e:
+                logger.error(f"IC-LoRA download error: {e}")
+                import traceback
+                traceback.print_exc()
+                # Clean up partial download
+                tmp_path_cleanup = IC_LORA_DIR / (OFFICIAL_MODELS.get(model_key, {}).get("file", "unknown") + ".tmp")
+                if tmp_path_cleanup.exists():
+                    try:
+                        tmp_path_cleanup.unlink()
+                    except Exception:
+                        pass
+                self.send_json_response(500, {"error": str(e)})
+
+        elif self.path == "/api/ic-lora/download-model":
+            # Download an official IC-LoRA model from HuggingFace
+            try:
+                content_len = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_len).decode('utf-8')
+                data = json.loads(body)
+
+                repo_id = data.get('repo_id', '')
+                filename = data.get('filename', '')
+                if not repo_id or not filename:
+                    self.send_json_response(400, {"error": "Missing repo_id or filename"})
+                    return
+
+                dest_path = IC_LORA_DIR / filename
+                if dest_path.exists():
+                    logger.info(f"IC-LoRA model already exists: {dest_path}")
+                    self.send_json_response(200, {"status": "complete", "path": str(dest_path), "already_exists": True})
+                    return
+
+                IC_LORA_DIR.mkdir(parents=True, exist_ok=True)
+
+                # Download from HuggingFace
+                url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
+                logger.info(f"Downloading IC-LoRA model from {url}")
+
+                import urllib.request
+                tmp_path = dest_path.with_suffix('.tmp')
+                try:
+                    req = urllib.request.Request(url, headers={"User-Agent": "LTX-Studio-OnDev/1.0"})
+                    with urllib.request.urlopen(req) as response:
+                        total_size = int(response.headers.get('Content-Length', 0))
+                        logger.info(f"  File size: {total_size / 1024 / 1024:.1f} MB")
+                        downloaded = 0
+                        block_size = 1024 * 256  # 256KB chunks
+                        with open(tmp_path, 'wb') as out_f:
+                            while True:
+                                chunk = response.read(block_size)
+                                if not chunk:
+                                    break
+                                out_f.write(chunk)
+                                downloaded += len(chunk)
+
+                    # Rename to final
+                    tmp_path.rename(dest_path)
+                    logger.info(f"IC-LoRA model downloaded: {dest_path} ({downloaded / 1024 / 1024:.1f} MB)")
+                    self.send_json_response(200, {"status": "complete", "path": str(dest_path)})
+
+                except Exception as dl_err:
+                    if tmp_path.exists():
+                        tmp_path.unlink()
+                    raise dl_err
+
+            except Exception as e:
+                logger.error(f"IC-LoRA download error: {e}")
+                import traceback
+                traceback.print_exc()
+                self.send_json_response(500, {"error": str(e)})
+
+        elif self.path == "/api/ic-lora/generate":
+            # Generate video using IC-LoRA pipeline
+            try:
+                content_len = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_len).decode('utf-8')
+                data = json.loads(body)
+
+                video_path = data.get('video_path')
+                lora_path = data.get('lora_path')
+                conditioning_type = data.get('conditioning_type', 'canny')
+                prompt = data.get('prompt', '')
+                conditioning_strength = float(data.get('conditioning_strength', 1.0))
+                seed = int(data.get('seed', 42))
+                height = int(data.get('height', 512))
+                width = int(data.get('width', 768))
+                num_frames = int(data.get('num_frames', 121))
+                frame_rate = float(data.get('frame_rate', 24))
+                num_inference_steps = int(data.get('num_inference_steps', 30))
+                cfg_guidance_scale = float(data.get('cfg_guidance_scale', 1.0))
+                negative_prompt = data.get('negative_prompt', '')
+                images_input = data.get('images', [])
+
+                if not video_path:
+                    self.send_json_response(400, {"error": "Missing video_path"})
+                    return
+                if not lora_path:
+                    self.send_json_response(400, {"error": "Missing lora_path"})
+                    return
+                if not Path(video_path).exists():
+                    self.send_json_response(400, {"error": f"Video not found: {video_path}"})
+                    return
+                if not Path(lora_path).exists():
+                    self.send_json_response(400, {"error": f"LoRA not found: {lora_path}"})
+                    return
+
+                logger.info(f"IC-LoRA generate: video={video_path}, lora={lora_path}")
+                logger.info(f"  conditioning_type={conditioning_type}, prompt={prompt[:100]}")
+                logger.info(f"  strength={conditioning_strength}, seed={seed}")
+                logger.info(f"  resolution={width}x{height} (output will be {width*2}x{height*2}), frames={num_frames}, fps={frame_rate}")
+
+                # Use LTX API for text encoding if available (same as normal generation)
+                global _api_embeddings, _cached_model_id
+                _api_embeddings = None
+                with settings_lock:
+                    ltx_api_key = app_settings.get("ltx_api_key", "")
+                if ltx_api_key:
+                    logger.info("Using LTX API for text encoding...")
+                    embeddings = encode_text_via_api(prompt, ltx_api_key, _cached_model_id)
+                    if embeddings is not None:
+                        _api_embeddings = embeddings
+                    else:
+                        logger.info("API text encoding failed, falling back to local")
+
+                # ── Step 1: Preprocess driving video into control signal video ──
+                import cv2
+                import tempfile
+
+                logger.info(f"Extracting {conditioning_type} control signal from video...")
+                cap = cv2.VideoCapture(video_path)
+                if not cap.isOpened():
+                    self.send_json_response(400, {"error": f"Cannot open video: {video_path}"})
+                    return
+
+                src_fps = cap.get(cv2.CAP_PROP_FPS) or frame_rate
+                src_frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                logger.info(f"  Source video: {src_w}x{src_h}, {src_frame_count} frames, {src_fps:.1f} fps")
+
+                # Create temporary control signal video
+                control_video_path = str(OUTPUTS_DIR / f"_control_{conditioning_type}_{uuid.uuid4().hex[:8]}.mp4")
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out_writer = cv2.VideoWriter(control_video_path, fourcc, src_fps, (src_w, src_h))
+
+                frame_idx = 0
+                max_frames = min(src_frame_count, num_frames * 2)  # safety cap
+                while True:
+                    ret, frame = cap.read()
+                    if not ret or frame_idx >= max_frames:
+                        break
+
+                    if conditioning_type == 'canny':
+                        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+                        edges = cv2.Canny(blurred, 100, 200)
+                        control_frame = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+                    elif conditioning_type == 'depth':
+                        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        blurred = cv2.GaussianBlur(gray, (15, 15), 0)
+                        depth_approx = cv2.applyColorMap(blurred, cv2.COLORMAP_INFERNO)
+                        control_frame = depth_approx
+                    else:
+                        # For pose or unknown types, pass through raw
+                        control_frame = frame
+
+                    out_writer.write(control_frame)
+                    frame_idx += 1
+
+                cap.release()
+                out_writer.release()
+                logger.info(f"  Control signal video saved: {control_video_path} ({frame_idx} frames)")
+
+                # ── Step 2: Load IC-LoRA pipeline ──
+                pipeline = load_ic_lora_pipeline(lora_path)
+
+                # ── Step 3: Prepare conditioning ──
+                video_conditioning = [(control_video_path, conditioning_strength)]
+
+                # Prepare image conditionings (if any)
+                images = []
+                for img in images_input:
+                    if isinstance(img, dict):
+                        images.append((img.get('path', ''), img.get('frame', 0), img.get('strength', 1.0)))
+                    elif isinstance(img, (list, tuple)) and len(img) >= 2:
+                        images.append((str(img[0]), int(img[1]), float(img[2]) if len(img) > 2 else 1.0))
+
+                from ltx_core.tiling import TilingConfig
+                tiling_config = TilingConfig.default()
+
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                unique_id2 = uuid.uuid4().hex[:8]
+                output_filename = f"ic_lora_{timestamp}_{unique_id2}.mp4"
+                output_path = OUTPUTS_DIR / output_filename
+
+                # ── Step 4: Generate ──
+                # Note: pipeline outputs at 2x the given resolution (Stage 1 at given res, Stage 2 upsamples 2x)
+                logger.info(f"Starting IC-LoRA generation...")
+                pipeline(
+                    prompt=prompt,
+                    output_path=str(output_path),
+                    negative_prompt=negative_prompt,
+                    seed=seed,
+                    height=height,
+                    width=width,
+                    num_frames=num_frames,
+                    frame_rate=frame_rate,
+                    num_inference_steps=num_inference_steps,
+                    cfg_guidance_scale=cfg_guidance_scale,
+                    images=images,
+                    video_conditioning=video_conditioning,
+                    tiling_config=tiling_config,
+                )
+
+                # Clean up temp control video
+                try:
+                    Path(control_video_path).unlink()
+                except Exception:
+                    pass
+
+                logger.info(f"IC-LoRA video saved: {output_path}")
+                _api_embeddings = None  # Clear after generation
+                self.send_json_response(200, {
+                    "status": "complete",
+                    "video_path": str(output_path),
+                })
+
+            except Exception as e:
+                _api_embeddings = None  # Clear on error too
+                logger.error(f"IC-LoRA generate error: {e}")
+                import traceback
+                traceback.print_exc()
+                self.send_json_response(500, {"error": str(e)})
+
         # ═══════════════════════════════════════════════════════════════════
         # Video Export via FFmpeg (NLE-style frame pipeline)
         # ═══════════════════════════════════════════════════════════════════

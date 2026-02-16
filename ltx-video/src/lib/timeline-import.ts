@@ -40,6 +40,7 @@ export interface ParsedClip {
   flipH?: boolean        // horizontal flip
   flipV?: boolean        // vertical flip
   opacity?: number       // opacity 0-100 (100 = fully visible)
+  linkedVideoClipIndex?: number  // For audio clips: index of the matching video clip in the clips array (for establishing links)
 }
 
 export interface ParsedTimeline {
@@ -419,15 +420,14 @@ function parseFcp7Xml(doc: Document): ParsedTimeline | null {
         }
       }
       
-      // Check if this audio clip is linked to a video clip (same file) already on the timeline
-      // We skip standalone audio-from-video links since the video clip handles playback
-      const existingVideoClip = clips.find(c => 
+      // Find matching video clip (same file, same timeline position) to establish a link
+      const linkedVideoIndex = clips.findIndex(c => 
         c.mediaRefId === mediaRefId && 
         c.trackType === 'video' &&
         Math.abs(c.startTime - startFrame / clipFps) < 0.01
       )
       
-      if (startFrame >= 0 && endFrame > startFrame && mediaRefId && !existingVideoClip) {
+      if (startFrame >= 0 && endFrame > startFrame && mediaRefId) {
         clips.push({
           name: clipName,
           mediaRefId,
@@ -439,6 +439,7 @@ function parseFcp7Xml(doc: Document): ParsedTimeline | null {
           sourceOut: outFrame / clipFps,
           volume,
           muted: effects.muted || undefined,
+          linkedVideoClipIndex: linkedVideoIndex >= 0 ? linkedVideoIndex : undefined,
         })
       }
     })

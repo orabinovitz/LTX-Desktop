@@ -341,8 +341,18 @@ ipcMain.handle('read-local-file', async (_event, filePath: string) => {
       '.jpeg': 'image/jpeg',
       '.webp': 'image/webp',
       '.gif': 'image/gif',
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.ogg': 'audio/ogg',
+      '.aac': 'audio/aac',
+      '.flac': 'audio/flac',
+      '.m4a': 'audio/mp4',
+      '.mp4': 'video/mp4',
+      '.webm': 'video/webm',
+      '.mkv': 'video/x-matroska',
+      '.mov': 'video/quicktime',
     }
-    const mimeType = mimeTypes[ext] || 'image/png'
+    const mimeType = mimeTypes[ext] || 'application/octet-stream'
     
     return { data: base64, mimeType }
   } catch (error) {

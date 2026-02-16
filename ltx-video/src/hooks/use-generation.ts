@@ -82,37 +82,38 @@ export function useGeneration(): UseGenerationReturn {
       // Get backend URL from Electron
       const backendUrl = await window.electronAPI.getBackendUrl()
 
-      // Step 1: Enhance prompt (if enabled) - determine mode based on whether image is provided
-      const enhanceMode = image ? 'i2v' : 't2v'
+      // Step 1: Enhance prompt (if enabled)
+      // Skip enhancement for I2V — the image is the primary conditioning and the enhancer
+      // doesn't see the image, so it would invent scene details that conflict with it.
       let finalPrompt = prompt
-      try {
-        const enhanceResponse = await fetch(`${backendUrl}/api/enhance-prompt`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt, mode: enhanceMode }),
-          signal: abortControllerRef.current.signal,
-        })
-        
-        if (enhanceResponse.ok) {
-          const enhanceResult = await enhanceResponse.json()
-          if (enhanceResult.status === 'success' && enhanceResult.enhanced_prompt) {
-            finalPrompt = enhanceResult.enhanced_prompt
-            console.log(`Prompt enhanced (${enhanceMode}):`, finalPrompt.substring(0, 100) + '...')
-          }
-          // If skipped or no enhanced_prompt, use original
-        } else {
-          // Check for missing API key error
-          const errorData = await enhanceResponse.json().catch(() => ({}))
-          if (errorData.error === 'GEMINI_API_KEY_MISSING') {
-            // Prompt enhancer enabled but no API key - use original prompt
-            console.log('Prompt enhancement skipped: no Gemini API key')
+      if (!image) {
+        try {
+          const enhanceResponse = await fetch(`${backendUrl}/api/enhance-prompt`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, mode: 't2v' }),
+            signal: abortControllerRef.current.signal,
+          })
+          
+          if (enhanceResponse.ok) {
+            const enhanceResult = await enhanceResponse.json()
+            if (enhanceResult.status === 'success' && enhanceResult.enhanced_prompt) {
+              finalPrompt = enhanceResult.enhanced_prompt
+              console.log('Prompt enhanced (t2v):', finalPrompt.substring(0, 100) + '...')
+            }
           } else {
-            console.warn('Prompt enhancement failed, using original:', errorData)
+            const errorData = await enhanceResponse.json().catch(() => ({}))
+            if (errorData.error === 'GEMINI_API_KEY_MISSING') {
+              console.log('Prompt enhancement skipped: no Gemini API key')
+            } else {
+              console.warn('Prompt enhancement failed, using original:', errorData)
+            }
           }
+        } catch (enhanceError) {
+          console.warn('Prompt enhancement error, using original:', enhanceError)
         }
-      } catch (enhanceError) {
-        // If enhancement fails, continue with original prompt
-        console.warn('Prompt enhancement error, using original:', enhanceError)
+      } else {
+        console.log('Prompt enhancement skipped for I2V (image provided)')
       }
       
       // Update status for video generation

@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import { Sparkles, Trash2, Square, Settings, ImageIcon, FileText, ArrowLeft } from 'lucide-react'
+import { Sparkles, Trash2, Square, ImageIcon, ArrowLeft } from 'lucide-react'
 import { ImageUploader } from '../components/ImageUploader'
 import { VideoPlayer } from '../components/VideoPlayer'
 import { ImageResult } from '../components/ImageResult'
 import { SettingsPanel, type GenerationSettings } from '../components/SettingsPanel'
-import { SettingsModal, type AppSettings } from '../components/SettingsModal'
 import { ModeTabs, type GenerationMode } from '../components/ModeTabs'
 import { LtxLogo } from '../components/LtxLogo'
 import { ModelStatusDropdown } from '../components/ModelStatusDropdown'
-import { LogViewer } from '../components/LogViewer'
 import { Textarea } from '../components/ui/textarea'
 import { Button } from '../components/ui/button'
 import { useGeneration } from '../hooks/use-generation'
@@ -27,112 +25,15 @@ const DEFAULT_SETTINGS: GenerationSettings = {
   imageSteps: 4,
 }
 
-const DEFAULT_APP_SETTINGS: AppSettings = {
-  keepModelsLoaded: true, // Models always stay cached for fast generation
-  useTorchCompile: false, // Disabled by default - can cause long compile times
-  loadOnStartup: false, // Lazy loading - models load on first generation
-  ltxApiKey: '', // LTX API key for fast text encoding
-  useLocalTextEncoder: false, // Use LTX API by default (faster, requires key)
-  fastModel: { steps: 8, useUpscaler: true },
-  proModel: { steps: 20, useUpscaler: true },
-  promptCacheSize: 100, // Cache up to 100 prompt embeddings to skip API calls
-  // Prompt Enhancer settings
-  promptEnhancerEnabled: true, // Prompt enhancer on by default
-  geminiApiKey: '', // Gemini API key for prompt enhancement
-  t2vSystemPrompt: '', // Empty means use default (stored in backend)
-  i2vSystemPrompt: '', // Empty means use default (stored in backend)
-  // Seed settings
-  seedLocked: false, // Random seed by default
-  lockedSeed: 42, // Default seed value when locked
-}
-
 export function Playground() {
   const { goHome } = useProjects()
   const [mode, setMode] = useState<GenerationMode>('text-to-video')
   const [prompt, setPrompt] = useState('')
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [settings, setSettings] = useState<GenerationSettings>(DEFAULT_SETTINGS)
-  const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
-  const [settingsLoaded, setSettingsLoaded] = useState(false)  // Track if settings have been loaded
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [isLogViewerOpen, setIsLogViewerOpen] = useState(false)
 
   const { status } = useBackend()
 
-  // Fetch initial settings from backend
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const backendUrl = await window.electronAPI.getBackendUrl()
-        const response = await fetch(`${backendUrl}/api/settings`)
-        if (response.ok) {
-          const data = await response.json()
-          setAppSettings({
-            keepModelsLoaded: data.keepModelsLoaded ?? DEFAULT_APP_SETTINGS.keepModelsLoaded,
-            useTorchCompile: data.useTorchCompile ?? DEFAULT_APP_SETTINGS.useTorchCompile,
-            loadOnStartup: data.loadOnStartup ?? DEFAULT_APP_SETTINGS.loadOnStartup,
-            ltxApiKey: data.ltxApiKey ?? DEFAULT_APP_SETTINGS.ltxApiKey,
-            useLocalTextEncoder: data.useLocalTextEncoder ?? DEFAULT_APP_SETTINGS.useLocalTextEncoder,
-            fastModel: data.fastModel ?? DEFAULT_APP_SETTINGS.fastModel,
-            proModel: data.proModel ?? DEFAULT_APP_SETTINGS.proModel,
-            promptCacheSize: data.promptCacheSize ?? DEFAULT_APP_SETTINGS.promptCacheSize,
-            // Prompt Enhancer settings
-            promptEnhancerEnabled: data.promptEnhancerEnabled ?? DEFAULT_APP_SETTINGS.promptEnhancerEnabled,
-            geminiApiKey: data.geminiApiKey ?? DEFAULT_APP_SETTINGS.geminiApiKey,
-            t2vSystemPrompt: data.t2vSystemPrompt ?? DEFAULT_APP_SETTINGS.t2vSystemPrompt,
-            i2vSystemPrompt: data.i2vSystemPrompt ?? DEFAULT_APP_SETTINGS.i2vSystemPrompt,
-            // Seed settings
-            seedLocked: data.seedLocked ?? DEFAULT_APP_SETTINGS.seedLocked,
-            lockedSeed: data.lockedSeed ?? DEFAULT_APP_SETTINGS.lockedSeed,
-          })
-        }
-      } catch (e) {
-        console.error('Failed to fetch settings:', e)
-      } finally {
-        // Mark settings as loaded (even if fetch failed, we can now sync)
-        setSettingsLoaded(true)
-      }
-    }
-    fetchSettings()
-  }, [])
-  
-  // Sync app settings with backend (only after initial load)
-  useEffect(() => {
-    // Don't sync until we've loaded settings from backend first
-    if (!settingsLoaded) return
-    
-    const syncSettings = async () => {
-      try {
-        const backendUrl = await window.electronAPI.getBackendUrl()
-        await fetch(`${backendUrl}/api/settings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            keepModelsLoaded: appSettings.keepModelsLoaded,
-            useTorchCompile: appSettings.useTorchCompile,
-            loadOnStartup: appSettings.loadOnStartup,
-            ltxApiKey: appSettings.ltxApiKey,
-            useLocalTextEncoder: appSettings.useLocalTextEncoder,
-            fastModel: appSettings.fastModel,
-            proModel: appSettings.proModel,
-            promptCacheSize: appSettings.promptCacheSize,
-            // Prompt Enhancer settings
-            promptEnhancerEnabled: appSettings.promptEnhancerEnabled,
-            geminiApiKey: appSettings.geminiApiKey,
-            t2vSystemPrompt: appSettings.t2vSystemPrompt,
-            i2vSystemPrompt: appSettings.i2vSystemPrompt,
-            // Seed settings
-            seedLocked: appSettings.seedLocked,
-            lockedSeed: appSettings.lockedSeed,
-          }),
-        })
-      } catch (e) {
-        console.error('Failed to sync settings:', e)
-      }
-    }
-    syncSettings()
-  }, [appSettings, settingsLoaded])
-  
   // Handle mode change
   const handleModeChange = (newMode: GenerationMode) => {
     setMode(newMode)
@@ -237,7 +138,7 @@ export function Playground() {
           />
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 pr-20">
           {/* Model Status Dropdown */}
           <ModelStatusDropdown warmupStatus={status.warmup} />
           
@@ -247,33 +148,8 @@ export function Playground() {
               {status.gpuInfo.name} ({(status.gpuInfo.vramUsed / 1024).toFixed(1)}GB / {Math.round(status.gpuInfo.vram / 1024)}GB)
             </div>
           )}
-          
-          {/* Logs Button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsLogViewerOpen(true)}
-            className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-800"
-            title="View Backend Logs"
-          >
-            <FileText className="h-4 w-4" />
-          </Button>
-          
-          {/* Settings Button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsSettingsOpen(true)}
-            className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-800"
-            title="Settings"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
         </div>
       </header>
-      
-      {/* Log Viewer Modal */}
-      <LogViewer isOpen={isLogViewerOpen} onClose={() => setIsLogViewerOpen(false)} />
 
       {/* Main Content */}
       <main className="flex-1 flex overflow-hidden">
@@ -408,14 +284,6 @@ export function Playground() {
           )}
         </div>
       </main>
-      
-      {/* Settings Modal */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        settings={appSettings}
-        onSettingsChange={setAppSettings}
-      />
     </div>
   )
 }

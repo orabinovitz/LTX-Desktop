@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { 
   Plus, Trash2, Download, Image, Video, X,
   Heart, Pencil, Film, Wrench, Volume2, VolumeX, Sparkles,
-  Music, Zap, Move3D, Clock, Monitor
+  Music, Zap, Move3D, Clock, Monitor, ChevronUp, ChevronDown, Scissors, AudioLines
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import { useGeneration } from '../hooks/use-generation'
@@ -194,7 +194,7 @@ function SettingsDropdown({
   title 
 }: { 
   trigger: React.ReactNode
-  options: { value: string; label: string; disabled?: boolean; tooltip?: string }[]
+  options: { value: string; label: string; disabled?: boolean; tooltip?: string; icon?: React.ReactNode }[]
   value: string
   onChange: (value: string) => void
   title: string
@@ -214,52 +214,67 @@ function SettingsDropdown({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [isOpen])
   
+  const btnRef = useRef<HTMLButtonElement>(null)
+  
   return (
     <div ref={dropdownRef} className="relative">
       <button 
+        ref={btnRef}
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-1 px-2 py-1.5 rounded hover:bg-zinc-800 transition-colors"
       >
         {trigger}
       </button>
       
-      {isOpen && (
-        <div className="absolute bottom-full mb-2 right-0 bg-zinc-800 border border-zinc-700 rounded-xl py-3 px-4 min-w-[160px] shadow-xl z-50">
-          <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-3">{title}</div>
-          <div className="space-y-1">
-            {options.map(option => (
-              <div key={option.value} className="relative group/option">
-                <button
-                  onClick={() => { if (!option.disabled) { onChange(option.value); setIsOpen(false) } }}
-                  className={`w-full flex items-center justify-between px-2 py-2 rounded-lg transition-colors text-left ${
-                    option.disabled 
-                      ? 'cursor-not-allowed' 
-                      : 'hover:bg-zinc-700'
-                  }`}
-                >
-                  <span className={`text-lg ${
-                    option.disabled 
-                      ? 'text-zinc-600' 
-                      : value === option.value ? 'text-white' : 'text-zinc-400'
-                  }`}>
-                    {option.label}
-                  </span>
-                  {value === option.value && !option.disabled && (
-                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </button>
-                {option.disabled && option.tooltip && (
-                  <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-zinc-700 rounded text-xs text-zinc-300 whitespace-nowrap opacity-0 group-hover/option:opacity-100 pointer-events-none z-50 transition-opacity">
-                    {option.tooltip}
+      {isOpen && (() => {
+        const rect = btnRef.current?.getBoundingClientRect()
+        const menuBottom = rect ? rect.top - 8 : 0
+        const menuRight = rect ? rect.right : 0
+        return (
+          <>
+            <div className="fixed inset-0 z-[9998]" onMouseDown={() => setIsOpen(false)} />
+            <div
+              className="fixed bg-zinc-800 border border-zinc-700 rounded-xl py-3 px-4 min-w-[160px] shadow-xl z-[9999]"
+              style={{ bottom: window.innerHeight - menuBottom, right: window.innerWidth - menuRight }}
+            >
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-3">{title}</div>
+              <div className="space-y-1">
+                {options.map(option => (
+                  <div key={option.value} className="relative group/option">
+                    <button
+                      onClick={() => { if (!option.disabled) { onChange(option.value); setIsOpen(false) } }}
+                      className={`w-full flex items-center justify-between px-2 py-2 rounded-lg transition-colors text-left ${
+                        option.disabled 
+                          ? 'cursor-not-allowed' 
+                          : 'hover:bg-zinc-700'
+                      }`}
+                    >
+                      <span className={`flex items-center gap-2.5 text-sm ${
+                        option.disabled 
+                          ? 'text-zinc-600' 
+                          : value === option.value ? 'text-white' : 'text-zinc-400'
+                      }`}>
+                        {option.icon && <span className="flex-shrink-0">{option.icon}</span>}
+                        {option.label}
+                      </span>
+                      {value === option.value && !option.disabled && (
+                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+                    {option.disabled && option.tooltip && (
+                      <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-zinc-700 rounded text-xs text-zinc-300 whitespace-nowrap opacity-0 group-hover/option:opacity-100 pointer-events-none z-[10000] transition-opacity">
+                        {option.tooltip}
+                      </div>
+                    )}
                   </div>
-                )}
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            </div>
+          </>
+        )
+      })()}
     </div>
   )
 }
@@ -351,31 +366,9 @@ function PromptBar({
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-      {/* Top row: Mode tabs | Image ref | Prompt | Generate */}
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-visible">
+      {/* Top row: Image ref | Prompt | Generate */}
       <div className="flex items-center">
-        {/* Mode toggle - vertically stacked on the left */}
-        <div className="flex flex-col border-r border-zinc-800 self-stretch">
-          <button
-            onClick={() => onModeChange('image')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold tracking-wide transition-colors ${
-              mode === 'image' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            <Image className="h-3.5 w-3.5" />
-            IMAGE
-          </button>
-          <button
-            onClick={() => onModeChange('video')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold tracking-wide transition-colors ${
-              mode === 'video' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            <Video className="h-3.5 w-3.5" />
-            VIDEO
-          </button>
-        </div>
-
         {/* Input image drop zone */}
         <div
           className={`relative w-10 h-10 mx-2 rounded-lg border-2 border-dashed transition-colors flex items-center justify-center flex-shrink-0 cursor-pointer ${
@@ -423,28 +416,38 @@ function PromptBar({
           />
         </div>
 
-        {/* Generate button - right side of prompt row */}
-        <button
-          onClick={onGenerate}
-          disabled={isGenerating || !prompt.trim()}
-          className={`m-2 p-2.5 rounded-xl transition-all flex-shrink-0 ${
-            isGenerating || !prompt.trim()
-              ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
-              : 'bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white hover:from-violet-400 hover:to-fuchsia-500 shadow-lg shadow-violet-500/25'
-          }`}
-        >
-          <Sparkles className={`h-5 w-5 ${isGenerating ? 'animate-pulse' : ''}`} />
-        </button>
       </div>
       
-      {/* Bottom row: Settings */}
-      <div className="flex items-center justify-end gap-0.5 px-3 py-1.5 border-t border-zinc-800/60 text-xs text-zinc-400">
+      {/* Bottom row: Mode selector + Settings */}
+      <div className="flex items-center gap-0.5 px-3 py-1.5 border-t border-zinc-800/60 text-xs text-zinc-400">
+        {/* Mode dropdown */}
+        <SettingsDropdown
+          title="MODE"
+          value={mode}
+          onChange={(v) => onModeChange(v as 'image' | 'video')}
+          options={[
+            { value: 'image', label: 'Generate Images', icon: <Image className="h-4 w-4" /> },
+            { value: 'video', label: 'Generate Videos', icon: <Video className="h-4 w-4" /> },
+            { value: 'audio-to-video', label: 'Audio to Video', icon: <AudioLines className="h-4 w-4" />, disabled: true, tooltip: 'Coming soon' },
+            { value: 'retake', label: 'Retake', icon: <Scissors className="h-4 w-4" />, disabled: true, tooltip: 'Coming soon' },
+          ]}
+          trigger={
+            <>
+              {mode === 'image' ? <Image className="h-3.5 w-3.5" /> : <Video className="h-3.5 w-3.5" />}
+              <span className="text-zinc-300 font-medium">{mode === 'image' ? 'Image' : 'Video'}</span>
+              <ChevronUp className="h-3 w-3 text-zinc-500" />
+            </>
+          }
+        />
+        
+        <div className="flex-1" />
+        
         {mode === 'image' ? (
           <>
             {/* Model indicator */}
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-800/50 mr-auto">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-800/50">
               <Zap className="h-3.5 w-3.5 text-amber-400" />
-              <span className="text-zinc-300 font-medium">FLUX.2 Pro</span>
+              <span className="text-zinc-300 font-medium">FLUX Klein</span>
             </div>
             
             {/* Resolution dropdown */}
@@ -630,6 +633,20 @@ function PromptBar({
             />
           </>
         )}
+        
+        {/* Generate button */}
+        <button
+          onClick={onGenerate}
+          disabled={isGenerating || !prompt.trim()}
+          className={`flex items-center gap-1.5 ml-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-shrink-0 ${
+            isGenerating || !prompt.trim()
+              ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
+              : 'bg-white text-black hover:bg-zinc-200'
+          }`}
+        >
+          <Sparkles className={`h-3.5 w-3.5 ${isGenerating ? 'animate-pulse' : ''}`} />
+          Generate
+        </button>
       </div>
     </div>
   )

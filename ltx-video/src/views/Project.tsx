@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { ArrowLeft, Sparkles, Film, Settings } from 'lucide-react'
+import { ArrowLeft, Sparkles, Film } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import { LtxLogo } from '../components/LtxLogo'
 import { Button } from '../components/ui/button'
@@ -9,7 +8,6 @@ import type { ProjectTab } from '../types/project'
 
 export function Project() {
   const { currentProject, currentTab, setCurrentTab, goHome } = useProjects()
-  const [_isSettingsOpen, setIsSettingsOpen] = useState(false)
   
   if (!currentProject) {
     return (
@@ -64,18 +62,8 @@ export function Project() {
           ))}
         </div>
         
-        {/* Right - Actions */}
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsSettingsOpen(true)}
-            className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-800"
-            title="Settings"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-        </div>
+        {/* Right spacer for global settings/logs buttons */}
+        <div className="w-20" />
       </header>
       
       {/* Main Content - both views stay mounted to preserve state */}
