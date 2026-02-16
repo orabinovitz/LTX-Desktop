@@ -26,6 +26,7 @@ export interface MenuDepsParams {
   setSelectedClipIds: (v: Set<string>) => void
   handleInsertEdit: () => void
   handleOverwriteEdit: () => void
+  matchFrameRef: React.RefObject<() => void>
   setKbEditorOpen: (v: boolean) => void
   splitClipAtPlayhead: (id: string) => void
   duplicateClip: (id: string) => void
@@ -41,6 +42,7 @@ export interface MenuDepsParams {
   setShowEffectsBrowser: (v: boolean) => void
   setActiveTool: (v: ToolType) => void
   setLastTrimTool: (v: ToolType) => void
+  setShowProjectSettings: (v: boolean) => void
 }
 
 export function buildMenuDefinitions(p: MenuDepsParams): MenuDefinition[] {
@@ -54,6 +56,10 @@ export function buildMenuDefinitions(p: MenuDepsParams): MenuDefinition[] {
         { id: 'sep-1', label: '', separator: true },
         { id: 'export-timeline', label: 'Export Timeline...', shortcut: 'Ctrl+E', action: () => p.setShowExportModal(true) },
         { id: 'export-xml', label: 'Export FCP7 XML...', action: () => p.handleExportTimelineXml() },
+        { id: 'sep-2', label: '', separator: true },
+        { id: 'project-settings', label: 'Project Settings...', action: () => p.setShowProjectSettings(true) },
+        { id: 'sep-3', label: '', separator: true },
+        { id: 'keyboard-shortcuts', label: 'Keyboard Shortcuts...', action: () => p.setKbEditorOpen(true) },
       ],
     },
     {
@@ -72,8 +78,7 @@ export function buildMenuDefinitions(p: MenuDepsParams): MenuDefinition[] {
         { id: 'sep-3', label: '', separator: true },
         { id: 'insert-edit', label: 'Insert Edit', shortcut: getShortcutLabel(p.kbLayout, 'edit.insertEdit'), action: () => p.handleInsertEdit(), disabled: !p.sourceAsset },
         { id: 'overwrite-edit', label: 'Overwrite Edit', shortcut: getShortcutLabel(p.kbLayout, 'edit.overwriteEdit'), action: () => p.handleOverwriteEdit(), disabled: !p.sourceAsset },
-        { id: 'sep-4', label: '', separator: true },
-        { id: 'keyboard-shortcuts', label: 'Keyboard Shortcuts...', action: () => p.setKbEditorOpen(true) },
+        { id: 'match-frame', label: 'Match Frame', shortcut: getShortcutLabel(p.kbLayout, 'edit.matchFrame'), action: () => p.matchFrameRef.current!() },
       ],
     },
     {
@@ -120,7 +125,6 @@ export function buildMenuDefinitions(p: MenuDepsParams): MenuDefinition[] {
         { id: 'sep-1', label: '', separator: true },
         { id: 'tool-select', label: 'Selection Tool', shortcut: getShortcutLabel(p.kbLayout, 'tool.select'), action: () => p.setActiveTool('select') },
         { id: 'tool-blade', label: 'Blade Tool', shortcut: getShortcutLabel(p.kbLayout, 'tool.blade'), action: () => p.setActiveTool('blade') },
-        { id: 'tool-hand', label: 'Hand Tool', shortcut: getShortcutLabel(p.kbLayout, 'tool.hand'), action: () => p.setActiveTool('hand') },
         { id: 'tool-ripple', label: 'Ripple Trim', shortcut: getShortcutLabel(p.kbLayout, 'tool.ripple'), action: () => { p.setActiveTool('ripple'); p.setLastTrimTool('ripple') } },
         { id: 'tool-roll', label: 'Roll Trim', shortcut: getShortcutLabel(p.kbLayout, 'tool.roll'), action: () => { p.setActiveTool('roll'); p.setLastTrimTool('roll') } },
         { id: 'tool-slip', label: 'Slip Tool', shortcut: getShortcutLabel(p.kbLayout, 'tool.slip'), action: () => { p.setActiveTool('slip'); p.setLastTrimTool('slip') } },

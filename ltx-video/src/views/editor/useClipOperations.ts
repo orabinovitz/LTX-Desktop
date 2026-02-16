@@ -95,18 +95,11 @@ export function useClipOperations(params: UseClipOperationsParams) {
       let persistentUrl: string
       let persistentPath: string
       
-      if (electronFilePath && window.electronAPI?.importFileToStorage) {
-        // Copy file to persistent storage so it survives app restarts
-        const result = await window.electronAPI.importFileToStorage(electronFilePath, file.name)
-        if (result.success && result.url && result.path) {
-          persistentUrl = result.url
-          persistentPath = result.path
-        } else {
-          // Fallback to blob URL if copy fails
-          console.warn('Failed to copy imported file to storage:', result.error)
-          persistentUrl = URL.createObjectURL(file)
-          persistentPath = file.name
-        }
+      if (electronFilePath) {
+        // Reference the original file in place (no copy)
+        const normalized = electronFilePath.replace(/\\/g, '/')
+        persistentUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
+        persistentPath = electronFilePath
       } else {
         // Non-Electron environment: use blob URL
         persistentUrl = URL.createObjectURL(file)
@@ -192,6 +185,9 @@ export function useClipOperations(params: UseClipOperationsParams) {
     const clip = clips.find(c => c.id === clipId)
     if (!clip) return
     
+    // Prevent splitting clips on locked tracks
+    if (tracks[clip.trackIndex]?.locked) return
+    
     const splitPoint = currentTime - clip.startTime
     if (splitPoint <= 0.1 || splitPoint >= clip.duration - 0.1) return
     pushUndo()
@@ -267,9 +263,12 @@ export function useClipOperations(params: UseClipOperationsParams) {
   }
   
   const removeClip = (clipId: string) => {
+    // Prevent deleting clips on locked tracks
+    const clip = clips.find(c => c.id === clipId)
+    if (clip && tracks[clip.trackIndex]?.locked) return
+    
     pushUndo()
     // Also remove all linked clips (audio ↔ video pairs)
-    const clip = clips.find(c => c.id === clipId)
     const removeIds = new Set([clipId])
     if (clip?.linkedClipIds) clip.linkedClipIds.forEach(lid => removeIds.add(lid))
     setClips(clips.filter(c => !removeIds.has(c.id)))
@@ -418,31 +417,11 @@ export function useClipOperations(params: UseClipOperationsParams) {
       let url = ''
       let assetPath = filePath
       
-      // If file is found, create a file:// URL and optionally import to storage
+      // If file is found, build a file:// URL referencing the original location (no copy)
       if (ref.found && filePath) {
-        // Try to import to persistent storage
-        if (window.electronAPI?.importFileToStorage) {
-          try {
-            const result = await window.electronAPI.importFileToStorage(filePath, fileName)
-            if (result.success && result.url && result.path) {
-              url = result.url
-              assetPath = result.path
-            } else {
-              // Fallback: build file URL directly
-              const normalized = filePath.replace(/\\/g, '/')
-              url = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
-              assetPath = filePath
-            }
-          } catch {
-            const normalized = filePath.replace(/\\/g, '/')
-            url = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
-            assetPath = filePath
-          }
-        } else {
-          const normalized = filePath.replace(/\\/g, '/')
-          url = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
-          assetPath = filePath
-        }
+        const normalized = filePath.replace(/\\/g, '/')
+        url = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
+        assetPath = filePath
       }
       
       // Create an asset in the project

@@ -27,6 +27,7 @@ __pycache__
 
 # Generated/output files
 backend/outputs
+ltx-video/backend/outputs
 
 # Package lock files (huge, not useful for AI)
 package-lock.json
@@ -36,3 +37,4 @@ package-lock.json
 
 # Electron build resources
 resources
+ltx-video/resources

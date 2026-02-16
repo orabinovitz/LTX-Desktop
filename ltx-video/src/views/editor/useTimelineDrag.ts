@@ -81,6 +81,7 @@ interface UseTimelineDragParams {
   setSelectedGap: (gap: any) => void
   audioTrackHeight: number
   videoTrackHeight: number
+  subtitleTrackHeight: number
 }
 
 export function useTimelineDrag(params: UseTimelineDragParams) {
@@ -95,7 +96,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     timelineRef, trackContainerRef,
     orderedTracks, trackDisplayRow, getTrackHeight, trackTopPx, cutPoints,
     splitClipAtPlayhead, setSelectedSubtitleId, setSelectedGap,
-    audioTrackHeight, videoTrackHeight,
+    audioTrackHeight, videoTrackHeight, subtitleTrackHeight,
   } = params
 
   const [draggingClip, setDraggingClip] = useState<DraggingClipState | null>(null)
@@ -119,7 +120,6 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
   }, [pixelsPerSecond, totalDuration])
   
   const handleRulerMouseDown = useCallback((e: React.MouseEvent) => {
-    if (activeTool === 'hand') return
     if (e.button !== 0) return // only left button
     e.preventDefault() // prevent text selection
     isScrubbing.current = true
@@ -165,6 +165,14 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
   
   const handleClipMouseDown = (e: React.MouseEvent, clip: TimelineClip) => {
     e.stopPropagation()
+    
+    // Prevent all interactions on locked tracks (except selection)
+    const clipTrack = tracks[clip.trackIndex]
+    if (clipTrack?.locked) {
+      // Still allow selecting the clip visually
+      setSelectedClipIds(expandWithLinkedClips(new Set([clip.id])))
+      return
+    }
     
     if (activeTool === 'blade') {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -408,7 +416,7 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
     
     // Use average track height for drag delta computation
     const avgTrackH = orderedTracks.length > 0
-      ? orderedTracks.reduce((s, e) => s + (e.track.kind === 'audio' ? audioTrackHeight : videoTrackHeight), 0) / orderedTracks.length
+      ? orderedTracks.reduce((s, e) => s + (e.track.type === 'subtitle' ? subtitleTrackHeight : e.track.kind === 'audio' ? audioTrackHeight : videoTrackHeight), 0) / orderedTracks.length
       : 56
     const rawDisplayDelta = Math.round(deltaY / avgTrackH)
     
@@ -790,6 +798,9 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
   const handleResizeStart = (e: React.MouseEvent, clip: TimelineClip, edge: 'left' | 'right') => {
     e.stopPropagation()
     e.preventDefault()
+    
+    // Prevent resizing clips on locked tracks
+    if (tracks[clip.trackIndex]?.locked) return
     
     setSelectedClipIds(expandWithLinkedClips(new Set([clip.id])))
     

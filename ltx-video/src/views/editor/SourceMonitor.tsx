@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Play, Pause, Square, SkipBack, SkipForward, ChevronLeft, ChevronRight, Video, Music, X } from 'lucide-react'
 import type { Asset } from '../../types/project'
 import { formatTime } from './video-editor-utils'
@@ -44,6 +44,34 @@ export function SourceMonitor({
   onInsertEdit,
   onOverwriteEdit,
 }: SourceMonitorProps) {
+  const [sourceReversePlaying, setSourceReversePlaying] = useState(false)
+  const reverseRafRef = useRef<number | null>(null)
+  const reverseLastRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!sourceReversePlaying) {
+      if (reverseRafRef.current) cancelAnimationFrame(reverseRafRef.current)
+      reverseRafRef.current = null
+      reverseLastRef.current = null
+      return
+    }
+    sourceVideoRef.current?.pause()
+    const tick = (ts: number) => {
+      if (!sourceReversePlaying) return
+      if (reverseLastRef.current !== null) {
+        const delta = (ts - reverseLastRef.current) / 1000
+        const next = Math.max(0, (sourceVideoRef.current?.currentTime ?? sourceTime) - delta)
+        if (sourceVideoRef.current) sourceVideoRef.current.currentTime = next
+        setSourceTime(next)
+        if (next <= 0) { setSourceReversePlaying(false); return }
+      }
+      reverseLastRef.current = ts
+      reverseRafRef.current = requestAnimationFrame(tick)
+    }
+    reverseRafRef.current = requestAnimationFrame(tick)
+    return () => { if (reverseRafRef.current) cancelAnimationFrame(reverseRafRef.current) }
+  }, [sourceReversePlaying])
+
   return (
     <div
       className={`flex flex-col ${activePanel === 'source' ? 'ring-2 ring-violet-500 ring-inset' : 'border-r border-zinc-800'}`}
@@ -80,16 +108,7 @@ export function SourceMonitor({
                 <p className="text-sm">{sourceAsset.path?.split('/').pop() || 'Audio'}</p>
               </div>
             )}
-            {/* Time overlay */}
-            <div className="absolute bottom-2 left-2 px-1.5 py-0.5 rounded bg-black/70 text-white text-[11px] font-mono z-10">
-              {formatTime(sourceTime)}
-            </div>
-            {/* In/Out overlay */}
-            {(sourceIn !== null || sourceOut !== null) && (
-              <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/70 text-yellow-400 text-[10px] font-mono z-10">
-                {sourceIn !== null ? formatTime(sourceIn) : '---'} → {sourceOut !== null ? formatTime(sourceOut) : '---'}
-              </div>
-            )}
+            {/* Timecode overlays moved to bottom status bar */}
           </>
         ) : (
           <div className="text-center text-zinc-600">
@@ -210,123 +229,145 @@ export function SourceMonitor({
           )}
         </div>
       )}
-      {/* Source Transport Controls */}
-      <div className="h-10 bg-zinc-900 border-t border-zinc-800 flex items-center justify-center gap-0.5 px-2 flex-shrink-0">
-        {/* Mark In */}
-        <button
-          onClick={() => setSourceIn(prev => prev !== null && Math.abs(prev - sourceTime) < 0.01 ? null : sourceTime)}
-          className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${sourceIn !== null ? 'text-yellow-400 bg-yellow-400/10' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
-          title={sourceIn !== null ? `In: ${formatTime(sourceIn)}` : 'Set In (I)'}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="7,4 4,4 4,20 7,20" />
-            <line x1="10" y1="12" x2="20" y2="12" />
-            <polyline points="16,8 20,12 16,16" />
-          </svg>
-        </button>
-        <div className="w-px h-4 bg-zinc-700" />
-        {/* Go to start */}
-        <button
-          onClick={() => { const t = sourceIn ?? 0; setSourceTime(t); if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t }}
-          className="h-7 w-7 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-          title="Go to start"
-        >
-          <SkipBack className="h-3.5 w-3.5" />
-        </button>
-        {/* Step back 1 frame */}
-        <button
-          onClick={() => {
-            const fps = 24
-            const t = Math.max(0, sourceTime - 1 / fps)
-            setSourceTime(t)
-            if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t
-          }}
-          className="h-7 w-7 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-          title="Step back 1 frame"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        {/* Stop */}
-        <button
-          onClick={() => { sourceVideoRef.current?.pause(); setSourceIsPlaying(false) }}
-          className="h-7 w-7 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-          title="Stop"
-        >
-          <Square className="h-3 w-3" />
-        </button>
-        {/* Play/Pause */}
-        <button
-          onClick={() => {
-            if (sourceIsPlaying) {
-              sourceVideoRef.current?.pause()
-              setSourceIsPlaying(false)
-            } else {
-              if (sourceVideoRef.current) {
-                if (sourceIn !== null && sourceTime < sourceIn) sourceVideoRef.current.currentTime = sourceIn
-                sourceVideoRef.current.play().catch(() => {})
+      {/* Status bar: timecode | transport controls | duration */}
+      <div className="h-8 bg-zinc-950 border-t border-zinc-800 flex items-center px-3 flex-shrink-0 gap-2">
+        {/* Left: current timecode */}
+        <span className="text-[12px] font-mono font-medium text-amber-400 tabular-nums tracking-tight select-none min-w-[90px]">
+          {formatTime(sourceTime)}
+        </span>
+
+        {/* Center: transport controls */}
+        <div className="flex-1 flex items-center justify-center gap-0.5">
+          {/* Mark In */}
+          <button
+            onClick={() => setSourceIn(prev => prev !== null && Math.abs(prev - sourceTime) < 0.01 ? null : sourceTime)}
+            className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${sourceIn !== null ? 'text-yellow-400' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
+            title={sourceIn !== null ? `In: ${formatTime(sourceIn)}` : 'Set In (I)'}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="7,4 4,4 4,20 7,20" />
+              <line x1="10" y1="12" x2="20" y2="12" />
+              <polyline points="16,8 20,12 16,16" />
+            </svg>
+          </button>
+          <div className="w-px h-3 bg-zinc-700" />
+          <button
+            onClick={() => { const t = sourceIn ?? 0; setSourceTime(t); if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t }}
+            className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+            title="Go to start"
+          >
+            <SkipBack className="h-3 w-3" />
+          </button>
+          <button
+            onClick={() => {
+              if (sourceReversePlaying) {
+                setSourceReversePlaying(false)
+              } else {
+                sourceVideoRef.current?.pause()
+                setSourceIsPlaying(false)
+                setSourceReversePlaying(true)
               }
-              setSourceIsPlaying(true)
-            }
-          }}
-          className="h-7 w-7 flex items-center justify-center rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
-          title={sourceIsPlaying ? 'Pause' : 'Play'}
-        >
-          {sourceIsPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 ml-0.5" />}
-        </button>
-        {/* Step forward 1 frame */}
-        <button
-          onClick={() => {
-            const fps = 24
-            const dur = sourceAsset?.duration || 5
-            const t = Math.min(dur, sourceTime + 1 / fps)
-            setSourceTime(t)
-            if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t
-          }}
-          className="h-7 w-7 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-          title="Step forward 1 frame"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-        {/* Go to end */}
-        <button
-          onClick={() => { const t = sourceOut ?? (sourceAsset?.duration || 5); setSourceTime(t); if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t }}
-          className="h-7 w-7 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-          title="Go to end"
-        >
-          <SkipForward className="h-3.5 w-3.5" />
-        </button>
-        <div className="w-px h-4 bg-zinc-700" />
-        {/* Mark Out */}
-        <button
-          onClick={() => setSourceOut(prev => prev !== null && Math.abs(prev - sourceTime) < 0.01 ? null : sourceTime)}
-          className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${sourceOut !== null ? 'text-yellow-400 bg-yellow-400/10' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
-          title={sourceOut !== null ? `Out: ${formatTime(sourceOut)}` : 'Set Out (O)'}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="17,4 20,4 20,20 17,20" />
-            <line x1="14" y1="12" x2="4" y2="12" />
-            <polyline points="8,8 4,12 8,16" />
-          </svg>
-        </button>
-        <div className="w-px h-4 bg-zinc-700 mx-0.5" />
-        {/* Insert */}
-        <button
-          onClick={onInsertEdit}
-          disabled={!sourceAsset}
-          className="h-7 px-1.5 flex items-center gap-0.5 rounded text-[10px] font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          title="Insert Edit (,)"
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-        </button>
-        {/* Overwrite */}
-        <button
-          onClick={onOverwriteEdit}
-          disabled={!sourceAsset}
-          className="h-7 px-1.5 flex items-center gap-0.5 rounded text-[10px] font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          title="Overwrite Edit (.)"
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 12h6" /></svg>
-        </button>
+            }}
+            className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${sourceReversePlaying ? 'text-violet-400' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
+            title="Play reverse"
+          >
+            <Play className="h-3 w-3 mr-0.5 rotate-180" />
+          </button>
+          <button
+            onClick={() => {
+              setSourceReversePlaying(false)
+              const t = Math.max(0, sourceTime - 1 / 24)
+              setSourceTime(t)
+              if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t
+            }}
+            className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+            title="Step back"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => { setSourceReversePlaying(false); sourceVideoRef.current?.pause(); setSourceIsPlaying(false) }}
+            className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+            title="Stop"
+          >
+            <Square className="h-2.5 w-2.5" />
+          </button>
+          <button
+            onClick={() => {
+              setSourceReversePlaying(false)
+              if (sourceIsPlaying) {
+                sourceVideoRef.current?.pause()
+                setSourceIsPlaying(false)
+              } else {
+                if (sourceVideoRef.current) {
+                  if (sourceIn !== null && sourceTime < sourceIn) sourceVideoRef.current.currentTime = sourceIn
+                  sourceVideoRef.current.play().catch(() => {})
+                }
+                setSourceIsPlaying(true)
+              }
+            }}
+            className="h-6 w-6 flex items-center justify-center rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+            title={sourceIsPlaying ? 'Pause' : 'Play'}
+          >
+            {sourceIsPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 ml-0.5" />}
+          </button>
+          <button
+            onClick={() => {
+              const dur = sourceAsset?.duration || 5
+              const t = Math.min(dur, sourceTime + 1 / 24)
+              setSourceTime(t)
+              if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t
+            }}
+            className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+            title="Step forward"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => { const t = sourceOut ?? (sourceAsset?.duration || 5); setSourceTime(t); if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t }}
+            className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+            title="Go to end"
+          >
+            <SkipForward className="h-3 w-3" />
+          </button>
+          <div className="w-px h-3 bg-zinc-700" />
+          {/* Mark Out */}
+          <button
+            onClick={() => setSourceOut(prev => prev !== null && Math.abs(prev - sourceTime) < 0.01 ? null : sourceTime)}
+            className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${sourceOut !== null ? 'text-yellow-400' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
+            title={sourceOut !== null ? `Out: ${formatTime(sourceOut)}` : 'Set Out (O)'}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="17,4 20,4 20,20 17,20" />
+              <line x1="14" y1="12" x2="4" y2="12" />
+              <polyline points="8,8 4,12 8,16" />
+            </svg>
+          </button>
+          <div className="w-px h-3 bg-zinc-700 mx-0.5" />
+          {/* Insert */}
+          <button
+            onClick={onInsertEdit}
+            disabled={!sourceAsset}
+            className="h-6 px-1 flex items-center rounded text-zinc-400 hover:text-white hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Insert Edit (,)"
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+          </button>
+          {/* Overwrite */}
+          <button
+            onClick={onOverwriteEdit}
+            disabled={!sourceAsset}
+            className="h-6 px-1 flex items-center rounded text-zinc-400 hover:text-white hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Overwrite Edit (.)"
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 12h6" /></svg>
+          </button>
+        </div>
+
+        {/* Right: total duration */}
+        <span className="text-[12px] font-mono font-medium text-zinc-400 tabular-nums tracking-tight select-none min-w-[90px] text-right">
+          {formatTime(sourceAsset?.duration || 0)}
+        </span>
       </div>
     </div>
   )

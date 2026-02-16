@@ -271,6 +271,21 @@ ipcMain.handle('get-app-info', () => {
   }
 })
 
+ipcMain.handle('get-downloads-path', () => {
+  return app.getPath('downloads')
+})
+
+ipcMain.handle('ensure-directory', async (_event, dirPath: string) => {
+  try {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true })
+    }
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
+})
+
 ipcMain.handle('check-first-run', () => {
   const settingsPath = path.join(app.getPath('userData'), 'settings.json')
   if (!fs.existsSync(settingsPath)) {

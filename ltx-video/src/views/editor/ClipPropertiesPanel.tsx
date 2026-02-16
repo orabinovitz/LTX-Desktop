@@ -6,8 +6,8 @@ import {
   SunDim, Moon, Sparkles, Plus, X, RotateCcw, Film,
   AlignLeft, AlignCenter, AlignRight,
 } from 'lucide-react'
-import type { Asset, TimelineClip, Track, ClipEffect, LetterboxSettings, TextOverlayStyle, TransitionType } from '../../types/project'
-import { DEFAULT_COLOR_CORRECTION, EFFECT_DEFINITIONS, DEFAULT_LETTERBOX, TEXT_PRESETS } from '../../types/project'
+import type { Asset, TimelineClip, Track, ClipEffect, LetterboxSettings, TextOverlayStyle, TransitionType, EffectMask } from '../../types/project'
+import { DEFAULT_COLOR_CORRECTION, EFFECT_DEFINITIONS, DEFAULT_LETTERBOX, TEXT_PRESETS, DEFAULT_EFFECT_MASK } from '../../types/project'
 import { formatTime } from './video-editor-utils'
 
 interface ClipPropertiesPanelProps {
@@ -991,12 +991,96 @@ export function ClipPropertiesPanel(props: ClipPropertiesPanelProps) {
                               </div>
                             )
                           })}
-                          <button
-                            onClick={() => updateEffectOnClip(selectedClip.id, fx.id, { params: { ...def.defaultParams } })}
-                            className="text-[9px] text-zinc-600 hover:text-zinc-400 transition-colors"
-                          >
-                            Reset to defaults
-                          </button>
+                          <div className="flex items-center justify-between">
+                            <button
+                              onClick={() => updateEffectOnClip(selectedClip.id, fx.id, { params: { ...def.defaultParams } })}
+                              className="text-[9px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                            >
+                              Reset to defaults
+                            </button>
+                          </div>
+
+                          {/* Mask controls */}
+                          {(fx.type === 'blur' || fx.type === 'sharpen' || fx.type === 'glow' || fx.type.startsWith('lut-')) && (
+                            <div className="border-t border-zinc-700/30 pt-2 mt-1">
+                              <label className="flex items-center gap-2 cursor-pointer mb-1.5">
+                                <input
+                                  type="checkbox"
+                                  checked={fx.mask?.enabled || false}
+                                  onChange={e => {
+                                    const mask: EffectMask = fx.mask ? { ...fx.mask, enabled: e.target.checked } : { ...DEFAULT_EFFECT_MASK, enabled: e.target.checked }
+                                    updateEffectOnClip(selectedClip.id, fx.id, { mask })
+                                  }}
+                                  className="rounded bg-zinc-800 border-zinc-600 h-3 w-3"
+                                />
+                                <span className="text-[10px] text-zinc-400 font-medium">Mask</span>
+                                {fx.mask?.enabled && (
+                                  <span className="text-[9px] text-violet-400 ml-auto">{fx.mask.shape}</span>
+                                )}
+                              </label>
+                              {fx.mask?.enabled && (() => {
+                                const m = fx.mask
+                                const updateMask = (updates: Partial<EffectMask>) => {
+                                  updateEffectOnClip(selectedClip.id, fx.id, { mask: { ...m, ...updates } })
+                                }
+                                return (
+                                  <div className="space-y-1.5 pl-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[10px] text-zinc-500 w-10">Shape</span>
+                                      <div className="flex gap-1 flex-1">
+                                        {(['ellipse', 'rectangle'] as const).map(s => (
+                                          <button
+                                            key={s}
+                                            onClick={() => updateMask({ shape: s })}
+                                            className={`flex-1 py-0.5 rounded text-[9px] font-medium transition-colors ${
+                                              m.shape === s ? 'bg-violet-500/20 text-violet-300 border border-violet-500/40' : 'bg-zinc-800 text-zinc-500 border border-zinc-700/50 hover:text-zinc-300'
+                                            }`}
+                                          >
+                                            {s === 'ellipse' ? 'Ellipse' : 'Rectangle'}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    {([
+                                      { key: 'x', label: 'X', min: 0, max: 100, step: 1 },
+                                      { key: 'y', label: 'Y', min: 0, max: 100, step: 1 },
+                                      { key: 'width', label: 'W', min: 1, max: 100, step: 1 },
+                                      { key: 'height', label: 'H', min: 1, max: 100, step: 1 },
+                                      { key: 'feather', label: 'Feather', min: 0, max: 100, step: 1 },
+                                      { key: 'rotation', label: 'Rot', min: -180, max: 180, step: 1 },
+                                    ] as const).map(({ key, label, min, max, step }) => (
+                                      <div key={key} className="flex items-center gap-2">
+                                        <span className="text-[10px] text-zinc-500 w-10">{label}</span>
+                                        <input
+                                          type="range"
+                                          min={min} max={max} step={step}
+                                          value={m[key]}
+                                          onChange={e => updateMask({ [key]: parseFloat(e.target.value) })}
+                                          className="flex-1 h-1 accent-violet-500 cursor-pointer"
+                                        />
+                                        <input
+                                          type="number"
+                                          min={min} max={max} step={step}
+                                          value={m[key]}
+                                          onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateMask({ [key]: Math.max(min, Math.min(max, v)) }) }}
+                                          className="w-10 text-[9px] text-zinc-300 font-mono text-right bg-zinc-800/80 border border-zinc-700/50 rounded px-1 py-0.5 outline-none focus:border-violet-500/50"
+                                        />
+                                      </div>
+                                    ))}
+                                    <label className="flex items-center gap-2 cursor-pointer pt-0.5">
+                                      <input
+                                        type="checkbox"
+                                        checked={m.invert}
+                                        onChange={e => updateMask({ invert: e.target.checked })}
+                                        className="rounded bg-zinc-800 border-zinc-600 h-3 w-3"
+                                      />
+                                      <span className="text-[10px] text-zinc-400">Invert mask</span>
+                                    </label>
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

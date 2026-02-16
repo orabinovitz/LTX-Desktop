@@ -1,13 +1,14 @@
 import React from 'react'
 import {
-  Layers, Video, Image, ZoomIn, ZoomOut, Maximize2, ChevronDown,
+  Layers, Video, Image, ChevronDown,
   SkipBack, SkipForward, ChevronLeft, ChevronRight, Pause, Play, Square, Repeat,
+  Expand, Shrink,
 } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { AudioWaveform } from '../../components/AudioWaveform'
 import { DEFAULT_SUBTITLE_STYLE } from '../../types/project'
 import type { TimelineClip, Track, SubtitleClip } from '../../types/project'
-import { getClipEffectStyles, getTransitionBgColor, formatTime, getShortcutLabel } from './video-editor-utils'
+import { getClipEffectStyles, getTransitionBgColor, formatTime, getShortcutLabel, getMaskedEffectOverlays } from './video-editor-utils'
 import type { KeyboardLayout } from '../../lib/keyboard-shortcuts'
 
 export interface ProgramMonitorProps {
@@ -50,6 +51,9 @@ export interface ProgramMonitorProps {
     grainAmount: number
   }>
 
+  // Compositing (clips underneath active clip when it has opacity < 100%)
+  compositingStack: TimelineClip[]
+
   // Helpers
   getClipUrl: (clip: TimelineClip) => string | null
 
@@ -66,6 +70,7 @@ export interface ProgramMonitorProps {
   setDraggingMarker: React.Dispatch<React.SetStateAction<'timelineIn' | 'timelineOut' | 'sourceIn' | 'sourceOut' | null>>
   playingInOut: boolean
   setPlayingInOut: (v: boolean) => void
+  shuttleSpeed: number
   setShuttleSpeed: (v: number | ((prev: number) => number)) => void
 
   // Preview zoom/pan
@@ -112,6 +117,7 @@ export function ProgramMonitor({
   activeTextClips,
   activeLetterbox,
   activeAdjustmentEffects,
+  compositingStack,
   getClipUrl,
   selectedClipIds,
   setSelectedClipIds,
@@ -123,6 +129,7 @@ export function ProgramMonitor({
   setDraggingMarker,
   playingInOut,
   setPlayingInOut,
+  shuttleSpeed,
   setShuttleSpeed,
   previewZoom,
   setPreviewZoom,
@@ -139,6 +146,23 @@ export function ProgramMonitor({
   toggleFullscreen,
   kbLayout,
 }: ProgramMonitorProps) {
+  // Sync mask video elements to the pool video's currentTime on every time update
+  React.useEffect(() => {
+    if (!activeClip || activeClip.asset?.type !== 'video') return
+    const overlays = getMaskedEffectOverlays(activeClip)
+    if (overlays.length === 0) return
+    const poolVideo = document.getElementById('video-pool-container')?.querySelector('video') as HTMLVideoElement | null
+    if (!poolVideo) return
+    for (const overlay of overlays) {
+      const maskVideo = document.getElementById(`mask-video-${overlay.effectId}`) as HTMLVideoElement | null
+      if (maskVideo && Math.abs(maskVideo.currentTime - poolVideo.currentTime) > 0.04) {
+        maskVideo.currentTime = poolVideo.currentTime
+      }
+    }
+  }, [currentTime, activeClip])
+
+  // Compositing stack video sync is handled by ref callbacks on each <video> element above
+
   return (
     <div
         className={`flex flex-col ${showSourceMonitor ? '' : 'flex-1'} min-w-0 min-h-0 ${showSourceMonitor && activePanel === 'timeline' ? 'ring-2 ring-violet-500 ring-inset' : ''}`}
@@ -193,62 +217,70 @@ export function ProgramMonitor({
               <div
                 className="relative bg-black overflow-hidden"
                 style={videoFrameSize.width > 0 ? { width: videoFrameSize.width, height: videoFrameSize.height } : { width: '100%', aspectRatio: '16/9' }}
+                onClick={() => setSelectedClipIds(new Set())}
               >
-              {/* Cross-dissolve: render BOTH clips with blended opacity */}
-              {crossDissolveState ? (() => {
-                const { outgoing, incoming, progress } = crossDissolveState
-                const outOffset = currentTime - outgoing.startTime
-                const inOffset = currentTime - incoming.startTime
-                const outOpacity = (1 - progress) * ((outgoing.opacity ?? 100) / 100)
-                const inOpacity = progress * ((incoming.opacity ?? 100) / 100)
-                const outStyle = { ...getClipEffectStyles(outgoing, outOffset), opacity: outOpacity }
-                const inStyle = { ...getClipEffectStyles(incoming, inOffset), opacity: inOpacity }
-
+              {(() => {
+                // Always render the normal clip path — the pool handles the outgoing/active clip.
+                // During dissolve, overlay the incoming clip on top with fading opacity.
+                const dissolveOutOpacity = crossDissolveState
+                  ? (1 - crossDissolveState.progress) * ((crossDissolveState.outgoing.opacity ?? 100) / 100)
+                  : undefined
                 return (
-                  <>
-                    {outgoing.asset?.type === 'video' ? (
-                      <video
-                        ref={dissolveOutVideoRef as React.RefObject<HTMLVideoElement>}
-                        key={`dissolve-out-${outgoing.id}`}
-                        src={getClipUrl(outgoing) || outgoing.asset.url}
-                        className="absolute inset-0 w-full h-full object-contain"
-                        style={outStyle}
-                        playsInline
-                        muted
-                      />
-                    ) : outgoing.asset?.type === 'image' ? (
-                      <img
-                        key={`dissolve-out-${outgoing.id}`}
-                        src={getClipUrl(outgoing) || outgoing.asset.url}
-                        alt=""
-                        className="absolute inset-0 w-full h-full object-contain"
-                        style={outStyle}
-                      />
-                    ) : null}
-
-                    {incoming.asset?.type === 'video' ? (
-                      <video
-                        ref={previewVideoRef as React.RefObject<HTMLVideoElement>}
-                        key={`dissolve-in-${incoming.id}`}
-                        src={getClipUrl(incoming) || incoming.asset.url}
-                        className="absolute inset-0 w-full h-full object-contain"
-                        style={inStyle}
-                        playsInline
-                      />
-                    ) : incoming.asset?.type === 'image' ? (
-                      <img
-                        ref={previewImageRef as React.RefObject<HTMLImageElement>}
-                        key={`dissolve-in-${incoming.id}`}
-                        src={getClipUrl(incoming) || incoming.asset.url}
-                        alt=""
-                        className="absolute inset-0 w-full h-full object-contain"
-                        style={inStyle}
-                      />
-                    ) : null}
-                  </>
-                )
-              })() : (
                 <>
+                  {/* Compositing: render clips from lower tracks underneath the active clip */}
+                  {compositingStack.map(lowerClip => {
+                    const lowerOffset = currentTime - lowerClip.startTime
+                    const lowerStyles = getClipEffectStyles(lowerClip, lowerOffset)
+                    const lowerSrc = getClipUrl(lowerClip) || lowerClip.asset?.url || lowerClip.importedUrl || ''
+                    if (lowerClip.asset?.type === 'image' || lowerClip.type === 'image') {
+                      return (
+                        <img
+                          key={`comp-${lowerClip.id}`}
+                          src={lowerSrc}
+                          alt=""
+                          className="absolute inset-0 w-full h-full object-contain pointer-events-none z-[1]"
+                          style={lowerStyles}
+                        />
+                      )
+                    }
+                    // Video clip on a lower track — use ref to force frame decoding
+                    const timeInClip = Math.max(0, currentTime - lowerClip.startTime)
+                    return (
+                      <video
+                        key={`comp-${lowerClip.id}`}
+                        id={`comp-video-${lowerClip.id}`}
+                        src={lowerSrc}
+                        className="absolute inset-0 w-full h-full object-contain pointer-events-none z-[1]"
+                        style={lowerStyles}
+                        muted
+                        playsInline
+                        preload="auto"
+                        ref={(el) => {
+                          if (!el) return
+                          el.muted = true
+                          const seekToFrame = () => {
+                            if (!el.duration || isNaN(el.duration)) return
+                            const vd = el.duration
+                            const usable = vd - (lowerClip.trimStart || 0) - (lowerClip.trimEnd || 0)
+                            const target = lowerClip.reversed
+                              ? Math.max(0, Math.min(vd, (lowerClip.trimStart || 0) + usable - timeInClip * (lowerClip.speed || 1)))
+                              : Math.max(0, Math.min(vd, (lowerClip.trimStart || 0) + timeInClip * (lowerClip.speed || 1)))
+                            if (Math.abs(el.currentTime - target) > 0.04) {
+                              el.currentTime = target
+                            }
+                          }
+                          if (el.readyState >= 2) {
+                            seekToFrame()
+                          } else {
+                            el.addEventListener('loadeddata', () => {
+                              seekToFrame()
+                            }, { once: true })
+                          }
+                        }}
+                      />
+                    )
+                  })}
+
                   {/* Transition background overlay */}
                   {activeClip && (() => {
                     const tInBg = activeClip.transitionIn?.type !== 'none' ? getTransitionBgColor(activeClip.transitionIn.type) : null
@@ -261,11 +293,14 @@ export function ProgramMonitor({
                       <div className="absolute inset-0 z-10 pointer-events-none" style={{ backgroundColor: bg, opacity: overlayOpacity }} />
                     ) : null
                   })()}
-                  {/* Video pool container */}
+                  {/* Video pool container — during dissolve, fade out with progress */}
                   <div
                     id="video-pool-container"
-                    className={`w-full h-full relative pointer-events-none ${!isPlaying && monitorClip?.asset?.type !== 'video' ? 'hidden' : ''}`}
-                    style={monitorClip?.asset?.type === 'video' ? getClipEffectStyles(monitorClip, clipPlaybackOffset) : undefined}
+                    className={`absolute inset-0 w-full h-full pointer-events-none z-[2] ${!isPlaying && monitorClip?.asset?.type !== 'video' ? 'hidden' : ''}`}
+                    style={monitorClip?.asset?.type === 'video' ? {
+                      ...getClipEffectStyles(monitorClip, clipPlaybackOffset),
+                      ...(dissolveOutOpacity !== undefined ? { opacity: dissolveOutOpacity } : {}),
+                    } : undefined}
                   />
 
                   {activeClip?.asset?.type === 'image' && (
@@ -273,10 +308,95 @@ export function ProgramMonitor({
                       ref={previewImageRef as React.RefObject<HTMLImageElement>}
                       src={getClipUrl(activeClip) || activeClip.asset.url}
                       alt=""
-                      className="w-full h-full object-contain"
-                      style={getClipEffectStyles(activeClip, clipPlaybackOffset)}
+                      className="absolute inset-0 w-full h-full object-contain z-[2]"
+                      style={{
+                        ...getClipEffectStyles(activeClip, clipPlaybackOffset),
+                        ...(dissolveOutOpacity !== undefined ? { opacity: dissolveOutOpacity } : {}),
+                      }}
                     />
                   )}
+
+                  {/* Cross-dissolve incoming clip overlay */}
+                  {crossDissolveState && (() => {
+                    const { incoming, progress } = crossDissolveState
+                    const inOffset = currentTime - incoming.startTime
+                    const inOpacity = progress * ((incoming.opacity ?? 100) / 100)
+                    const inStyle = { ...getClipEffectStyles(incoming, inOffset), opacity: inOpacity }
+                    const inSrc = getClipUrl(incoming) || incoming.asset?.url || ''
+                    if (incoming.asset?.type === 'video') {
+                      return (
+                        <video
+                          ref={previewVideoRef as React.RefObject<HTMLVideoElement>}
+                          key={`dissolve-in-${incoming.id}`}
+                          src={inSrc}
+                          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                          style={inStyle}
+                          playsInline
+                          muted
+                          preload="auto"
+                        />
+                      )
+                    }
+                    if (incoming.asset?.type === 'image') {
+                      return (
+                        <img
+                          key={`dissolve-in-${incoming.id}`}
+                          src={inSrc}
+                          alt=""
+                          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                          style={inStyle}
+                        />
+                      )
+                    }
+                    return null
+                  })()}
+
+                  {/* Masked effect overlays — duplicate element with CSS filter + mask-image */}
+                  {activeClip && getMaskedEffectOverlays(activeClip).map(overlay => {
+                    const maskCSS = overlay.maskImageValue
+                    const maskStyle: React.CSSProperties = {
+                      filter: overlay.filterCSS,
+                      WebkitMaskImage: maskCSS,
+                      maskImage: maskCSS,
+                      WebkitMaskSize: '100% 100%',
+                      maskSize: '100% 100%' as string,
+                    }
+                    // For image clips: duplicate <img> with CSS filter + mask
+                    if (activeClip.asset?.type === 'image') {
+                      const imgSrc = getClipUrl(activeClip) || activeClip.asset.url
+                      return (
+                        <img
+                          key={`mask-img-${overlay.effectId}`}
+                          src={imgSrc}
+                          alt=""
+                          className="absolute inset-0 w-full h-full object-contain z-[15] pointer-events-none"
+                          style={maskStyle}
+                        />
+                      )
+                    }
+                    // For video clips: duplicate <video> with CSS filter + mask, synced to pool video
+                    const videoSrc = getClipUrl(activeClip) || activeClip.asset?.url || ''
+                    return (
+                      <video
+                        key={`mask-video-${overlay.effectId}`}
+                        id={`mask-video-${overlay.effectId}`}
+                        src={videoSrc}
+                        ref={(el) => {
+                          if (!el) return
+                          // Sync to the pool video's current time
+                          const poolVideo = document.getElementById('video-pool-container')?.querySelector('video') as HTMLVideoElement | null
+                          if (poolVideo && Math.abs(el.currentTime - poolVideo.currentTime) > 0.04) {
+                            el.currentTime = poolVideo.currentTime
+                          }
+                        }}
+                        className="absolute inset-0 w-full h-full object-contain z-[15] pointer-events-none"
+                        style={maskStyle}
+                        muted
+                        playsInline
+                        preload="auto"
+                      />
+                    )
+                  })}
 
                   {/* Vignette overlay (from effects) */}
                   {activeClip?.effects?.some(fx => fx.enabled && fx.type === 'vignette' && fx.params.amount > 0) && (
@@ -346,7 +466,8 @@ export function ProgramMonitor({
                     ) : null
                   })()}
                 </>
-              )}
+                )
+              })()}
 
               {/* Adjustment layer effects */}
               {activeAdjustmentEffects.map(({ clip: adjClip, filterStyle, hasVignette, vignetteAmount, hasGrain, grainAmount }) => {
@@ -533,6 +654,65 @@ export function ProgramMonitor({
                   ) : null
                 }
               })()}
+              {/* Mask shape visual overlay — draggable */}
+              {activeClip && selectedClipIds.has(activeClip.id) && activeClip.effects?.some(fx => fx.enabled && fx.mask?.enabled) && (() => {
+                const maskedFx = activeClip.effects!.filter(fx => fx.enabled && fx.mask?.enabled)
+                return maskedFx.map(fx => {
+                  const m = fx.mask!
+                  const left = `${m.x - m.width / 2}%`
+                  const top = `${m.y - m.height / 2}%`
+                  const w = `${m.width}%`
+                  const h = `${m.height}%`
+                  return (
+                    <div
+                      key={`mask-vis-${fx.id}`}
+                      className="absolute z-[30] cursor-move"
+                      style={{
+                        left, top, width: w, height: h,
+                        transform: m.rotation !== 0 ? `rotate(${m.rotation}deg)` : undefined,
+                        border: '1.5px dashed rgba(167,139,250,0.7)',
+                        borderRadius: m.shape === 'ellipse' ? '50%' : '4px',
+                        boxShadow: '0 0 0 1px rgba(0,0,0,0.4)',
+                        pointerEvents: 'auto',
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        const container = (e.currentTarget.parentElement as HTMLElement)
+                        const rect = container.getBoundingClientRect()
+                        const startMX = e.clientX
+                        const startMY = e.clientY
+                        const startX = m.x
+                        const startY = m.y
+                        const onMove = (ev: MouseEvent) => {
+                          const dx = ((ev.clientX - startMX) / rect.width) * 100
+                          const dy = ((ev.clientY - startMY) / rect.height) * 100
+                          const nx = Math.max(0, Math.min(100, startX + dx))
+                          const ny = Math.max(0, Math.min(100, startY + dy))
+                          setClips(prev => prev.map(c => {
+                            if (c.id !== activeClip.id) return c
+                            return {
+                              ...c,
+                              effects: c.effects?.map(f => f.id === fx.id ? { ...f, mask: { ...f.mask!, x: nx, y: ny } } : f),
+                            }
+                          }))
+                        }
+                        const onUp = () => {
+                          window.removeEventListener('mousemove', onMove)
+                          window.removeEventListener('mouseup', onUp)
+                        }
+                        window.addEventListener('mousemove', onMove)
+                        window.addEventListener('mouseup', onUp)
+                      }}
+                      title={`Mask: ${m.shape} — drag to reposition`}
+                    >
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-[8px] text-violet-400 whitespace-nowrap bg-black/60 px-1 rounded pointer-events-none">
+                        {fx.type} mask
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
               </div>{/* end video frame wrapper */}
 
               {/* Transparent overlay to prevent video element default interactions */}
@@ -542,143 +722,7 @@ export function ProgramMonitor({
             </div>
           )}
 
-          <div className="absolute bottom-4 left-4 px-2 py-1 rounded bg-black/70 text-white text-sm font-mono z-10">
-            {formatTime(currentTime)}
-          </div>
-
-          {activeClip && (
-            <div className="absolute top-4 left-4 px-2 py-1 rounded bg-black/70 text-white text-xs flex items-center gap-2 z-10">
-              {activeClip.asset?.type === 'video' ? <Video className="h-3 w-3" /> : <Image className="h-3 w-3" />}
-              <span className="max-w-[200px] truncate">{activeClip.asset?.prompt || 'Clip'}</span>
-              {activeClip.speed !== 1 && <span className="text-yellow-400">{activeClip.speed}x</span>}
-              {activeClip.reversed && <span className="text-blue-400">REV</span>}
-            </div>
-          )}
-
-          {/* Zoom controls */}
-          <div className="absolute top-3 right-3 flex items-center gap-1 z-20">
-            <button
-              onClick={() => setPreviewZoom(prev => {
-                const cur = prev === 'fit' ? 100 : prev
-                return Math.max(10, Math.round(cur / 1.25))
-              })}
-              className="p-1.5 rounded-md bg-black/60 hover:bg-black/80 transition-colors"
-              title="Zoom out"
-            >
-              <ZoomOut className="h-3.5 w-3.5 text-zinc-300" />
-            </button>
-            <div className="relative">
-              <button
-                onClick={(e) => { e.stopPropagation(); setPreviewZoomOpen(prev => !prev) }}
-                className={`h-7 px-2 rounded-md text-[11px] font-medium tabular-nums flex items-center gap-1 transition-colors ${
-                  previewZoomOpen ? 'bg-zinc-700 text-white' : 'bg-black/60 hover:bg-black/80 text-zinc-300'
-                }`}
-              >
-                {previewZoom === 'fit' ? 'Fit' : `${previewZoom}%`}
-                <ChevronDown className="h-3 w-3" />
-              </button>
-              {previewZoomOpen && (
-                <div className="absolute top-full right-0 mt-1 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 min-w-[100px] z-50">
-                  {[
-                    { label: 'Fit', value: 'fit' as const },
-                    { label: '10%', value: 10 },
-                    { label: '25%', value: 25 },
-                    { label: '50%', value: 50 },
-                    { label: '75%', value: 75 },
-                    { label: '100%', value: 100 },
-                    { label: '150%', value: 150 },
-                    { label: '200%', value: 200 },
-                    { label: '400%', value: 400 },
-                    { label: '800%', value: 800 },
-                  ].map(opt => (
-                    <button
-                      key={opt.label}
-                      onClick={() => { setPreviewZoom(opt.value); setPreviewZoomOpen(false) }}
-                      className={`w-full text-left px-3 py-1.5 text-[11px] flex items-center gap-2 transition-colors ${
-                        previewZoom === opt.value
-                          ? 'text-violet-300 bg-violet-600/20'
-                          : 'text-zinc-300 hover:bg-zinc-800'
-                      }`}
-                    >
-                      {previewZoom === opt.value && <span className="text-violet-400">&#10003;</span>}
-                      <span className={previewZoom === opt.value ? '' : 'ml-5'}>{opt.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button
-              onClick={() => setPreviewZoom(prev => {
-                const cur = prev === 'fit' ? 100 : prev
-                return Math.min(1600, Math.round(cur * 1.25))
-              })}
-              className="p-1.5 rounded-md bg-black/60 hover:bg-black/80 transition-colors"
-              title="Zoom in"
-            >
-              <ZoomIn className="h-3.5 w-3.5 text-zinc-300" />
-            </button>
-            <button
-              onClick={() => { setPreviewZoom('fit'); setPreviewPan({ x: 0, y: 0 }) }}
-              className={`p-1.5 rounded-md transition-colors ${
-                previewZoom === 'fit' ? 'bg-violet-600/30 text-violet-300' : 'bg-black/60 hover:bg-black/80 text-zinc-300'
-              }`}
-              title="Fit to view"
-            >
-              <Maximize2 className="h-3.5 w-3.5" />
-            </button>
-            {/* Playback resolution dropdown */}
-            <div className="w-px h-4 bg-zinc-600/50 mx-0.5" />
-            <div className="relative">
-              <button
-                onClick={(e) => { e.stopPropagation(); setPlaybackResOpen(prev => !prev) }}
-                className={`h-7 px-2 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors ${
-                  playbackResolution === 1
-                    ? 'bg-green-700/40 text-green-300'
-                    : playbackResolution === 0.5
-                    ? 'bg-yellow-700/40 text-yellow-300'
-                    : 'bg-orange-700/40 text-orange-300'
-                }`}
-                title="Playback resolution — lower is smoother"
-              >
-                {playbackResolution === 1 ? 'Full' : playbackResolution === 0.5 ? '1/2' : '1/4'}
-                <ChevronDown className="h-3 w-3" />
-              </button>
-              {playbackResOpen && (
-                <div className="absolute top-full right-0 mt-1 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 min-w-[120px] z-50">
-                  {([
-                    { label: 'Full (1:1)', value: 1 as const, desc: 'Highest quality' },
-                    { label: 'Half (1/2)', value: 0.5 as const, desc: 'Balanced' },
-                    { label: 'Quarter (1/4)', value: 0.25 as const, desc: 'Smoothest' },
-                  ] as const).map(opt => (
-                    <button
-                      key={opt.label}
-                      onClick={() => { setPlaybackResolution(opt.value); setPlaybackResOpen(false) }}
-                      className={`w-full text-left px-3 py-1.5 text-[11px] flex flex-col gap-0 transition-colors ${
-                        playbackResolution === opt.value
-                          ? 'text-violet-300 bg-violet-600/20'
-                          : 'text-zinc-300 hover:bg-zinc-800'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {playbackResolution === opt.value && <span className="text-violet-400">&#10003;</span>}
-                        <span className={playbackResolution === opt.value ? '' : 'ml-5'}>{opt.label}</span>
-                      </div>
-                      <span className={`text-[10px] ${playbackResolution === opt.value ? 'text-violet-400/60' : 'text-zinc-500'} ml-5`}>{opt.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            {/* Fullscreen toggle */}
-            <div className="w-px h-4 bg-zinc-600/50 mx-0.5" />
-            <button
-              onClick={toggleFullscreen}
-              className="p-1.5 rounded-md bg-black/60 hover:bg-black/80 transition-colors"
-              title={`${isFullscreen ? 'Exit fullscreen' : 'Fullscreen preview'} (${getShortcutLabel(kbLayout, 'view.fullscreen')})`}
-            >
-              <Maximize2 className="h-3.5 w-3.5 text-zinc-300" style={isFullscreen ? { transform: 'rotate(180deg)' } : undefined} />
-            </button>
-          </div>
+          {/* Timecode + clip info moved to bottom status bar */}
         </div>
 
         {/* Program monitor mini scrub bar with IN/OUT markers */}
@@ -791,83 +835,189 @@ export function ProgramMonitor({
           </div>
         )}
 
-        {/* Program Transport Controls */}
-        <div className="h-10 bg-zinc-900 border-t border-zinc-800 flex items-center justify-center gap-0.5 px-2 flex-shrink-0">
-          {/* Mark In */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={`h-7 w-7 ${inPoint !== null ? 'text-yellow-400' : 'text-zinc-500'}`}
-            onClick={() => setInPoint(prev => prev !== null && Math.abs(prev - currentTime) < 0.01 ? null : currentTime)}
-            title={inPoint !== null ? `In: ${formatTime(inPoint)}` : 'Set In point (I)'}
+        {/* Status bar: timecode | Fit | transport controls | resolution | duration */}
+        <div className="h-8 bg-zinc-950 border-t border-zinc-800 flex items-center px-3 flex-shrink-0 gap-2">
+          {/* Left: current timecode */}
+          <span className="text-[12px] font-mono font-medium text-amber-400 tabular-nums tracking-tight select-none min-w-[90px]">
+            {formatTime(currentTime)}
+          </span>
+
+          {/* Fit / Zoom dropdown */}
+          <div className="relative">
+            <button
+              onClick={(e) => { e.stopPropagation(); setPreviewZoomOpen(prev => !prev) }}
+              className={`h-6 px-2 rounded text-[11px] font-medium tabular-nums flex items-center gap-1 transition-colors border ${
+                previewZoomOpen
+                  ? 'bg-zinc-700 text-white border-zinc-600'
+                  : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border-zinc-700 hover:border-zinc-600'
+              }`}
+            >
+              {previewZoom === 'fit' ? 'Fit' : `${previewZoom}%`}
+              <ChevronDown className="h-3 w-3" />
+            </button>
+            {previewZoomOpen && (
+              <div className="absolute bottom-full left-0 mb-1 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 min-w-[100px] z-50">
+                {[
+                  { label: 'Fit', value: 'fit' as const },
+                  { label: '10%', value: 10 },
+                  { label: '25%', value: 25 },
+                  { label: '50%', value: 50 },
+                  { label: '75%', value: 75 },
+                  { label: '100%', value: 100 },
+                  { label: '150%', value: 150 },
+                  { label: '200%', value: 200 },
+                  { label: '400%', value: 400 },
+                  { label: '800%', value: 800 },
+                ].map(opt => (
+                  <button
+                    key={opt.label}
+                    onClick={() => { setPreviewZoom(opt.value); setPreviewZoomOpen(false) }}
+                    className={`w-full text-left px-3 py-1.5 text-[11px] flex items-center gap-2 transition-colors ${
+                      previewZoom === opt.value
+                        ? 'text-violet-300 bg-violet-600/20'
+                        : 'text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                  >
+                    {previewZoom === opt.value && <span className="text-violet-400">&#10003;</span>}
+                    <span className={previewZoom === opt.value ? '' : 'ml-5'}>{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Center: transport controls */}
+          <div className="flex-1 flex items-center justify-center gap-0.5">
+            <Button
+              variant="ghost" size="icon"
+              className={`h-6 w-6 ${inPoint !== null ? 'text-yellow-400' : 'text-zinc-500'}`}
+              onClick={() => setInPoint(prev => prev !== null && Math.abs(prev - currentTime) < 0.01 ? null : currentTime)}
+              title={inPoint !== null ? `In: ${formatTime(inPoint)}` : 'Set In point (I)'}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="7,4 4,4 4,20 7,20" />
+                <line x1="10" y1="12" x2="20" y2="12" />
+                <polyline points="16,8 20,12 16,16" />
+              </svg>
+            </Button>
+            <div className="w-px h-3 bg-zinc-700" />
+            <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500" onClick={() => setCurrentTime(0)} title="Go to start">
+              <SkipBack className="h-3 w-3" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500" onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.max(0, t - 1/24)) }} title="Step back">
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost" size="icon"
+              onClick={() => { setShuttleSpeed(-1); setIsPlaying(true) }}
+              className={`h-6 w-6 ${isPlaying && shuttleSpeed < 0 ? 'text-violet-400' : 'text-zinc-500'}`}
+              title="Play reverse"
+            >
+              <Play className="h-3 w-3 mr-0.5 rotate-180" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500" onClick={() => { setShuttleSpeed(0); setIsPlaying(false) }} title="Stop">
+              <Square className="h-2.5 w-2.5" />
+            </Button>
+            <Button
+              variant="ghost" size="icon"
+              onClick={() => { setShuttleSpeed(0); setIsPlaying(!isPlaying) }}
+              className="h-6 w-6 text-zinc-400"
+              title={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 ml-0.5" />}
+            </Button>
+            <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500" onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.min(totalDuration, t + 1/24)) }} title="Step forward">
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500" onClick={() => setCurrentTime(totalDuration)} title="Go to end">
+              <SkipForward className="h-3 w-3" />
+            </Button>
+            <div className="w-px h-3 bg-zinc-700" />
+            <Button
+              variant="ghost" size="icon"
+              className={`h-6 w-6 ${outPoint !== null ? 'text-yellow-400' : 'text-zinc-500'}`}
+              onClick={() => setOutPoint(prev => prev !== null && Math.abs(prev - currentTime) < 0.01 ? null : currentTime)}
+              title={outPoint !== null ? `Out: ${formatTime(outPoint)}` : 'Set Out point (O)'}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="17,4 20,4 20,20 17,20" />
+                <line x1="14" y1="12" x2="4" y2="12" />
+                <polyline points="8,8 4,12 8,16" />
+              </svg>
+            </Button>
+            <Button
+              variant="ghost" size="icon"
+              className={`h-6 w-6 ${playingInOut ? 'text-yellow-400 bg-yellow-400/10' : 'text-zinc-500'} ${inPoint === null || outPoint === null ? 'opacity-30 cursor-not-allowed' : ''}`}
+              disabled={inPoint === null || outPoint === null}
+              onClick={() => {
+                if (inPoint === null || outPoint === null) return
+                if (playingInOut) { setPlayingInOut(false); setIsPlaying(false) } else { setCurrentTime(inPoint); setPlayingInOut(true); setIsPlaying(true) }
+              }}
+              title="Loop In/Out"
+            >
+              <Repeat className="h-3 w-3" />
+            </Button>
+          </div>
+
+          {/* Resolution dropdown */}
+          <div className="relative">
+            <button
+              onClick={(e) => { e.stopPropagation(); setPlaybackResOpen(prev => !prev) }}
+              className={`h-6 px-2 rounded text-[11px] font-medium flex items-center gap-1 transition-colors border ${
+                playbackResolution === 1
+                  ? 'bg-zinc-900 text-green-400 border-zinc-700 hover:border-zinc-600'
+                  : playbackResolution === 0.5
+                  ? 'bg-zinc-900 text-yellow-400 border-zinc-700 hover:border-zinc-600'
+                  : 'bg-zinc-900 text-orange-400 border-zinc-700 hover:border-zinc-600'
+              }`}
+              title="Playback resolution"
+            >
+              {playbackResolution === 1 ? 'Full' : playbackResolution === 0.5 ? '1/2' : '1/4'}
+              <ChevronDown className="h-3 w-3" />
+            </button>
+            {playbackResOpen && (
+              <div className="absolute bottom-full right-0 mb-1 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 min-w-[120px] z-50">
+                {([
+                  { label: 'Full (1:1)', value: 1 as const, desc: 'Highest quality' },
+                  { label: 'Half (1/2)', value: 0.5 as const, desc: 'Balanced' },
+                  { label: 'Quarter (1/4)', value: 0.25 as const, desc: 'Smoothest' },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.label}
+                    onClick={() => { setPlaybackResolution(opt.value); setPlaybackResOpen(false) }}
+                    className={`w-full text-left px-3 py-1.5 text-[11px] flex flex-col gap-0 transition-colors ${
+                      playbackResolution === opt.value
+                        ? 'text-violet-300 bg-violet-600/20'
+                        : 'text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {playbackResolution === opt.value && <span className="text-violet-400">&#10003;</span>}
+                      <span className={playbackResolution === opt.value ? '' : 'ml-5'}>{opt.label}</span>
+                    </div>
+                    <span className={`text-[10px] ${playbackResolution === opt.value ? 'text-violet-400/60' : 'text-zinc-500'} ml-5`}>{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Fullscreen */}
+          <button
+            onClick={toggleFullscreen}
+            className="p-1 rounded hover:bg-zinc-800 transition-colors text-zinc-500 hover:text-zinc-300"
+            title={`${isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} (${getShortcutLabel(kbLayout, 'view.fullscreen')})`}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="7,4 4,4 4,20 7,20" />
-              <line x1="10" y1="12" x2="20" y2="12" />
-              <polyline points="16,8 20,12 16,16" />
-            </svg>
-          </Button>
-          <div className="w-px h-4 bg-zinc-700" />
-          {/* Go to start */}
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-zinc-500" onClick={() => setCurrentTime(0)} title="Go to start">
-            <SkipBack className="h-3.5 w-3.5" />
-          </Button>
-          {/* Step back 1 frame */}
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-zinc-500" onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.max(0, t - 1/24)) }} title="Step back 1 frame">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          {/* Stop */}
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-zinc-500" onClick={() => { setShuttleSpeed(0); setIsPlaying(false) }} title="Stop">
-            <Square className="h-3 w-3" />
-          </Button>
-          {/* Play/Pause */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => { setShuttleSpeed(0); setIsPlaying(!isPlaying) }}
-            className="h-7 w-7 text-zinc-400"
-            title={isPlaying ? 'Pause' : 'Play'}
-          >
-            {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 ml-0.5" />}
-          </Button>
-          {/* Step forward 1 frame */}
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-zinc-500" onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.min(totalDuration, t + 1/24)) }} title="Step forward 1 frame">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          {/* Go to end */}
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-zinc-500" onClick={() => setCurrentTime(totalDuration)} title="Go to end">
-            <SkipForward className="h-3.5 w-3.5" />
-          </Button>
-          <div className="w-px h-4 bg-zinc-700" />
-          {/* Mark Out */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={`h-7 w-7 ${outPoint !== null ? 'text-yellow-400' : 'text-zinc-500'}`}
-            onClick={() => setOutPoint(prev => prev !== null && Math.abs(prev - currentTime) < 0.01 ? null : currentTime)}
-            title={outPoint !== null ? `Out: ${formatTime(outPoint)}` : 'Set Out point (O)'}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="17,4 20,4 20,20 17,20" />
-              <line x1="14" y1="12" x2="4" y2="12" />
-              <polyline points="8,8 4,12 8,16" />
-            </svg>
-          </Button>
-          <div className="w-px h-4 bg-zinc-700 mx-0.5" />
-          {/* Loop In/Out */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={`h-7 w-7 ${playingInOut ? 'text-yellow-400 bg-yellow-400/10' : 'text-zinc-500'} ${inPoint === null || outPoint === null ? 'opacity-30 cursor-not-allowed' : ''}`}
-            disabled={inPoint === null || outPoint === null}
-            onClick={() => {
-              if (inPoint === null || outPoint === null) return
-              if (playingInOut) { setPlayingInOut(false); setIsPlaying(false) } else { setCurrentTime(inPoint); setPlayingInOut(true); setIsPlaying(true) }
-            }}
-            title="Loop In/Out"
-          >
-            <Repeat className="h-3.5 w-3.5" />
-          </Button>
+            {isFullscreen
+              ? <Shrink className="h-3.5 w-3.5" />
+              : <Expand className="h-3.5 w-3.5" />
+            }
+          </button>
+
+          {/* Right: total duration */}
+          <span className="text-[12px] font-mono font-medium text-zinc-400 tabular-nums tracking-tight select-none min-w-[90px] text-right">
+            {formatTime(totalDuration)}
+          </span>
         </div>
       </div>
   )

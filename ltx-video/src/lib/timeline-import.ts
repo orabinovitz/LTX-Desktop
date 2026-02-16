@@ -445,16 +445,61 @@ function parseFcp7Xml(doc: Document): ParsedTimeline | null {
     })
   })
   
+  // ── Merge stereo pairs: Premiere exports stereo as two mono audio tracks ──
+  // If multiple audio clips reference the same source file at the same timeline
+  // position, they are channel splits of a single stereo clip. Keep only one
+  // clip per unique (mediaRefId, startTime) and collapse the track count.
+  const audioClips = clips.filter(c => c.trackType === 'audio')
+  const nonAudioClips = clips.filter(c => c.trackType !== 'audio')
+  
+  // Group audio clips by (mediaRefId + startTime) to detect stereo pairs
+  const audioGroups = new Map<string, ParsedClip[]>()
+  for (const ac of audioClips) {
+    const key = `${ac.mediaRefId}|${ac.startTime.toFixed(4)}`
+    if (!audioGroups.has(key)) audioGroups.set(key, [])
+    audioGroups.get(key)!.push(ac)
+  }
+  
+  // Build merged audio clips: keep the first clip of each group, discard duplicates
+  const mergedAudioClips: ParsedClip[] = []
+  let mergedAudioTrackIdx = 0
+  // Track which original track indices have been assigned a merged index
+  const trackRemap = new Map<number, number>()
+  
+  for (const group of audioGroups.values()) {
+    const representative = group[0] // keep first channel's metadata (volume, link, etc.)
+    
+    // Determine the merged track index for this clip
+    const origTrack = representative.trackIndex
+    if (!trackRemap.has(origTrack)) {
+      trackRemap.set(origTrack, videoTrackCount + mergedAudioTrackIdx)
+      mergedAudioTrackIdx++
+    }
+    representative.trackIndex = trackRemap.get(origTrack)!
+    
+    // If any channel in the group has a linked video, preserve it
+    if (representative.linkedVideoClipIndex === undefined) {
+      const linked = group.find(c => c.linkedVideoClipIndex !== undefined)
+      if (linked) representative.linkedVideoClipIndex = linked.linkedVideoClipIndex
+    }
+    
+    mergedAudioClips.push(representative)
+  }
+  
+  // Reassemble clips and update track count
+  const finalClips = [...nonAudioClips, ...mergedAudioClips]
+  const finalAudioTrackCount = mergedAudioTrackIdx || (audioTrackCount > 0 ? 1 : 0)
+  
   return {
     name,
     fps,
-    duration: totalDuration || Math.max(...clips.map(c => c.startTime + c.duration), 0),
+    duration: totalDuration || Math.max(...finalClips.map(c => c.startTime + c.duration), 0),
     width: seqWidth,
     height: seqHeight,
     videoTrackCount,
-    audioTrackCount,
+    audioTrackCount: finalAudioTrackCount,
     mediaRefs: Array.from(mediaRefs.values()),
-    clips,
+    clips: finalClips,
     format: 'fcp7xml',
   }
 }
@@ -793,16 +838,47 @@ function parseFcpXml(doc: Document): ParsedTimeline | null {
   
   if (videoTrackCount === 0) videoTrackCount = 1
   
+  // ── Merge stereo pairs (same logic as FCP7 XML) ──
+  // FCPXML can also represent stereo as two separate audio clips from the same
+  // source at the same position. Collapse them into a single stereo clip.
+  const fcpxAudioClips = clips.filter(c => c.trackType === 'audio')
+  const fcpxNonAudioClips = clips.filter(c => c.trackType !== 'audio')
+  
+  const fcpxAudioGroups = new Map<string, ParsedClip[]>()
+  for (const ac of fcpxAudioClips) {
+    const key = `${ac.mediaRefId}|${ac.startTime.toFixed(4)}`
+    if (!fcpxAudioGroups.has(key)) fcpxAudioGroups.set(key, [])
+    fcpxAudioGroups.get(key)!.push(ac)
+  }
+  
+  const fcpxMergedAudio: ParsedClip[] = []
+  let fcpxMergedTrackIdx = 0
+  const fcpxTrackRemap = new Map<number, number>()
+  
+  for (const group of fcpxAudioGroups.values()) {
+    const representative = group[0]
+    const origTrack = representative.trackIndex
+    if (!fcpxTrackRemap.has(origTrack)) {
+      fcpxTrackRemap.set(origTrack, videoTrackCount + fcpxMergedTrackIdx)
+      fcpxMergedTrackIdx++
+    }
+    representative.trackIndex = fcpxTrackRemap.get(origTrack)!
+    fcpxMergedAudio.push(representative)
+  }
+  
+  const fcpxFinalClips = [...fcpxNonAudioClips, ...fcpxMergedAudio]
+  const fcpxFinalAudioCount = fcpxMergedTrackIdx || (audioTrackCount > 0 ? 1 : 0)
+  
   return {
     name,
     fps,
-    duration: totalDuration || Math.max(...clips.map(c => c.startTime + c.duration), 0),
+    duration: totalDuration || Math.max(...fcpxFinalClips.map(c => c.startTime + c.duration), 0),
     width: seqWidth,
     height: seqHeight,
     videoTrackCount,
-    audioTrackCount,
+    audioTrackCount: fcpxFinalAudioCount,
     mediaRefs: Array.from(mediaRefs.values()),
-    clips,
+    clips: fcpxFinalClips,
     format: 'fcpxml',
   }
 }

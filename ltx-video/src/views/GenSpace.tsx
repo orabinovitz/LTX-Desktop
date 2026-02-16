@@ -723,7 +723,7 @@ export function GenSpace() {
     resolution: '540p',
     aspectRatio: '16:9',
     imageResolution: '1080p',
-    variations: 3,
+    variations: 1,
     motion: 'normal',
     audio: false,
   })
@@ -743,40 +743,63 @@ export function GenSpace() {
   const assets = (currentProject?.assets || []).filter(a => a.generationParams)
   const [lastPrompt, setLastPrompt] = useState('')
   
+  // Copy a generated file to the project's asset save folder, returning the new path + URL (or originals on failure)
+  const copyToAssetFolder = async (origPath: string, origUrl: string): Promise<{ path: string; url: string }> => {
+    const savePath = currentProject?.assetSavePath
+    if (!savePath || !window.electronAPI) return { path: origPath, url: origUrl }
+    try {
+      await window.electronAPI.ensureDirectory(savePath)
+      const sep = origPath.includes('\\') ? '\\' : '/'
+      const fileName = origPath.split(sep).pop() || origPath.split('/').pop() || 'asset'
+      const destPath = `${savePath}${sep}${fileName}`
+      const result = await window.electronAPI.copyFile(origPath, destPath)
+      if (result.success) {
+        const normalized = destPath.replace(/\\/g, '/')
+        const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
+        return { path: destPath, url: fileUrl }
+      }
+    } catch (e) {
+      console.warn('Failed to copy asset to project folder:', e)
+    }
+    return { path: origPath, url: origUrl }
+  }
+
   // When video generation completes, add to project assets
   useEffect(() => {
     if (videoUrl && videoPath && currentProjectId && !isGenerating) {
-      // Check if this video is already in assets
       const exists = assets.some(a => a.url === videoUrl)
       if (!exists) {
         const genMode = inputImage ? 'image-to-video' : 'text-to-video'
-        addAsset(currentProjectId, {
-          type: 'video',
-          path: videoPath,
-          url: videoUrl,
-          prompt: lastPrompt,
-          resolution: settings.resolution,
-          duration: settings.duration,
-          generationParams: {
-            mode: genMode as 'text-to-video' | 'image-to-video',
+        ;(async () => {
+          const { path: finalPath, url: finalUrl } = await copyToAssetFolder(videoPath, videoUrl)
+          addAsset(currentProjectId, {
+            type: 'video',
+            path: finalPath,
+            url: finalUrl,
             prompt: lastPrompt,
-            model: settings.model,
-            duration: settings.duration,
             resolution: settings.resolution,
-            fps: 24,
-            audio: settings.audio || false,
-            cameraMotion: 'none',
-            imageAspectRatio: settings.aspectRatio,
-            imageSteps: 4,
-            inputImageUrl: inputImage || undefined,
-          },
-          takes: [{
-            url: videoUrl,
-            path: videoPath,
-            createdAt: Date.now(),
-          }],
-          activeTakeIndex: 0,
-        })
+            duration: settings.duration,
+            generationParams: {
+              mode: genMode as 'text-to-video' | 'image-to-video',
+              prompt: lastPrompt,
+              model: settings.model,
+              duration: settings.duration,
+              resolution: settings.resolution,
+              fps: 24,
+              audio: settings.audio || false,
+              cameraMotion: 'none',
+              imageAspectRatio: settings.aspectRatio,
+              imageSteps: 4,
+              inputImageUrl: inputImage || undefined,
+            },
+            takes: [{
+              url: finalUrl,
+              path: finalPath,
+              createdAt: Date.now(),
+            }],
+            activeTakeIndex: 0,
+          })
+        })()
       }
     }
   }, [videoUrl, videoPath, currentProjectId, isGenerating])
@@ -784,45 +807,39 @@ export function GenSpace() {
   // When image generation completes, add all images to project assets
   useEffect(() => {
     if (imageUrls.length > 0 && currentProjectId && !isGenerating) {
-      let addedAny = false
-      
-      // Add each generated image as an asset
-      for (const imageUrl of imageUrls) {
-        // Check if this image is already in assets
-        const exists = assets.some(a => a.url === imageUrl)
-        if (!exists) {
-          addAsset(currentProjectId, {
-            type: 'image',
-            path: imageUrl,
-            url: imageUrl,
-            prompt: lastPrompt,
-            resolution: settings.imageResolution,
-            generationParams: {
-              mode: 'text-to-image',
+      ;(async () => {
+        for (const imageUrl of imageUrls) {
+          const exists = assets.some(a => a.url === imageUrl)
+          if (!exists) {
+            const { path: finalPath, url: finalUrl } = await copyToAssetFolder(imageUrl, imageUrl)
+            addAsset(currentProjectId, {
+              type: 'image',
+              path: finalPath,
+              url: finalUrl,
               prompt: lastPrompt,
-              model: 'fast',
-              duration: 5,
               resolution: settings.imageResolution,
-              fps: 24,
-              audio: false,
-              cameraMotion: 'none',
-              imageAspectRatio: settings.aspectRatio,
-              imageSteps: 4,
-            },
-            takes: [{
-              url: imageUrl,
-              path: imageUrl,
-              createdAt: Date.now(),
-            }],
-            activeTakeIndex: 0,
-          })
-          addedAny = true
+              generationParams: {
+                mode: 'text-to-image',
+                prompt: lastPrompt,
+                model: 'fast',
+                duration: 5,
+                resolution: settings.imageResolution,
+                fps: 24,
+                audio: false,
+                cameraMotion: 'none',
+                imageAspectRatio: settings.aspectRatio,
+                imageSteps: 4,
+              },
+              takes: [{
+                url: finalUrl,
+                path: finalPath,
+                createdAt: Date.now(),
+              }],
+              activeTakeIndex: 0,
+            })
+          }
         }
-      }
-      
-      if (addedAny) {
-        // Keep prompt so user can iterate on it
-      }
+      })()
     }
   }, [imageUrls, currentProjectId, isGenerating])
   

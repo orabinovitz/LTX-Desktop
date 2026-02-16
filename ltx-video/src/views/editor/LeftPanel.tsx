@@ -1,11 +1,12 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   FolderPlus, Folder, Upload, ChevronLeft, ChevronDown, ChevronRight,
-  X, RefreshCw, Loader2, Trash2, GitMerge, Music, Layers, Video, Image,
-  Plus, FileUp, Film,
+  X, RefreshCw, Loader2, Trash2, Music, Layers, Video, Image,
+  Plus, FileUp, Film, LayoutGrid, List, Clock,
 } from 'lucide-react'
 import type { Asset, TimelineClip, Timeline } from '../../types/project'
 import { VideoThumbnailCard } from './VideoThumbnailCard'
+import { getColorLabel } from './video-editor-utils'
 
 export interface LeftPanelProps {
   leftPanelWidth: number
@@ -19,8 +20,6 @@ export interface LeftPanelProps {
   newBinInputRef: React.RefObject<HTMLInputElement | null>
   selectedBin: string | null
   setSelectedBin: (v: string | null) => void
-  binDropdownOpen: boolean
-  setBinDropdownOpen: React.Dispatch<React.SetStateAction<boolean>>
   bins: string[]
   filteredAssets: Asset[]
   assetFilter: 'all' | 'video' | 'image' | 'audio'
@@ -78,8 +77,6 @@ export function LeftPanel(props: LeftPanelProps) {
     newBinInputRef,
     selectedBin,
     setSelectedBin,
-    binDropdownOpen,
-    setBinDropdownOpen,
     bins,
     filteredAssets,
     assetFilter,
@@ -124,6 +121,8 @@ export function LeftPanel(props: LeftPanelProps) {
     openTimelineIds,
   } = props
 
+  const [assetViewMode, setAssetViewMode] = useState<'grid' | 'list'>('grid')
+
   return (
     <div className="flex-shrink-0 border-r border-zinc-800 flex flex-col" style={{ width: leftPanelWidth }}>
       {/* Assets Section */}
@@ -150,21 +149,39 @@ export function LeftPanel(props: LeftPanelProps) {
             </div>
           </div>
           
-          {/* Type filter */}
-          <div className="flex gap-1 bg-zinc-900 rounded-lg p-0.5">
-            {(['all', 'video', 'image', 'audio'] as const).map(filter => (
+          {/* Type filter + view toggle */}
+          <div className="flex items-center gap-1.5">
+            <div className="flex gap-1 bg-zinc-900 rounded-lg p-0.5 flex-1">
+              {(['all', 'video', 'image', 'audio'] as const).map(filter => (
+                <button
+                  key={filter}
+                  onClick={() => setAssetFilter(filter)}
+                  className={`flex-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                    assetFilter === filter 
+                      ? 'bg-zinc-800 text-white' 
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                </button>
+              ))}
+            </div>
+            <div className="flex bg-zinc-900 rounded-lg p-0.5">
               <button
-                key={filter}
-                onClick={() => setAssetFilter(filter)}
-                className={`flex-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                  assetFilter === filter 
-                    ? 'bg-zinc-800 text-white' 
-                    : 'text-zinc-500 hover:text-zinc-300'
-                }`}
+                onClick={() => setAssetViewMode('grid')}
+                className={`p-1 rounded transition-colors ${assetViewMode === 'grid' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                title="Grid view"
               >
-                {filter.charAt(0).toUpperCase() + filter.slice(1)}
+                <LayoutGrid className="h-3 w-3" />
               </button>
-            ))}
+              <button
+                onClick={() => setAssetViewMode('list')}
+                className={`p-1 rounded transition-colors ${assetViewMode === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                title="List view"
+              >
+                <List className="h-3 w-3" />
+              </button>
+            </div>
           </div>
           
           {/* Bins row */}
@@ -524,126 +541,7 @@ export function LeftPanel(props: LeftPanelProps) {
             )
           })()}
           
-          {/* Multi-select action bar */}
-          {selectedAssetIds.size > 0 && (
-            <div className="flex items-center gap-1 mb-2 px-1.5 py-1 rounded-md bg-zinc-800/90 border border-zinc-700/60 shadow-lg">
-              <span className="text-[10px] text-zinc-400 font-medium tabular-nums pl-1 mr-1 flex-shrink-0 whitespace-nowrap">
-                {selectedAssetIds.size} selected
-              </span>
-              <div className="w-px h-4 bg-zinc-700 flex-shrink-0" />
-              {/* Move to bin */}
-              <div className="relative">
-                <button
-                  onClick={(e) => { e.stopPropagation(); setBinDropdownOpen(prev => !prev) }}
-                  className={`h-6 px-1.5 rounded flex items-center gap-1 text-[10px] whitespace-nowrap transition-colors ${
-                    binDropdownOpen ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/60'
-                  }`}
-                  title="Move to bin"
-                >
-                  <Folder className="h-3 w-3 flex-shrink-0" />
-                  <ChevronDown className="h-2.5 w-2.5 flex-shrink-0" />
-                </button>
-                {binDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-2xl py-1 z-50 min-w-[140px]">
-                    <div className="px-3 py-1 text-[9px] text-zinc-500 font-semibold uppercase tracking-wider">Move to Bin</div>
-                    <button
-                      onClick={() => {
-                        if (currentProjectId) {
-                          pushAssetUndoRef.current()
-                          selectedAssetIds.forEach(id => updateAsset(currentProjectId, id, { bin: undefined }))
-                        }
-                        setSelectedAssetIds(new Set())
-                        setBinDropdownOpen(false)
-                      }}
-                      className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-700 text-[10px] flex items-center gap-2"
-                    >
-                      <X className="h-3 w-3 text-zinc-500" />
-                      Remove from Bin
-                    </button>
-                    {bins.map(bin => (
-                      <button
-                        key={bin}
-                        onClick={() => {
-                          if (currentProjectId) {
-                            pushAssetUndoRef.current()
-                            selectedAssetIds.forEach(id => updateAsset(currentProjectId, id, { bin }))
-                          }
-                          setSelectedAssetIds(new Set())
-                          setBinDropdownOpen(false)
-                        }}
-                        className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-700 text-[10px] flex items-center gap-2"
-                      >
-                        <Folder className="h-3 w-3 text-zinc-500" />
-                        {bin}
-                      </button>
-                    ))}
-                    <div className="h-px bg-zinc-700 my-0.5" />
-                    <button
-                      onClick={() => {
-                        const name = prompt('New bin name:')
-                        if (name?.trim() && currentProjectId) {
-                          pushAssetUndoRef.current()
-                          selectedAssetIds.forEach(id => updateAsset(currentProjectId, id, { bin: name.trim() }))
-                          setSelectedAssetIds(new Set())
-                        }
-                        setBinDropdownOpen(false)
-                      }}
-                      className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-700 text-[10px] flex items-center gap-2"
-                    >
-                      <FolderPlus className="h-3 w-3 text-zinc-500" />
-                      New Bin...
-                    </button>
-                  </div>
-                )}
-              </div>
-              {/* Group as takes */}
-              {selectedAssetIds.size >= 2 && (
-                <button
-                  onClick={() => {
-                    if (!currentProjectId) return
-                    const selectedAssets = assets.filter(a => selectedAssetIds.has(a.id))
-                    if (selectedAssets.length < 2) return
-                    pushAssetUndoRef.current()
-                    const primary = selectedAssets[0]
-                    const newTakes = selectedAssets.map(a => ({
-                      url: a.url, path: a.path, thumbnail: a.thumbnail, createdAt: a.createdAt,
-                    }))
-                    updateAsset(currentProjectId, primary.id, { takes: newTakes, activeTakeIndex: 0 })
-                    selectedAssets.slice(1).forEach(a => deleteAsset(currentProjectId, a.id))
-                    setSelectedAssetIds(new Set())
-                  }}
-                  className="h-6 px-1.5 rounded text-[10px] text-zinc-400 hover:text-violet-300 hover:bg-violet-600/20 transition-colors flex items-center gap-1 whitespace-nowrap"
-                  title="Merge selected assets into one asset with multiple takes"
-                >
-                  <GitMerge className="h-3 w-3 flex-shrink-0" />
-                  <span className="hidden min-[400px]:inline">Group</span>
-                </button>
-              )}
-              {/* Delete selected */}
-              <button
-                onClick={() => {
-                  if (currentProjectId) {
-                    pushAssetUndoRef.current()
-                    selectedAssetIds.forEach(id => deleteAsset(currentProjectId, id))
-                  }
-                  setSelectedAssetIds(new Set())
-                }}
-                className="h-6 px-1.5 rounded text-[10px] text-zinc-400 hover:text-red-400 hover:bg-red-900/20 transition-colors flex items-center gap-1 whitespace-nowrap"
-                title="Delete selected assets"
-              >
-                <Trash2 className="h-3 w-3 flex-shrink-0" />
-              </button>
-              <div className="flex-1" />
-              {/* Clear selection */}
-              <button
-                onClick={() => setSelectedAssetIds(new Set())}
-                className="h-6 w-6 rounded flex items-center justify-center text-zinc-500 hover:text-white hover:bg-zinc-700/60 transition-colors flex-shrink-0"
-                title="Clear selection (Esc)"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
+          {/* Selection count indicator (minimal) */}
           {filteredAssets.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-sm text-zinc-500">No assets yet</p>
@@ -655,9 +553,11 @@ export function LeftPanel(props: LeftPanelProps) {
                 Import Media
               </button>
             </div>
-          ) : (
+          ) : assetViewMode === 'grid' ? (
             <div className="grid grid-cols-2 gap-2">
-              {filteredAssets.map(asset => (
+              {filteredAssets.map(asset => {
+                const cl = getColorLabel(asset.colorLabel)
+                return (
                 <div
                   key={asset.id}
                   data-asset-card
@@ -669,7 +569,6 @@ export function LeftPanel(props: LeftPanelProps) {
                   }`}
                   draggable
                   onDragStart={(e) => {
-                    // If multi-selected, drag all selected asset ids
                     if (selectedAssetIds.size > 0 && selectedAssetIds.has(asset.id)) {
                       e.dataTransfer.setData('assetIds', JSON.stringify([...selectedAssetIds]))
                     } else {
@@ -681,7 +580,6 @@ export function LeftPanel(props: LeftPanelProps) {
                   onClick={(e) => {
                     e.stopPropagation()
                     if (e.ctrlKey || e.metaKey) {
-                      // Toggle individual asset in selection
                       setSelectedAssetIds(prev => {
                         const next = new Set(prev)
                         if (next.has(asset.id)) next.delete(asset.id)
@@ -689,7 +587,6 @@ export function LeftPanel(props: LeftPanelProps) {
                         return next
                       })
                     } else if (e.shiftKey && selectedAssetIds.size > 0) {
-                      // Range select: from last selected to this one
                       const lastId = [...selectedAssetIds].pop()
                       const lastIdx = filteredAssets.findIndex(a => a.id === lastId)
                       const thisIdx = filteredAssets.findIndex(a => a.id === asset.id)
@@ -701,9 +598,8 @@ export function LeftPanel(props: LeftPanelProps) {
                         setSelectedAssetIds(next)
                       }
                     } else {
-                      // Single click: select only this asset (deselect others)
                       if (selectedAssetIds.has(asset.id) && selectedAssetIds.size === 1) {
-                        setSelectedAssetIds(new Set()) // toggle off if already the only selection
+                        setSelectedAssetIds(new Set())
                       } else {
                         setSelectedAssetIds(new Set([asset.id]))
                       }
@@ -711,7 +607,6 @@ export function LeftPanel(props: LeftPanelProps) {
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation()
-                    // Double-click: if asset has takes, drill into takes view; otherwise load into Clip Viewer
                     if (asset.takes && asset.takes.length > 1) {
                       setTakesViewAssetId(asset.id)
                       setSelectedAssetIds(new Set())
@@ -722,13 +617,19 @@ export function LeftPanel(props: LeftPanelProps) {
                   onContextMenu={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    // If right-clicking an unselected asset, select just it
                     if (!selectedAssetIds.has(asset.id)) {
                       setSelectedAssetIds(new Set([asset.id]))
                     }
                     setAssetContextMenu({ assetId: asset.id, x: e.clientX, y: e.clientY })
                   }}
                 >
+                  {/* Color label strip */}
+                  {cl && (
+                    <>
+                      <div className="absolute top-0 left-0 right-0 h-[3px] z-10" style={{ backgroundColor: cl.color }} />
+                      <div className="absolute top-0 left-0 bottom-0 w-[3px] z-10" style={{ backgroundColor: cl.color }} />
+                    </>
+                  )}
                   {asset.type === 'video' ? (
                     <VideoThumbnailCard
                       url={asset.url}
@@ -758,40 +659,12 @@ export function LeftPanel(props: LeftPanelProps) {
                   ) : (
                     <img src={asset.url} alt="" className="w-full aspect-video object-cover" />
                   )}
-                  {/* Selected overlay */}
                   {selectedAssetIds.has(asset.id) && (
                     <div className="absolute inset-0 bg-violet-600/25 pointer-events-none z-[1]" />
                   )}
-                  {/* Hover overlay - only when not selected */}
                   {!selectedAssetIds.has(asset.id) && (
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none" />
                   )}
-                  {/* Selection checkbox - always visible when anything is selected or on hover */}
-                  <div
-                    className={`absolute top-1.5 left-1.5 w-5 h-5 rounded border-2 flex items-center justify-center z-10 transition-all ${
-                      selectedAssetIds.has(asset.id)
-                        ? 'bg-violet-500 border-violet-400 opacity-100 scale-100'
-                        : selectedAssetIds.size > 0
-                          ? 'bg-zinc-900/80 border-zinc-500 opacity-100 scale-100'
-                          : 'bg-zinc-900/80 border-zinc-500 opacity-0 group-hover:opacity-70 scale-90 group-hover:scale-100'
-                    }`}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setSelectedAssetIds(prev => {
-                        const next = new Set(prev)
-                        if (next.has(asset.id)) next.delete(asset.id)
-                        else next.add(asset.id)
-                        return next
-                      })
-                    }}
-                  >
-                    {selectedAssetIds.has(asset.id) && (
-                      <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </div>
-                  {/* Top-right buttons: regenerate + delete */}
                   <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all z-10">
                     {asset.generationParams && (
                       <button
@@ -821,7 +694,6 @@ export function LeftPanel(props: LeftPanelProps) {
                       <X className="h-3 w-3" />
                     </button>
                   </div>
-                  {/* Regenerating overlay */}
                   {isRegenerating && regeneratingAssetId === asset.id && (
                     <div className="absolute inset-0 bg-violet-900/40 backdrop-blur-sm flex flex-col items-center justify-center z-20">
                       <Loader2 className="h-5 w-5 text-violet-300 animate-spin mb-1" />
@@ -835,7 +707,6 @@ export function LeftPanel(props: LeftPanelProps) {
                       </button>
                     </div>
                   )}
-                  {/* Takes navigator - always visible if asset has multiple takes */}
                   {asset.takes && asset.takes.length > 1 && (
                     <div className="absolute bottom-1 right-1 flex items-center gap-0.5 rounded bg-black/80 z-10">
                       <button
@@ -884,7 +755,6 @@ export function LeftPanel(props: LeftPanelProps) {
                       </button>
                     </div>
                   )}
-                  {/* Bin badge */}
                   {asset.bin && (
                     <div className="absolute top-1.5 left-8 flex items-center gap-0.5 px-1 py-0.5 rounded bg-black/70 text-[9px] text-violet-300 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                       <Folder className="h-2.5 w-2.5" />
@@ -896,7 +766,135 @@ export function LeftPanel(props: LeftPanelProps) {
                     {asset.type === 'adjustment' ? 'Adj' : asset.duration ? `${asset.duration.toFixed(1)}s` : ''}
                   </div>
                 </div>
-              ))}
+              )})}
+            </div>
+          ) : (
+            /* ── List View ── */
+            <div className="flex flex-col gap-0.5">
+              {filteredAssets.map(asset => {
+                const cl = getColorLabel(asset.colorLabel)
+                const name = asset.path ? asset.path.split(/[/\\]/).pop() || asset.path : asset.type === 'adjustment' ? 'Adjustment Layer' : asset.type.charAt(0).toUpperCase() + asset.type.slice(1)
+                return (
+                  <div
+                    key={asset.id}
+                    data-asset-card
+                    data-asset-id={asset.id}
+                    className={`group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-all ${
+                      selectedAssetIds.has(asset.id)
+                        ? 'bg-violet-600/20 ring-1 ring-violet-500/50'
+                        : 'hover:bg-zinc-800/60'
+                    }`}
+                    draggable
+                    onDragStart={(e) => {
+                      if (selectedAssetIds.size > 0 && selectedAssetIds.has(asset.id)) {
+                        e.dataTransfer.setData('assetIds', JSON.stringify([...selectedAssetIds]))
+                      } else {
+                        e.dataTransfer.setData('assetId', asset.id)
+                      }
+                      e.dataTransfer.setData('asset', JSON.stringify(asset))
+                      e.dataTransfer.effectAllowed = 'copy'
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (e.ctrlKey || e.metaKey) {
+                        setSelectedAssetIds(prev => {
+                          const next = new Set(prev)
+                          if (next.has(asset.id)) next.delete(asset.id)
+                          else next.add(asset.id)
+                          return next
+                        })
+                      } else if (e.shiftKey && selectedAssetIds.size > 0) {
+                        const lastId = [...selectedAssetIds].pop()
+                        const lastIdx = filteredAssets.findIndex(a => a.id === lastId)
+                        const thisIdx = filteredAssets.findIndex(a => a.id === asset.id)
+                        if (lastIdx >= 0 && thisIdx >= 0) {
+                          const start = Math.min(lastIdx, thisIdx)
+                          const end = Math.max(lastIdx, thisIdx)
+                          const next = new Set(selectedAssetIds)
+                          for (let i = start; i <= end; i++) next.add(filteredAssets[i].id)
+                          setSelectedAssetIds(next)
+                        }
+                      } else {
+                        if (selectedAssetIds.has(asset.id) && selectedAssetIds.size === 1) {
+                          setSelectedAssetIds(new Set())
+                        } else {
+                          setSelectedAssetIds(new Set([asset.id]))
+                        }
+                      }
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation()
+                      if (asset.takes && asset.takes.length > 1) {
+                        setTakesViewAssetId(asset.id)
+                        setSelectedAssetIds(new Set())
+                      } else {
+                        loadSourceAsset(asset)
+                      }
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (!selectedAssetIds.has(asset.id)) {
+                        setSelectedAssetIds(new Set([asset.id]))
+                      }
+                      setAssetContextMenu({ assetId: asset.id, x: e.clientX, y: e.clientY })
+                    }}
+                  >
+                    {/* Color label dot */}
+                    {cl ? (
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cl.color }} />
+                    ) : (
+                      <div className="w-2 flex-shrink-0" />
+                    )}
+                    {/* Thumbnail */}
+                    <div className="w-10 h-7 flex-shrink-0 rounded overflow-hidden bg-zinc-800">
+                      {asset.type === 'video' ? (
+                        thumbnailMap[asset.url] ? (
+                          <img src={thumbnailMap[asset.url]} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center"><Film className="h-3 w-3 text-zinc-500" /></div>
+                        )
+                      ) : asset.type === 'audio' ? (
+                        <div className="w-full h-full flex items-center justify-center bg-emerald-900/40"><Music className="h-3 w-3 text-emerald-400" /></div>
+                      ) : asset.type === 'adjustment' ? (
+                        <div className="w-full h-full flex items-center justify-center bg-violet-900/30"><Layers className="h-3 w-3 text-violet-400" /></div>
+                      ) : (
+                        <img src={asset.url} alt="" className="w-full h-full object-cover" />
+                      )}
+                    </div>
+                    {/* Name + metadata */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] text-zinc-200 truncate leading-tight">{name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[9px] text-zinc-500 uppercase font-medium">{asset.type}</span>
+                        {asset.duration != null && (
+                          <span className="text-[9px] text-zinc-500 flex items-center gap-0.5">
+                            <Clock className="h-2.5 w-2.5" />
+                            {asset.duration.toFixed(1)}s
+                          </span>
+                        )}
+                        {asset.resolution && (
+                          <span className="text-[9px] text-zinc-500">{asset.resolution}</span>
+                        )}
+                        {asset.takes && asset.takes.length > 1 && (
+                          <span className="text-[9px] text-violet-400">{asset.takes.length} takes</span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Delete button on hover */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (currentProjectId) { pushAssetUndoRef.current(); deleteAsset(currentProjectId, asset.id) }
+                      }}
+                      className="p-1 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                      title="Delete asset"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>}

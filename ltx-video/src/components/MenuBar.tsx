@@ -21,11 +21,12 @@ export interface MenuDefinition {
 
 interface MenuBarProps {
   menus: MenuDefinition[]
+  rightContent?: React.ReactNode
 }
 
 // --- Component ---
 
-export function MenuBar({ menus }: MenuBarProps) {
+export function MenuBar({ menus, rightContent }: MenuBarProps) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [hoverMenuId, setHoverMenuId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -153,6 +154,7 @@ export function MenuBar({ menus }: MenuBarProps) {
 
   return (
     <div ref={menuBarRef} className="flex items-center bg-zinc-900 border-b border-zinc-800 select-none relative z-[60]">
+      <div className="flex items-center flex-1">
       {menus.map(menu => {
         const isActive = activeMenuId === menu.id
         const isHelpMenu = menu.id === 'help'
@@ -241,6 +243,12 @@ export function MenuBar({ menus }: MenuBarProps) {
           </div>
         )
       })}
+      </div>
+      {rightContent && (
+        <div className="flex items-center mr-2">
+          {rightContent}
+        </div>
+      )}
     </div>
   )
 }

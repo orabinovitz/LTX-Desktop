@@ -10,7 +10,6 @@ export type ActionId =
   | 'tool.roll'
   | 'tool.slide'
   | 'tool.slip'
-  | 'tool.hand'
   | 'tool.trackForward'
   // Transport
   | 'transport.playPause'
@@ -40,6 +39,7 @@ export type ActionId =
   // 3-Point Editing
   | 'edit.insertEdit'
   | 'edit.overwriteEdit'
+  | 'edit.matchFrame'
   // Timeline
   | 'timeline.zoomIn'
   | 'timeline.zoomOut'
@@ -77,7 +77,6 @@ export const ACTION_REGISTRY: ActionDefinition[] = [
   { id: 'tool.roll',         label: 'Roll Edit Tool',        category: 'Tools' },
   { id: 'tool.slide',        label: 'Slide Tool',            category: 'Tools' },
   { id: 'tool.slip',         label: 'Slip Tool',             category: 'Tools' },
-  { id: 'tool.hand',         label: 'Hand / Pan Tool',       category: 'Tools' },
   { id: 'tool.trackForward', label: 'Track Select Forward',  category: 'Tools' },
   // Transport
   { id: 'transport.playPause',       label: 'Play / Pause',          category: 'Transport' },
@@ -102,6 +101,7 @@ export const ACTION_REGISTRY: ActionDefinition[] = [
   { id: 'edit.deselect',      label: 'Deselect All',       category: 'Editing' },
   { id: 'edit.insertEdit',    label: 'Insert Edit',        category: 'Editing' },
   { id: 'edit.overwriteEdit', label: 'Overwrite Edit',     category: 'Editing' },
+  { id: 'edit.matchFrame',    label: 'Match Frame',        category: 'Editing', description: 'Load the clip under the playhead into the source monitor at the matching frame' },
   // Marking
   { id: 'mark.setIn',       label: 'Set In Point',         category: 'Marking' },
   { id: 'mark.setOut',      label: 'Set Out Point',        category: 'Marking' },
@@ -145,7 +145,6 @@ export const LTX_DEFAULT_LAYOUT: KeyboardLayout = {
   'tool.roll':         [k('n')],
   'tool.slide':        [k('u')],
   'tool.slip':         [k('y')],
-  'tool.hand':         [k('h')],
   'tool.trackForward': [k('a')],
   // Transport
   'transport.playPause':      [k(' ')],
@@ -169,6 +168,7 @@ export const LTX_DEFAULT_LAYOUT: KeyboardLayout = {
   'edit.deselect':      [k('escape')],
   'edit.insertEdit':    [k(',')],
   'edit.overwriteEdit': [k('.')],
+  'edit.matchFrame':    [k('f')],
   // Marking
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
@@ -195,7 +195,6 @@ export const PREMIERE_LAYOUT: KeyboardLayout = {
   'tool.roll':         [k('n')],
   'tool.slide':        [k('u')],
   'tool.slip':         [k('y')],
-  'tool.hand':         [k('h')],
   'tool.trackForward': [k('a')],
   // Transport (same JKL)
   'transport.playPause':      [k(' ')],
@@ -219,6 +218,7 @@ export const PREMIERE_LAYOUT: KeyboardLayout = {
   'edit.deselect':      [k('escape')],
   'edit.insertEdit':    [k(',')],         // Premiere: , = insert
   'edit.overwriteEdit': [k('.')],         // Premiere: . = overwrite
+  'edit.matchFrame':    [k('f')],         // Premiere: F = match frame
   // Marking (same as Premiere)
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
@@ -245,7 +245,6 @@ export const DAVINCI_LAYOUT: KeyboardLayout = {
   'tool.roll':         [k('t')],
   'tool.slide':        [k('u')],
   'tool.slip':         [k('s')],         // DaVinci: S = slip (not snap)
-  'tool.hand':         [k('h')],
   'tool.trackForward': [k('y')],
   // Transport
   'transport.playPause':      [k(' ')],
@@ -269,6 +268,7 @@ export const DAVINCI_LAYOUT: KeyboardLayout = {
   'edit.deselect':      [k('escape')],
   'edit.insertEdit':    [k('f9')],       // DaVinci: F9 = insert
   'edit.overwriteEdit': [k('f10')],      // DaVinci: F10 = overwrite
+  'edit.matchFrame':    [k('f')],        // DaVinci: F = match frame
   // Marking
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
@@ -295,7 +295,6 @@ export const AVID_LAYOUT: KeyboardLayout = {
   'tool.roll':         [k('n')],
   'tool.slide':        [k('u')],
   'tool.slip':         [k('y')],
-  'tool.hand':         [k('h')],
   'tool.trackForward': [k('a')],
   // Transport — Avid uses different keys
   'transport.playPause':      [k(' '), k('5')],  // Avid: 5 or Space
@@ -319,6 +318,7 @@ export const AVID_LAYOUT: KeyboardLayout = {
   'edit.deselect':      [k('escape')],
   'edit.insertEdit':    [k('v')],         // Avid: V = splice-in (closest to insert)
   'edit.overwriteEdit': [k('b')],         // Avid: B = overwrite
+  'edit.matchFrame':    [k('f')],         // Avid: match frame
   // Marking — Avid classic: I/O or E/R
   'mark.setIn':       [k('i'), k('e')],   // Avid: E = mark in
   'mark.setOut':       [k('o'), k('r')],   // Avid: R = mark out (when not in trim mode)

@@ -11,7 +11,8 @@ import {
   Music,
   X, RefreshCw, Loader2,
   MessageSquare, FileUp, FileDown,
-  Sparkles, Link2, Search, Type
+  Sparkles, Link2, Search, Type,
+  CircleDot, Circle, RotateCcw, Save, LayoutGrid, PanelRight, Folder
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import { useKeyboardShortcuts } from '../contexts/KeyboardShortcutsContext'
@@ -31,7 +32,8 @@ import {
   type EditorLayout, DEFAULT_LAYOUT, LAYOUT_LIMITS,
   getShortcutLabel, resolveOverlaps, loadLayout, saveLayout, clampVal,
   migrateClip, migrateTracks, getClipEffectStyles,
-  formatTime,
+  formatTime, parseTime, getColorLabel,
+  type LayoutPreset, loadLayoutPresets, saveLayoutPresets,
 } from './editor/video-editor-utils'
 import { LeftPanel } from './editor/LeftPanel'
 import { ClipContextMenu } from './editor/ClipContextMenu'
@@ -56,9 +58,13 @@ import { GapGenerationModal } from './editor/GapGenerationModal'
 import { I2vGenerationModal } from './editor/I2vGenerationModal'
 import { SubtitleTrackStyleEditor } from './editor/SubtitleTrackStyleEditor'
 
+// Custom scissors cursor SVG for the blade tool (white with dark outline for contrast)
+const SCISSORS_CURSOR_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3'/><path d='M8.12 8.12 12 12'/><path d='M20 4 8.12 15.88'/><circle cx='6' cy='18' r='3'/><path d='M14.8 14.8 20 20'/></svg>`
+const SCISSORS_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SCISSORS_CURSOR_SVG)}") 12 12, crosshair`
+
 export function VideoEditor() {
   const { 
-    currentProject, currentProjectId, addAsset, deleteAsset, updateAsset,
+    currentProject, currentProjectId, addAsset, deleteAsset, updateAsset, updateProject,
     addTakeToAsset, deleteTakeFromAsset, setAssetActiveTake,
     addTimeline, deleteTimeline, renameTimeline, duplicateTimeline,
     setActiveTimeline, updateTimeline, getActiveTimeline,
@@ -100,7 +106,6 @@ export function VideoEditor() {
   const [assetFilter, setAssetFilter] = useState<'all' | 'video' | 'image' | 'audio'>('all')
   const [selectedBin, setSelectedBin] = useState<string | null>(null) // null = all assets
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set())
-  const [binDropdownOpen, setBinDropdownOpen] = useState(false)
   // Lasso selection for assets
   const [assetLasso, setAssetLasso] = useState<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null)
   const assetGridRef = useRef<HTMLDivElement>(null)
@@ -115,6 +120,7 @@ export function VideoEditor() {
   const [binContextMenu, setBinContextMenu] = useState<{ bin: string; x: number; y: number } | null>(null)
   const binContextMenuRef = useRef<HTMLDivElement>(null)
   const [activeTool, setActiveTool] = useState<ToolType>('select')
+  const [bladeHoverInfo, setBladeHoverInfo] = useState<{ clipId: string; offsetX: number } | null>(null)
   const [snapEnabled, setSnapEnabled] = useState(true)
   const [showEffectsBrowser, setShowEffectsBrowser] = useState(false)
   const [showTrimFlyout, setShowTrimFlyout] = useState(false)
@@ -123,6 +129,18 @@ export function VideoEditor() {
   const trimFlyoutOpenedRef = useRef(false)
   const [effectsSearchQuery, setEffectsSearchQuery] = useState('')
   
+  // Layout dropdown state
+  const [showLayoutMenu, setShowLayoutMenu] = useState(false)
+  const [layoutPresets, setLayoutPresets] = useState<LayoutPreset[]>(loadLayoutPresets)
+  const [savingPresetName, setSavingPresetName] = useState<string | null>(null)
+  const presetNameInputRef = useRef<HTMLInputElement>(null)
+  const layoutMenuRef = useRef<HTMLDivElement>(null)
+
+  // Editable timecode state
+  const [editingTimecode, setEditingTimecode] = useState(false)
+  const [timecodeInput, setTimecodeInput] = useState('')
+  const timecodeInputRef = useRef<HTMLInputElement>(null)
+
   // In/Out points
   // In/Out points stored per-timeline so they don't bleed across timelines
   const [timelineInOutMap, setTimelineInOutMap] = useState<Record<string, { inPoint: number | null; outPoint: number | null }>>({})
@@ -173,9 +191,15 @@ export function VideoEditor() {
   // Export modal
   const [showExportModal, setShowExportModal] = useState(false)
   
+  // Project settings modal
+  const [showProjectSettings, setShowProjectSettings] = useState(false)
+  
   // Import timeline modal
   const [showImportTimelineModal, setShowImportTimelineModal] = useState(false)
   
+  // Right properties panel: user-controlled open/close (not tied to selection)
+  const [showPropertiesPanel, setShowPropertiesPanel] = useState(false)
+
   // Clip properties panel collapsible sections
   const [showTransitions, setShowTransitions] = useState(false)
   const [showFlip, setShowFlip] = useState(false)
@@ -328,6 +352,43 @@ export function VideoEditor() {
     setLayout({ ...DEFAULT_LAYOUT })
     saveLayout({ ...DEFAULT_LAYOUT })
   }, [])
+
+  const handleSaveLayoutPreset = useCallback((name: string) => {
+    const preset: LayoutPreset = {
+      id: `preset-${Date.now()}`,
+      name: name.trim() || 'Untitled',
+      layout: { ...layout },
+    }
+    const updated = [...layoutPresets, preset]
+    setLayoutPresets(updated)
+    saveLayoutPresets(updated)
+  }, [layout, layoutPresets])
+
+  const handleDeleteLayoutPreset = useCallback((id: string) => {
+    const updated = layoutPresets.filter(p => p.id !== id)
+    setLayoutPresets(updated)
+    saveLayoutPresets(updated)
+  }, [layoutPresets])
+
+  const handleApplyLayoutPreset = useCallback((preset: LayoutPreset) => {
+    setLayout({ ...preset.layout })
+    saveLayout({ ...preset.layout })
+  }, [])
+
+  // Close layout menu on outside click
+  useEffect(() => {
+    if (!showLayoutMenu) {
+      setSavingPresetName(null)
+      return
+    }
+    const handleClick = (e: MouseEvent) => {
+      if (layoutMenuRef.current && !layoutMenuRef.current.contains(e.target as Node)) {
+        setShowLayoutMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showLayoutMenu])
   
   const assets = currentProject?.assets || []
   const timelines = currentProject?.timelines || []
@@ -375,6 +436,20 @@ export function VideoEditor() {
     handleInsertEdit,
     handleOverwriteEdit,
   } = useSourceMonitor({ currentTime, tracks, pushUndo, setClips })
+
+  // Mutual exclusion: only one monitor can play at a time
+  useEffect(() => {
+    if (isPlaying && sourceIsPlaying) {
+      sourceVideoRef.current?.pause()
+      setSourceIsPlaying(false)
+    }
+  }, [isPlaying])
+  useEffect(() => {
+    if (sourceIsPlaying && isPlaying) {
+      setIsPlaying(false)
+      setShuttleSpeed(0)
+    }
+  }, [sourceIsPlaying])
 
   // Clip/track operations (extracted hook)
   const {
@@ -721,17 +796,19 @@ export function VideoEditor() {
     return firstAudio?.displayRow ?? -1
   }, [orderedTracks])
   
-  // Track heights — independently resizable for video and audio
+  // Track heights — independently resizable for video, audio, and subtitle
   const [videoTrackHeight, setVideoTrackHeight] = useState(56)
   const [audioTrackHeight, setAudioTrackHeight] = useState(56)
+  const [subtitleTrackHeight, setSubtitleTrackHeight] = useState(40)
   const DIVIDER_H = 8 // divider between V and A sections (draggable)
 
   // Helper to get the pixel height for a given track
   const getTrackHeight = useCallback((trackIndex: number): number => {
     const track = tracks[trackIndex]
     if (!track) return videoTrackHeight
+    if (track.type === 'subtitle') return subtitleTrackHeight
     return track.kind === 'audio' ? audioTrackHeight : videoTrackHeight
-  }, [tracks, videoTrackHeight, audioTrackHeight])
+  }, [tracks, videoTrackHeight, audioTrackHeight, subtitleTrackHeight])
 
   // Helper: compute the top pixel offset for a given real trackIndex,
   // accounting for display reordering, variable heights, and the V/A divider.
@@ -742,13 +819,13 @@ export function VideoEditor() {
     for (let r = 0; r < displayRow; r++) {
       const entry = orderedTracks[r]
       if (entry) {
-        top += entry.track.kind === 'audio' ? audioTrackHeight : videoTrackHeight
+        top += entry.track.type === 'subtitle' ? subtitleTrackHeight : entry.track.kind === 'audio' ? audioTrackHeight : videoTrackHeight
       }
     }
     // Add divider if this row is at or past the audio section
     if (audioDividerDisplayRow >= 0 && displayRow >= audioDividerDisplayRow) top += DIVIDER_H
     return top + padding
-  }, [trackDisplayRow, audioDividerDisplayRow, orderedTracks, videoTrackHeight, audioTrackHeight])
+  }, [trackDisplayRow, audioDividerDisplayRow, orderedTracks, videoTrackHeight, audioTrackHeight, subtitleTrackHeight])
   
   // Find the clip at current playhead position
   // Priority: 1) upper tracks (lower trackIndex) win over lower tracks
@@ -786,8 +863,22 @@ export function VideoEditor() {
     return activeClip
   }, [isPlaying, playbackActiveClipId, activeClip, clips])
   
-  // Compute the next video clip that follows the current one (for ping-pong preloading)
-  
+  // Compositing stack: all video/image clips at the playhead, sorted bottom-to-top (lowest track first)
+  // Used to render clips underneath the active clip when it has opacity < 100%
+  const compositingStack = useMemo(() => {
+    if (!activeClip || (activeClip.opacity ?? 100) >= 100) return []
+    const time = currentTime
+    return clips
+      .filter(c =>
+        c.id !== activeClip.id &&
+        c.type !== 'audio' && c.type !== 'adjustment' && c.type !== 'text' &&
+        (tracks[c.trackIndex]?.enabled !== false) &&
+        c.trackIndex < activeClip.trackIndex &&
+        time >= c.startTime && time < c.startTime + c.duration
+      )
+      .sort((a, b) => a.trackIndex - b.trackIndex)
+  }, [clips, tracks, currentTime, activeClip])
+
   // Cross-dissolve detection: scan ALL clip pairs for dissolve overlap at current time
   // Independent of activeClip to avoid flickering when getClipAtTime switches between clips
   const crossDissolveState = useMemo(() => {
@@ -893,7 +984,7 @@ export function VideoEditor() {
     timelineRef, trackContainerRef,
     orderedTracks, trackDisplayRow, getTrackHeight, trackTopPx, cutPoints,
     splitClipAtPlayhead, setSelectedSubtitleId, setSelectedGap,
-    audioTrackHeight, videoTrackHeight,
+    audioTrackHeight, videoTrackHeight, subtitleTrackHeight,
   })
   
   // Keyboard shortcuts - uses refs to avoid ordering issues with useCallback
@@ -920,6 +1011,7 @@ export function VideoEditor() {
   const toggleFullscreenRef = useRef<() => void>(() => {})
   const insertEditRef = useRef<() => void>(() => {})
   const overwriteEditRef = useRef<() => void>(() => {})
+  const matchFrameRef = useRef<() => void>(() => {})
   
 
   // Regeneration / upscale / retake / I2V hook (state + logic extracted)
@@ -961,6 +1053,7 @@ export function VideoEditor() {
       activePanelRef,
       keyboardStateRef,
       clipsRef,
+      tracksRef,
       playbackTimeRef,
       sourceVideoRef,
       sourceIsPlayingRef,
@@ -979,6 +1072,7 @@ export function VideoEditor() {
       toggleFullscreenRef,
       insertEditRef,
       overwriteEditRef,
+      matchFrameRef,
     },
     setters: {
       setActiveTool,
@@ -1069,6 +1163,56 @@ export function VideoEditor() {
   // --- Source Monitor: load asset ---
   insertEditRef.current = handleInsertEdit
   overwriteEditRef.current = handleOverwriteEdit
+
+  // --- Match Frame: load clip under playhead into source monitor at corresponding frame ---
+  const handleMatchFrame = useCallback(() => {
+    const ct = currentTime
+    // Find clips under the playhead
+    const clipsUnderPlayhead = clips.filter(c =>
+      ct >= c.startTime && ct < c.startTime + c.duration &&
+      (c.type === 'video' || c.type === 'audio' || c.type === 'image')
+    )
+    if (clipsUnderPlayhead.length === 0) return
+
+    // Prefer the selected clip if it's under the playhead, otherwise pick the topmost (lowest trackIndex = highest video track)
+    let targetClip = clipsUnderPlayhead.find(c => selectedClipIds.has(c.id))
+    if (!targetClip) {
+      targetClip = clipsUnderPlayhead.sort((a, b) => a.trackIndex - b.trackIndex)[0]
+    }
+
+    // Find the source asset
+    const asset = assets.find(a => a.id === targetClip!.assetId) ?? targetClip.asset
+    if (!asset) return
+
+    // Compute source time accounting for trim and speed
+    const clipOffset = ct - targetClip.startTime
+    const speed = targetClip.speed || 1
+    let srcTime: number
+    if (targetClip.reversed) {
+      const assetDuration = asset.duration || targetClip.duration
+      srcTime = assetDuration - (targetClip.trimEnd || 0) - clipOffset * speed
+    } else {
+      srcTime = (targetClip.trimStart || 0) + clipOffset * speed
+    }
+    srcTime = Math.max(0, Math.min(srcTime, asset.duration || Infinity))
+
+    // Load into source monitor at the computed frame
+    setSourceAsset(asset)
+    setSourceTime(srcTime)
+    setSourceIn(null)
+    setSourceOut(null)
+    setSourceIsPlaying(false)
+    setShowSourceMonitor(true)
+    setActivePanel('source')
+
+    // Seek the source video element after React re-renders
+    requestAnimationFrame(() => {
+      if (sourceVideoRef.current) {
+        sourceVideoRef.current.currentTime = srcTime
+      }
+    })
+  }, [currentTime, clips, selectedClipIds, assets])
+  matchFrameRef.current = handleMatchFrame
 
   // Get active subtitle at current playhead time
   const activeSubtitles = useMemo(() => {
@@ -1291,7 +1435,6 @@ export function VideoEditor() {
     assetContextMenu, setAssetContextMenu, assetContextMenuRef,
     takeContextMenu, setTakeContextMenu, takeContextMenuRef,
     binContextMenu, setBinContextMenu, binContextMenuRef,
-    binDropdownOpen, setBinDropdownOpen,
     previewZoomOpen, setPreviewZoomOpen,
     playbackResOpen, setPlaybackResOpen,
     previewZoom, setPreviewZoom, setPreviewPan,
@@ -1439,10 +1582,11 @@ export function VideoEditor() {
     sourceAsset, activeTool, kbLayout, fileInputRef,
     setShowImportTimelineModal, setShowExportModal, handleExportTimelineXml,
     undoRef, redoRef, cutRef, copyRef, pasteRef,
-    setSelectedClipIds, handleInsertEdit, handleOverwriteEdit, setKbEditorOpen,
+    setSelectedClipIds, handleInsertEdit, handleOverwriteEdit, matchFrameRef, setKbEditorOpen,
     splitClipAtPlayhead, duplicateClip, pushUndo, setClips, updateClip, setTracks,
     addTextClip, setSnapEnabled, fitToViewRef, setZoom,
     setShowSourceMonitor, setShowEffectsBrowser, setActiveTool, setLastTrimTool,
+    setShowProjectSettings,
   }), [selectedClip, selectedClipIds, clips, snapEnabled, showEffectsBrowser, showSourceMonitor, sourceAsset, activeTool, handleInsertEdit, handleOverwriteEdit, kbLayout])
 
 
@@ -1451,7 +1595,112 @@ export function VideoEditor() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Menu Bar */}
-      <MenuBar menus={menuDefinitions} />
+      <MenuBar menus={menuDefinitions} rightContent={
+        <div ref={layoutMenuRef} className="relative">
+          <button
+            onClick={() => setShowLayoutMenu(v => !v)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[12px] transition-colors ${
+              showLayoutMenu ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+            }`}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Layout
+          </button>
+          {showLayoutMenu && (
+            <div className="absolute top-full right-0 mt-1 w-56 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl shadow-black/50 py-1 z-[60]">
+              {savingPresetName !== null ? (
+                <div className="px-2 py-1.5">
+                  <div className="text-[11px] text-zinc-400 mb-1.5 px-1">Name this layout:</div>
+                  <input
+                    ref={presetNameInputRef}
+                    autoFocus
+                    className="w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-[13px] text-white outline-none focus:border-violet-500"
+                    value={savingPresetName}
+                    onChange={e => setSavingPresetName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && savingPresetName.trim()) {
+                        handleSaveLayoutPreset(savingPresetName)
+                        setSavingPresetName(null)
+                      } else if (e.key === 'Escape') {
+                        setSavingPresetName(null)
+                      }
+                      e.stopPropagation()
+                    }}
+                    placeholder="e.g. Wide Timeline"
+                  />
+                  <div className="flex gap-1.5 mt-1.5">
+                    <button
+                      onClick={() => {
+                        if (savingPresetName.trim()) {
+                          handleSaveLayoutPreset(savingPresetName)
+                          setSavingPresetName(null)
+                        }
+                      }}
+                      disabled={!savingPresetName.trim()}
+                      className="flex-1 px-2 py-1 rounded bg-violet-600 text-white text-[11px] font-medium hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setSavingPresetName(null)}
+                      className="px-2 py-1 rounded bg-zinc-800 text-zinc-400 text-[11px] hover:bg-zinc-700 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      setSavingPresetName('')
+                      requestAnimationFrame(() => presetNameInputRef.current?.focus())
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[13px] text-zinc-200 hover:bg-violet-600 hover:text-white transition-colors"
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    Save Current Layout...
+                  </button>
+                  <button
+                    onClick={() => { handleResetLayout(); setShowLayoutMenu(false) }}
+                    className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[13px] text-zinc-200 hover:bg-violet-600 hover:text-white transition-colors"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Reset to Default
+                  </button>
+                  {layoutPresets.length > 0 && (
+                    <>
+                      <div className="h-px bg-zinc-700 my-1 mx-2" />
+                      <div className="px-3 py-1 text-[10px] text-zinc-500 uppercase tracking-wider">Saved Layouts</div>
+                      {layoutPresets.map(preset => (
+                        <div
+                          key={preset.id}
+                          className="flex items-center group hover:bg-violet-600 transition-colors"
+                        >
+                          <button
+                            onClick={() => { handleApplyLayoutPreset(preset); setShowLayoutMenu(false) }}
+                            className="flex-1 flex items-center gap-2.5 px-3 py-1.5 text-[13px] text-zinc-200 group-hover:text-white transition-colors text-left"
+                          >
+                            <LayoutGrid className="h-3.5 w-3.5 text-zinc-500 group-hover:text-white" />
+                            {preset.name}
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteLayoutPreset(preset.id) }}
+                            className="px-2 py-1.5 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                            title="Delete preset"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      } />
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden min-h-0">
       <LeftPanel
@@ -1466,8 +1715,6 @@ export function VideoEditor() {
         newBinInputRef={newBinInputRef}
         selectedBin={selectedBin}
         setSelectedBin={setSelectedBin}
-        binDropdownOpen={binDropdownOpen}
-        setBinDropdownOpen={setBinDropdownOpen}
         bins={bins}
         filteredAssets={filteredAssets}
         assetFilter={assetFilter}
@@ -1601,6 +1848,7 @@ export function VideoEditor() {
             activeTextClips={activeTextClips}
             activeLetterbox={activeLetterbox}
             activeAdjustmentEffects={activeAdjustmentEffects}
+            compositingStack={compositingStack}
             getClipUrl={getClipUrl}
             selectedClipIds={selectedClipIds}
             setSelectedClipIds={setSelectedClipIds}
@@ -1612,6 +1860,7 @@ export function VideoEditor() {
             setDraggingMarker={setDraggingMarker}
             playingInOut={playingInOut}
             setPlayingInOut={setPlayingInOut}
+            shuttleSpeed={shuttleSpeed}
             setShuttleSpeed={setShuttleSpeed}
             previewZoom={previewZoom}
             setPreviewZoom={setPreviewZoom}
@@ -1630,74 +1879,16 @@ export function VideoEditor() {
           />
         </div> {/* end split preview area */}
         
-        {/* Timeline Info Bar (timecode, shuttle, clip tools) */}
-        <div className="h-10 bg-zinc-900 border-t border-zinc-800 flex items-center px-4 gap-2">
-          <div className="text-sm font-mono text-zinc-400 min-w-[140px]">
-            {formatTime(currentTime)} / {formatTime(totalDuration)}
-          </div>
-          
-          {/* JKL shuttle speed indicator */}
-          {shuttleSpeed !== 0 && (
+        {/* Timeline Info Bar (shuttle indicator only — timecode moved to ruler area) */}
+        {shuttleSpeed !== 0 && (
+          <div className="h-6 bg-zinc-900 border-t border-zinc-800 flex items-center px-4">
             <div className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
               shuttleSpeed < 0 ? 'bg-orange-600/20 text-orange-400' : 'bg-blue-600/20 text-blue-400'
             }`}>
               {shuttleSpeed < 0 ? '◀' : '▶'}{' '}{Math.abs(shuttleSpeed)}x
             </div>
-          )}
-          
-          <div className="flex-1" />
-          
-          {selectedClip && (
-            <div className="flex items-center gap-1 mr-4">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8" 
-                title="Split at playhead (B)"
-                onClick={() => splitClipAtPlayhead(selectedClip.id)}
-              >
-                <Scissors className="h-4 w-4" />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8" 
-                title="Duplicate"
-                onClick={() => duplicateClip(selectedClip.id)}
-              >
-                <Copy className="h-4 w-4" />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8" 
-                title="Reverse"
-                onClick={() => updateClip(selectedClip.id, { reversed: !selectedClip.reversed })}
-              >
-                <ArrowLeftRight className={`h-4 w-4 ${selectedClip.reversed ? 'text-violet-400' : ''}`} />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8" 
-                title={selectedClip.muted ? 'Unmute' : 'Mute'}
-                onClick={() => updateClip(selectedClip.id, { muted: !selectedClip.muted })}
-              >
-                {selectedClip.muted ? <VolumeX className="h-4 w-4 text-red-400" /> : <Volume2 className="h-4 w-4" />}
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8 text-red-400" 
-                title="Delete (Del)"
-                onClick={() => removeClip(selectedClip.id)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
-          
-        </div>
+          </div>
+        )}
         
         {/* Timeline resize handle — above the timeline tabs */}
         <div
@@ -1815,17 +2006,38 @@ export function VideoEditor() {
                 <FileUp className="h-3 w-3" />
                 Import XML Timeline
               </button>
-              <button
-                onClick={() => {
-                  handleExportTimelineXml()
-                  setTimelineContextMenu(null)
-                }}
-                disabled={clips.length === 0}
-                className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40"
-              >
-                <FileDown className="h-3 w-3" />
-                Export as FCP 7 XML
-              </button>
+              <div className="relative group/export">
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 flex items-center gap-2"
+                >
+                  <Download className="h-3 w-3" />
+                  Export
+                  <ChevronRight className="h-3 w-3 ml-auto text-zinc-500" />
+                </button>
+                <div className="absolute left-full top-0 ml-0.5 min-w-[160px] bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 z-50 hidden group-hover/export:block">
+                  <button
+                    onClick={() => {
+                      setShowExportModal(true)
+                      setTimelineContextMenu(null)
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 flex items-center gap-2"
+                  >
+                    <Download className="h-3 w-3" />
+                    Export Timeline...
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleExportTimelineXml()
+                      setTimelineContextMenu(null)
+                    }}
+                    disabled={clips.length === 0}
+                    className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-40"
+                  >
+                    <FileDown className="h-3 w-3" />
+                    Export as FCP 7 XML
+                  </button>
+                </div>
+              </div>
               <div className="h-px bg-zinc-700 my-0.5" />
               <button
                 onClick={() => {
@@ -1855,7 +2067,7 @@ export function VideoEditor() {
         {/* Timeline with Tools */}
         <div className="bg-zinc-950 border-t border-zinc-800 flex overflow-hidden flex-shrink-0" style={{ height: layout.timelineHeight }}>
           {/* Tools Panel */}
-          <div className="w-10 flex-shrink-0 bg-zinc-900 border-r border-zinc-800 flex flex-col items-center py-1 gap-0.5 overflow-y-auto">
+          <div className="w-10 flex-shrink-0 bg-zinc-900 border-r border-zinc-800 flex flex-col items-center py-1 gap-0.5 overflow-hidden">
             {PRIMARY_TOOLS.map(tool => (
               <button
                 key={tool.id}
@@ -1998,6 +2210,39 @@ export function VideoEditor() {
                 Add Text Overlay
               </div>
             </button>
+
+            <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
+
+            <button
+              onClick={() => {
+                setIcLoraSourceClipId(selectedClip?.type === 'video' ? selectedClip.id : null)
+                setShowICLoraPanel(true)
+              }}
+              className={`p-1.5 rounded-lg transition-colors flex-shrink-0 group relative ${
+                showICLoraPanel ? 'bg-amber-600/20 text-amber-400' : 'text-amber-500/70 hover:bg-amber-900/30 hover:text-amber-400'
+              }`}
+              title="IC-LoRA Style Transfer"
+            >
+              <Sparkles className="h-4 w-4" />
+              <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
+                IC-LoRA Style Transfer
+              </div>
+            </button>
+
+            <div className="flex-1" />
+
+            <button
+              onClick={() => setShowPropertiesPanel(p => !p)}
+              className={`p-1.5 rounded-lg transition-colors flex-shrink-0 group relative ${
+                showPropertiesPanel ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+              }`}
+              title={showPropertiesPanel ? 'Hide Properties Panel' : 'Show Properties Panel'}
+            >
+              <PanelRight className="h-4 w-4" />
+              <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
+                {showPropertiesPanel ? 'Hide Properties' : 'Show Properties'}
+              </div>
+            </button>
           </div>
           
           {/* Effects Browser Panel */}
@@ -2110,13 +2355,52 @@ export function VideoEditor() {
           <div className="flex-1 min-w-0 flex flex-col">
             {/* Ruler row - fixed at top */}
             <div className="flex flex-shrink-0">
-              <div className="w-32 h-6 flex-shrink-0 border-b border-r border-zinc-800 bg-zinc-900" />
+              <div
+                className="w-32 h-6 flex-shrink-0 border-b border-r border-zinc-800 bg-zinc-900 flex items-center justify-center cursor-text"
+                onClick={() => {
+                  if (!editingTimecode) {
+                    setTimecodeInput(formatTime(currentTime))
+                    setEditingTimecode(true)
+                    requestAnimationFrame(() => timecodeInputRef.current?.select())
+                  }
+                }}
+              >
+                {editingTimecode ? (
+                  <input
+                    ref={timecodeInputRef}
+                    autoFocus
+                    className="w-full h-full bg-zinc-950 text-amber-400 text-[11px] font-mono font-medium text-center outline-none border-none tabular-nums tracking-tight px-1"
+                    value={timecodeInput}
+                    onChange={e => setTimecodeInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        const t = parseTime(timecodeInput)
+                        if (t !== null) {
+                          const clamped = Math.max(0, Math.min(totalDuration, t))
+                          setCurrentTime(clamped)
+                          playbackTimeRef.current = clamped
+                        }
+                        setEditingTimecode(false)
+                      } else if (e.key === 'Escape') {
+                        setEditingTimecode(false)
+                      }
+                      e.stopPropagation()
+                    }}
+                    onClick={e => e.stopPropagation()}
+                    onBlur={() => setEditingTimecode(false)}
+                  />
+                ) : (
+                  <span className="text-[11px] font-mono font-medium text-amber-400 tabular-nums tracking-tight select-none">
+                    {formatTime(currentTime)}
+                  </span>
+                )}
+              </div>
               <div ref={rulerScrollRef} className="flex-1 overflow-hidden">
                 <div 
                   ref={timelineRef}
                   style={{ minWidth: `${totalDuration * pixelsPerSecond}px` }}
                   className={`h-6 bg-zinc-900 border-b border-zinc-800 relative select-none ${
-                    activeTool === 'hand' ? 'cursor-grab' : 'cursor-pointer'
+                    'cursor-pointer'
                   }`}
                   onMouseDown={handleRulerMouseDown}
                 >
@@ -2293,14 +2577,32 @@ export function VideoEditor() {
                       </div>
                     )}
                     <div 
-                      className={`group flex-shrink-0 flex items-center justify-between px-3 border-b border-zinc-800 text-xs relative ${
-                        track.type === 'subtitle' ? 'bg-amber-950/20' : track.kind === 'audio' ? 'bg-emerald-950/10' : ''
+                      className={`group flex-shrink-0 flex items-center justify-between border-b border-zinc-800 text-xs relative ${
+                        track.type === 'subtitle' ? 'bg-amber-950/20 px-1.5' : track.kind === 'audio' ? 'bg-emerald-950/10 px-2' : 'px-2'
                       }`}
-                      style={{ height: track.kind === 'audio' ? audioTrackHeight : videoTrackHeight }}
+                      style={{ height: track.type === 'subtitle' ? subtitleTrackHeight : track.kind === 'audio' ? audioTrackHeight : videoTrackHeight }}
                     >
-                      <div className="flex items-center gap-1.5 min-w-0">
+                      <div className="flex items-center gap-1 min-w-0">
                         {track.type === 'subtitle' && <MessageSquare className="h-3 w-3 text-amber-500/60 flex-shrink-0" />}
-                        <span className={`font-medium truncate ${
+                        {track.type !== 'subtitle' && (
+                          <button
+                            onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, sourcePatched: !(t.sourcePatched !== false)} : t))}
+                            className={`p-0.5 rounded flex-shrink-0 transition-colors ${
+                              track.sourcePatched !== false
+                                ? track.kind === 'audio'
+                                  ? 'text-emerald-400 hover:text-emerald-300'
+                                  : 'text-blue-400 hover:text-blue-300'
+                                : 'text-zinc-600 hover:text-zinc-400'
+                            }`}
+                            title={track.sourcePatched !== false ? 'Source patched (click to unpatch)' : 'Source unpatched (click to patch)'}
+                          >
+                            {track.sourcePatched !== false
+                              ? <CircleDot className="h-2.5 w-2.5" />
+                              : <Circle className="h-2.5 w-2.5" />
+                            }
+                          </button>
+                        )}
+                        <span className={`text-[10px] font-semibold flex-shrink-0 ${
                           track.muted ? 'text-zinc-600' 
                           : track.type === 'subtitle' ? 'text-amber-400/80' 
                           : track.kind === 'audio' ? 'text-emerald-400/80'
@@ -2309,7 +2611,7 @@ export function VideoEditor() {
                           {track.name}
                         </span>
                       </div>
-                      <div className="flex items-center gap-0.5">
+                      <div className="flex items-center gap-0 flex-shrink-0">
                         {track.type === 'subtitle' && (
                           <>
                           <button
@@ -2330,27 +2632,49 @@ export function VideoEditor() {
                         )}
                         <button 
                           onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, locked: !t.locked} : t))}
-                          className={`p-1 rounded ${track.locked ? 'text-yellow-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                          className={`p-0.5 rounded ${track.locked ? 'text-yellow-400' : 'text-zinc-500 hover:text-zinc-300'}`}
                           title={track.locked ? 'Unlock' : 'Lock'}
                         >
-                          {track.locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                          {track.locked ? <Lock className="h-2.5 w-2.5" /> : <Unlock className="h-2.5 w-2.5" />}
                         </button>
-                        {track.type !== 'subtitle' && (
+                        {track.type !== 'subtitle' && track.kind !== 'audio' && (
                           <button 
                             onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, enabled: !(t.enabled !== false)}: t))}
-                            className={`p-1 rounded ${track.enabled === false ? 'text-zinc-600' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            className={`p-0.5 rounded ${track.enabled === false ? 'text-zinc-600' : 'text-zinc-500 hover:text-zinc-300'}`}
                             title={track.enabled === false ? 'Enable track output' : 'Disable track output'}
                           >
-                            {track.enabled === false ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                            {track.enabled === false ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
                           </button>
                         )}
-                        {track.type !== 'subtitle' && (
+                        {track.type !== 'subtitle' && track.kind !== 'audio' && (
                           <button 
                             onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, muted: !t.muted} : t))}
-                            className={`p-1 rounded ${track.muted ? 'text-red-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            className={`p-0.5 rounded ${track.muted ? 'text-red-400' : 'text-zinc-500 hover:text-zinc-300'}`}
                             title={track.muted ? 'Unmute' : 'Mute'}
                           >
-                            {track.muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+                            {track.muted ? <VolumeX className="h-2.5 w-2.5" /> : <Volume2 className="h-2.5 w-2.5" />}
+                          </button>
+                        )}
+                        {track.kind === 'audio' && (
+                          <button
+                            onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, muted: !t.muted} : t))}
+                            className={`px-1 py-0.5 rounded text-[10px] font-bold leading-none ${
+                              track.muted ? 'bg-red-500/80 text-white' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700'
+                            }`}
+                            title={track.muted ? 'Unmute track' : 'Mute track'}
+                          >
+                            M
+                          </button>
+                        )}
+                        {track.kind === 'audio' && (
+                          <button
+                            onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, solo: !t.solo} : t))}
+                            className={`px-1 py-0.5 rounded text-[10px] font-bold leading-none ${
+                              track.solo ? 'bg-yellow-500/80 text-black' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700'
+                            }`}
+                            title={track.solo ? 'Unsolo track' : 'Solo track'}
+                          >
+                            S
                           </button>
                         )}
                         {track.type === 'subtitle' && (
@@ -2365,10 +2689,10 @@ export function VideoEditor() {
                         {tracks.length > 1 && (
                           <button 
                             onClick={() => deleteTrack(realIndex)}
-                            className="p-1 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="p-0.5 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
                             title="Delete track"
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-2.5 w-2.5" />
                           </button>
                         )}
                       </div>
@@ -2378,13 +2702,15 @@ export function VideoEditor() {
                         onMouseDown={(e) => {
                           e.preventDefault()
                           e.stopPropagation()
+                          const isSubtitle = track.type === 'subtitle'
                           const isAudio = track.kind === 'audio'
                           const startY = e.clientY
-                          const startH = isAudio ? audioTrackHeight : videoTrackHeight
+                          const startH = isSubtitle ? subtitleTrackHeight : isAudio ? audioTrackHeight : videoTrackHeight
                           const onMove = (ev: MouseEvent) => {
                             const delta = ev.clientY - startY
-                            const newH = Math.max(32, Math.min(200, startH + delta))
-                            if (isAudio) setAudioTrackHeight(newH)
+                            const newH = Math.max(24, Math.min(200, startH + delta))
+                            if (isSubtitle) setSubtitleTrackHeight(newH)
+                            else if (isAudio) setAudioTrackHeight(newH)
                             else setVideoTrackHeight(newH)
                           }
                           const onUp = () => {
@@ -2406,7 +2732,7 @@ export function VideoEditor() {
               </div>{/* end track headers column */}
               
               {/* Scrollable track content area */}
-              <div className="flex-1 flex flex-col min-w-0 relative">
+              <div className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
                 {/* Full-height playhead line — spans spacer + tracks, positioned on the wrapper */}
                 <div
                   ref={playheadOverlayRef}
@@ -2419,7 +2745,13 @@ export function VideoEditor() {
                   ref={trackContainerRef}
                   className="flex-1 overflow-auto select-none"
                   onScroll={handleTimelineScroll}
-                  onMouseDown={() => setActivePanel('timeline')}
+                  onMouseDown={() => {
+                    setActivePanel('timeline')
+                    if (sourceIsPlaying) {
+                      sourceVideoRef.current?.pause()
+                      setSourceIsPlaying(false)
+                    }
+                  }}
                 >
                 <div 
                   style={{ minWidth: `${totalDuration * pixelsPerSecond}px` }}
@@ -2453,7 +2785,7 @@ export function VideoEditor() {
                           let accY = 0
                           for (const entry of orderedTracks) {
                             if (entry.displayRow === audioDividerDisplayRow) accY += DIVIDER_H
-                            const th = entry.track.kind === 'audio' ? audioTrackHeight : videoTrackHeight
+                            const th = entry.track.type === 'subtitle' ? subtitleTrackHeight : entry.track.kind === 'audio' ? audioTrackHeight : videoTrackHeight
                             if (clickY >= accY && clickY < accY + th) {
                               clickedRealTrackIndex = entry.realIndex
                               break
@@ -2573,7 +2905,7 @@ export function VideoEditor() {
                               ? (displayRow % 2 === 0 ? 'bg-emerald-950/20' : 'bg-emerald-950/10')
                               : displayRow % 2 === 0 ? 'bg-zinc-900/50' : 'bg-zinc-950'
                         } ${track.locked ? 'opacity-50' : ''}`}
-                        style={{ height: track.kind === 'audio' ? audioTrackHeight : videoTrackHeight }}
+                        style={{ height: track.type === 'subtitle' ? subtitleTrackHeight : track.kind === 'audio' ? audioTrackHeight : videoTrackHeight }}
                         onDrop={(e) => {
                           if (track.type === 'subtitle') {
                             e.preventDefault()
@@ -2689,16 +3021,21 @@ export function VideoEditor() {
                     )
                   })()}
                   
-                  {clips.map(clip => (
+                  {clips.map(clip => {
+                    const liveAsset = clip.assetId ? assets.find(a => a.id === clip.assetId) : null
+                    const clipColor = getColorLabel(clip.colorLabel || liveAsset?.colorLabel || clip.asset?.colorLabel)
+                    return (
                     <div
                       key={clip.id}
                       className={`absolute rounded border-2 transition-all overflow-hidden select-none ${
                         selectedClipIds.has(clip.id) 
                           ? 'border-violet-500 shadow-lg shadow-violet-500/20' 
-                          : 'border-zinc-600 hover:border-zinc-500'
-                      } ${clip.type === 'audio' ? 'bg-green-900/50' : clip.type === 'adjustment' ? 'bg-violet-900/40 border-dashed' : clip.type === 'text' ? 'bg-cyan-900/50 border-cyan-600/40' : 'bg-zinc-800'} ${
+                          : clipColor
+                            ? `hover:brightness-125`
+                            : 'border-zinc-600 hover:border-zinc-500'
+                      } ${!clipColor ? (clip.type === 'audio' ? 'bg-green-900/50' : clip.type === 'adjustment' ? 'bg-violet-900/40 border-dashed' : clip.type === 'text' ? 'bg-cyan-900/50 border-cyan-600/40' : 'bg-zinc-800') : ''} ${
                         activeTool === 'select' || activeTool === 'ripple' || activeTool === 'roll' || activeTool === 'trackForward' ? 'cursor-grab' : ''
-                      } ${activeTool === 'blade' ? 'cursor-crosshair' : ''} ${
+                      } ${
                         activeTool === 'slip' ? 'cursor-ew-resize' : ''
                       } ${activeTool === 'slide' ? 'cursor-col-resize' : ''} ${
                         draggingClip?.clipId === clip.id || (draggingClip && selectedClipIds.has(clip.id)) ? 'opacity-80 cursor-grabbing z-30' : ''
@@ -2709,8 +3046,24 @@ export function VideoEditor() {
                         width: `${clip.duration * pixelsPerSecond}px`,
                         top: `${trackTopPx(clip.trackIndex, 4)}px`,
                         height: `${getTrackHeight(clip.trackIndex) - 8}px`,
+                        ...(activeTool === 'blade' ? { cursor: SCISSORS_CURSOR } : {}),
+                        ...(clipColor ? {
+                          backgroundColor: `${clipColor.color}80`,
+                          borderColor: selectedClipIds.has(clip.id) ? undefined : clipColor.color,
+                        } : {}),
                       }}
                       onMouseDown={(e) => handleClipMouseDown(e, clip)}
+                      onMouseMove={(e) => {
+                        if (activeTool === 'blade') {
+                          const rect = e.currentTarget.getBoundingClientRect()
+                          setBladeHoverInfo({ clipId: clip.id, offsetX: e.clientX - rect.left })
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        if (activeTool === 'blade' && bladeHoverInfo?.clipId === clip.id) {
+                          setBladeHoverInfo(null)
+                        }
+                      }}
                       onContextMenu={(e) => handleClipContextMenu(e, clip)}
                       onDragOver={(e) => {
                         if (e.dataTransfer.types.includes('effecttype')) {
@@ -2727,6 +3080,16 @@ export function VideoEditor() {
                         }
                       }}
                     >
+                      {/* Blade cut indicator line */}
+                      {activeTool === 'blade' && bladeHoverInfo?.clipId === clip.id && (
+                        <div
+                          className="absolute top-0 bottom-0 w-px bg-red-500 z-20 pointer-events-none"
+                          style={{ left: `${bladeHoverInfo.offsetX}px` }}
+                        >
+                          <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-red-500 rotate-45" />
+                          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-red-500 rotate-45" />
+                        </div>
+                      )}
                       <div className="absolute left-0 top-0 bottom-0 w-4 flex items-center justify-center text-zinc-500 hover:text-white cursor-grab">
                         <GripVertical className="h-3 w-3" />
                       </div>
@@ -2932,7 +3295,7 @@ export function VideoEditor() {
                         }`} />
                       </div>
                     </div>
-                  ))}
+                  )})}
                   
                   {/* Gap indicators between clips */}
                   {timelineGaps.map((gap, i) => {
@@ -3300,11 +3663,6 @@ export function VideoEditor() {
         
         {/* Bottom toolbar with zoom bar */}
         <div className="h-9 bg-zinc-900 border-t border-zinc-800 flex items-center px-3 gap-2 flex-shrink-0">
-          <Button variant="outline" size="sm" className="h-6 border-zinc-700 text-zinc-400 text-[10px] px-2">
-            <Plus className="h-3 w-3 mr-1" />
-            Add Clip
-          </Button>
-          
           {selectedClip && (
             <>
               <div className="w-px h-4 bg-zinc-700" />
@@ -3346,33 +3704,6 @@ export function VideoEditor() {
           >
             <Download className="h-3 w-3 mr-1" />
             Export
-          </Button>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 border-zinc-700 text-zinc-400 text-[10px] px-2"
-            onClick={handleResetLayout}
-            title="Reset panel sizes to default"
-          >
-            <Maximize2 className="h-3 w-3 mr-1" />
-            Layout
-          </Button>
-          
-          <div className="w-px h-4 bg-zinc-700" />
-          
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 border-amber-700/50 text-amber-400 text-[10px] px-2 hover:bg-amber-900/30"
-            onClick={() => {
-              setIcLoraSourceClipId(selectedClip?.type === 'video' ? selectedClip.id : null)
-              setShowICLoraPanel(true)
-            }}
-            title="Open IC-LoRA style transfer panel"
-          >
-            <Sparkles className="h-3 w-3 mr-1" />
-            IC-LoRA
           </Button>
           
           
@@ -3450,25 +3781,8 @@ export function VideoEditor() {
         </div>
       </div>
       
-      {/* Right Panel - Subtitle Properties */}
-      {selectedSubtitleId && selectedClipIds.size === 0 && (() => {
-        const selectedSub = subtitles.find(s => s.id === selectedSubtitleId)
-        if (!selectedSub) return null
-        const trackStyle = tracks[selectedSub.trackIndex]?.subtitleStyle || {}
-        return (
-          <SubtitlePropertiesPanel
-            selectedSub={selectedSub}
-            trackStyle={trackStyle}
-            rightPanelWidth={layout.rightPanelWidth}
-            onResizeDragStart={(e) => handleResizeDragStart('right', e)}
-            updateSubtitle={updateSubtitle}
-            deleteSubtitle={deleteSubtitle}
-          />
-        )
-      })()}
-      
-      {/* Right Panel - Clip Properties */}
-      {selectedClipIds.size > 0 && (
+      {/* Right Panel - Properties (user-controlled toggle) */}
+      {showPropertiesPanel && (
         <>
         {/* Right resize handle */}
         <div
@@ -3477,7 +3791,24 @@ export function VideoEditor() {
         >
           <div className="absolute inset-y-0 -left-1 -right-1" />
         </div>
-        {selectedClip && (
+        {/* Subtitle properties */}
+        {selectedSubtitleId && selectedClipIds.size === 0 && (() => {
+          const selectedSub = subtitles.find(s => s.id === selectedSubtitleId)
+          if (!selectedSub) return null
+          const trackStyle = tracks[selectedSub.trackIndex]?.subtitleStyle || {}
+          return (
+            <SubtitlePropertiesPanel
+              selectedSub={selectedSub}
+              trackStyle={trackStyle}
+              rightPanelWidth={layout.rightPanelWidth}
+              onResizeDragStart={(e) => handleResizeDragStart('right', e)}
+              updateSubtitle={updateSubtitle}
+              deleteSubtitle={deleteSubtitle}
+            />
+          )
+        })()}
+        {/* Clip properties */}
+        {selectedClip ? (
           <ClipPropertiesPanel
             selectedClip={selectedClip}
             clips={clips}
@@ -3519,7 +3850,14 @@ export function VideoEditor() {
             setSubtitleTrackStyleIdx={setSubtitleTrackStyleIdx}
             subtitleTrackStyleIdx={subtitleTrackStyleIdx}
           />
-        )}
+        ) : !selectedSubtitleId ? (
+          <div
+            className="bg-zinc-950 border-l border-zinc-800 flex flex-col items-center justify-center text-zinc-600 text-[12px]"
+            style={{ width: layout.rightPanelWidth }}
+          >
+            <span>No clip selected</span>
+          </div>
+        ) : null}
         </>
       )}
       
@@ -3646,6 +3984,8 @@ export function VideoEditor() {
             assets={assets}
             isRetaking={isRetaking}
             assetGridRef={assetGridRef}
+            currentProjectId={currentProjectId}
+            updateAsset={updateAsset}
             handleCopy={handleCopy}
             handleCut={handleCut}
             handlePaste={handlePaste}
@@ -3760,6 +4100,64 @@ export function VideoEditor() {
         onClose={() => setShowImportTimelineModal(false)}
         onImport={handleImportTimeline}
       />
+      
+      {/* Project Settings Modal */}
+      {showProjectSettings && currentProject && (() => {
+        const projectAssetPath = currentProject.assetSavePath || ''
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowProjectSettings(false)}>
+            <div className="bg-zinc-900 rounded-2xl border border-zinc-700/50 shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
+                <h2 className="text-lg font-bold text-white">Project Settings</h2>
+                <button onClick={() => setShowProjectSettings(false)} className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-5">
+                <div>
+                  <label className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">Project Name</label>
+                  <p className="text-sm text-white">{currentProject.name}</p>
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1.5 block">Asset Save Folder</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      defaultValue={projectAssetPath}
+                      placeholder="Not set — uses default backend location"
+                      className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-violet-500 truncate"
+                      onBlur={e => {
+                        if (currentProjectId && e.target.value !== projectAssetPath) {
+                          updateProject(currentProjectId, { assetSavePath: e.target.value.trim() || undefined })
+                        }
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          const val = (e.target as HTMLInputElement).value.trim()
+                          if (currentProjectId) updateProject(currentProjectId, { assetSavePath: val || undefined })
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      className="border-zinc-700 flex-shrink-0"
+                      onClick={async () => {
+                        const dir = await window.electronAPI?.showOpenDirectoryDialog({ title: 'Select Asset Folder' })
+                        if (dir && currentProjectId) {
+                          updateProject(currentProjectId, { assetSavePath: dir })
+                        }
+                      }}
+                    >
+                      <Folder className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-zinc-600 mt-1">Where generated video and image assets will be saved for this project</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
       
       {/* Retake modal */}
       {(() => {

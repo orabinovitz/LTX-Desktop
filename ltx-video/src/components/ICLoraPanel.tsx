@@ -64,6 +64,16 @@ export function ICLoraPanel({
   sourceClipId,
   onResult,
 }: ICLoraPanelProps) {
+  // Close on Escape
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); e.stopPropagation() }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [isOpen, onClose])
+
   // Video state
   const inputVideoRef = useRef<HTMLVideoElement>(null)
   const outputVideoRef = useRef<HTMLVideoElement>(null)

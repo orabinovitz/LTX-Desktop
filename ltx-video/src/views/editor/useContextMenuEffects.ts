@@ -22,8 +22,6 @@ interface UseContextMenuEffectsParams {
   binContextMenu: ContextMenuState | null
   setBinContextMenu: (v: any) => void
   binContextMenuRef: React.RefObject<HTMLDivElement>
-  binDropdownOpen: boolean
-  setBinDropdownOpen: (v: boolean) => void
   previewZoomOpen: boolean
   setPreviewZoomOpen: (v: boolean) => void
   playbackResOpen: boolean
@@ -47,7 +45,6 @@ export function useContextMenuEffects(params: UseContextMenuEffectsParams) {
     assetContextMenu, setAssetContextMenu, assetContextMenuRef,
     takeContextMenu, setTakeContextMenu, takeContextMenuRef,
     binContextMenu, setBinContextMenu, binContextMenuRef,
-    binDropdownOpen, setBinDropdownOpen,
     previewZoomOpen, setPreviewZoomOpen,
     playbackResOpen, setPlaybackResOpen,
     previewZoom, setPreviewZoom, setPreviewPan,
@@ -120,14 +117,6 @@ export function useContextMenuEffects(params: UseContextMenuEffectsParams) {
       el.style.top = `${y}px`
     }
   }, [clipContextMenu])
-  
-  // Close bin dropdown on click outside
-  useEffect(() => {
-    if (!binDropdownOpen) return
-    const handler = () => setBinDropdownOpen(false)
-    window.addEventListener('click', handler)
-    return () => window.removeEventListener('click', handler)
-  }, [binDropdownOpen])
   
   // Close zoom dropdown on click outside
   useEffect(() => {

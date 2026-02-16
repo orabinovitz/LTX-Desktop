@@ -129,15 +129,38 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       return best
     }
     
+    // Detect dissolve region at a given time (inline, no React dependency)
+    const getDissolveAtTime = (time: number): { outgoing: TimelineClip; incoming: TimelineClip; progress: number } | null => {
+      const all = clipsRef.current
+      for (const clipA of all) {
+        if (clipA.transitionOut?.type !== 'dissolve' || clipA.transitionOut.duration <= 0) continue
+        const clipAEnd = clipA.startTime + clipA.duration
+        const dissolveStart = clipAEnd - clipA.transitionOut.duration
+        if (time < dissolveStart || time >= clipAEnd) continue
+        const clipB = all.find((c: TimelineClip) =>
+          c.id !== clipA.id &&
+          c.trackIndex === clipA.trackIndex &&
+          c.transitionIn?.type === 'dissolve' &&
+          Math.abs(c.startTime - clipAEnd) < 0.05
+        )
+        if (!clipB) continue
+        const dissolveDuration = clipA.transitionOut.duration
+        const timeIntoDissolve = time - dissolveStart
+        const progress = Math.max(0, Math.min(1, timeIntoDissolve / dissolveDuration))
+        return { outgoing: clipA, incoming: clipB, progress }
+      }
+      return null
+    }
+    
     const STATE_UPDATE_INTERVAL = 250 // ~4fps for React state updates (playhead/video/audio are smooth via rAF+DOM, this is only for timecode display)
+    const DISSOLVE_STATE_UPDATE_INTERVAL = 33 // ~30fps during dissolves for smooth crossfade
     lastStateUpdateRef.current = 0
     
     const tick = (timestamp: number) => {
       if (lastTimestamp === null) {
         lastTimestamp = timestamp
         lastStateUpdateRef.current = timestamp
-        animFrameId = requestAnimationFrame(tick)
-        return
+        // Fall through with deltaMs = 0 so video sync still runs on the first frame
       }
       
       const deltaMs = timestamp - lastTimestamp
@@ -156,7 +179,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         else if (next <= loopStart) next = loopEnd
       } else {
         if (next >= totalDuration) { next = 0; stopped = true }
-        else if (next <= 0) { next = 0; stopped = true }
+        else if (next < 0) { next = 0; stopped = true }
       }
       
       playbackTimeRef.current = next
@@ -175,18 +198,94 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       // Track which clip the rAF is actively displaying (for audio dedup)
       rafActiveClipIdRef.current = syncClip?.id ?? null
       
+      // Check if we're in a dissolve region
+      const dissolveInfo = getDissolveAtTime(next)
+      
       // Show/hide the video pool container via DOM to avoid React dependency on throttled activeClip
       const poolContainer = document.getElementById('video-pool-container')
-      if (poolContainer) {
-        if (syncClip && syncClip.asset?.type === 'video') {
-          poolContainer.classList.remove('hidden')
-        } else {
-          // Hide pool if no clip or clip is image (so image preview can show)
-          poolContainer.classList.add('hidden')
-        }
-      }
       
-      if (syncClip && syncClip.asset?.type === 'video') {
+      if (dissolveInfo) {
+        // During dissolve: the pool continues showing the OUTGOING clip (with fading opacity via React).
+        // We keep the pool visible and let it play normally for the outgoing clip.
+        if (poolContainer) poolContainer.classList.remove('hidden')
+        
+        // Ensure pool video for outgoing clip is playing and in sync
+        const outClip = dissolveInfo.outgoing
+        const outSrc = resolveClipSrcRef(outClip)
+        if (outSrc) {
+          let outVid = pool.get(outSrc)
+          if (outVid) {
+            const container = document.getElementById('video-pool-container')
+            if (container && !outVid.parentElement) container.appendChild(outVid)
+            if (outSrc !== activePoolSrcRef.current) {
+              const oldVid = pool.get(activePoolSrcRef.current)
+              if (oldVid) { oldVid.style.opacity = '0'; oldVid.style.zIndex = '0'; oldVid.pause() }
+              activePoolSrcRef.current = outSrc
+            }
+            outVid.style.opacity = '1'
+            outVid.style.zIndex = '1'
+            outVid.muted = true
+            outVid.volume = 0
+            if (outVid.readyState >= 2) {
+              outVid.playbackRate = outClip.reversed ? 1 : outClip.speed
+              const timeInClip = next - outClip.startTime
+              const vd = outVid.duration
+              if (!isNaN(vd)) {
+                const usable = vd - outClip.trimStart - outClip.trimEnd
+                const tt = outClip.reversed
+                  ? Math.max(0, Math.min(vd, outClip.trimStart + usable - timeInClip * outClip.speed))
+                  : Math.max(0, Math.min(vd, outClip.trimStart + timeInClip * outClip.speed))
+                if (outClip.reversed) {
+                  if (!outVid.paused) outVid.pause()
+                  if (!isNaN(tt) && Math.abs(outVid.currentTime - tt) > 0.04) outVid.currentTime = tt
+                } else {
+                  if (!isNaN(tt) && Math.abs(outVid.currentTime - tt) > 0.3) outVid.currentTime = tt
+                  if (outVid.paused) outVid.play().catch(() => {})
+                }
+              }
+            }
+          }
+        }
+        
+        // Seek the incoming video overlay (rendered as JSX by ProgramMonitor)
+        const inVid = previewVideoRef.current
+        if (inVid && dissolveInfo.incoming.asset?.type === 'video') {
+          inVid.muted = true
+          inVid.volume = 0
+          if (inVid.duration && !isNaN(inVid.duration)) {
+            const clip = dissolveInfo.incoming
+            const videoDuration = inVid.duration
+            const usableMedia = videoDuration - clip.trimStart - clip.trimEnd
+            const timeInClip = Math.max(0, next - clip.startTime)
+            const targetTime = clip.reversed
+              ? Math.max(0, Math.min(videoDuration, clip.trimStart + usableMedia - timeInClip * clip.speed))
+              : Math.max(0, Math.min(videoDuration, clip.trimStart + timeInClip * clip.speed))
+            if (!inVid.paused) inVid.pause()
+            if (!isNaN(targetTime) && Math.abs(inVid.currentTime - targetTime) > 0.04) {
+              inVid.currentTime = targetTime
+            }
+          }
+        }
+        
+        // Pre-load the incoming clip's video in the pool for seamless transition when dissolve ends
+        if (dissolveInfo.incoming.asset?.type === 'video') {
+          const inSrc = resolveClipSrcRef(dissolveInfo.incoming)
+          if (inSrc && !pool.has(inSrc)) {
+            const v = document.createElement('video')
+            v.preload = 'auto'
+            v.playsInline = true
+            v.muted = true
+            v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:0;z-index:0;'
+            v.src = inSrc
+            v.load()
+            pool.set(inSrc, v)
+            const container = document.getElementById('video-pool-container')
+            if (container) container.appendChild(v)
+          }
+        }
+        
+      } else if (syncClip && syncClip.asset?.type === 'video') {
+        if (poolContainer) poolContainer.classList.remove('hidden')
         const clipSrc = resolveClipSrcRef(syncClip)
         if (clipSrc) {
           let video = pool.get(clipSrc)
@@ -205,12 +304,14 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
               oldVid.style.zIndex = '0'
               oldVid.pause()
             }
-            if (video) {
-              video.style.opacity = '1'
-              video.style.zIndex = '1'
-            }
             activePoolSrcRef.current = clipSrc
             preSeekDoneRef.current = null // reset pre-seek tracker on clip change
+          }
+          // Always ensure the current video is visible — handles edge case where
+          // the scrub sync couldn't fully initialize before playback took over
+          if (video) {
+            video.style.opacity = '1'
+            video.style.zIndex = '1'
           }
           
           // Seek / play the video
@@ -285,33 +386,40 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
             }
           }
         }
-      } else if (!syncClip || syncClip?.asset?.type !== 'video') {
-        // No video clip at this time — pause current pool video (keep last frame)
+      } else {
+        // No video clip at this time — pause current pool video (keep last frame), hide pool
+        if (poolContainer) poolContainer.classList.add('hidden')
         const curVid = pool.get(activePoolSrcRef.current)
         if (curVid && !curVid.paused) curVid.pause()
       }
       
       // ── 3b. Sync hidden audio elements directly (no React dependency) ──
-      // Audio ONLY comes from audio-track clips. Video elements are always muted.
+      // Audio plays via hidden <audio> elements for both audio-track AND video-track
+      // clips. Video <video> elements stay muted to avoid double playback.
+      // KEY PRINCIPLES:
+      //   1. Once audio is playing at the correct speed, DON'T touch it.
+      //   2. Never set playbackRate unless it actually changed (avoids re-buffer).
+      //   3. Don't spam play() on auto-paused elements — use backoff.
+      //   4. Keep audio elements alive (just pause) so buffers are preserved.
       {
         const audioMap = audioElementsRef.current
         const allClips = clipsRef.current
         const trks = tracksRef.current
         const activeAudioIds = new Set<string>()
+        const anySoloed = trks.some(t => t.solo)
         
         for (const c of allClips) {
-          if (c.type !== 'audio') continue // Only audio-track clips produce sound
+          if (c.type === 'adjustment' || c.type === 'text' || c.type === 'image') continue
           if (next < c.startTime || next >= c.startTime + c.duration) continue
           if (trks[c.trackIndex]?.enabled === false) continue
           activeAudioIds.add(c.id)
         }
         
-        // Pause & remove elements for clips no longer active
+        // Pause clips no longer active (but keep the element for fast resume)
         for (const [id, el] of audioMap) {
           if (!activeAudioIds.has(id)) {
-            el.pause()
-            el.src = ''
-            audioMap.delete(id)
+            if (!el.paused) el.pause()
+            ;(el as any).__audioPlaying = false
           }
         }
         
@@ -323,31 +431,86 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
           if (!url) continue
           
           let el = audioMap.get(c.id)
+          let isNew = false
           if (!el) {
             el = document.createElement('audio')
             el.src = url
+            ;(el as any).__intendedSrc = url
             el.preload = 'auto'
             audioMap.set(c.id, el)
-          } else if (el.src !== url && url) {
+            isNew = true
+          } else if ((el as any).__intendedSrc !== url && url) {
             el.src = url
+            ;(el as any).__intendedSrc = url
+            ;(el as any).__audioPlaying = false
+            isNew = true
           }
           
-          el.muted = c.muted || trks[c.trackIndex]?.muted || false
+          const trackObj = trks[c.trackIndex]
+          const isSoloMuted = anySoloed && !trackObj?.solo
+          el.muted = c.muted || trackObj?.muted || isSoloMuted || false
           el.volume = c.volume
-          el.playbackRate = c.reversed ? 1 : c.speed
           
-          if (el.readyState >= 2) {
-            const assetDur = el.duration || c.duration
-            const timeInClip = next - c.startTime
-            const targetTime = c.reversed
+          const computeTarget = (audioEl: HTMLAudioElement, atTime: number) => {
+            const assetDur = audioEl.duration || c.duration
+            const timeInClip = atTime - c.startTime
+            return c.reversed
               ? Math.max(0, assetDur - c.trimEnd - timeInClip * c.speed)
               : Math.max(0, c.trimStart + timeInClip * c.speed)
-            
-            if (Math.abs(el.currentTime - targetTime) > 0.3) {
-              el.currentTime = targetTime
+          }
+          
+          const desiredRate = c.reversed ? 1 : c.speed
+          
+          if (el.readyState >= 2) {
+            if (!(el as any).__audioPlaying || isNew) {
+              // First sync: seek to correct position, set speed, and start playing
+              const target = computeTarget(el, next)
+              el.currentTime = target
+              el.playbackRate = desiredRate
+              if (!c.reversed) {
+                el.play().catch(() => {})
+                ;(el as any).__audioPlaying = true
+                ;(el as any).__lastPlayRetry = 0
+              }
+            } else {
+              // Already playing — minimal intervention
+              if (el.playbackRate !== desiredRate) el.playbackRate = desiredRate
+              if (c.reversed) {
+                if (!el.paused) el.pause()
+              } else {
+                const target = computeTarget(el, next)
+                const drift = Math.abs(el.currentTime - target)
+                if (drift > 1.5) {
+                  el.currentTime = target
+                }
+                // Resume if browser auto-paused — but with backoff to avoid choppiness
+                if (el.paused) {
+                  const now = timestamp
+                  const lastRetry = (el as any).__lastPlayRetry || 0
+                  if (now - lastRetry > 500) {
+                    ;(el as any).__lastPlayRetry = now
+                    el.play().catch(() => {})
+                  }
+                }
+              }
             }
-            if (!c.reversed && el.paused) el.play().catch(() => {})
-            if (c.reversed && !el.paused) el.pause()
+          } else if (!(el as any).__awaitingCanplay) {
+            (el as any).__awaitingCanplay = true
+            const onCanPlay = () => {
+              el!.removeEventListener('canplay', onCanPlay)
+              ;(el as any).__awaitingCanplay = false
+              if (!isPlayingRef.current) return
+              const freshTime = playbackTimeRef.current
+              const target = computeTarget(el!, freshTime)
+              el!.currentTime = target
+              el!.playbackRate = desiredRate
+              if (!c.reversed) {
+                el!.play().catch(() => {})
+                ;(el as any).__audioPlaying = true
+                ;(el as any).__lastPlayRetry = 0
+              }
+            }
+            el.addEventListener('canplay', onCanPlay)
           }
         }
       }
@@ -376,8 +539,11 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         if (rulerScrollRef.current) rulerScrollRef.current.scrollLeft = container.scrollLeft
       }
       
-      // ── 6. Throttled React state sync for UI (~24fps) ──
-      if (timestamp - lastStateUpdateRef.current >= STATE_UPDATE_INTERVAL) {
+      // ── 6. Throttled React state sync for UI ──
+      // During dissolves, update React state much more frequently (~30fps) so the
+      // crossDissolveState opacity crossfade is smooth. Otherwise use ~4fps.
+      const updateInterval = dissolveInfo ? DISSOLVE_STATE_UPDATE_INTERVAL : STATE_UPDATE_INTERVAL
+      if (timestamp - lastStateUpdateRef.current >= updateInterval) {
         lastStateUpdateRef.current = timestamp
         setCurrentTime(next)
         // Push active clip id to React so the monitor visibility stays correct
@@ -394,9 +560,10 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       setCurrentTime(playbackTimeRef.current)
       setPlaybackActiveClipId(null) // reset so React falls back to activeClip
       rafActiveClipIdRef.current = null
-      // Pause all hidden audio elements (the audio useEffect will take over for scrub)
+      // Pause all hidden audio elements and reset sync flags
       for (const [, el] of audioElementsRef.current) {
         if (!el.paused) el.pause()
+        ;(el as any).__audioPlaying = false
       }
     }
   }, [isPlaying, totalDuration, shuttleSpeed, playingInOut, inPoint, outPoint, zoom])
@@ -524,10 +691,50 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   useEffect(() => {
     if (isPlaying) return // rAF engine handles sync during playback
     
+    // During cross-dissolve, sync the incoming video overlay (previewVideoRef).
+    // The outgoing clip continues to be handled by the pool below.
+    if (crossDissolveState) {
+      const { incoming } = crossDissolveState
+      if (incoming.asset?.type === 'video') {
+        const video = previewVideoRef.current
+        if (video) {
+          const incomingSrc = resolveClipSrc(incoming)
+          if (incomingSrc && video.src !== incomingSrc && !video.src.endsWith(incomingSrc)) {
+            video.src = incomingSrc
+            video.load()
+          }
+          
+          const timeInClip = Math.max(0, currentTime - incoming.startTime)
+          
+          const syncIncoming = () => {
+            if (!video || !video.duration || isNaN(video.duration)) return
+            const videoDuration = video.duration
+            const usableMedia = videoDuration - incoming.trimStart - incoming.trimEnd
+            const targetTime = incoming.reversed
+              ? Math.max(0, Math.min(videoDuration, incoming.trimStart + usableMedia - timeInClip * incoming.speed))
+              : Math.max(0, Math.min(videoDuration, incoming.trimStart + timeInClip * incoming.speed))
+            
+            if (!video.paused) video.pause()
+            video.muted = true
+            if (!isNaN(targetTime) && Math.abs(video.currentTime - targetTime) > 0.04) {
+              video.currentTime = targetTime
+            }
+          }
+          
+          if (video.readyState >= 2) {
+            syncIncoming()
+          } else {
+            video.addEventListener('loadeddata', () => syncIncoming(), { once: true })
+          }
+        }
+      }
+      // Don't return — fall through to sync the outgoing clip via the pool
+    }
+    
     const pool = videoPoolRef.current
     
     // Determine which clip to sync
-    const syncClip = crossDissolveState ? crossDissolveState.incoming : activeClip
+    const syncClip = activeClip
     if (!syncClip || syncClip.asset?.type !== 'video') {
       // No video clip — pause the current pool video but keep last frame
       const curVid = pool.get(activePoolSrcRef.current)
@@ -558,7 +765,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     }
     
     // Switch visibility: hide previous, show current
-    if (clipSrc !== activePoolSrcRef.current) {
+    const isNewSource = clipSrc !== activePoolSrcRef.current
+    if (isNewSource) {
       const oldVid = pool.get(activePoolSrcRef.current)
       if (oldVid) {
         oldVid.style.opacity = '0'
@@ -570,12 +778,27 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       activePoolSrcRef.current = clipSrc
     }
     
-    ;(previewVideoRef as React.MutableRefObject<HTMLVideoElement | null>).current = video
+    // During dissolve, previewVideoRef points to the incoming JSX video — don't overwrite it
+    if (!crossDissolveState) {
+      ;(previewVideoRef as React.MutableRefObject<HTMLVideoElement | null>).current = video
+    }
     
     const timeInClip = currentTime - syncClip.startTime
     
-    const syncVideo = () => {
-      if (!video || !video.duration || isNaN(video.duration)) return
+    const syncVideo = (forceSeek: boolean) => {
+      if (!video) return
+      
+      // Always mute video elements — audio comes exclusively from audio tracks
+      video.muted = true
+      video.volume = 0
+      
+      // If duration isn't available yet, force a brief play/pause to render the first frame
+      if (!video.duration || isNaN(video.duration)) {
+        if (forceSeek) {
+          video.play().then(() => { video.pause() }).catch(() => {})
+        }
+        return
+      }
       
       const videoDuration = video.duration
       const usableMediaDuration = videoDuration - syncClip.trimStart - syncClip.trimEnd
@@ -584,91 +807,68 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         ? Math.max(0, Math.min(videoDuration, syncClip.trimStart + usableMediaDuration - timeInClip * syncClip.speed))
         : Math.max(0, Math.min(videoDuration, syncClip.trimStart + timeInClip * syncClip.speed))
       
-      if (syncClip.reversed || crossDissolveState) {
+      if (syncClip.reversed) {
         if (!video.paused) video.pause()
         video.playbackRate = 1
-        if (!isNaN(targetTime) && Math.abs(video.currentTime - targetTime) > 0.04) {
+        if (!isNaN(targetTime) && (forceSeek || Math.abs(video.currentTime - targetTime) > 0.04)) {
+          // Nudge by a tiny amount when at the exact same position to force Chromium to decode the frame
+          if (forceSeek && Math.abs(video.currentTime - targetTime) < 0.001) {
+            video.currentTime = targetTime + 0.001
+          }
           video.currentTime = targetTime
         }
       } else {
         video.playbackRate = syncClip.speed
-        if (!isNaN(targetTime) && Math.abs(video.currentTime - targetTime) > 0.3) {
+        if (!isNaN(targetTime) && (forceSeek || Math.abs(video.currentTime - targetTime) > 0.3)) {
+          if (forceSeek && Math.abs(video.currentTime - targetTime) < 0.001) {
+            video.currentTime = targetTime + 0.001
+          }
           video.currentTime = targetTime
         }
         if (!video.paused) video.pause()
       }
-      
-      // Always mute video elements — audio comes exclusively from audio tracks
-      video.muted = true
-      video.volume = 0
     }
     
     if (video.readyState >= 2) {
-      syncVideo()
+      syncVideo(isNewSource)
     } else {
-      video.addEventListener('loadeddata', syncVideo, { once: true })
+      // Always force seek when video just loaded — ensures first frame renders
+      const onLoaded = () => syncVideo(true)
+      video.addEventListener('loadeddata', onLoaded, { once: true })
       if (container) {
         for (const [, v] of pool) {
           if (!v.parentElement) container.appendChild(v)
         }
       }
+      // Store ref for cleanup
+      ;(video as any).__syncOnLoad = onLoaded
     }
     
     return () => {
-      video?.removeEventListener('loadeddata', syncVideo)
+      if (video && (video as any).__syncOnLoad) {
+        video.removeEventListener('loadeddata', (video as any).__syncOnLoad)
+        delete (video as any).__syncOnLoad
+      }
     }
   }, [currentTime, isPlaying, activeClip, crossDissolveState, tracks, resolveClipSrc])
   
-  // Sync dissolve outgoing video with timeline
-  useEffect(() => {
-    const video = dissolveOutVideoRef.current
-    if (!video || !crossDissolveState) return
-    
-    const { outgoing } = crossDissolveState
-    if (outgoing.asset?.type !== 'video') return
-    
-    const syncOutgoing = () => {
-      if (!video.duration || isNaN(video.duration)) return
-      
-      const outOffset = currentTime - outgoing.startTime
-      const videoDuration = video.duration
-      const usableMedia = videoDuration - outgoing.trimStart - outgoing.trimEnd
-      
-      const targetTime = outgoing.reversed
-        ? Math.max(0, Math.min(videoDuration, outgoing.trimStart + usableMedia - outOffset * outgoing.speed))
-        : Math.max(0, Math.min(videoDuration, outgoing.trimStart + outOffset * outgoing.speed))
-      
-      // Always keep paused and seek manually for frame-accurate dissolve
-      if (!video.paused) video.pause()
-      if (!isNaN(targetTime) && Math.abs(video.currentTime - targetTime) > 0.04) {
-        video.currentTime = targetTime
-      }
-      video.muted = true
-    }
-    
-    if (video.readyState >= 2) {
-      syncOutgoing()
-    } else {
-      video.addEventListener('loadeddata', syncOutgoing, { once: true })
-    }
-    
-    return () => {
-      video.removeEventListener('loadeddata', syncOutgoing)
-    }
-  }, [currentTime, crossDissolveState])
+  // Outgoing dissolve clip is handled by the video pool — no separate sync needed.
   
-  // Sync audio for ALL layers: audio clips + video clips that aren't the active preview
-  // The activeClip's audio is handled by previewVideoRef. All other clips with audio need
-  // hidden <audio> elements so their sound plays simultaneously.
+  // Sync audio for ALL layers: audio clips + video clips with audio content.
+  // All audio plays through hidden <audio> elements (video <video> elements stay muted).
+  // This effect only handles scrubbing / seeking (when NOT playing).
   
   useEffect(() => {
     // During playback, the rAF loop handles audio sync directly for zero-latency.
     // This effect only handles scrubbing / seeking (when NOT playing).
     if (isPlaying) return
     
-    // Pause all audio elements when not playing
+    // Pause all audio elements when not playing and reset sync flags.
+    // IMPORTANT: Don't destroy elements (no el.src = '') — keep buffers alive
+    // so playback can resume instantly without reloading.
     for (const [, el] of audioElementsRef.current) {
       if (!el.paused) el.pause()
+      ;(el as any).__audioPlaying = false
     }
     
     // Helper to get the live URL for a clip (from project context, respecting takes)
@@ -686,39 +886,40 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       return clip.asset?.url || clip.importedUrl || null
     }
     
-    // Audio ONLY comes from audio-track clips. Video elements are always muted.
-    const audioSourceClips = clips.filter(c => {
-      if (c.type !== 'audio') return false // Only audio-track clips produce sound
-      const url = getAudioClipUrl(c)
-      if (!url) return false
-      if (currentTime < c.startTime || currentTime >= c.startTime + c.duration) return false
-      return true
-    })
+    // Pre-create audio elements for ALL audio/video clips on the timeline
+    // (like the video pool) so buffers are warm when the playhead reaches them.
+    const allAudioClips = clips.filter(c =>
+      c.type !== 'adjustment' && c.type !== 'text' && c.type !== 'image' && getAudioClipUrl(c)
+    )
+    const allAudioClipIds = new Set(allAudioClips.map(c => c.id))
     
-    const activeAudioIds = new Set(audioSourceClips.map(c => c.id))
-    
-    // Remove audio elements for clips no longer at playhead
+    // Remove elements for clips that no longer exist on the timeline
     for (const [id, el] of audioElementsRef.current) {
-      if (!activeAudioIds.has(id)) {
+      if (!allAudioClipIds.has(id)) {
         el.pause()
         el.src = ''
         audioElementsRef.current.delete(id)
       }
     }
     
-    // Pre-create / seek audio elements for scrub position (paused)
-    for (const clip of audioSourceClips) {
+    // Pre-create / seek audio elements
+    for (const clip of allAudioClips) {
       const clipUrl = getAudioClipUrl(clip)!
       let el = audioElementsRef.current.get(clip.id)
       
       if (!el) {
         el = document.createElement('audio')
         el.src = clipUrl
+        ;(el as any).__intendedSrc = clipUrl
         el.preload = 'auto'
         audioElementsRef.current.set(clip.id, el)
-      } else if (el.src !== clipUrl && clipUrl) {
+      } else if ((el as any).__intendedSrc !== clipUrl && clipUrl) {
         el.src = clipUrl
+        ;(el as any).__intendedSrc = clipUrl
       }
+      
+      const isAtPlayhead = currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration
+      if (!isAtPlayhead) continue
       
       const liveAsset = clip.assetId ? assets.find(a => a.id === clip.assetId) : null
       const assetDuration = liveAsset?.duration || clip.asset?.duration || clip.duration
@@ -727,7 +928,10 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         ? Math.max(0, assetDuration - clip.trimEnd - timeInClip * clip.speed)
         : Math.max(0, clip.trimStart + timeInClip * clip.speed)
       
-      el.muted = clip.muted || tracks[clip.trackIndex]?.muted || false
+      const anySoloedScrub = tracks.some(t => t.solo)
+      const scrubTrack = tracks[clip.trackIndex]
+      const isSoloMutedScrub = anySoloedScrub && !scrubTrack?.solo
+      el.muted = clip.muted || scrubTrack?.muted || isSoloMutedScrub || false
       el.volume = clip.volume
       
       // Seek to correct position (paused — only for scrub preview)

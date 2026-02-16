@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { resolveAction, type ActionId } from '../../lib/keyboard-shortcuts'
-import type { TimelineClip } from '../../types/project'
+import type { TimelineClip, Track } from '../../types/project'
 import type { ToolType } from './video-editor-utils'
 
 // Frame duration at 24fps
@@ -21,6 +21,7 @@ interface KeyboardRefs {
     currentTime: number
   }>
   clipsRef: React.MutableRefObject<TimelineClip[]>
+  tracksRef: React.MutableRefObject<Track[]>
   playbackTimeRef: React.MutableRefObject<number>
   sourceVideoRef: React.MutableRefObject<HTMLVideoElement | null>
   sourceIsPlayingRef: React.MutableRefObject<boolean>
@@ -39,6 +40,7 @@ interface KeyboardRefs {
   toggleFullscreenRef: React.MutableRefObject<() => void>
   insertEditRef: React.MutableRefObject<() => void>
   overwriteEditRef: React.MutableRefObject<() => void>
+  matchFrameRef: React.MutableRefObject<() => void>
 }
 
 interface KeyboardSetters {
@@ -82,12 +84,15 @@ export interface UseEditorKeyboardParams {
 export function useEditorKeyboard(params: UseEditorKeyboardParams) {
   const { refs, setters, context } = params
   const kHeldRef = useRef(false)
+  const contextRef = useRef(context)
+  contextRef.current = context
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (refs.isKbEditorOpenRef.current) return
 
+      const context = contextRef.current
       const { clips: c, selectedClipIds: sel, totalDuration: td, selectedAssetIds: selAssets } = refs.keyboardStateRef.current
 
       const action: ActionId | null = resolveAction(refs.kbLayoutRef.current, e)
@@ -103,12 +108,14 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
         case 'tool.roll':         setters.setActiveTool('roll'); setters.setLastTrimTool('roll'); break
         case 'tool.slide':        setters.setActiveTool('slide'); setters.setLastTrimTool('slide'); break
         case 'tool.slip':         setters.setActiveTool('slip'); setters.setLastTrimTool('slip'); break
-        case 'tool.hand':         setters.setActiveTool('hand'); break
         case 'tool.trackForward': setters.setActiveTool('trackForward'); break
 
         // Transport — panel-aware
         case 'transport.playPause':
           if (refs.activePanelRef.current === 'source') {
+            // Stop timeline playback when starting source playback
+            setters.setIsPlaying(false)
+            setters.setShuttleSpeed(0)
             if (refs.sourceIsPlayingRef.current) {
               refs.sourceVideoRef.current?.pause()
               setters.setSourceIsPlaying(false)
@@ -117,6 +124,11 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
               setters.setSourceIsPlaying(true)
             }
           } else {
+            // Stop source playback when starting timeline playback
+            if (refs.sourceIsPlayingRef.current) {
+              refs.sourceVideoRef.current?.pause()
+              setters.setSourceIsPlaying(false)
+            }
             setters.setShuttleSpeed(0)
             setters.setIsPlaying(p => !p)
           }
@@ -251,6 +263,7 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
             const deleteIds = new Set(sel)
             for (const id of sel) {
               const clip = refs.clipsRef.current.find(cl => cl.id === id)
+              if (clip && refs.tracksRef.current[clip.trackIndex]?.locked) continue
               if (clip?.linkedClipIds) clip.linkedClipIds.forEach(lid => deleteIds.add(lid))
             }
             setters.setClips(prev => prev.filter(cl => !deleteIds.has(cl.id)))
@@ -267,6 +280,7 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
           break
         case 'edit.insertEdit':    refs.insertEditRef.current(); break
         case 'edit.overwriteEdit': refs.overwriteEditRef.current(); break
+        case 'edit.matchFrame':    refs.matchFrameRef.current(); break
 
         // Marking — panel-aware
         case 'mark.setIn':

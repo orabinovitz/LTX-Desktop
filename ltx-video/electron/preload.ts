@@ -49,6 +49,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Get resources path (for video assets in production)
   getResourcePath: (): Promise<string | null> => ipcRenderer.invoke('get-resource-path'),
   
+  // Paths
+  getDownloadsPath: (): Promise<string> => ipcRenderer.invoke('get-downloads-path'),
+  ensureDirectory: (dirPath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('ensure-directory', dirPath),
+
   // File save/export
   showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }): Promise<string | null> =>
     ipcRenderer.invoke('show-save-dialog', options),
@@ -153,6 +158,8 @@ declare global {
       getLogPath: () => Promise<{ logPath: string; logDir: string }>
       openLogFolder: () => Promise<boolean>
       getResourcePath: () => Promise<string | null>
+      getDownloadsPath: () => Promise<string>
+      ensureDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>
       showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>
       saveFile: (filePath: string, data: string, encoding?: string) => Promise<{ success: boolean; path?: string; error?: string }>
       saveBinaryFile: (filePath: string, data: ArrayBuffer) => Promise<{ success: boolean; path?: string; error?: string }>

@@ -39,6 +39,7 @@ export interface Asset {
   generationParams?: GenerationParams
   takes?: AssetTake[] // All takes (index 0 = original). If undefined, the asset itself is the only take.
   activeTakeIndex?: number // Which take is currently active (default = 0 / latest)
+  colorLabel?: string // Color label for organization (e.g. 'violet', 'blue', 'green', 'yellow', 'red', 'rose', 'orange', 'mango')
 }
 
 export interface Track {
@@ -46,7 +47,9 @@ export interface Track {
   name: string
   muted: boolean
   locked: boolean
+  solo?: boolean                 // Audio solo: when any track is soloed, only soloed tracks produce audio
   enabled?: boolean              // Track output toggle: false = clips on this track hidden in preview (default true)
+  sourcePatched?: boolean        // Source/record patch: false = insert/overwrite edits skip this track (default true)
   type?: 'default' | 'subtitle'  // default = media track, subtitle = subtitle track
   kind?: 'video' | 'audio'      // NLE track kind for display ordering (video tracks stack up, audio down)
   subtitleStyle?: Partial<SubtitleStyle>  // Global style for all subtitles on this track (overrides DEFAULT, overridden by per-sub style)
@@ -134,11 +137,38 @@ export type EffectType =
   | 'blur' | 'sharpen' | 'glow' | 'vignette' | 'grain'
   | 'lut-cinematic' | 'lut-vintage' | 'lut-bw' | 'lut-cool' | 'lut-warm' | 'lut-muted' | 'lut-vivid'
 
+export type EffectMaskShape = 'rectangle' | 'ellipse'
+
+export interface EffectMask {
+  enabled: boolean
+  shape: EffectMaskShape
+  x: number      // center X as % of frame (0-100)
+  y: number      // center Y as % of frame (0-100)
+  width: number   // width as % of frame (0-100)
+  height: number  // height as % of frame (0-100)
+  feather: number // edge softness in px (0-100)
+  invert: boolean // if true, effect applies OUTSIDE the mask
+  rotation: number // rotation in degrees
+}
+
+export const DEFAULT_EFFECT_MASK: EffectMask = {
+  enabled: false,
+  shape: 'ellipse',
+  x: 50,
+  y: 50,
+  width: 40,
+  height: 40,
+  feather: 20,
+  invert: false,
+  rotation: 0,
+}
+
 export interface ClipEffect {
   id: string
   type: EffectType
   enabled: boolean
   params: Record<string, number>
+  mask?: EffectMask
 }
 
 export interface EffectParamDef {
@@ -345,6 +375,7 @@ export interface TimelineClip {
   isRegenerating?: boolean // Visual flag: true while a regeneration is in progress for this clip
   // Linked audio/video
   linkedClipIds?: string[] // If set, this clip is linked to other clips (e.g. video ↔ audio pairs). Moving/deleting one affects all linked clips.
+  colorLabel?: string // Color label override (if set, uses this; otherwise inherits from asset)
   // Applied effects (blur, sharpen, LUTs, etc.)
   effects?: ClipEffect[]
   // Adjustment layer effects
@@ -371,6 +402,7 @@ export interface Project {
   thumbnail?: string
   timelines: Timeline[]
   activeTimelineId?: string
+  assetSavePath?: string // Folder where generated assets are saved (default: Downloads/Ltx Desktop Assets/{name})
 }
 
 export type ViewType = 'home' | 'project' | 'playground'
@@ -378,11 +410,11 @@ export type ProjectTab = 'gen-space' | 'video-editor'
 
 // Default tracks for new timelines
 export const DEFAULT_TRACKS: Track[] = [
-  { id: 'track-v1', name: 'V1', muted: false, locked: false, kind: 'video' },
-  { id: 'track-v2', name: 'V2', muted: false, locked: false, kind: 'video' },
-  { id: 'track-v3', name: 'V3', muted: false, locked: false, kind: 'video' },
-  { id: 'track-a1', name: 'A1', muted: false, locked: false, kind: 'audio' },
-  { id: 'track-a2', name: 'A2', muted: false, locked: false, kind: 'audio' },
+  { id: 'track-v1', name: 'V1', muted: false, locked: false, sourcePatched: true,  kind: 'video' },
+  { id: 'track-v2', name: 'V2', muted: false, locked: false, sourcePatched: false, kind: 'video' },
+  { id: 'track-v3', name: 'V3', muted: false, locked: false, sourcePatched: false, kind: 'video' },
+  { id: 'track-a1', name: 'A1', muted: false, locked: false, sourcePatched: true,  kind: 'audio' },
+  { id: 'track-a2', name: 'A2', muted: false, locked: false, sourcePatched: false, kind: 'audio' },
 ]
 
 // Helper to create a new timeline with default tracks

@@ -26,6 +26,18 @@ export function useSourceMonitor({ currentTime, tracks, pushUndo, setClips }: Us
   const sourceIsPlayingRef = useRef(false)
   sourceIsPlayingRef.current = sourceIsPlaying
 
+  // Refs to avoid stale closures in callbacks
+  const tracksRef = useRef(tracks)
+  tracksRef.current = tracks
+  const currentTimeRef = useRef(currentTime)
+  currentTimeRef.current = currentTime
+  const sourceAssetRef = useRef(sourceAsset)
+  sourceAssetRef.current = sourceAsset
+  const sourceInRef = useRef(sourceIn)
+  sourceInRef.current = sourceIn
+  const sourceOutRef = useRef(sourceOut)
+  sourceOutRef.current = sourceOut
+
   const loadSourceAsset = useCallback((asset: Asset) => {
     setSourceAsset(asset)
     setSourceTime(0)
@@ -57,77 +69,41 @@ export function useSourceMonitor({ currentTime, tracks, pushUndo, setClips }: Us
     return () => cancelAnimationFrame(sourceAnimRef.current)
   }, [sourceIsPlaying, sourceOut])
 
-  // --- 3-Point Editing: Insert Edit ---
-  const handleInsertEdit = useCallback(() => {
-    if (!sourceAsset) return
-    const sIn = sourceIn ?? 0
-    const sDuration = sourceAsset.duration || 5
-    const sOut = sourceOut ?? sDuration
+  // --- Helper: build clips for insert/overwrite edits ---
+  const buildEditClips = useCallback(() => {
+    const asset = sourceAssetRef.current
+    if (!asset) return null
+
+    const sIn = sourceInRef.current ?? 0
+    const sDuration = asset.duration || 5
+    const sOut = sourceOutRef.current ?? sDuration
     const insertDuration = sOut - sIn
-    if (insertDuration <= 0) return
+    if (insertDuration <= 0) return null
 
-    pushUndo()
+    const trks = tracksRef.current
+    const time = currentTimeRef.current
+    const isAudio = asset.type === 'audio'
 
-    const isAudio = sourceAsset.type === 'audio'
-    const targetTrack = tracks.find(t => !t.locked && (isAudio ? t.kind === 'audio' : t.kind === 'video'))
-    if (!targetTrack) return
-    const targetTrackIndex = tracks.indexOf(targetTrack)
+    // Find target tracks: first unlocked, source-patched track of each kind
+    const videoTrack = !isAudio
+      ? trks.find(t => !t.locked && t.sourcePatched !== false && t.kind === 'video')
+      : undefined
+    const audioTrack = trks.find(t => !t.locked && t.sourcePatched !== false && t.kind === 'audio')
 
-    const rippleAmount = insertDuration
-    setClips(prev => {
-      const rippled = prev.map(c => {
-        if (c.trackIndex === targetTrackIndex && c.startTime >= currentTime) {
-          return { ...c, startTime: c.startTime + rippleAmount }
-        }
-        return c
-      })
+    // Validate we have the tracks we need
+    if (!videoTrack && !audioTrack) return null
+    if (isAudio && !audioTrack) return null
+    if (!isAudio && !videoTrack) return null
 
-      const newClip: TimelineClip = {
-        id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        assetId: sourceAsset.id,
-        type: sourceAsset.type === 'video' ? 'video' : sourceAsset.type === 'audio' ? 'audio' : 'image',
-        startTime: currentTime,
-        duration: insertDuration,
-        trimStart: sIn,
-        trimEnd: sDuration - sOut,
-        speed: 1,
-        reversed: false,
-        muted: false,
-        volume: 1,
-        trackIndex: targetTrackIndex,
-        asset: sourceAsset,
-        flipH: false,
-        flipV: false,
-        transitionIn: { type: 'none', duration: 0.5 },
-        transitionOut: { type: 'none', duration: 0.5 },
-        colorCorrection: { ...DEFAULT_COLOR_CORRECTION },
-        opacity: 100,
-      }
-      return [...rippled, newClip]
-    })
-  }, [sourceAsset, sourceIn, sourceOut, currentTime, tracks, pushUndo])
+    const videoTrackIndex = videoTrack ? trks.indexOf(videoTrack) : -1
+    const audioTrackIndex = audioTrack ? trks.indexOf(audioTrack) : -1
 
-  // --- 3-Point Editing: Overwrite Edit ---
-  const handleOverwriteEdit = useCallback(() => {
-    if (!sourceAsset) return
-    const sIn = sourceIn ?? 0
-    const sDuration = sourceAsset.duration || 5
-    const sOut = sourceOut ?? sDuration
-    const insertDuration = sOut - sIn
-    if (insertDuration <= 0) return
+    const videoClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    const audioClipId = `clip-${Date.now()}-a-${Math.random().toString(36).substr(2, 9)}`
 
-    pushUndo()
-
-    const isAudio = sourceAsset.type === 'audio'
-    const targetTrack = tracks.find(t => !t.locked && (isAudio ? t.kind === 'audio' : t.kind === 'video'))
-    if (!targetTrack) return
-    const targetTrackIndex = tracks.indexOf(targetTrack)
-
-    const newClip: TimelineClip = {
-      id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      assetId: sourceAsset.id,
-      type: sourceAsset.type === 'video' ? 'video' : sourceAsset.type === 'audio' ? 'audio' : 'image',
-      startTime: currentTime,
+    const baseClip = {
+      assetId: asset.id,
+      startTime: time,
       duration: insertDuration,
       trimStart: sIn,
       trimEnd: sDuration - sOut,
@@ -135,18 +111,75 @@ export function useSourceMonitor({ currentTime, tracks, pushUndo, setClips }: Us
       reversed: false,
       muted: false,
       volume: 1,
-      trackIndex: targetTrackIndex,
-      asset: sourceAsset,
-      flipH: false,
-      flipV: false,
-      transitionIn: { type: 'none', duration: 0.5 },
-      transitionOut: { type: 'none', duration: 0.5 },
+      asset,
+      flipH: false as const,
+      flipV: false as const,
+      transitionIn: { type: 'none' as const, duration: 0.5 },
+      transitionOut: { type: 'none' as const, duration: 0.5 },
       colorCorrection: { ...DEFAULT_COLOR_CORRECTION },
       opacity: 100,
     }
 
-    setClips(prev => resolveOverlaps([...prev, newClip], new Set([newClip.id])))
-  }, [sourceAsset, sourceIn, sourceOut, currentTime, tracks, pushUndo])
+    const newClips: TimelineClip[] = []
+
+    if (isAudio) {
+      newClips.push({ ...baseClip, id: audioClipId, type: 'audio', trackIndex: audioTrackIndex })
+    } else {
+      const needsAudio = asset.type === 'video' && audioTrackIndex >= 0
+      newClips.push({
+        ...baseClip,
+        id: videoClipId,
+        type: asset.type === 'video' ? 'video' : 'image',
+        trackIndex: videoTrackIndex,
+        ...(needsAudio ? { linkedClipIds: [audioClipId] } : {}),
+      })
+      if (needsAudio) {
+        newClips.push({
+          ...baseClip,
+          id: audioClipId,
+          type: 'audio',
+          trackIndex: audioTrackIndex,
+          linkedClipIds: [videoClipId],
+        })
+      }
+    }
+
+    return { newClips, insertDuration, videoTrackIndex, audioTrackIndex, time }
+  }, [])
+
+  // --- 3-Point Editing: Insert Edit ---
+  const handleInsertEdit = useCallback(() => {
+    const result = buildEditClips()
+    if (!result) return
+
+    pushUndo()
+
+    const { newClips, insertDuration, videoTrackIndex, audioTrackIndex, time } = result
+    setClips(prev => {
+      // Ripple clips on all targeted tracks
+      const rippled = prev.map(c => {
+        const isTargetTrack = (videoTrackIndex >= 0 && c.trackIndex === videoTrackIndex) ||
+                              (audioTrackIndex >= 0 && c.trackIndex === audioTrackIndex)
+        if (isTargetTrack && c.startTime >= time) {
+          return { ...c, startTime: c.startTime + insertDuration }
+        }
+        return c
+      })
+      return [...rippled, ...newClips]
+    })
+  }, [pushUndo, buildEditClips])
+
+  // --- 3-Point Editing: Overwrite Edit ---
+  const handleOverwriteEdit = useCallback(() => {
+    const result = buildEditClips()
+    if (!result) return
+
+    pushUndo()
+
+    const { newClips } = result
+    const newClipIds = new Set(newClips.map(c => c.id))
+    setClips(prev => resolveOverlaps([...prev, ...newClips], newClipIds))
+  }, [pushUndo, buildEditClips])
 
   return {
     sourceAsset, setSourceAsset,
