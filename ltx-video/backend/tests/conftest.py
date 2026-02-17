@@ -248,7 +248,6 @@ def _reset_state():
     ltx2_server._model_ledger_patched = False
     ltx2_server._encode_text_patched = False
     ltx2_server.compiled_models = {"fast": False, "pro": False}
-    ltx2_server.export_sessions = {}
 
     # Reset torch mock
     _torch_stub.cuda.is_available.return_value = False
