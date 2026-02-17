@@ -701,7 +701,8 @@ def download_models():
             logger.info(f"Found {filename}")
     
     # Download text encoder (folder)
-    if not GEMMA_PATH.exists() or not any(GEMMA_PATH.iterdir()):
+    text_encoder_dir = GEMMA_PATH / "text_encoder"
+    if not text_encoder_dir.exists() or not any(text_encoder_dir.iterdir()):
         logger.info("Downloading text_encoder...")
         snapshot_download(
             repo_id=repo_id,
@@ -899,7 +900,8 @@ def download_models_with_progress(skip_text_encoder: bool = False):
     
     # Check text encoder (skip if using API key)
     if not skip_text_encoder:
-        text_encoder_needs_download = not GEMMA_PATH.exists() or not any(GEMMA_PATH.iterdir()) if GEMMA_PATH.exists() else True
+        text_encoder_dir = GEMMA_PATH / "text_encoder"
+        text_encoder_needs_download = not text_encoder_dir.exists() or not any(text_encoder_dir.iterdir()) if text_encoder_dir.exists() else True
         if text_encoder_needs_download:
             files_to_download.append(("text_encoder", GEMMA_PATH, 8_000_000_000, True, "Lightricks/LTX-2"))
             total_bytes += 8_000_000_000
@@ -1227,7 +1229,17 @@ def load_pipeline(model_type: str = "fast"):
     # This ensures the patched functions are used when modules are imported
     patch_encode_text_for_api()
     patch_model_ledger_class()
-    
+
+    # When using API for text encoding, skip loading the text encoder entirely.
+    # ModelLedger accepts gemma_root_path=None and will skip the text encoder builder.
+    with settings_lock:
+        ltx_api_key = app_settings.get("ltx_api_key", "")
+        use_local = app_settings.get("use_local_text_encoder", False)
+
+    text_encoder_dir = GEMMA_PATH / "text_encoder"
+    text_encoder_available = text_encoder_dir.exists() and any(text_encoder_dir.iterdir())
+    gemma_root = str(GEMMA_PATH) if (use_local or not ltx_api_key) and text_encoder_available else None
+
     try:
         if model_type == "fast" and distilled_pipeline is None:
             from ltx_pipelines.distilled import DistilledPipeline
@@ -1241,7 +1253,7 @@ def load_pipeline(model_type: str = "fast"):
             # Spatial upsampler is REQUIRED for this pipeline
             distilled_pipeline = DistilledPipeline(
                 checkpoint_path=str(CHECKPOINT_PATH),
-                gemma_root=str(GEMMA_PATH),
+                gemma_root=gemma_root,
                 spatial_upsampler_path=str(UPSAMPLER_PATH),
                 loras=[],
                 device=DEVICE,
@@ -1261,7 +1273,7 @@ def load_pipeline(model_type: str = "fast"):
             # Fast Native: distilled model at native resolution WITHOUT loading upsampler
             distilled_native_pipeline = DistilledNativePipeline(
                 checkpoint_path=str(CHECKPOINT_PATH),
-                gemma_root=str(GEMMA_PATH),
+                gemma_root=gemma_root,
                 device=DEVICE,
                 fp8transformer=True,
             )
@@ -1281,7 +1293,7 @@ def load_pipeline(model_type: str = "fast"):
             # Always provide upsampler path (required by pipeline)
             pro_pipeline = TI2VidTwoStagesPipeline(
                 checkpoint_path=str(CHECKPOINT_PATH),
-                gemma_root=str(GEMMA_PATH),
+                gemma_root=gemma_root,
                 spatial_upsampler_path=str(UPSAMPLER_PATH),
                 distilled_lora_path=str(DISTILLED_LORA_PATH),
                 distilled_lora_strength=1.0,
@@ -1305,7 +1317,7 @@ def load_pipeline(model_type: str = "fast"):
             # Single-stage pipeline: generates at full resolution without upscaler
             pro_native_pipeline = TI2VidOneStagePipeline(
                 checkpoint_path=str(CHECKPOINT_PATH),
-                gemma_root=str(GEMMA_PATH),
+                gemma_root=gemma_root,
                 loras=[],
                 device=DEVICE,
                 fp8transformer=True,
@@ -1424,6 +1436,15 @@ def load_ic_lora_pipeline(lora_path: str):
     patch_encode_text_for_api()
     patch_model_ledger_class()
 
+    # Same logic as load_pipeline: skip text encoder when using API
+    with settings_lock:
+        ltx_api_key = app_settings.get("ltx_api_key", "")
+        use_local = app_settings.get("use_local_text_encoder", False)
+
+    text_encoder_dir = GEMMA_PATH / "text_encoder"
+    text_encoder_available = text_encoder_dir.exists() and any(text_encoder_dir.iterdir())
+    gemma_root = str(GEMMA_PATH) if (use_local or not ltx_api_key) and text_encoder_available else None
+
     try:
         from ltx_pipelines.ic_lora import ICLoraPipeline
         from ltx_core.loader.primitives import LoraPathStrengthAndSDOps
@@ -1439,7 +1460,7 @@ def load_ic_lora_pipeline(lora_path: str):
             distilled_lora_path=str(DISTILLED_LORA_PATH),
             distilled_lora_strength=1.0,
             spatial_upsampler_path=str(UPSAMPLER_PATH),
-            gemma_root=str(GEMMA_PATH),
+            gemma_root=gemma_root,
             loras=[lora_entry],
             device=DEVICE,
             fp8transformer=True,
@@ -1994,8 +2015,14 @@ def generate_video(
                     # Store embeddings globally - the patched encode_text will use them
                     _api_embeddings = embeddings
                 else:
+                    if gemma_root is None:
+                        raise RuntimeError("LTX API text encoding failed and local text encoder is not available. "
+                                           "Please download the text encoder from Settings or check your API key.")
                     logger.info("Falling back to local text encoder")
             else:
+                if gemma_root is None:
+                    raise RuntimeError("Could not extract model_id for API encoding and local text encoder is not available. "
+                                       "Please download the text encoder from Settings.")
                 logger.warning("Could not extract model_id, using local encoder")
         
         # Update progress to inference phase (this is where most time is spent)
