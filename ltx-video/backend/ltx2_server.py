@@ -2243,25 +2243,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "progress": warmup_state["progress"],
                 "error": warmup_state["error"],
             })
-        elif self.path == "/api/logs":
-            # Return last 200 lines of log file for debugging
-            try:
-                lines = []
-                if LOG_FILE.exists():
-                    with open(LOG_FILE, 'r', encoding='utf-8') as f:
-                        lines = f.readlines()[-200:]
-                self.send_json_response(200, {
-                    "logPath": str(LOG_FILE),
-                    "lines": [l.rstrip() for l in lines],
-                })
-            except Exception as e:
-                self.send_json_response(500, {"error": str(e)})
-        elif self.path == "/api/logs/path":
-            # Just return the log file path
-            self.send_json_response(200, {
-                "logPath": str(LOG_FILE),
-                "logDir": str(LOG_DIR),
-            })
         elif self.path == "/api/generation/progress":
             with generation_lock:
                 self.send_json_response(200, {
