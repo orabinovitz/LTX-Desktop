@@ -2312,9 +2312,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         body = self.rfile.read(content_len).decode('utf-8')
                         data = json.loads(body)
                         skip_text_encoder = data.get('skipTextEncoder', False)
-                        # Also check if API key is provided in this request
-                        if data.get('ltxApiKey'):
-                            skip_text_encoder = True
                 except Exception:
                     pass
                 

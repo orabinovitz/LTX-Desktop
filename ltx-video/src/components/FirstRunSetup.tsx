@@ -204,7 +204,6 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
       // Start download - skip text encoder if API key is provided
       await window.electronAPI.startModelDownload({
         skipTextEncoder: !!ltxApiKey.trim(),
-        ltxApiKey: ltxApiKey.trim(),
       })
     } catch (e) {
       console.error('Download start error:', e)

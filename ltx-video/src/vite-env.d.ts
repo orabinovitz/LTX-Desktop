@@ -50,7 +50,7 @@ interface Window {
     openFolder: (folderPath: string) => Promise<void>
     showItemInFolder: (filePath: string) => Promise<void>
     getModelsStatus: () => Promise<ModelsStatus>
-    startModelDownload: (options?: { skipTextEncoder?: boolean; ltxApiKey?: string }) => Promise<{ status: string; message?: string; error?: string; skippingTextEncoder?: boolean }>
+    startModelDownload: (options?: { skipTextEncoder?: boolean }) => Promise<{ status: string; message?: string; error?: string; skippingTextEncoder?: boolean }>
     getModelDownloadProgress: () => Promise<ModelDownloadProgress>
     getLogs: () => Promise<LogsResponse>
     getLogPath: () => Promise<{ logPath: string; logDir: string }>
