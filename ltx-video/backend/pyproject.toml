@@ -4,10 +4,6 @@ version = "1.0.0"
 description = "LTX-2 Video Generation Backend"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.111.0",
-    "uvicorn[standard]>=0.30.0",
-    "websockets>=12.0",
-    "python-multipart>=0.0.9",
     "pillow>=10.3.0",
     "torch>=2.3.0",
     "huggingface-hub>=0.23.0",
@@ -35,9 +31,6 @@ torch = { index = "pytorch-cu128" }
 torchaudio = { index = "pytorch-cu128" }
 ltx-core = { git = "https://github.com/LightricksResearch/ltx-2-internal.git", subdirectory = "packages/ltx-core", rev = "d10477aec456c9c70103ee276318c316076c5ec2" }
 ltx-pipelines = { git = "https://github.com/LightricksResearch/ltx-2-internal.git", subdirectory = "packages/ltx-pipelines", rev = "d10477aec456c9c70103ee276318c316076c5ec2" }
-
-[tool.hatch.build.targets.wheel]
-packages = ["api", "inference"]
 
 [build-system]
 requires = ["hatchling"]
