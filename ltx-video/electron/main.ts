@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
-import { spawn, ChildProcess, execSync } from 'child_process'
+import { spawn, spawnSync, ChildProcess, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
@@ -41,7 +41,9 @@ function getBackendPath(): string {
 function getPythonPath(): string {
   // In production, use bundled Python first
   if (!isDev) {
-    const bundledPython = path.join(process.resourcesPath, 'python', 'python.exe')
+    const bundledPython = process.platform === 'win32'
+      ? path.join(process.resourcesPath, 'python', 'python.exe')
+      : path.join(process.resourcesPath, 'python', 'bin', 'python3')
     if (fs.existsSync(bundledPython)) {
       console.log(`Using bundled Python: ${bundledPython}`)
       return bundledPython
@@ -50,22 +52,30 @@ function getPythonPath(): string {
   
   // Check for venv in backend directory
   const backendPath = getBackendPath()
-  const venvPython = path.join(backendPath, '.venv', 'Scripts', 'python.exe')
-  
+  const isWindows = process.platform === 'win32'
+  const venvPython = isWindows
+    ? path.join(backendPath, '.venv', 'Scripts', 'python.exe')
+    : path.join(backendPath, '.venv', 'bin', 'python')
+
   if (fs.existsSync(venvPython)) {
     console.log(`Using venv Python: ${venvPython}`)
     return venvPython
   }
-  
+
   if (isDev) {
     // In development, try common Python paths
-    const pythonPaths = [
-      'python',
-      'python3',
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
-    ]
-    
+    const pythonPaths = isWindows
+      ? [
+          'python',
+          'python3',
+          path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
+          path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
+        ]
+      : [
+          'python3',
+          'python',
+        ]
+
     for (const p of pythonPaths) {
       try {
         if (fs.existsSync(p)) {
@@ -75,7 +85,7 @@ function getPythonPath(): string {
         continue
       }
     }
-    return 'python'
+    return isWindows ? 'python' : 'python3'
   }
   
   // Fallback
@@ -671,13 +681,14 @@ function findFfmpegPath(): string | null {
 /** Check if a video file contains an audio stream using ffprobe/ffmpeg */
 function fileHasAudio(ffmpegPath: string, filePath: string): boolean {
   try {
-    // Use ffmpeg -i to probe; look for "Audio:" in stderr output
-    const result = execSync(`"${ffmpegPath}" -i "${filePath}" -hide_banner 2>&1`, { encoding: 'utf8', timeout: 5000 }).toString()
-    return result.includes('Audio:')
-  } catch (err: any) {
-    // ffmpeg -i exits with code 1 but still outputs info to stderr/stdout
-    const output = err.stdout || err.stderr || ''
+    const result = spawnSync(ffmpegPath, ['-i', filePath, '-hide_banner'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    })
+    const output = (result.stdout || '') + (result.stderr || '')
     return output.includes('Audio:')
+  } catch {
+    return false
   }
 }
 
