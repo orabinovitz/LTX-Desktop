@@ -1,12 +1,12 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
-  FolderPlus, Folder, Upload, ChevronLeft, ChevronDown, ChevronRight,
+  FolderPlus, Folder, Upload, ChevronLeft, ChevronDown, ChevronRight, ChevronUp,
   X, RefreshCw, Loader2, Trash2, Music, Layers, Video, Image,
-  Plus, FileUp, Film, LayoutGrid, List, Clock,
+  Plus, FileUp, Film, LayoutGrid, List, Clock, ArrowUpDown,
 } from 'lucide-react'
 import type { Asset, TimelineClip, Timeline } from '../../types/project'
 import { VideoThumbnailCard } from './VideoThumbnailCard'
-import { getColorLabel } from './video-editor-utils'
+import { getColorLabel, COLOR_LABELS } from './video-editor-utils'
 
 export interface LeftPanelProps {
   leftPanelWidth: number
@@ -62,6 +62,13 @@ export interface LeftPanelProps {
   handleDeleteTimeline: (id: string) => void
   handleTimelineTabContextMenu: (e: React.MouseEvent, timelineId: string) => void
   openTimelineIds: Set<string>
+  renamingTimelineId: string | null
+  renameValue: string
+  renameSource: 'tab' | 'panel'
+  setRenameValue: (v: string) => void
+  handleStartRename: (timelineId: string, currentName: string, source?: 'tab' | 'panel') => void
+  handleFinishRename: () => void
+  setRenamingTimelineId: (v: string | null) => void
 }
 
 export function LeftPanel(props: LeftPanelProps) {
@@ -119,9 +126,61 @@ export function LeftPanel(props: LeftPanelProps) {
     handleDeleteTimeline,
     handleTimelineTabContextMenu,
     openTimelineIds,
+    renamingTimelineId,
+    renameValue,
+    renameSource,
+    setRenameValue,
+    handleStartRename,
+    handleFinishRename,
+    setRenamingTimelineId,
   } = props
 
   const [assetViewMode, setAssetViewMode] = useState<'grid' | 'list'>('grid')
+  const [listSortCol, setListSortCol] = useState<'name' | 'type' | 'duration' | 'resolution' | 'date' | 'color'>('name')
+  const [listSortDir, setListSortDir] = useState<'asc' | 'desc'>('asc')
+
+  const toggleSort = (col: typeof listSortCol) => {
+    if (listSortCol === col) {
+      setListSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setListSortCol(col)
+      setListSortDir('asc')
+    }
+  }
+
+  const sortedAssets = useMemo(() => {
+    if (assetViewMode !== 'list') return filteredAssets
+    const sorted = [...filteredAssets]
+    const dir = listSortDir === 'asc' ? 1 : -1
+    sorted.sort((a, b) => {
+      switch (listSortCol) {
+        case 'name': {
+          const nameA = (a.path?.split(/[/\\]/).pop() || a.type || '').toLowerCase()
+          const nameB = (b.path?.split(/[/\\]/).pop() || b.type || '').toLowerCase()
+          return dir * nameA.localeCompare(nameB)
+        }
+        case 'type':
+          return dir * a.type.localeCompare(b.type)
+        case 'duration':
+          return dir * ((a.duration ?? 0) - (b.duration ?? 0))
+        case 'resolution': {
+          const parseHeight = (r?: string) => { const m = r?.match(/(\d+)/); return m ? parseInt(m[1]) : 0 }
+          return dir * (parseHeight(a.resolution) - parseHeight(b.resolution))
+        }
+        case 'date':
+          return dir * (a.createdAt - b.createdAt)
+        case 'color': {
+          const colorOrder = COLOR_LABELS.map(c => c.id)
+          const idxA = a.colorLabel ? colorOrder.indexOf(a.colorLabel) : colorOrder.length
+          const idxB = b.colorLabel ? colorOrder.indexOf(b.colorLabel) : colorOrder.length
+          return dir * (idxA - idxB)
+        }
+        default:
+          return 0
+      }
+    })
+    return sorted
+  }, [filteredAssets, listSortCol, listSortDir, assetViewMode])
 
   return (
     <div className="flex-shrink-0 border-r border-zinc-800 flex flex-col" style={{ width: leftPanelWidth }}>
@@ -769,17 +828,48 @@ export function LeftPanel(props: LeftPanelProps) {
               )})}
             </div>
           ) : (
-            /* ── List View ── */
-            <div className="flex flex-col gap-0.5">
-              {filteredAssets.map(asset => {
+            /* ── List View with sortable columns ── */
+            <div className="flex flex-col">
+              {/* Column headers */}
+              <div className="flex items-center gap-1 px-2 py-1 border-b border-zinc-800 bg-zinc-900/80 sticky top-0 z-10">
+                <div className="w-2 flex-shrink-0" />
+                <div className="w-8 flex-shrink-0" />
+                {([
+                  { col: 'name' as const, label: 'Name', flex: 'flex-1 min-w-0' },
+                  { col: 'type' as const, label: 'Type', flex: 'w-14 flex-shrink-0 text-center' },
+                  { col: 'duration' as const, label: 'Duration', flex: 'w-16 flex-shrink-0 text-right' },
+                  { col: 'resolution' as const, label: 'Res', flex: 'w-14 flex-shrink-0 text-right' },
+                  { col: 'date' as const, label: 'Date', flex: 'w-16 flex-shrink-0 text-right' },
+                  { col: 'color' as const, label: 'Color', flex: 'w-10 flex-shrink-0 text-center' },
+                ]).map(({ col, label, flex }) => (
+                  <button
+                    key={col}
+                    onClick={() => toggleSort(col)}
+                    className={`${flex} flex items-center gap-0.5 text-[9px] font-semibold uppercase tracking-wider transition-colors cursor-pointer select-none ${
+                      listSortCol === col ? 'text-violet-400' : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    <span className="truncate">{label}</span>
+                    {listSortCol === col ? (
+                      listSortDir === 'asc' ? <ChevronUp className="h-2.5 w-2.5 flex-shrink-0" /> : <ChevronDown className="h-2.5 w-2.5 flex-shrink-0" />
+                    ) : (
+                      <ArrowUpDown className="h-2.5 w-2.5 flex-shrink-0 opacity-0 group-hover:opacity-50" />
+                    )}
+                  </button>
+                ))}
+                <div className="w-6 flex-shrink-0" />
+              </div>
+              {/* Asset rows */}
+              {sortedAssets.map(asset => {
                 const cl = getColorLabel(asset.colorLabel)
                 const name = asset.path ? asset.path.split(/[/\\]/).pop() || asset.path : asset.type === 'adjustment' ? 'Adjustment Layer' : asset.type.charAt(0).toUpperCase() + asset.type.slice(1)
+                const dateStr = new Date(asset.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
                 return (
                   <div
                     key={asset.id}
                     data-asset-card
                     data-asset-id={asset.id}
-                    className={`group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-all ${
+                    className={`group flex items-center gap-1 px-2 py-1 cursor-pointer transition-all ${
                       selectedAssetIds.has(asset.id)
                         ? 'bg-violet-600/20 ring-1 ring-violet-500/50'
                         : 'hover:bg-zinc-800/60'
@@ -847,39 +937,47 @@ export function LeftPanel(props: LeftPanelProps) {
                       <div className="w-2 flex-shrink-0" />
                     )}
                     {/* Thumbnail */}
-                    <div className="w-10 h-7 flex-shrink-0 rounded overflow-hidden bg-zinc-800">
+                    <div className="w-8 h-6 flex-shrink-0 rounded overflow-hidden bg-zinc-800">
                       {asset.type === 'video' ? (
                         thumbnailMap[asset.url] ? (
                           <img src={thumbnailMap[asset.url]} alt="" className="w-full h-full object-cover" />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center"><Film className="h-3 w-3 text-zinc-500" /></div>
+                          <div className="w-full h-full flex items-center justify-center"><Film className="h-2.5 w-2.5 text-zinc-500" /></div>
                         )
                       ) : asset.type === 'audio' ? (
-                        <div className="w-full h-full flex items-center justify-center bg-emerald-900/40"><Music className="h-3 w-3 text-emerald-400" /></div>
+                        <div className="w-full h-full flex items-center justify-center bg-emerald-900/40"><Music className="h-2.5 w-2.5 text-emerald-400" /></div>
                       ) : asset.type === 'adjustment' ? (
-                        <div className="w-full h-full flex items-center justify-center bg-violet-900/30"><Layers className="h-3 w-3 text-violet-400" /></div>
+                        <div className="w-full h-full flex items-center justify-center bg-violet-900/30"><Layers className="h-2.5 w-2.5 text-violet-400" /></div>
                       ) : (
                         <img src={asset.url} alt="" className="w-full h-full object-cover" />
                       )}
                     </div>
-                    {/* Name + metadata */}
+                    {/* Name column */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-[11px] text-zinc-200 truncate leading-tight">{name}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[9px] text-zinc-500 uppercase font-medium">{asset.type}</span>
-                        {asset.duration != null && (
-                          <span className="text-[9px] text-zinc-500 flex items-center gap-0.5">
-                            <Clock className="h-2.5 w-2.5" />
-                            {asset.duration.toFixed(1)}s
-                          </span>
-                        )}
-                        {asset.resolution && (
-                          <span className="text-[9px] text-zinc-500">{asset.resolution}</span>
-                        )}
-                        {asset.takes && asset.takes.length > 1 && (
-                          <span className="text-[9px] text-violet-400">{asset.takes.length} takes</span>
-                        )}
-                      </div>
+                      <p className="text-[10px] text-zinc-200 truncate leading-tight">{name}</p>
+                      {asset.takes && asset.takes.length > 1 && (
+                        <span className="text-[8px] text-violet-400">{asset.takes.length} takes</span>
+                      )}
+                    </div>
+                    {/* Type column */}
+                    <span className="w-14 flex-shrink-0 text-center text-[9px] text-zinc-500 uppercase font-medium">{asset.type}</span>
+                    {/* Duration column */}
+                    <span className="w-16 flex-shrink-0 text-right text-[9px] text-zinc-500 tabular-nums">
+                      {asset.duration != null ? `${asset.duration.toFixed(1)}s` : '—'}
+                    </span>
+                    {/* Resolution column */}
+                    <span className="w-14 flex-shrink-0 text-right text-[9px] text-zinc-500">
+                      {asset.resolution || '—'}
+                    </span>
+                    {/* Date column */}
+                    <span className="w-16 flex-shrink-0 text-right text-[9px] text-zinc-500">{dateStr}</span>
+                    {/* Color column */}
+                    <div className="w-10 flex-shrink-0 flex items-center justify-center">
+                      {cl ? (
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cl.color }} title={cl.label} />
+                      ) : (
+                        <span className="text-[9px] text-zinc-600">—</span>
+                      )}
                     </div>
                     {/* Delete button on hover */}
                     <button
@@ -887,7 +985,7 @@ export function LeftPanel(props: LeftPanelProps) {
                         e.stopPropagation()
                         if (currentProjectId) { pushAssetUndoRef.current(); deleteAsset(currentProjectId, asset.id) }
                       }}
-                      className="p-1 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                      className="w-6 flex-shrink-0 flex items-center justify-center p-0.5 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
                       title="Delete asset"
                     >
                       <X className="h-3 w-3" />
@@ -966,13 +1064,31 @@ export function LeftPanel(props: LeftPanelProps) {
                   e.dataTransfer.effectAllowed = 'copy'
                 }}
                 onClick={() => handleSwitchTimeline(tl.id)}
+                onDoubleClick={() => handleStartRename(tl.id, tl.name, 'panel')}
                 onContextMenu={(e) => handleTimelineTabContextMenu(e, tl.id)}
               >
                 <Film className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-violet-400' : 'text-zinc-500'}`} />
                 <div className="flex-1 min-w-0">
-                  <p className={`text-xs font-medium truncate ${isActive ? 'text-white' : 'text-zinc-300'}`}>
-                    {tl.name}
-                  </p>
+                  {renamingTimelineId === tl.id && renameSource === 'panel' ? (
+                    <input
+                      type="text"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={handleFinishRename}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleFinishRename()
+                        if (e.key === 'Escape') { setRenamingTimelineId(null); setRenameValue('') }
+                      }}
+                      className="bg-zinc-900 border border-violet-500 rounded px-1 py-0.5 outline-none text-white text-xs w-full"
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <p className={`text-xs font-medium truncate ${isActive ? 'text-white' : 'text-zinc-300'}`}>
+                      {tl.name}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2 text-[10px] text-zinc-500">
                     <span>{clipCount} clip{clipCount !== 1 ? 's' : ''}</span>
                     {clipCount > 0 && (

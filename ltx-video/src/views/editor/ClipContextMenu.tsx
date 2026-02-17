@@ -3,7 +3,8 @@ import {
   Clipboard, Copy, Scissors, Trash2, Layers, Type, X, RefreshCw,
   ZoomIn, Film, Eye, FolderOpen, RotateCcw, Volume2, VolumeX,
   FlipHorizontal2, FlipVertical2, Link2, Unlink2,
-  ChevronLeft, ChevronRight, Sparkles, Wand2,
+  ChevronLeft, ChevronRight, Sparkles, Wand2, Paintbrush,
+  Image, Video, Camera,
 } from 'lucide-react'
 import type { Asset, TimelineClip, Track, TextOverlayStyle } from '../../types/project'
 import { TEXT_PRESETS } from '../../types/project'
@@ -40,7 +41,7 @@ export interface ClipContextMenuProps {
   handleClipTakeChange: (clipId: string, direction: 'prev' | 'next') => void
   handleDeleteTake: (clipId: string) => void
   duplicateClip: (clipId: string) => void
-  splitClipAtPlayhead: (clipId: string) => void
+  splitClipAtPlayhead: (clipId: string, atTime?: number, batchClipIds?: string[]) => void
   removeClip: (clipId: string) => void
   updateClip: (clipId: string, updates: Partial<TimelineClip>) => void
   getLiveAsset: (clip: TimelineClip) => Asset | null | undefined
@@ -54,6 +55,8 @@ export interface ClipContextMenuProps {
   setRetakeClipId: (v: string | null) => void
   setIcLoraSourceClipId: (v: string | null) => void
   setShowICLoraPanel: (v: boolean) => void
+  onCaptureFrameForEdit: (clip: TimelineClip) => void
+  onCaptureFrameForVideo: (clip: TimelineClip) => void
 }
 
 // Reusable menu item component
@@ -134,6 +137,8 @@ export function ClipContextMenu({
   setRetakeClipId,
   setIcLoraSourceClipId,
   setShowICLoraPanel,
+  onCaptureFrameForEdit,
+  onCaptureFrameForVideo,
 }: ClipContextMenuProps) {
   const close = () => setClipContextMenu(null)
   const isBackground = !contextClip
@@ -253,6 +258,8 @@ export function ClipContextMenu({
           setRetakeClipId={setRetakeClipId}
           setIcLoraSourceClipId={setIcLoraSourceClipId}
           setShowICLoraPanel={setShowICLoraPanel}
+          onCaptureFrameForEdit={onCaptureFrameForEdit}
+          onCaptureFrameForVideo={onCaptureFrameForVideo}
           close={close}
         />
       ) : null}
@@ -282,7 +289,8 @@ function SingleClipMenu({
   duplicateClip, splitClipAtPlayhead, removeClip, updateClip,
   getLiveAsset, getMaxClipDuration,
   setAssetFilter, setSelectedBin, setTakesViewAssetId, setSelectedAssetIds,
-  setI2vClipId, setI2vPrompt, setRetakeClipId, setIcLoraSourceClipId, setShowICLoraPanel,
+  setI2vClipId, setI2vPrompt, setRetakeClipId,   setIcLoraSourceClipId, setShowICLoraPanel,
+  onCaptureFrameForEdit, onCaptureFrameForVideo,
   close,
 }: {
   contextClip: TimelineClip
@@ -301,7 +309,7 @@ function SingleClipMenu({
   handleClipTakeChange: (clipId: string, direction: 'prev' | 'next') => void
   handleDeleteTake: (clipId: string) => void
   duplicateClip: (clipId: string) => void
-  splitClipAtPlayhead: (clipId: string) => void
+  splitClipAtPlayhead: (clipId: string, atTime?: number, batchClipIds?: string[]) => void
   removeClip: (clipId: string) => void
   updateClip: (clipId: string, updates: Partial<TimelineClip>) => void
   getLiveAsset: (clip: TimelineClip) => Asset | null | undefined
@@ -315,6 +323,8 @@ function SingleClipMenu({
   setRetakeClipId: (v: string | null) => void
   setIcLoraSourceClipId: (v: string | null) => void
   setShowICLoraPanel: (v: boolean) => void
+  onCaptureFrameForEdit: (clip: TimelineClip) => void
+  onCaptureFrameForVideo: (clip: TimelineClip) => void
   close: () => void
 }) {
   const liveAsset = getLiveAsset(contextClip)
@@ -526,6 +536,28 @@ function SingleClipMenu({
               <MenuItem icon={Sparkles} iconClass="text-amber-400" label="IC-LoRA / Style Transfer"
                 onClick={() => { setIcLoraSourceClipId(contextClip.id); setShowICLoraPanel(true); close() }} />
             </>
+          )}
+          {(isVideo || isImage) && (
+            <div className="relative group/capture">
+              <button
+                className="w-full text-left px-3 py-1.5 flex items-center gap-3 transition-colors hover:bg-zinc-700 text-zinc-300"
+              >
+                <Camera className="h-3.5 w-3.5 flex-shrink-0 text-amber-400" />
+                <span className="flex-1 truncate">Use Frame As...</span>
+                <ChevronRight className="h-3 w-3 text-zinc-500" />
+              </button>
+              <div className="absolute left-full top-0 ml-0.5 min-w-[200px] bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 z-[70] hidden group-hover/capture:block">
+                <MenuItem icon={Paintbrush} iconClass="text-emerald-400" label="Edit Image in Gen Space"
+                  onClick={() => { onCaptureFrameForEdit(contextClip); close() }} />
+                <MenuItem icon={Video} iconClass="text-violet-400" label="Generate Video in Gen Space"
+                  onClick={() => { onCaptureFrameForVideo(contextClip); close() }} />
+                {isImage && (
+                  <MenuItem icon={Film} iconClass="text-blue-400" label="Image to Video (I2V)"
+                    disabled={isRegenerating && i2vClipId === contextClip.id}
+                    onClick={() => { setI2vClipId(contextClip.id); setI2vPrompt(contextClip.asset?.prompt || ''); close() }} />
+                )}
+              </div>
+            </div>
           )}
         </>
       )}

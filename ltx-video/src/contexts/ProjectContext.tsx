@@ -41,6 +41,12 @@ interface ProjectContextType {
   openProject: (id: string) => void
   goHome: () => void
   openPlayground: () => void
+  
+  // Cross-view communication (editor → gen space)
+  genSpaceEditImageUrl: string | null
+  setGenSpaceEditImageUrl: (url: string | null) => void
+  genSpaceEditMode: 'image' | 'video' | null
+  setGenSpaceEditMode: (mode: 'image' | 'video' | null) => void
 }
 
 const ProjectContext = createContext<ProjectContextType | null>(null)
@@ -126,6 +132,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const [currentView, setCurrentView] = useState<ViewType>('home')
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null)
   const [currentTab, setCurrentTab] = useState<ProjectTab>('gen-space')
+  const [genSpaceEditImageUrl, setGenSpaceEditImageUrl] = useState<string | null>(null)
+  const [genSpaceEditMode, setGenSpaceEditMode] = useState<'image' | 'video' | null>(null)
   // Initialize with data from localStorage
   const [projects, setProjects] = useState<Project[]>(() => loadProjectsFromStorage())
   const isInitializedRef = useRef(false)
@@ -480,6 +488,10 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       openProject,
       goHome,
       openPlayground,
+      genSpaceEditImageUrl,
+      setGenSpaceEditImageUrl,
+      genSpaceEditMode,
+      setGenSpaceEditMode,
     }}>
       {children}
     </ProjectContext.Provider>

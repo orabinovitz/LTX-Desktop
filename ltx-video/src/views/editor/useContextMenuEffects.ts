@@ -119,19 +119,24 @@ export function useContextMenuEffects(params: UseContextMenuEffectsParams) {
   }, [clipContextMenu])
   
   // Close zoom dropdown on click outside
+  // Defer listener attachment by one frame to avoid catching the same click that opened it
   useEffect(() => {
     if (!previewZoomOpen) return
     const handler = () => setPreviewZoomOpen(false)
-    window.addEventListener('click', handler)
-    return () => window.removeEventListener('click', handler)
+    const raf = requestAnimationFrame(() => {
+      window.addEventListener('click', handler)
+    })
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('click', handler) }
   }, [previewZoomOpen])
   
   // Close playback resolution dropdown on click outside
   useEffect(() => {
     if (!playbackResOpen) return
     const handler = () => setPlaybackResOpen(false)
-    window.addEventListener('click', handler)
-    return () => window.removeEventListener('click', handler)
+    const raf = requestAnimationFrame(() => {
+      window.addEventListener('click', handler)
+    })
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('click', handler) }
   }, [playbackResOpen])
   
   // Reset pan when switching to fit

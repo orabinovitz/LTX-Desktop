@@ -23,6 +23,7 @@ interface GenerationProgress {
 interface UseGenerationReturn extends GenerationState {
   generate: (prompt: string, image: File | null, settings: GenerationSettings) => Promise<void>
   generateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
+  editImage: (prompt: string, inputImages: File[], settings: GenerationSettings) => Promise<void>
   cancel: () => void
   reset: () => void
 }
@@ -82,38 +83,37 @@ export function useGeneration(): UseGenerationReturn {
       // Get backend URL from Electron
       const backendUrl = await window.electronAPI.getBackendUrl()
 
-      // Step 1: Enhance prompt (if enabled)
-      // Skip enhancement for I2V — the image is the primary conditioning and the enhancer
-      // doesn't see the image, so it would invent scene details that conflict with it.
+      // Step 1: Enhance prompt (if enabled — backend checks per-mode setting)
+      const enhanceMode = image ? 'i2v' : 't2v'
       let finalPrompt = prompt
-      if (!image) {
-        try {
-          const enhanceResponse = await fetch(`${backendUrl}/api/enhance-prompt`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, mode: 't2v' }),
-            signal: abortControllerRef.current.signal,
-          })
-          
-          if (enhanceResponse.ok) {
-            const enhanceResult = await enhanceResponse.json()
-            if (enhanceResult.status === 'success' && enhanceResult.enhanced_prompt) {
-              finalPrompt = enhanceResult.enhanced_prompt
-              console.log('Prompt enhanced (t2v):', finalPrompt.substring(0, 100) + '...')
-            }
-          } else {
-            const errorData = await enhanceResponse.json().catch(() => ({}))
-            if (errorData.error === 'GEMINI_API_KEY_MISSING') {
-              console.log('Prompt enhancement skipped: no Gemini API key')
+      try {
+        const enhanceResponse = await fetch(`${backendUrl}/api/enhance-prompt`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, mode: enhanceMode }),
+          signal: abortControllerRef.current.signal,
+        })
+        
+        if (enhanceResponse.ok) {
+          const enhanceResult = await enhanceResponse.json()
+          if (enhanceResult.status === 'success' && enhanceResult.enhanced_prompt) {
+            if (enhanceResult.skipped) {
+              console.log(`Prompt enhancement skipped (${enhanceMode}): ${enhanceResult.reason}`)
             } else {
-              console.warn('Prompt enhancement failed, using original:', errorData)
+              finalPrompt = enhanceResult.enhanced_prompt
+              console.log(`Prompt enhanced (${enhanceMode}):`, finalPrompt.substring(0, 100) + '...')
             }
           }
-        } catch (enhanceError) {
-          console.warn('Prompt enhancement error, using original:', enhanceError)
+        } else {
+          const errorData = await enhanceResponse.json().catch(() => ({}))
+          if (errorData.error === 'GEMINI_API_KEY_MISSING') {
+            console.log('Prompt enhancement skipped: no Gemini API key')
+          } else {
+            console.warn('Prompt enhancement failed, using original:', errorData)
+          }
         }
-      } else {
-        console.log('Prompt enhancement skipped for I2V (image provided)')
+      } catch (enhanceError) {
+        console.warn('Prompt enhancement error, using original:', enhanceError)
       }
       
       // Update status for video generation
@@ -397,6 +397,145 @@ export function useGeneration(): UseGenerationReturn {
     }
   }, [])
 
+  const editImage = useCallback(async (
+    prompt: string,
+    inputImages: File[],
+    settings: GenerationSettings
+  ) => {
+    if (inputImages.length === 0) return
+
+    setState({
+      isGenerating: true,
+      progress: 0,
+      statusMessage: 'Editing image...',
+      videoUrl: null,
+      videoPath: null,
+      imageUrl: null,
+      imageUrls: [],
+      error: null,
+    })
+
+    abortControllerRef.current = new AbortController()
+
+    try {
+      const backendUrl = await window.electronAPI.getBackendUrl()
+
+      // Aspect ratio to dimensions mapping
+      const aspectRatioMap: Record<string, { width: number; height: number }> = {
+        '1:1': { width: 1024, height: 1024 },
+        '16:9': { width: 1280, height: 720 },
+        '9:16': { width: 720, height: 1280 },
+        '4:3': { width: 1024, height: 768 },
+        '3:4': { width: 768, height: 1024 },
+      }
+      const dims = aspectRatioMap[settings.imageAspectRatio || '16:9'] || { width: 1280, height: 720 }
+      const numSteps = settings.imageSteps || 4
+
+      // Poll for progress
+      const pollProgress = async () => {
+        try {
+          const res = await fetch(`${backendUrl}/api/generation/progress`)
+          if (res.ok) {
+            const data = await res.json()
+            setState(prev => ({
+              ...prev,
+              progress: data.progress,
+              statusMessage: data.phase === 'loading_model'
+                ? 'Loading Flux model...'
+                : data.phase === 'inference'
+                  ? 'Editing image...'
+                  : data.phase === 'complete'
+                    ? 'Complete!'
+                    : 'Processing...',
+            }))
+          }
+        } catch {
+          // Ignore polling errors
+        }
+      }
+
+      const progressInterval = setInterval(pollProgress, 500)
+
+      // Build multipart form data
+      const formData = new FormData()
+      formData.append('prompt', prompt)
+      formData.append('width', String(dims.width))
+      formData.append('height', String(dims.height))
+      formData.append('numSteps', String(numSteps))
+
+      // Attach input images
+      formData.append('image', inputImages[0])
+      for (let i = 1; i < inputImages.length; i++) {
+        formData.append(`image${i + 1}`, inputImages[i])
+      }
+
+      const response = await fetch(`${backendUrl}/api/edit-image`, {
+        method: 'POST',
+        body: formData,
+        signal: abortControllerRef.current.signal,
+      })
+
+      clearInterval(progressInterval)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || 'Image editing failed')
+      }
+
+      const result = await response.json()
+
+      if (result.status === 'complete') {
+        let rawPaths: string[] = []
+        if (result.image_paths && Array.isArray(result.image_paths)) {
+          rawPaths = result.image_paths
+        } else if (result.image_path) {
+          rawPaths = [result.image_path]
+        }
+
+        if (rawPaths.length > 0) {
+          const fileUrls = rawPaths.map((path: string) => {
+            const imagePath = path.replace(/\\/g, '/')
+            return imagePath.startsWith('/') ? `file://${imagePath}` : `file:///${imagePath}`
+          })
+
+          setState({
+            isGenerating: false,
+            progress: 100,
+            statusMessage: 'Complete!',
+            videoUrl: null,
+            videoPath: null,
+            imageUrl: fileUrls[0],
+            imageUrls: fileUrls,
+            error: null,
+          })
+        }
+      } else if (result.status === 'cancelled') {
+        setState(prev => ({
+          ...prev,
+          isGenerating: false,
+          statusMessage: 'Cancelled',
+        }))
+      } else if (result.error) {
+        throw new Error(result.error)
+      }
+
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        setState(prev => ({
+          ...prev,
+          isGenerating: false,
+          statusMessage: 'Cancelled',
+        }))
+      } else {
+        setState(prev => ({
+          ...prev,
+          isGenerating: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }))
+      }
+    }
+  }, [])
+
   const reset = useCallback(() => {
     setState({
       isGenerating: false,
@@ -414,6 +553,7 @@ export function useGeneration(): UseGenerationReturn {
     ...state,
     generate,
     generateImage,
+    editImage,
     cancel,
     reset,
   }

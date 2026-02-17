@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { Asset, TimelineClip, Track } from '../../types/project'
-import { DEFAULT_COLOR_CORRECTION } from '../../types/project'
 import { resolveOverlaps, migrateClip, type ToolType } from './video-editor-utils'
 
 export interface DraggingClipState {
@@ -76,7 +75,7 @@ interface UseTimelineDragParams {
   getTrackHeight: (trackIndex: number) => number
   trackTopPx: (realTrackIndex: number, padding?: number) => number
   cutPoints: any[]
-  splitClipAtPlayhead: (clipId: string) => void
+  splitClipAtPlayhead: (clipId: string, atTime?: number, batchClipIds?: string[]) => void
   setSelectedSubtitleId: (id: string | null) => void
   setSelectedGap: (gap: any) => void
   audioTrackHeight: number
@@ -180,7 +179,23 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
       const clickTime = clip.startTime + (clickX / rect.width) * clip.duration
       
       setCurrentTime(clickTime)
-      setTimeout(() => splitClipAtPlayhead(clip.id), 0)
+      
+      if (e.shiftKey) {
+        // Shift+blade: cut ALL clips at this time across all unlocked tracks
+        const clipIds = clips
+          .filter(c =>
+            clickTime > c.startTime + 0.1 &&
+            clickTime < c.startTime + c.duration - 0.1 &&
+            !tracks[c.trackIndex]?.locked
+          )
+          .map(c => c.id)
+        if (clipIds.length > 0) {
+          splitClipAtPlayhead(clipIds[0], clickTime, clipIds)
+        }
+      } else {
+        // Normal blade: cut only the clicked clip
+        splitClipAtPlayhead(clip.id, clickTime)
+      }
       return
     }
     
@@ -978,11 +993,12 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
         trackIndex: Math.min(trackIndex + srcClip.trackIndex, tracks.length - 1),
       }))
       
+      pushUndo()
       setClips(prev => [...prev, ...newClips])
       return
     }
     
-    // Multi-asset drop (from multi-select drag)
+    // Multi-asset drop (from multi-select drag) — add sequentially using addClipToTimeline
     const assetIdsJson = e.dataTransfer.getData('assetIds')
     if (assetIdsJson && trackContainerRef.current) {
       try {
@@ -993,35 +1009,10 @@ export function useTimelineDrag(params: UseTimelineDragParams) {
           const scrollLeft = trackContainerRef.current.scrollLeft
           const x = e.clientX - rect.left + scrollLeft
           let nextStart = Math.max(0, x / pixelsPerSecond)
-          pushUndo()
-          const newClips: TimelineClip[] = droppedAssets.map(a => {
-            const dur = a.duration || 5
-            const clip: TimelineClip = {
-              id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              assetId: a.id,
-              type: a.type === 'video' ? 'video' : a.type === 'audio' ? 'audio' : 'image',
-              startTime: nextStart,
-              duration: dur,
-              trimStart: 0,
-              trimEnd: 0,
-              speed: 1,
-              reversed: false,
-              muted: false,
-              volume: 1,
-              trackIndex,
-              asset: a,
-              flipH: false,
-              flipV: false,
-              transitionIn: { type: 'none', duration: 0.5 },
-              transitionOut: { type: 'none', duration: 0.5 },
-              colorCorrection: { ...DEFAULT_COLOR_CORRECTION },
-              opacity: 100,
-            }
-            nextStart += dur
-            return clip
-          })
-          const newIds = new Set(newClips.map(c => c.id))
-          setClips(prev => resolveOverlaps([...prev, ...newClips], newIds))
+          for (const a of droppedAssets) {
+            addClipToTimeline(a, trackIndex, nextStart)
+            nextStart += a.duration || 5
+          }
           return
         }
       } catch { /* ignore parse errors */ }

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import type { Asset, TimelineClip, Track } from '../../types/project'
 import type { GenerationSettings } from '../../components/SettingsPanel'
+import { copyToAssetFolder } from '../../lib/asset-copy'
 
 export interface UseRegenerationParams {
   clips: TimelineClip[]
@@ -33,6 +34,7 @@ export interface UseRegenerationParams {
   regenStatusMessage: string
   regenCancel: () => void
   regenReset: () => void
+  assetSavePath: string | undefined | null
 }
 
 export function useRegeneration(params: UseRegenerationParams) {
@@ -47,6 +49,7 @@ export function useRegeneration(params: UseRegenerationParams) {
     regenVideoUrl, regenVideoPath, regenImageUrl,
     isRegenerating, regenProgress, regenStatusMessage,
     regenCancel, regenReset,
+    assetSavePath,
   } = params
 
   // Track which asset/clip is being regenerated
@@ -73,9 +76,9 @@ export function useRegeneration(params: UseRegenerationParams) {
   const [i2vSettings, setI2vSettings] = useState<GenerationSettings>({
     model: 'fast',
     duration: 5,
-    resolution: '768x512',
+    resolution: '540p',
     fps: 24,
-    audio: false,
+    audio: true,
     cameraMotion: 'none',
     imageAspectRatio: '16:9',
     imageSteps: 30,
@@ -154,47 +157,48 @@ export function useRegeneration(params: UseRegenerationParams) {
     const clip = clips.find(c => c.id === i2vClipId)
     if (!clip) { setI2vClipId(null); return }
 
-    // Create a new video asset with generationParams so regenerate button works
-    const asset = addAsset(currentProjectId, {
-      type: 'video',
-      path: regenVideoPath || regenVideoUrl,
-      url: regenVideoUrl,
-      prompt: i2vPrompt,
-      resolution: i2vSettings.resolution,
-      duration: clip.duration,
-      generationParams: {
-        mode: 'image-to-video',
+    ;(async () => {
+      const { path: finalPath, url: finalUrl } = await copyToAssetFolder(regenVideoPath || regenVideoUrl, regenVideoUrl, assetSavePath)
+
+      const asset = addAsset(currentProjectId, {
+        type: 'video',
+        path: finalPath,
+        url: finalUrl,
         prompt: i2vPrompt,
-        model: i2vSettings.model,
-        duration: Math.min(Math.max(1, Math.round(clip.duration)), i2vSettings.model === 'pro' ? 10 : 20),
         resolution: i2vSettings.resolution,
-        fps: i2vSettings.fps,
-        audio: i2vSettings.audio,
-        cameraMotion: i2vSettings.cameraMotion,
-      },
-      takes: [{
-        url: regenVideoUrl,
-        path: regenVideoPath || regenVideoUrl,
-        createdAt: Date.now(),
-      }],
-      activeTakeIndex: 0,
-    })
+        duration: clip.duration,
+        generationParams: {
+          mode: 'image-to-video',
+          prompt: i2vPrompt,
+          model: i2vSettings.model,
+          duration: Math.min(Math.max(1, Math.round(clip.duration)), i2vSettings.model === 'pro' ? 10 : 20),
+          resolution: i2vSettings.resolution,
+          fps: i2vSettings.fps,
+          audio: i2vSettings.audio,
+          cameraMotion: i2vSettings.cameraMotion,
+        },
+        takes: [{
+          url: finalUrl,
+          path: finalPath,
+          createdAt: Date.now(),
+        }],
+        activeTakeIndex: 0,
+      })
 
-    // Replace the image clip with a video clip in-place
-    setClips(prev => prev.map(c => {
-      if (c.id !== i2vClipId) return c
-      return {
-        ...c,
-        assetId: asset.id,
-        type: 'video' as const,
-        asset,
-      }
-    }))
+      setClips(prev => prev.map(c => {
+        if (c.id !== i2vClipId) return c
+        return {
+          ...c,
+          assetId: asset.id,
+          type: 'video' as const,
+          asset,
+        }
+      }))
 
-    // Clean up
-    setI2vClipId(null)
-    setI2vPrompt('')
-    regenReset()
+      setI2vClipId(null)
+      setI2vPrompt('')
+      regenReset()
+    })()
 
   }, [regenVideoUrl, isRegenerating])
 
@@ -356,49 +360,56 @@ export function useRegeneration(params: UseRegenerationParams) {
   // Handle regeneration video result
   useEffect(() => {
     if (regenVideoUrl && regenVideoPath && regeneratingAssetId && currentProjectId && !isRegenerating) {
-      addTakeToAsset(currentProjectId, regeneratingAssetId, {
-        url: regenVideoUrl,
-        path: regenVideoPath,
-        createdAt: Date.now(),
-      })
+      ;(async () => {
+        const { path: finalPath, url: finalUrl } = await copyToAssetFolder(regenVideoPath, regenVideoUrl, assetSavePath)
 
-      // Update clip to use the new take and clear regenerating flag
-      if (regeneratingClipId) {
-        setClips(prev => prev.map(c => {
-          if (c.id !== regeneratingClipId) return c
-          const asset = assets.find(a => a.id === c.assetId)
-          const newTakeIdx = asset?.takes ? asset.takes.length : 1 // The new take will be at this index
-          return { ...c, isRegenerating: false, takeIndex: newTakeIdx }
-        }))
-      }
+        addTakeToAsset(currentProjectId, regeneratingAssetId, {
+          url: finalUrl,
+          path: finalPath,
+          createdAt: Date.now(),
+        })
 
-      setRegeneratingAssetId(null)
-      setRegeneratingClipId(null)
-      regenReset()
+        if (regeneratingClipId) {
+          setClips(prev => prev.map(c => {
+            if (c.id !== regeneratingClipId) return c
+            const asset = assets.find(a => a.id === c.assetId)
+            const newTakeIdx = asset?.takes ? asset.takes.length : 1
+            return { ...c, isRegenerating: false, takeIndex: newTakeIdx }
+          }))
+        }
+
+        setRegeneratingAssetId(null)
+        setRegeneratingClipId(null)
+        regenReset()
+      })()
     }
   }, [regenVideoUrl, regenVideoPath, regeneratingAssetId, currentProjectId, isRegenerating])
 
   // Handle regeneration image result
   useEffect(() => {
     if (regenImageUrl && regeneratingAssetId && currentProjectId && !isRegenerating) {
-      addTakeToAsset(currentProjectId, regeneratingAssetId, {
-        url: regenImageUrl,
-        path: regenImageUrl,
-        createdAt: Date.now(),
-      })
+      ;(async () => {
+        const { path: finalPath, url: finalUrl } = await copyToAssetFolder(regenImageUrl, regenImageUrl, assetSavePath)
 
-      if (regeneratingClipId) {
-        setClips(prev => prev.map(c => {
-          if (c.id !== regeneratingClipId) return c
-          const asset = assets.find(a => a.id === c.assetId)
-          const newTakeIdx = asset?.takes ? asset.takes.length : 1
-          return { ...c, isRegenerating: false, takeIndex: newTakeIdx }
-        }))
-      }
+        addTakeToAsset(currentProjectId, regeneratingAssetId, {
+          url: finalUrl,
+          path: finalPath,
+          createdAt: Date.now(),
+        })
 
-      setRegeneratingAssetId(null)
-      setRegeneratingClipId(null)
-      regenReset()
+        if (regeneratingClipId) {
+          setClips(prev => prev.map(c => {
+            if (c.id !== regeneratingClipId) return c
+            const asset = assets.find(a => a.id === c.assetId)
+            const newTakeIdx = asset?.takes ? asset.takes.length : 1
+            return { ...c, isRegenerating: false, takeIndex: newTakeIdx }
+          }))
+        }
+
+        setRegeneratingAssetId(null)
+        setRegeneratingClipId(null)
+        regenReset()
+      })()
     }
   }, [regenImageUrl, regeneratingAssetId, currentProjectId, isRegenerating])
 

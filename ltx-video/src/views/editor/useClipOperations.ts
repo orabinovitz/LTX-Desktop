@@ -44,6 +44,27 @@ export function useClipOperations(params: UseClipOperationsParams) {
     const track = tracks[trackIndex]
     if (!track || track.locked) return
     
+    // Check source patching: if the target track is unpatched, skip creating the clip on it
+    const videoPatched = track.sourcePatched !== false
+    const isAdjustment = asset.type === 'adjustment'
+    const isVideoAsset = asset.type === 'video'
+    const isAudioAsset = asset.type === 'audio'
+    const isImageAsset = asset.type === 'image'
+    
+    // For audio-only assets dropped on an unpatched track, bail
+    if (isAudioAsset && !videoPatched) return
+    
+    // For video/image assets: check if the target video track is patched
+    const createVideoClip = (isVideoAsset || isImageAsset || isAdjustment) && videoPatched
+    
+    // For video assets: check if any audio track is patched (for linked audio)
+    const needsAudioClip = isVideoAsset && !isAdjustment
+    const audioPatched = needsAudioClip && tracks.some(t => t.kind === 'audio' && !t.locked && t.sourcePatched !== false)
+    const createAudioClip = needsAudioClip && audioPatched
+    
+    // If nothing would be created, bail
+    if (!createVideoClip && !createAudioClip) return
+    
     let clipStartTime = startTime
     if (clipStartTime === undefined) {
       const trackClips = clips.filter(c => c.trackIndex === trackIndex)
@@ -52,30 +73,88 @@ export function useClipOperations(params: UseClipOperationsParams) {
       )
     }
     
-    const isAdjustment = asset.type === 'adjustment'
-    const newClip: TimelineClip = {
-      id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      assetId: asset.id,
-      type: isAdjustment ? 'adjustment' : asset.type === 'video' ? 'video' : asset.type === 'audio' ? 'audio' : 'image',
-      startTime: clipStartTime,
-      duration: asset.duration || (isAdjustment ? 10 : 5),
-      trimStart: 0,
-      trimEnd: 0,
-      speed: 1,
-      reversed: false,
-      muted: false,
-      volume: 1,
-      trackIndex,
-      asset,
-      flipH: false,
-      flipV: false,
-      transitionIn: { type: 'none', duration: isAdjustment ? 0 : 0.5 },
-      transitionOut: { type: 'none', duration: isAdjustment ? 0 : 0.5 },
-      colorCorrection: { ...DEFAULT_COLOR_CORRECTION },
-      opacity: 100,
-      ...(isAdjustment ? { letterbox: { ...DEFAULT_LETTERBOX } } : {}),
+    const clipDuration = asset.duration || (isAdjustment ? 10 : 5)
+    const videoClipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    const audioClipId = `clip-${Date.now()}-a-${Math.random().toString(36).substr(2, 9)}`
+    
+    let audioTrackIndex = -1
+    if (createAudioClip) {
+      audioTrackIndex = tracks.findIndex(t => t.kind === 'audio' && !t.locked && t.sourcePatched !== false)
+      if (audioTrackIndex < 0) {
+        // No patched audio track exists — create one
+        const audioTrackCount = tracks.filter(t => t.kind === 'audio').length
+        const newAudioTrack: Track = {
+          id: `track-${Date.now()}-audio`,
+          name: `A${audioTrackCount + 1}`,
+          muted: false,
+          locked: false,
+          kind: 'audio',
+        }
+        audioTrackIndex = tracks.length
+        setTracks(prev => [...prev, newAudioTrack])
+      }
     }
-    setClips(prev => resolveOverlaps([...prev, newClip], new Set([newClip.id])))
+    
+    const newClips: TimelineClip[] = []
+    
+    if (createVideoClip) {
+      const newClip: TimelineClip = {
+        id: videoClipId,
+        assetId: asset.id,
+        type: isAdjustment ? 'adjustment' : isVideoAsset ? 'video' : isAudioAsset ? 'audio' : 'image',
+        startTime: clipStartTime,
+        duration: clipDuration,
+        trimStart: 0,
+        trimEnd: 0,
+        speed: 1,
+        reversed: false,
+        muted: false,
+        volume: 1,
+        trackIndex,
+        asset,
+        flipH: false,
+        flipV: false,
+        transitionIn: { type: 'none', duration: isAdjustment ? 0 : 0.5 },
+        transitionOut: { type: 'none', duration: isAdjustment ? 0 : 0.5 },
+        colorCorrection: { ...DEFAULT_COLOR_CORRECTION },
+        opacity: 100,
+        ...(isAdjustment ? { letterbox: { ...DEFAULT_LETTERBOX } } : {}),
+        ...(createAudioClip && audioTrackIndex >= 0 ? { linkedClipIds: [audioClipId] } : {}),
+      }
+      newClips.push(newClip)
+    }
+    
+    if (createAudioClip && audioTrackIndex >= 0) {
+      const audioClip: TimelineClip = {
+        id: audioClipId,
+        assetId: asset.id,
+        type: 'audio',
+        startTime: clipStartTime,
+        duration: clipDuration,
+        trimStart: 0,
+        trimEnd: 0,
+        speed: 1,
+        reversed: false,
+        muted: false,
+        volume: 1,
+        trackIndex: audioTrackIndex,
+        asset,
+        flipH: false,
+        flipV: false,
+        transitionIn: { type: 'none', duration: 0.5 },
+        transitionOut: { type: 'none', duration: 0.5 },
+        colorCorrection: { ...DEFAULT_COLOR_CORRECTION },
+        opacity: 100,
+        ...(createVideoClip ? { linkedClipIds: [videoClipId] } : {}),
+      }
+      newClips.push(audioClip)
+    }
+    
+    if (newClips.length === 0) return
+    
+    const newIds = new Set(newClips.map(c => c.id))
+    pushUndo()
+    setClips(prev => resolveOverlaps([...prev, ...newClips], newIds))
   }
   
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -181,83 +260,108 @@ export function useClipOperations(params: UseClipOperationsParams) {
     setClips([...clips, newClip])
   }
   
-  const splitClipAtPlayhead = (clipId: string) => {
-    const clip = clips.find(c => c.id === clipId)
-    if (!clip) return
+  const splitClipAtPlayhead = (clipId: string, atTime?: number, batchClipIds?: string[]) => {
+    // Determine which clips to split: either a single clip or a batch
+    const idsToSplit = batchClipIds || [clipId]
+    const effectiveTime = atTime !== undefined ? atTime : currentTime
     
-    // Prevent splitting clips on locked tracks
-    if (tracks[clip.trackIndex]?.locked) return
+    // Validate at least one clip is splittable
+    const splittable = idsToSplit.filter(id => {
+      const c = clips.find(cl => cl.id === id)
+      if (!c) return false
+      if (tracks[c.trackIndex]?.locked) return false
+      const sp = effectiveTime - c.startTime
+      return sp > 0.1 && sp < c.duration - 0.1
+    })
+    if (splittable.length === 0) return
     
-    const splitPoint = currentTime - clip.startTime
-    if (splitPoint <= 0.1 || splitPoint >= clip.duration - 0.1) return
     pushUndo()
     
-    // Generate IDs for the new halves
-    const firstHalfId = clip.id
-    const secondHalfId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    // Track which IDs have already been split (to avoid splitting linked clips twice)
+    const alreadySplit = new Set<string>()
+    let newClips = [...clips]
     
-    // Collect all linked clips (could be multiple audio tracks)
-    const linkedClips = (clip.linkedClipIds || [])
-      .map(lid => clips.find(c => c.id === lid))
-      .filter((c): c is TimelineClip => !!c)
-    
-    // Map: old linked clip id → new second-half id
-    const linkedIdMap = new Map<string, string>()
-    
-    const firstHalf: TimelineClip = {
-      ...clip,
-      duration: splitPoint,
-      trimEnd: clip.trimEnd + (clip.duration - splitPoint),
-    }
-    
-    const secondHalf: TimelineClip = {
-      ...clip,
-      id: secondHalfId,
-      startTime: clip.startTime + splitPoint,
-      duration: clip.duration - splitPoint,
-      trimStart: clip.trimStart + splitPoint,
-    }
-    
-    let newClips = clips.map(c => c.id === clipId ? firstHalf : c).concat(secondHalf)
-    
-    // Split each linked clip in sync and rebuild links
-    const firstHalfLinkedIds: string[] = []
-    const secondHalfLinkedIds: string[] = []
-    
-    for (const linkedClip of linkedClips) {
-      const linkedSecondId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${linkedClip.id.slice(-4)}`
-      linkedIdMap.set(linkedClip.id, linkedSecondId)
+    for (const splitId of splittable) {
+      if (alreadySplit.has(splitId)) continue
       
-      firstHalfLinkedIds.push(linkedClip.id)
-      secondHalfLinkedIds.push(linkedSecondId)
+      const clip = newClips.find(c => c.id === splitId)
+      if (!clip) continue
       
-      const linkedFirstHalf: TimelineClip = {
-        ...linkedClip,
+      const splitPoint = effectiveTime - clip.startTime
+      if (splitPoint <= 0.1 || splitPoint >= clip.duration - 0.1) continue
+      
+      alreadySplit.add(splitId)
+      
+      const firstHalfId = clip.id
+      const secondHalfId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      
+      // Collect all linked clips
+      const linkedClips = (clip.linkedClipIds || [])
+        .map(lid => newClips.find(c => c.id === lid))
+        .filter((c): c is TimelineClip => !!c)
+      
+      const firstHalf: TimelineClip = {
+        ...clip,
         duration: splitPoint,
-        trimEnd: linkedClip.trimEnd + (linkedClip.duration - splitPoint),
-        linkedClipIds: [firstHalfId],
+        trimEnd: clip.trimEnd + (clip.duration - splitPoint),
       }
       
-      const linkedSecondHalf: TimelineClip = {
-        ...linkedClip,
-        id: linkedSecondId,
-        startTime: linkedClip.startTime + splitPoint,
-        duration: linkedClip.duration - splitPoint,
-        trimStart: linkedClip.trimStart + splitPoint,
-        linkedClipIds: [secondHalfId],
+      const secondHalf: TimelineClip = {
+        ...clip,
+        id: secondHalfId,
+        startTime: clip.startTime + splitPoint,
+        duration: clip.duration - splitPoint,
+        trimStart: clip.trimStart + splitPoint,
       }
       
-      newClips = newClips
-        .map(c => c.id === linkedClip.id ? linkedFirstHalf : c)
-        .concat(linkedSecondHalf)
+      newClips = newClips.map(c => c.id === splitId ? firstHalf : c).concat(secondHalf)
+      
+      // Split each linked clip in sync and rebuild links
+      const firstHalfLinkedIds: string[] = []
+      const secondHalfLinkedIds: string[] = []
+      
+      for (const linkedClip of linkedClips) {
+        alreadySplit.add(linkedClip.id)
+        
+        const linkedSplitPoint = effectiveTime - linkedClip.startTime
+        if (linkedSplitPoint <= 0.01 || linkedSplitPoint >= linkedClip.duration - 0.01) {
+          firstHalfLinkedIds.push(linkedClip.id)
+          continue
+        }
+        
+        const linkedSecondId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${linkedClip.id.slice(-4)}`
+        
+        firstHalfLinkedIds.push(linkedClip.id)
+        secondHalfLinkedIds.push(linkedSecondId)
+        
+        const linkedFirstHalf: TimelineClip = {
+          ...linkedClip,
+          duration: linkedSplitPoint,
+          trimEnd: linkedClip.trimEnd + (linkedClip.duration - linkedSplitPoint),
+          linkedClipIds: [firstHalfId],
+        }
+        
+        const linkedSecondHalf: TimelineClip = {
+          ...linkedClip,
+          id: linkedSecondId,
+          startTime: linkedClip.startTime + linkedSplitPoint,
+          duration: linkedClip.duration - linkedSplitPoint,
+          trimStart: linkedClip.trimStart + linkedSplitPoint,
+          linkedClipIds: [secondHalfId],
+        }
+        
+        newClips = newClips
+          .map(c => c.id === linkedClip.id ? linkedFirstHalf : c)
+          .concat(linkedSecondHalf)
+      }
+      
+      // Update linked references on the primary halves
+      firstHalf.linkedClipIds = firstHalfLinkedIds.length ? firstHalfLinkedIds : undefined
+      secondHalf.linkedClipIds = secondHalfLinkedIds.length ? secondHalfLinkedIds : undefined
+      
+      // Re-apply the updated halves
+      newClips = newClips.map(c => c.id === firstHalfId ? firstHalf : c.id === secondHalfId ? secondHalf : c)
     }
-    
-    // Update the linked references on the primary halves
-    firstHalf.linkedClipIds = firstHalfLinkedIds.length ? firstHalfLinkedIds : undefined
-    secondHalf.linkedClipIds = secondHalfLinkedIds.length ? secondHalfLinkedIds : undefined
-    
-    // Re-apply the updated firstHalf and secondHalf into newClips
-    newClips = newClips.map(c => c.id === firstHalfId ? firstHalf : c.id === secondHalfId ? secondHalf : c)
     
     setClips(newClips)
   }

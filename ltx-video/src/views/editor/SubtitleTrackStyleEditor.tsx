@@ -155,10 +155,11 @@ export function SubtitleTrackStyleEditor({
             <button
               onClick={() => {
                 setSubtitles(prev => prev.map(s => s.trackIndex === subtitleTrackStyleIdx ? { ...s, style: undefined } : s))
+                setSubtitleTrackStyleIdx(null)
               }}
               className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs hover:bg-zinc-700 transition-colors text-center"
             >
-              Apply to all subtitles (reset individual overrides)
+              Apply to all &amp; reset overrides
             </button>
           </div>
         </div>

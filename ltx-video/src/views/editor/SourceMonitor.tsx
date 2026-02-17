@@ -260,6 +260,18 @@ export function SourceMonitor({
           </button>
           <button
             onClick={() => {
+              setSourceReversePlaying(false)
+              const t = Math.max(0, sourceTime - 1 / 24)
+              setSourceTime(t)
+              if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t
+            }}
+            className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+            title="Step back"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => {
               if (sourceReversePlaying) {
                 setSourceReversePlaying(false)
               } else {
@@ -272,18 +284,6 @@ export function SourceMonitor({
             title="Play reverse"
           >
             <Play className="h-3 w-3 mr-0.5 rotate-180" />
-          </button>
-          <button
-            onClick={() => {
-              setSourceReversePlaying(false)
-              const t = Math.max(0, sourceTime - 1 / 24)
-              setSourceTime(t)
-              if (sourceVideoRef.current) sourceVideoRef.current.currentTime = t
-            }}
-            className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-            title="Step back"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => { setSourceReversePlaying(false); sourceVideoRef.current?.pause(); setSourceIsPlaying(false) }}

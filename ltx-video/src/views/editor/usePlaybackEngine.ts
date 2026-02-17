@@ -412,6 +412,10 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
           if (c.type === 'adjustment' || c.type === 'text' || c.type === 'image') continue
           if (next < c.startTime || next >= c.startTime + c.duration) continue
           if (trks[c.trackIndex]?.enabled === false) continue
+          // For video clips: only play audio if there's a linked audio clip on the timeline.
+          // If the video was added without a linked audio clip (e.g. audio tracks were unpatched),
+          // its embedded audio should not play.
+          if (c.type === 'video' && (!c.linkedClipIds || !c.linkedClipIds.some(lid => allClips.some(ac => ac.id === lid && ac.type === 'audio')))) continue
           activeAudioIds.add(c.id)
         }
         
@@ -886,11 +890,15 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       return clip.asset?.url || clip.importedUrl || null
     }
     
-    // Pre-create audio elements for ALL audio/video clips on the timeline
-    // (like the video pool) so buffers are warm when the playhead reaches them.
-    const allAudioClips = clips.filter(c =>
-      c.type !== 'adjustment' && c.type !== 'text' && c.type !== 'image' && getAudioClipUrl(c)
-    )
+    // Pre-create audio elements for audio clips and video clips that have linked audio.
+    // Video clips without a linked audio clip (e.g. added with audio tracks unpatched)
+    // should not produce any audio output.
+    const allAudioClips = clips.filter(c => {
+      if (c.type === 'adjustment' || c.type === 'text' || c.type === 'image') return false
+      if (!getAudioClipUrl(c)) return false
+      if (c.type === 'video' && (!c.linkedClipIds || !c.linkedClipIds.some(lid => clips.some(ac => ac.id === lid && ac.type === 'audio')))) return false
+      return true
+    })
     const allAudioClipIds = new Set(allAudioClips.map(c => c.id))
     
     // Remove elements for clips that no longer exist on the timeline

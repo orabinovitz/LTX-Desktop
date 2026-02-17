@@ -318,7 +318,8 @@ app_settings = {
     "pro_model": {"steps": 20, "use_upscaler": True},  # Pro model inference settings (20 steps with res_2s scheduler)
     "prompt_cache_size": 100,  # Max number of prompt embeddings to cache (saves ~4s per repeated prompt)
     # Prompt Enhancer settings
-    "prompt_enhancer_enabled": True,  # Enable prompt enhancement by default
+    "prompt_enhancer_enabled_t2v": True,  # Enable prompt enhancement for T2V by default
+    "prompt_enhancer_enabled_i2v": False,  # Disable prompt enhancement for I2V by default
     "gemini_api_key": "",  # Gemini API key for prompt enhancement
     "t2v_system_prompt": DEFAULT_T2V_SYSTEM_PROMPT,  # T2V system prompt
     "i2v_system_prompt": DEFAULT_I2V_SYSTEM_PROMPT,  # I2V system prompt
@@ -361,8 +362,15 @@ def load_settings():
                 if 'prompt_cache_size' in saved:
                     app_settings['prompt_cache_size'] = max(0, min(1000, int(saved['prompt_cache_size'])))
                 # Prompt Enhancer settings
-                if 'prompt_enhancer_enabled' in saved:
-                    app_settings['prompt_enhancer_enabled'] = bool(saved['prompt_enhancer_enabled'])
+                if 'prompt_enhancer_enabled_t2v' in saved:
+                    app_settings['prompt_enhancer_enabled_t2v'] = bool(saved['prompt_enhancer_enabled_t2v'])
+                if 'prompt_enhancer_enabled_i2v' in saved:
+                    app_settings['prompt_enhancer_enabled_i2v'] = bool(saved['prompt_enhancer_enabled_i2v'])
+                # Migrate old single setting to both T2V and I2V
+                if 'prompt_enhancer_enabled' in saved and 'prompt_enhancer_enabled_t2v' not in saved:
+                    val = bool(saved['prompt_enhancer_enabled'])
+                    app_settings['prompt_enhancer_enabled_t2v'] = val
+                    app_settings['prompt_enhancer_enabled_i2v'] = val
                 if 'gemini_api_key' in saved:
                     app_settings['gemini_api_key'] = str(saved['gemini_api_key'])
                 if 't2v_system_prompt' in saved:
@@ -1370,8 +1378,10 @@ def unload_pipeline(model_type: str):
         logger.info("Pro Native pipeline unloaded")
     elif model_type == "flux" and flux_pipeline is not None:
         logger.info("Unloading Flux pipeline to free VRAM...")
+        global flux_on_gpu
         del flux_pipeline
         flux_pipeline = None
+        flux_on_gpu = False
         torch.cuda.empty_cache()
         gc.collect()
         logger.info("Flux pipeline unloaded")
@@ -1469,30 +1479,34 @@ def download_flux_model():
         return False
 
 
-def load_flux_pipeline():
-    """Load the Flux Klein 4B pipeline for image generation."""
+def load_flux_pipeline(to_gpu: bool = True):
+    """Load the Flux Klein 4B pipeline for image generation.
+    
+    Args:
+        to_gpu: If True, move to GPU immediately. If False, keep on CPU
+                (useful for background preloading while video model owns GPU).
+    """
     global flux_pipeline
     
     if flux_pipeline is not None:
         return flux_pipeline
     
     try:
-        # FLUX.2-klein-4B uses Flux2KleinPipeline (requires diffusers from main branch)
         from diffusers import Flux2KleinPipeline
         
-        logger.info("Loading FLUX.2 Klein 4B Pipeline for image generation...")
+        target = "GPU" if to_gpu else "CPU (preloading)"
+        logger.info(f"Loading FLUX.2 Klein 4B Pipeline to {target}...")
         start = time.time()
         
-        # Clear CUDA cache first
-        torch.cuda.empty_cache()
-        gc.collect()
+        if to_gpu:
+            torch.cuda.empty_cache()
+            gc.collect()
         
         # Check if model exists in project folder
         if FLUX_MODELS_DIR.exists() and any(FLUX_MODELS_DIR.iterdir()):
             model_path = str(FLUX_MODELS_DIR)
             logger.info(f"Loading from project folder: {model_path}")
         else:
-            # Try to download
             logger.info("FLUX.2 Klein 4B not found locally, downloading...")
             if not download_flux_model():
                 raise RuntimeError("Failed to download FLUX.2 Klein 4B model")
@@ -1504,10 +1518,13 @@ def load_flux_pipeline():
             torch_dtype=torch.bfloat16,
         )
         
-        # Move to GPU
-        flux_pipeline.to("cuda")
+        if to_gpu:
+            flux_pipeline.to("cuda")
+            logger.info(f"FLUX.2 Klein 4B Pipeline loaded to GPU in {time.time() - start:.1f}s")
+        else:
+            # Keep on CPU — will be moved to GPU on first use
+            logger.info(f"FLUX.2 Klein 4B Pipeline preloaded to CPU RAM in {time.time() - start:.1f}s")
         
-        logger.info(f"FLUX.2 Klein 4B Pipeline loaded in {time.time() - start:.1f}s")
         return flux_pipeline
         
     except Exception as e:
@@ -1517,21 +1534,47 @@ def load_flux_pipeline():
         return None
 
 
+# Track whether flux pipeline is on GPU or still on CPU
+flux_on_gpu = False
+
+
 def get_flux_pipeline():
-    """Get or load the Flux pipeline."""
-    global flux_pipeline
+    """Get or load the Flux pipeline, ensuring it's on GPU."""
+    global flux_pipeline, flux_on_gpu
     
     if flux_pipeline is None:
+        # Not loaded at all — load fresh to GPU
         # Unload video pipelines to free VRAM for Flux
         if distilled_pipeline is not None:
             unload_pipeline("fast")
+        if distilled_native_pipeline is not None:
+            unload_pipeline("fast-native")
         if pro_pipeline is not None:
             unload_pipeline("pro")
-        # Clear CUDA cache after unloading
+        if pro_native_pipeline is not None:
+            unload_pipeline("pro-native")
         torch.cuda.empty_cache()
-        import gc
         gc.collect()
-        load_flux_pipeline()
+        load_flux_pipeline(to_gpu=True)
+        flux_on_gpu = True
+    elif not flux_on_gpu:
+        # Pipeline was preloaded to CPU — move to GPU now
+        logger.info("Moving preloaded Flux pipeline from CPU to GPU...")
+        start = time.time()
+        # Unload video pipelines to free VRAM
+        if distilled_pipeline is not None:
+            unload_pipeline("fast")
+        if distilled_native_pipeline is not None:
+            unload_pipeline("fast-native")
+        if pro_pipeline is not None:
+            unload_pipeline("pro")
+        if pro_native_pipeline is not None:
+            unload_pipeline("pro-native")
+        torch.cuda.empty_cache()
+        gc.collect()
+        flux_pipeline.to("cuda")
+        flux_on_gpu = True
+        logger.info(f"Flux pipeline moved to GPU in {time.time() - start:.1f}s")
     
     return flux_pipeline
 
@@ -1622,6 +1665,85 @@ def generate_image(
         raise
 
 
+def edit_image(
+    prompt: str,
+    input_images: list,
+    width: int = 1024,
+    height: int = 1024,
+    num_inference_steps: int = 4,
+    seed: int = None,
+    generation_id: str = None,
+) -> list:
+    """Edit an image using the Flux pipeline with reference image(s).
+    
+    The model uses the input image(s) as reference and applies edits
+    based on the text prompt while preserving structure/content.
+    """
+    global current_generation
+    
+    if current_generation["cancelled"]:
+        raise RuntimeError("Generation was cancelled")
+    
+    update_generation_progress("loading_model", 5, 0, num_inference_steps)
+    
+    pipeline = get_flux_pipeline()
+    if pipeline is None:
+        raise RuntimeError("Failed to load Flux pipeline")
+    
+    update_generation_progress("inference", 15, 0, num_inference_steps)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    try:
+        logger.info(f"Editing image with {len(input_images)} reference(s): {width}x{height}, seed={seed}")
+        logger.info(f"Edit prompt: {prompt[:100]}...")
+        
+        start = time.time()
+        
+        if seed is None:
+            seed = int(time.time()) % 2147483647
+        
+        generator = torch.Generator(device="cuda").manual_seed(seed)
+        
+        if current_generation["cancelled"]:
+            raise RuntimeError("Generation was cancelled")
+        
+        update_generation_progress("inference", 30, 0, 1)
+        
+        # Pass reference images to the pipeline for editing
+        # Single image: pass directly; multiple: pass as list
+        image_input = input_images if len(input_images) > 1 else input_images[0]
+        
+        result = pipeline(
+            prompt=prompt,
+            image=image_input,
+            height=height,
+            width=width,
+            guidance_scale=1.0,
+            num_inference_steps=num_inference_steps,
+            generator=generator,
+        )
+        
+        # Save the edited image
+        output_filename = f"flux_edit_{timestamp}_{uuid.uuid4().hex[:8]}.png"
+        output_path = OUTPUTS_DIR / output_filename
+        image = result.images[0]
+        image.save(str(output_path))
+        
+        if current_generation["cancelled"]:
+            raise RuntimeError("Generation was cancelled")
+        
+        update_generation_progress("complete", 100, 1, 1)
+        
+        logger.info(f"Image editing took {time.time() - start:.1f}s")
+        logger.info(f"Edited image saved: {output_path}")
+        return [str(output_path)]
+        
+    except Exception as e:
+        logger.error(f"Image editing failed: {e}")
+        raise
+
+
 def get_pipeline(model_type: str = "fast", skip_warmup: bool = False):
     """Get or load the appropriate pipeline.
     
@@ -1632,14 +1754,17 @@ def get_pipeline(model_type: str = "fast", skip_warmup: bool = False):
         model_type: "fast", "fast-native", "pro", or "pro-native"
         skip_warmup: If True, skip warmup (user's generation serves as warmup)
     """
-    global distilled_pipeline, distilled_native_pipeline, pro_pipeline, pro_native_pipeline, flux_pipeline
+    global distilled_pipeline, distilled_native_pipeline, pro_pipeline, pro_native_pipeline, flux_pipeline, flux_on_gpu
     
-    # Always unload Flux pipeline first to free VRAM for video generation
-    if flux_pipeline is not None:
-        logger.info("Unloading Flux pipeline to free VRAM for video generation...")
-        unload_pipeline("flux")
+    # Move Flux pipeline to CPU (not unload!) to free VRAM for video generation.
+    # This preserves the model in system RAM for fast GPU transfer on next image gen.
+    if flux_pipeline is not None and flux_on_gpu:
+        logger.info("Moving Flux pipeline to CPU to free VRAM for video generation...")
+        flux_pipeline.to("cpu")
+        flux_on_gpu = False
         torch.cuda.empty_cache()
         gc.collect()
+        logger.info("Flux pipeline moved to CPU (preserved in RAM)")
     
     # Unload other video pipelines to free VRAM (only one at a time)
     def unload_others(keep: str):
@@ -2136,7 +2261,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 },
                 "promptCacheSize": app_settings.get("prompt_cache_size", 100),
                 # Prompt Enhancer settings
-                "promptEnhancerEnabled": app_settings.get("prompt_enhancer_enabled", True),
+                "promptEnhancerEnabledT2V": app_settings.get("prompt_enhancer_enabled_t2v", True),
+                "promptEnhancerEnabledI2V": app_settings.get("prompt_enhancer_enabled_i2v", False),
                 "geminiApiKey": app_settings.get("gemini_api_key", ""),
                 "t2vSystemPrompt": app_settings.get("t2v_system_prompt", DEFAULT_T2V_SYSTEM_PROMPT),
                 "i2vSystemPrompt": app_settings.get("i2v_system_prompt", DEFAULT_I2V_SYSTEM_PROMPT),
@@ -2287,14 +2413,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     })
                     return
                 
-                # Check if enhancer is enabled
-                if not app_settings.get("prompt_enhancer_enabled", True):
-                    # Return original prompt if enhancer is disabled
+                # Check if enhancer is enabled for this mode
+                if mode == "i2v":
+                    enhancer_enabled = app_settings.get("prompt_enhancer_enabled_i2v", False)
+                else:
+                    enhancer_enabled = app_settings.get("prompt_enhancer_enabled_t2v", True)
+                
+                if not enhancer_enabled:
                     self.send_json_response(200, {
                         "status": "success",
                         "enhanced_prompt": prompt,
                         "skipped": True,
-                        "reason": "Prompt enhancer is disabled"
+                        "reason": f"Prompt enhancer is disabled for {mode.upper()}"
                     })
                     return
                 
@@ -2383,6 +2513,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 
                 before_frame = data.get("beforeFrame")  # base64 JPEG or null
                 after_frame = data.get("afterFrame")     # base64 JPEG or null
+                input_image = data.get("inputImage")     # base64 JPEG or null (user's input image for editing)
                 before_prompt = data.get("beforePrompt", "")
                 after_prompt = data.get("afterPrompt", "")
                 gap_duration = data.get("gapDuration", 5)
@@ -2400,22 +2531,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     })
                     return
                 
-                logger.info(f"Suggesting gap prompt: before={'frame+' if before_frame else ''}{bool(before_prompt)}, after={'frame+' if after_frame else ''}{bool(after_prompt)}, dur={gap_duration}s, mode={mode}")
+                logger.info(f"Suggesting gap prompt: before={'frame+' if before_frame else ''}{bool(before_prompt)}, after={'frame+' if after_frame else ''}{bool(after_prompt)}, input_image={bool(input_image)}, dur={gap_duration}s, mode={mode}")
                 
                 # Build the Gemini request with images and text context
-                system_text = (
-                    "You are a video production assistant. The user is editing a video timeline and has a gap "
-                    f"of {gap_duration:.1f} seconds between two shots. Your job is to suggest a detailed prompt "
-                    "for generating a video clip to fill this gap, so that it flows naturally between the "
-                    "preceding and following shots.\n\n"
-                    "Guidelines:\n"
-                    "- Describe the scene, action, camera movement, lighting, and mood\n"
-                    "- Match the visual style and tone of the surrounding shots\n"
-                    "- Create a smooth narrative or visual transition between the two shots\n"
-                    "- Keep the prompt concise (2-4 sentences max)\n"
-                    "- Write only the prompt text, no explanations or labels\n"
-                    "- If only one neighboring shot is available, suggest something that naturally leads into or out of it\n"
-                )
+                is_image_gen = mode in ('text-to-image', 't2i')
+                is_image_edit = is_image_gen and bool(input_image)
+                
+                if is_image_edit:
+                    system_text = (
+                        "You are a video production assistant. The user is editing a video timeline and has a gap "
+                        f"of {gap_duration:.1f} seconds between two shots. The user has provided an INPUT IMAGE that they want to "
+                        "edit/modify to fit into this gap. Your job is to suggest a prompt describing how to EDIT the input image "
+                        "so it fits naturally between the surrounding shots.\n\n"
+                        "Guidelines:\n"
+                        "- Describe what changes should be made to the input image (e.g. change background, adjust lighting, add elements, change style)\n"
+                        "- The edits should make the image blend seamlessly with the surrounding shots\n"
+                        "- Match the visual style, lighting, color palette, and mood of the neighboring shots\n"
+                        "- Keep the prompt concise (1-3 sentences max)\n"
+                        "- Write only the edit instruction prompt, no explanations or labels\n"
+                        "- Focus on what to CHANGE, not what the image already contains\n"
+                    )
+                else:
+                    media_type = "image" if is_image_gen else "video clip"
+                    system_text = (
+                        "You are a video production assistant. The user is editing a video timeline and has a gap "
+                        f"of {gap_duration:.1f} seconds between two shots. Your job is to suggest a detailed prompt "
+                        f"for generating {'an image' if is_image_gen else 'a video clip'} to fill this gap, so that it flows naturally between the "
+                        "preceding and following shots.\n\n"
+                        "Guidelines:\n"
+                        f"- Describe the scene, {'composition' if is_image_gen else 'action, camera movement'}, lighting, and mood\n"
+                        "- Match the visual style and tone of the surrounding shots\n"
+                        "- Create a smooth narrative or visual transition between the two shots\n"
+                        "- Keep the prompt concise (2-4 sentences max)\n"
+                        "- Write only the prompt text, no explanations or labels\n"
+                        "- If only one neighboring shot is available, suggest something that naturally leads into or out of it\n"
+                    )
                 
                 # Build multimodal content parts
                 user_parts = []
@@ -2436,10 +2586,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         context_text += "  First frame (see image below):\n"
                 
                 context_text += f"\nGap duration: {gap_duration:.1f} seconds\n"
-                context_text += f"Generation mode: {'image-to-video' if mode == 'i2v' else 'text-to-video'}\n"
-                context_text += "\nPlease suggest a detailed prompt for generating a video clip to fill this gap."
+                
+                if is_image_edit:
+                    context_text += "Mode: Image editing — the user wants to EDIT the provided input image to fit this gap.\n"
+                    context_text += "\nPlease suggest an edit prompt describing how to modify the input image so it fits naturally between the surrounding shots."
+                else:
+                    is_image_mode = mode in ('text-to-image', 't2i')
+                    mode_label = 'image generation' if is_image_mode else ('image-to-video' if mode in ('image-to-video', 'i2v') else 'text-to-video')
+                    context_text += f"Generation mode: {mode_label}\n"
+                    if is_image_mode:
+                        context_text += "\nPlease suggest a detailed prompt for generating an image to fill this gap. Describe the visual scene, composition, lighting, and mood."
+                    else:
+                        context_text += "\nPlease suggest a detailed prompt for generating a video clip to fill this gap."
                 
                 user_parts.append({"text": context_text})
+                
+                # Add the user's input image first (if editing)
+                if input_image:
+                    user_parts.append({"text": "INPUT IMAGE to edit (this is the image the user wants to modify to fit the gap):"})
+                    user_parts.append({
+                        "inlineData": {
+                            "mimeType": "image/jpeg",
+                            "data": input_image
+                        }
+                    })
                 
                 # Add frame images inline
                 if before_frame:
@@ -2871,6 +3041,104 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     import traceback
                     traceback.print_exc()
                     self.send_json_response(500, {"error": str(e)})
+        elif self.path == "/api/edit-image":
+            try:
+                # Check if already generating
+                if current_generation["status"] == "running":
+                    self.send_json_response(409, {"error": "Generation already in progress"})
+                    return
+                
+                # Parse multipart form data (image + prompt)
+                content_type = self.headers.get('Content-Type')
+                ctype, pdict = cgi.parse_header(content_type)
+                pdict['boundary'] = pdict['boundary'].encode()
+                
+                content_len = int(self.headers.get('Content-Length'))
+                form = cgi.parse_multipart(self.rfile, pdict)
+                
+                def get_form_value(key, default):
+                    val = form.get(key, [default])[0]
+                    if isinstance(val, bytes):
+                        val = val.decode()
+                    return val
+                
+                prompt = get_form_value('prompt', 'Edit this image')
+                width = int(get_form_value('width', '1024'))
+                height = int(get_form_value('height', '1024'))
+                num_steps = int(get_form_value('numSteps', '4'))
+                
+                # Ensure dimensions are divisible by 16 for Flux
+                width = (width // 16) * 16
+                height = (height // 16) * 16
+                
+                # Parse input image(s)
+                input_images = []
+                image_data = form.get('image', [None])[0]
+                if image_data:
+                    img = Image.open(BytesIO(image_data)).convert("RGB")
+                    input_images.append(img)
+                
+                # Support multiple reference images (image2, image3, ...)
+                for i in range(2, 9):
+                    extra_data = form.get(f'image{i}', [None])[0]
+                    if extra_data:
+                        extra_img = Image.open(BytesIO(extra_data)).convert("RGB")
+                        input_images.append(extra_img)
+                
+                if not input_images:
+                    self.send_json_response(400, {"error": "At least one input image is required for editing"})
+                    return
+                
+                logger.info(f"Image edit request: {len(input_images)} reference(s), {width}x{height}, {num_steps} steps")
+                
+                # Reset generation state
+                generation_id = uuid.uuid4().hex[:8]
+                with generation_lock:
+                    current_generation["id"] = generation_id
+                    current_generation["cancelled"] = False
+                    current_generation["result"] = None
+                    current_generation["error"] = None
+                    current_generation["status"] = "running"
+                
+                # Use locked seed if enabled
+                if app_settings.get("seed_locked", False):
+                    seed = app_settings.get("locked_seed", 42)
+                    logger.info(f"Using locked seed for edit: {seed}")
+                else:
+                    seed = int(time.time()) % 2147483647
+                
+                output_paths = edit_image(
+                    prompt=prompt,
+                    input_images=input_images,
+                    width=width,
+                    height=height,
+                    num_inference_steps=num_steps,
+                    seed=seed,
+                    generation_id=generation_id,
+                )
+                
+                with generation_lock:
+                    current_generation["status"] = "complete"
+                    current_generation["result"] = output_paths
+                
+                self.send_json_response(200, {"status": "complete", "image_paths": output_paths})
+                
+            except Exception as e:
+                with generation_lock:
+                    if current_generation["cancelled"]:
+                        current_generation["status"] = "cancelled"
+                    else:
+                        current_generation["status"] = "error"
+                        current_generation["error"] = str(e)
+                
+                if "cancelled" in str(e).lower():
+                    logger.info("Image edit cancelled by user")
+                    self.send_json_response(200, {"status": "cancelled"})
+                else:
+                    logger.error(f"Image edit error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    self.send_json_response(500, {"error": str(e)})
         elif self.path == "/api/settings":
             try:
                 content_len = int(self.headers.get('Content-Length', 0))
@@ -2948,14 +3216,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             logger.info(f"Prompt cache size set to {new_size}")
                     
                     # Prompt Enhancer settings
-                    if 'promptEnhancerEnabled' in data:
-                        old_value = app_settings.get("prompt_enhancer_enabled", True)
-                        app_settings["prompt_enhancer_enabled"] = bool(data['promptEnhancerEnabled'])
-                        if old_value != app_settings["prompt_enhancer_enabled"]:
-                            if app_settings["prompt_enhancer_enabled"]:
-                                logger.info("Prompt enhancer enabled")
-                            else:
-                                logger.info("Prompt enhancer disabled")
+                    if 'promptEnhancerEnabledT2V' in data:
+                        old_value = app_settings.get("prompt_enhancer_enabled_t2v", True)
+                        app_settings["prompt_enhancer_enabled_t2v"] = bool(data['promptEnhancerEnabledT2V'])
+                        if old_value != app_settings["prompt_enhancer_enabled_t2v"]:
+                            state = "enabled" if app_settings["prompt_enhancer_enabled_t2v"] else "disabled"
+                            logger.info(f"T2V prompt enhancer {state}")
+                    
+                    if 'promptEnhancerEnabledI2V' in data:
+                        old_value = app_settings.get("prompt_enhancer_enabled_i2v", False)
+                        app_settings["prompt_enhancer_enabled_i2v"] = bool(data['promptEnhancerEnabledI2V'])
+                        if old_value != app_settings["prompt_enhancer_enabled_i2v"]:
+                            state = "enabled" if app_settings["prompt_enhancer_enabled_i2v"] else "disabled"
+                            logger.info(f"I2V prompt enhancer {state}")
                     
                     if 'geminiApiKey' in data:
                         old_key = app_settings.get("gemini_api_key", "")
@@ -3969,11 +4242,41 @@ def get_gpu_info():
         return {"name": "Unknown", "vram": 0, "vramUsed": 0}
 
 
+def precache_model_files(model_dir):
+    """Read model files into OS file cache so subsequent loads are faster.
+    
+    This reads large model weight files sequentially so the OS caches them
+    in RAM. When the pipeline later loads the model, file reads hit the
+    OS page cache instead of disk, significantly reducing load time.
+    """
+    if not model_dir.exists():
+        return
+    
+    total_bytes = 0
+    for f in model_dir.rglob("*"):
+        if f.is_file() and f.suffix in ('.safetensors', '.bin', '.pt', '.pth', '.onnx', '.model'):
+            try:
+                size = f.stat().st_size
+                with open(f, 'rb') as fh:
+                    while fh.read(8 * 1024 * 1024):  # 8MB chunks
+                        pass
+                total_bytes += size
+            except Exception:
+                pass
+    
+    return total_bytes
+
+
 def background_warmup():
     """Run model loading and warmup in background thread.
     
     If load_on_startup is False (default), just check models and mark ready.
     Models will load on first generation.
+    
+    If load_on_startup is True:
+    1. Load and warm up the video model (Fast pipeline) on GPU
+    2. Pre-cache image model files into OS RAM (without loading to GPU)
+       so the first image generation loads much faster
     """
     global warmup_state
     
@@ -4010,25 +4313,44 @@ def background_warmup():
             logger.info("="*60)
             return
         
-        # Preload models at startup (if setting enabled)
+        # === Phase 1: Load and warm up video model ===
         with warmup_lock:
-            warmup_state["current_step"] = "Loading Fast model..."
-            warmup_state["progress"] = 30
+            warmup_state["current_step"] = "Loading video model..."
+            warmup_state["progress"] = 20
         
-        logger.info("[1/2] Loading Fast (Distilled) pipeline...")
+        logger.info("[1/3] Loading Fast (Distilled) pipeline...")
         if load_pipeline("fast"):
-            logger.info("[1/2] Fast pipeline ready!")
+            logger.info("[1/3] Fast pipeline ready!")
         else:
-            logger.warning("[1/2] Fast pipeline failed to load")
+            logger.warning("[1/3] Fast pipeline failed to load")
         
         with warmup_lock:
             warmup_state["status"] = "warming"
-            warmup_state["current_step"] = "Warming up Fast model..."
-            warmup_state["progress"] = 60
+            warmup_state["current_step"] = "Warming up video model..."
+            warmup_state["progress"] = 45
         
-        logger.info("[2/2] Warming up Fast pipeline (loading text encoder)...")
+        logger.info("[2/3] Warming up Fast pipeline (loading text encoder)...")
         warmup_pipeline("fast")
-        logger.info("[2/2] Fast pipeline warmed up!")
+        logger.info("[2/3] Fast pipeline warmed up!")
+        
+        # === Phase 2: Preload image model (Flux Klein) to CPU RAM ===
+        # Loading from_pretrained to CPU is slow (~30-60s) but happens in background.
+        # On first image generation, we only need .to("cuda") which is much faster (~5-10s).
+        flux_exists = FLUX_MODELS_DIR.exists() and any(FLUX_MODELS_DIR.iterdir()) if FLUX_MODELS_DIR.exists() else False
+        if flux_exists:
+            with warmup_lock:
+                warmup_state["current_step"] = "Loading image model to CPU..."
+                warmup_state["progress"] = 60
+            
+            logger.info("[3/3] Preloading Flux Klein 4B pipeline to CPU RAM (background)...")
+            try:
+                load_flux_pipeline(to_gpu=False)
+                logger.info("[3/3] Flux Klein 4B preloaded to CPU — will transfer to GPU on first use")
+            except Exception as e:
+                logger.warning(f"[3/3] Failed to preload Flux to CPU: {e}")
+                logger.warning("[3/3] Image model will load from disk on first use instead")
+        else:
+            logger.info("[3/3] Image model not downloaded — skipping preload")
         
         with warmup_lock:
             warmup_state["status"] = "ready"
@@ -4036,7 +4358,9 @@ def background_warmup():
             warmup_state["progress"] = 100
         
         logger.info("="*60)
-        logger.info("Fast model loaded and ready!")
+        logger.info("Video model loaded and warmed up on GPU!")
+        if flux_exists and flux_pipeline is not None:
+            logger.info("Image model preloaded in CPU RAM (fast GPU transfer on first use)")
         logger.info("Pro model will load on first use (to conserve VRAM)")
         logger.info("="*60)
         

@@ -72,7 +72,8 @@ interface AppSettings {
   proModel: InferenceSettings
   promptCacheSize: number
   // Prompt Enhancer settings
-  promptEnhancerEnabled: boolean
+  promptEnhancerEnabledT2V: boolean
+  promptEnhancerEnabledI2V: boolean
   geminiApiKey: string
   t2vSystemPrompt: string
   i2vSystemPrompt: string
@@ -221,12 +222,14 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
   }
 
   // Prompt Enhancer handlers
-  const handleTogglePromptEnhancer = () => {
-    onSettingsChange({
-      ...settings,
-      promptEnhancerEnabled: !settings.promptEnhancerEnabled,
-    })
+  const handleTogglePromptEnhancer = (mode: 't2v' | 'i2v') => {
+    if (mode === 't2v') {
+      onSettingsChange({ ...settings, promptEnhancerEnabledT2V: !settings.promptEnhancerEnabledT2V })
+    } else {
+      onSettingsChange({ ...settings, promptEnhancerEnabledI2V: !settings.promptEnhancerEnabledI2V })
+    }
   }
+  const anyEnhancerEnabled = settings.promptEnhancerEnabledT2V || settings.promptEnhancerEnabledI2V
 
   const handleGeminiApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onSettingsChange({
@@ -413,7 +416,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                           )}
                         </div>
                         <a 
-                          href="https://console.ltx.io" 
+                          href="https://console.ltx.video/api-keys/" 
                           target="_blank" 
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
@@ -525,8 +528,10 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                       </label>
                     </div>
                     <p className="text-xs text-zinc-500 leading-relaxed">
-                      Load AI models when the app starts. When disabled, models load on first generation 
-                      (faster startup, slower first generation). Requires app restart to take effect.
+                      Load AI models in the background after the app starts. The video model is loaded 
+                      and warmed up on GPU, and the image model is preloaded into CPU RAM for faster 
+                      first generation. When disabled, models load on first use (faster startup, slower 
+                      first generation). Requires app restart to take effect.
                     </p>
                   </div>
                   
@@ -554,7 +559,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                   <div className={`w-1.5 h-1.5 rounded-full ${
                     settings.loadOnStartup ? 'bg-blue-400' : 'bg-zinc-600'
                   }`} />
-                  {settings.loadOnStartup ? 'Models preload at startup' : 'Models load on first generation'}
+                  {settings.loadOnStartup ? 'Models preload in background at startup' : 'Models load on first generation'}
                 </div>
               </div>
               
@@ -790,47 +795,67 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
 
           {activeTab === 'promptEnhancer' && (
             <>
-              {/* Enable/Disable Toggle */}
+              {/* Enable/Disable Toggles */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-violet-400" />
-                    <h3 className="text-sm font-semibold text-white">Prompt Enhancer</h3>
-                  </div>
-                  <button
-                    onClick={handleTogglePromptEnhancer}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      settings.promptEnhancerEnabled ? 'bg-violet-500' : 'bg-zinc-700'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        settings.promptEnhancerEnabled ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-violet-400" />
+                  <h3 className="text-sm font-semibold text-white">Prompt Enhancer</h3>
                 </div>
                 
                 <p className="text-xs text-zinc-500 leading-relaxed">
                   Automatically enhances your prompts with rich visual details, sound descriptions, and motion cues 
-                  to help the AI generate higher quality videos.
+                  to help the AI generate higher quality videos. Control independently for each generation type.
                 </p>
 
-                {/* Status */}
-                <div className={`text-xs px-2 py-1 rounded inline-flex items-center gap-1.5 ${
-                  settings.promptEnhancerEnabled 
-                    ? 'bg-violet-500/10 text-violet-400' 
-                    : 'bg-zinc-800 text-zinc-500'
-                }`}>
-                  <div className={`w-1.5 h-1.5 rounded-full ${
-                    settings.promptEnhancerEnabled ? 'bg-violet-400' : 'bg-zinc-600'
-                  }`} />
-                  {settings.promptEnhancerEnabled ? 'Prompts will be enhanced before generation' : 'Prompts used as-is'}
+                {/* T2V Toggle */}
+                <div
+                  className="flex items-center justify-between bg-zinc-800/50 rounded-lg px-4 py-3 border border-zinc-700/50 cursor-pointer"
+                  onClick={() => handleTogglePromptEnhancer('t2v')}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-semibold text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded">T2V</span>
+                    <div>
+                      <span className="text-sm text-zinc-200">Text-to-Video</span>
+                      <p className="text-[10px] text-zinc-500 mt-0.5">
+                        {settings.promptEnhancerEnabledT2V ? 'Prompts will be enhanced before T2V generation' : 'T2V prompts used as-is'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                    settings.promptEnhancerEnabledT2V ? 'bg-violet-500' : 'bg-zinc-700'
+                  }`}>
+                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform pointer-events-none ${
+                      settings.promptEnhancerEnabledT2V ? 'translate-x-5' : 'translate-x-0'
+                    }`} />
+                  </div>
+                </div>
+
+                {/* I2V Toggle */}
+                <div
+                  className="flex items-center justify-between bg-zinc-800/50 rounded-lg px-4 py-3 border border-zinc-700/50 cursor-pointer"
+                  onClick={() => handleTogglePromptEnhancer('i2v')}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-semibold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded">I2V</span>
+                    <div>
+                      <span className="text-sm text-zinc-200">Image-to-Video</span>
+                      <p className="text-[10px] text-zinc-500 mt-0.5">
+                        {settings.promptEnhancerEnabledI2V ? 'Prompts will be enhanced before I2V generation' : 'I2V prompts used as-is'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                    settings.promptEnhancerEnabledI2V ? 'bg-violet-500' : 'bg-zinc-700'
+                  }`}>
+                    <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform pointer-events-none ${
+                      settings.promptEnhancerEnabledI2V ? 'translate-x-5' : 'translate-x-0'
+                    }`} />
+                  </div>
                 </div>
               </div>
 
-              {/* Gemini API Key - only show when enabled */}
-              {settings.promptEnhancerEnabled && (
+              {/* Gemini API Key - only show when at least one enhancer is enabled */}
+              {anyEnhancerEnabled && (
                 <div className="space-y-3 pt-4 border-t border-zinc-800">
                   <div className="flex items-center gap-2">
                     <Zap className="h-4 w-4 text-blue-400" />
@@ -876,7 +901,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
               )}
 
               {/* T2V System Prompt */}
-              {settings.promptEnhancerEnabled && (
+              {settings.promptEnhancerEnabledT2V && (
                 <div className="space-y-3 pt-4 border-t border-zinc-800">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -912,7 +937,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
               )}
 
               {/* I2V System Prompt */}
-              {settings.promptEnhancerEnabled && (
+              {settings.promptEnhancerEnabledI2V && (
                 <div className="space-y-3 pt-4 border-t border-zinc-800">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -948,7 +973,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
               )}
               
               {/* Note about T2I */}
-              {settings.promptEnhancerEnabled && (
+              {anyEnhancerEnabled && (
                 <div className="bg-zinc-800/30 rounded-lg p-3 mt-2">
                   <p className="text-xs text-zinc-500">
                     <span className="text-zinc-400">Note:</span> Prompt enhancement is not applied to text-to-image generation.

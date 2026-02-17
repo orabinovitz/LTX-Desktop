@@ -1,12 +1,14 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { 
   Plus, Trash2, Download, Image, Video, X,
-  Heart, Pencil, Film, Wrench, Volume2, VolumeX, Sparkles,
-  Music, Zap, Move3D, Clock, Monitor, ChevronUp, ChevronDown, Scissors, AudioLines
+  Heart, Pencil, Film, Volume2, VolumeX, Sparkles,
+  Music, Zap, Move3D, Clock, Monitor, ChevronUp, ChevronDown, Scissors, AudioLines,
+  Paintbrush, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import { useGeneration } from '../hooks/use-generation'
 import type { Asset } from '../types/project'
+import { copyToAssetFolder } from '../lib/asset-copy'
 
 // Asset card with hover overlays
 function AssetCard({ 
@@ -15,6 +17,7 @@ function AssetCard({
   onPlay,
   onDragStart,
   onCreateVideo,
+  onEditImage,
   onToggleFavorite
 }: { 
   asset: Asset
@@ -22,6 +25,7 @@ function AssetCard({
   onPlay: () => void
   onDragStart: (e: React.DragEvent, asset: Asset) => void
   onCreateVideo?: (asset: Asset) => void
+  onEditImage?: (asset: Asset) => void
   onToggleFavorite?: () => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -113,10 +117,10 @@ function AssetCard({
             {asset.type === 'image' && (
               <>
                 <button
-                  onClick={(e) => { e.stopPropagation(); /* TODO: Edit */ }}
-                  className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
+                  onClick={(e) => { e.stopPropagation(); onEditImage?.(asset) }}
+                  className="px-2.5 py-1.5 rounded-lg bg-violet-500/70 backdrop-blur-md text-white hover:bg-violet-400/80 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
                 >
-                  <Pencil className="h-3 w-3" />
+                  <Paintbrush className="h-3 w-3" />
                   Edit
                 </button>
                 <button
@@ -137,13 +141,7 @@ function AssetCard({
             >
               <Download className="h-3.5 w-3.5" />
             </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); /* TODO: Tools menu */ }}
-              className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
-            >
-              <Wrench className="h-3 w-3" />
-              Tools
-            </button>
+            {/* Tools button hidden for now */}
           </div>
         </div>
         
@@ -409,7 +407,7 @@ function PromptBar({
             onChange={(e) => onPromptChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={mode === 'image' 
-              ? "A close-up of a woman talking on the phone..." 
+              ? (inputImage ? "Change the background to a sunset beach..." : "A close-up of a woman talking on the phone...")
               : "The woman sips from a cup of coffee..."
             }
             className="w-full bg-transparent text-white text-sm placeholder:text-zinc-500 focus:outline-none px-2 py-2"
@@ -708,7 +706,7 @@ const gallerySizeClasses: Record<GallerySize, string> = {
 }
 
 export function GenSpace() {
-  const { currentProject, currentProjectId, addAsset, deleteAsset, toggleFavorite } = useProjects()
+  const { currentProject, currentProjectId, addAsset, deleteAsset, toggleFavorite, genSpaceEditImageUrl, setGenSpaceEditImageUrl, genSpaceEditMode, setGenSpaceEditMode } = useProjects()
   const [mode, setMode] = useState<'image' | 'video'>('video')
   const [prompt, setPrompt] = useState('')
   const [inputImage, setInputImage] = useState<string | null>(null)
@@ -725,12 +723,13 @@ export function GenSpace() {
     imageResolution: '1080p',
     variations: 1,
     motion: 'normal',
-    audio: false,
+    audio: true,
   })
   
   const {
     generate,
     generateImage,
+    editImage,
     isGenerating,
     progress,
     statusMessage,
@@ -739,30 +738,23 @@ export function GenSpace() {
     imageUrls,
   } = useGeneration()
   
+  // Handle incoming frame from the Video Editor for editing
+  useEffect(() => {
+    if (genSpaceEditImageUrl) {
+      const targetMode = genSpaceEditMode || 'image'
+      setMode(targetMode)
+      setInputImage(genSpaceEditImageUrl)
+      setPrompt('')
+      setGenSpaceEditImageUrl(null)
+      setGenSpaceEditMode(null)
+    }
+  }, [genSpaceEditImageUrl, setGenSpaceEditImageUrl, genSpaceEditMode, setGenSpaceEditMode])
+
   // Only show assets that were generated (have generationParams), not imported files
   const assets = (currentProject?.assets || []).filter(a => a.generationParams)
   const [lastPrompt, setLastPrompt] = useState('')
   
-  // Copy a generated file to the project's asset save folder, returning the new path + URL (or originals on failure)
-  const copyToAssetFolder = async (origPath: string, origUrl: string): Promise<{ path: string; url: string }> => {
-    const savePath = currentProject?.assetSavePath
-    if (!savePath || !window.electronAPI) return { path: origPath, url: origUrl }
-    try {
-      await window.electronAPI.ensureDirectory(savePath)
-      const sep = origPath.includes('\\') ? '\\' : '/'
-      const fileName = origPath.split(sep).pop() || origPath.split('/').pop() || 'asset'
-      const destPath = `${savePath}${sep}${fileName}`
-      const result = await window.electronAPI.copyFile(origPath, destPath)
-      if (result.success) {
-        const normalized = destPath.replace(/\\/g, '/')
-        const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
-        return { path: destPath, url: fileUrl }
-      }
-    } catch (e) {
-      console.warn('Failed to copy asset to project folder:', e)
-    }
-    return { path: origPath, url: origUrl }
-  }
+  const assetSavePath = currentProject?.assetSavePath
 
   // When video generation completes, add to project assets
   useEffect(() => {
@@ -771,7 +763,7 @@ export function GenSpace() {
       if (!exists) {
         const genMode = inputImage ? 'image-to-video' : 'text-to-video'
         ;(async () => {
-          const { path: finalPath, url: finalUrl } = await copyToAssetFolder(videoPath, videoUrl)
+          const { path: finalPath, url: finalUrl } = await copyToAssetFolder(videoPath, videoUrl, assetSavePath)
           addAsset(currentProjectId, {
             type: 'video',
             path: finalPath,
@@ -804,14 +796,15 @@ export function GenSpace() {
     }
   }, [videoUrl, videoPath, currentProjectId, isGenerating])
   
-  // When image generation completes, add all images to project assets
+  // When image generation/editing completes, add all images to project assets
   useEffect(() => {
     if (imageUrls.length > 0 && currentProjectId && !isGenerating) {
+      const genMode = inputImage ? 'image-edit' : 'text-to-image'
       ;(async () => {
         for (const imageUrl of imageUrls) {
           const exists = assets.some(a => a.url === imageUrl)
           if (!exists) {
-            const { path: finalPath, url: finalUrl } = await copyToAssetFolder(imageUrl, imageUrl)
+            const { path: finalPath, url: finalUrl } = await copyToAssetFolder(imageUrl, imageUrl, assetSavePath)
             addAsset(currentProjectId, {
               type: 'image',
               path: finalPath,
@@ -819,7 +812,7 @@ export function GenSpace() {
               prompt: lastPrompt,
               resolution: settings.imageResolution,
               generationParams: {
-                mode: 'text-to-image',
+                mode: genMode as any,
                 prompt: lastPrompt,
                 model: 'fast',
                 duration: 5,
@@ -829,6 +822,7 @@ export function GenSpace() {
                 cameraMotion: 'none',
                 imageAspectRatio: settings.aspectRatio,
                 imageSteps: 4,
+                inputImageUrl: genMode === 'image-edit' ? inputImage || undefined : undefined,
               },
               takes: [{
                 url: finalUrl,
@@ -850,21 +844,83 @@ export function GenSpace() {
     setLastPrompt(prompt)
     
     if (mode === 'image') {
-      // Generate image(s) based on variations setting
-      generateImage(
-        prompt,
-        {
-          model: 'fast' as 'fast' | 'pro', // Flux Klein uses fast
-          duration: 5,
-          resolution: settings.resolution,
-          fps: 24,
-          audio: false,
-          cameraMotion: 'none',
-          imageAspectRatio: settings.aspectRatio,
-          imageSteps: 4,
-          variations: settings.variations,
+      if (inputImage) {
+        // Image + input image → edit image mode (auto-detected)
+        let imageFile: File | null = null
+        try {
+          if (inputImage.startsWith('blob:')) {
+            const response = await fetch(inputImage)
+            const blob = await response.blob()
+            imageFile = new File([blob], 'input-image.png', { type: blob.type })
+          } else if (inputImage.startsWith('file:///') || inputImage.startsWith('file://')) {
+            let filePath = inputImage
+            if (filePath.startsWith('file:///')) filePath = filePath.slice(8)
+            else if (filePath.startsWith('file://')) filePath = filePath.slice(7)
+            filePath = decodeURIComponent(filePath)
+            const fileName = filePath.split(/[/\\]/).pop() || 'input-image.png'
+            
+            const img = document.createElement('img')
+            img.crossOrigin = 'anonymous'
+            const blob = await new Promise<Blob>((resolve, reject) => {
+              img.onload = () => {
+                const canvas = document.createElement('canvas')
+                canvas.width = img.naturalWidth
+                canvas.height = img.naturalHeight
+                const ctx = canvas.getContext('2d')
+                if (!ctx) { reject(new Error('No canvas context')); return }
+                ctx.drawImage(img, 0, 0)
+                canvas.toBlob((b) => {
+                  if (b) resolve(b)
+                  else reject(new Error('Failed to convert canvas to blob'))
+                }, 'image/png')
+              }
+              img.onerror = () => reject(new Error('Failed to load image'))
+              img.src = inputImage
+            })
+            imageFile = new File([blob], fileName, { type: 'image/png' })
+          } else if (inputImage.startsWith('http://') || inputImage.startsWith('https://')) {
+            const response = await fetch(inputImage)
+            const blob = await response.blob()
+            imageFile = new File([blob], 'input-image.png', { type: blob.type })
+          }
+        } catch (e) {
+          console.error('Failed to convert input image for editing:', e)
+          return
         }
-      )
+        
+        if (!imageFile) return
+        
+        editImage(
+          prompt,
+          [imageFile],
+          {
+            model: 'fast' as 'fast' | 'pro',
+            duration: 5,
+            resolution: settings.resolution,
+            fps: 24,
+            audio: false,
+            cameraMotion: 'none',
+            imageAspectRatio: settings.aspectRatio,
+            imageSteps: 4,
+          }
+        )
+      } else {
+        // No input image → generate image(s)
+        generateImage(
+          prompt,
+          {
+            model: 'fast' as 'fast' | 'pro',
+            duration: 5,
+            resolution: settings.resolution,
+            fps: 24,
+            audio: false,
+            cameraMotion: 'none',
+            imageAspectRatio: settings.aspectRatio,
+            imageSteps: 4,
+            variations: settings.variations,
+          }
+        )
+      }
     } else {
       // Generate video (t2v if no image, i2v if image is provided)
       // Convert inputImage URL to File if we have one
@@ -958,6 +1014,12 @@ export function GenSpace() {
     setPrompt(`${imageAsset.prompt || 'The scene comes to life...'}`)
   }
   
+  const handleEditImage = (imageAsset: Asset) => {
+    setMode('image')
+    setInputImage(imageAsset.url)
+    setPrompt('')
+  }
+  
   // Close size menu on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -973,6 +1035,31 @@ export function GenSpace() {
 
   const filteredAssets = showFavorites ? assets.filter(a => a.favorite) : assets
   const favoriteCount = assets.filter(a => a.favorite).length
+
+  // Navigation for the asset preview modal
+  const selectedIndex = selectedAsset ? filteredAssets.findIndex(a => a.id === selectedAsset.id) : -1
+  const canGoPrev = selectedIndex > 0
+  const canGoNext = selectedIndex >= 0 && selectedIndex < filteredAssets.length - 1
+
+  const goToPrev = useCallback(() => {
+    if (canGoPrev) setSelectedAsset(filteredAssets[selectedIndex - 1])
+  }, [canGoPrev, filteredAssets, selectedIndex])
+
+  const goToNext = useCallback(() => {
+    if (canGoNext) setSelectedAsset(filteredAssets[selectedIndex + 1])
+  }, [canGoNext, filteredAssets, selectedIndex])
+
+  // Keyboard navigation for the preview modal
+  useEffect(() => {
+    if (!selectedAsset) return
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goToPrev() }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); goToNext() }
+      else if (e.key === 'Escape') setSelectedAsset(null)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [selectedAsset, goToPrev, goToNext])
 
   return (
     <div className="h-full flex flex-col bg-zinc-950">
@@ -1101,6 +1188,7 @@ export function GenSpace() {
                 onPlay={() => setSelectedAsset(asset)}
                 onDragStart={handleDragStart}
                 onCreateVideo={handleCreateVideo}
+                onEditImage={handleEditImage}
                 onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
               />
             ))}
@@ -1129,18 +1217,53 @@ export function GenSpace() {
       {/* Asset preview modal */}
       {selectedAsset && (
         <div 
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-8"
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
           onClick={() => setSelectedAsset(null)}
         >
-          <div className="relative max-w-5xl w-full max-h-full" onClick={e => e.stopPropagation()}>
-            <button
-              onClick={() => setSelectedAsset(null)}
-              className="absolute -top-12 right-0 p-2 rounded-lg text-zinc-400 hover:text-white"
-            >
-              <X className="h-6 w-6" />
-            </button>
+          {/* Previous button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); goToPrev() }}
+            disabled={!canGoPrev}
+            className={`absolute left-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full backdrop-blur-md transition-all ${
+              canGoPrev
+                ? 'bg-white/10 text-white hover:bg-white/20 cursor-pointer'
+                : 'bg-white/5 text-zinc-600 cursor-default'
+            }`}
+          >
+            <ChevronLeft className="h-6 w-6" />
+          </button>
+
+          {/* Next button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); goToNext() }}
+            disabled={!canGoNext}
+            className={`absolute right-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full backdrop-blur-md transition-all ${
+              canGoNext
+                ? 'bg-white/10 text-white hover:bg-white/20 cursor-pointer'
+                : 'bg-white/5 text-zinc-600 cursor-default'
+            }`}
+          >
+            <ChevronRight className="h-6 w-6" />
+          </button>
+
+          {/* Content area */}
+          <div className="relative max-w-5xl w-full max-h-full px-20 py-8" onClick={e => e.stopPropagation()}>
+            {/* Top bar: counter + close */}
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm text-zinc-500 font-medium">
+                {selectedIndex + 1} / {filteredAssets.length}
+              </span>
+              <button
+                onClick={() => setSelectedAsset(null)}
+                className="p-2 rounded-lg text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
             {selectedAsset.type === 'video' ? (
               <video
+                key={selectedAsset.id}
                 src={selectedAsset.url}
                 controls
                 autoPlay
@@ -1148,9 +1271,10 @@ export function GenSpace() {
               />
             ) : (
               <img
+                key={selectedAsset.id}
                 src={selectedAsset.url}
                 alt=""
-                className="w-full rounded-xl object-contain max-h-[80vh]"
+                className="w-full rounded-xl object-contain max-h-[75vh]"
               />
             )}
             <div className="mt-4 text-center">

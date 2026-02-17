@@ -838,12 +838,12 @@ export function ProgramMonitor({
         {/* Status bar: timecode | Fit | transport controls | resolution | duration */}
         <div className="h-8 bg-zinc-950 border-t border-zinc-800 flex items-center px-3 flex-shrink-0 gap-2">
           {/* Left: current timecode */}
-          <span className="text-[12px] font-mono font-medium text-amber-400 tabular-nums tracking-tight select-none min-w-[90px]">
+          <span className="text-[12px] font-mono font-medium text-amber-400 tabular-nums tracking-tight select-none flex-shrink-0">
             {formatTime(currentTime)}
           </span>
 
           {/* Fit / Zoom dropdown */}
-          <div className="relative">
+          <div className="relative flex-shrink-0">
             <button
               onClick={(e) => { e.stopPropagation(); setPreviewZoomOpen(prev => !prev) }}
               className={`h-6 px-2 rounded text-[11px] font-medium tabular-nums flex items-center gap-1 transition-colors border ${
@@ -960,7 +960,7 @@ export function ProgramMonitor({
           </div>
 
           {/* Resolution dropdown */}
-          <div className="relative">
+          <div className="relative flex-shrink-0">
             <button
               onClick={(e) => { e.stopPropagation(); setPlaybackResOpen(prev => !prev) }}
               className={`h-6 px-2 rounded text-[11px] font-medium flex items-center gap-1 transition-colors border ${
@@ -1015,7 +1015,7 @@ export function ProgramMonitor({
           </button>
 
           {/* Right: total duration */}
-          <span className="text-[12px] font-mono font-medium text-zinc-400 tabular-nums tracking-tight select-none min-w-[90px] text-right">
+          <span className="text-[12px] font-mono font-medium text-zinc-400 tabular-nums tracking-tight select-none flex-shrink-0 text-right">
             {formatTime(totalDuration)}
           </span>
         </div>
