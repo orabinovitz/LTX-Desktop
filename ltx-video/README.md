@@ -36,9 +36,15 @@ A standalone desktop application for generating AI videos using the LTX-2 model,
 
 #### Prerequisites
 - Node.js 20+
-- Python 3.11+
+- Python 3.12+
 - NVIDIA GPU with CUDA 12.1+
 - uv (Python package manager)
+- [Microsoft Visual C++ Redistributable 2015+](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) (required by native Python packages)
+
+> **Windows note:** If you see script execution errors when running `uv sync` or `npm` commands, you may need to allow PowerShell script execution. Run PowerShell as Administrator and execute:
+> ```powershell
+> Set-ExecutionPolicy RemoteSigned
+> ```
 
 #### Setup
 
