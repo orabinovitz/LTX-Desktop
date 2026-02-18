@@ -25,7 +25,6 @@ def download_flux_model_impl() -> bool:
         snapshot_download(
             repo_id="black-forest-labs/FLUX.2-klein-4B",
             local_dir=str(_mod.FLUX_MODELS_DIR),
-            local_dir_use_symlinks=False,
         )
         logger.info("FLUX.2 Klein 4B downloaded successfully")
         return True

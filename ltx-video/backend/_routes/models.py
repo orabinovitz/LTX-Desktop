@@ -114,7 +114,6 @@ def post_text_encoder_download() -> dict[str, Any]:
                 repo_id="Lightricks/LTX-2",
                 allow_patterns=["text_encoder/*"],
                 local_dir=_mod.MODELS_DIR,
-                local_dir_use_symlinks=False,
             )
             _mod._rename_text_encoder_files(_mod.MODELS_DIR / "text_encoder")
 

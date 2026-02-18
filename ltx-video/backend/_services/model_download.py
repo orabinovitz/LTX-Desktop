@@ -165,7 +165,6 @@ def download_models_impl() -> None:
                 repo_id=repo_id,
                 filename=filename,
                 local_dir=_mod.MODELS_DIR,
-                local_dir_use_symlinks=False,
             )
             logger.info(f"Downloaded {filename}")
         else:
@@ -178,7 +177,6 @@ def download_models_impl() -> None:
             repo_id=repo_id,
             allow_patterns=["text_encoder/*"],
             local_dir=_mod.MODELS_DIR,
-            local_dir_use_symlinks=False,
         )
         _rename_text_encoder_files(_mod.MODELS_DIR / "text_encoder")
         logger.info("Downloaded text_encoder")
@@ -251,22 +249,19 @@ def download_models_with_progress_impl(skip_text_encoder: bool = False) -> None:
                         repo_id=file_repo_id,
                         allow_patterns=["text_encoder/*"],
                         local_dir=_mod.MODELS_DIR,
-                        local_dir_use_symlinks=False,
-                    )
+                            )
                     _rename_text_encoder_files(_mod.MODELS_DIR / "text_encoder")
                 else:
                     snapshot_download(
                         repo_id=file_repo_id,
                         local_dir=str(local_path),
-                        local_dir_use_symlinks=False,
-                    )
+                            )
             else:
                 hf_hub_download(
                     repo_id=file_repo_id,
                     filename=filename,
                     local_dir=_mod.MODELS_DIR,
-                    local_dir_use_symlinks=False,
-                )
+                    )
 
             downloaded_so_far += expected_size
 
