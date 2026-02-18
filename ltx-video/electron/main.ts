@@ -276,7 +276,7 @@ function createWindow(): void {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: true,
+      webSecurity: isDev ? false : true,
     },
     backgroundColor: '#1a1a1a',
     titleBarStyle: 'default',
