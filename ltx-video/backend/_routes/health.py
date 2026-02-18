@@ -4,6 +4,27 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi import APIRouter
+
+from _models import HealthResponse, GpuInfoResponse, WarmupStatusResponse
+
+router = APIRouter(tags=["health"])
+
+
+@router.get("/health", response_model=HealthResponse)
+async def route_health():
+    return get_health()
+
+
+@router.get("/api/gpu-info", response_model=GpuInfoResponse)
+async def route_gpu_info():
+    return get_gpu_info()
+
+
+@router.get("/api/warmup/status", response_model=WarmupStatusResponse)
+async def route_warmup_status():
+    return get_warmup_status()
+
 
 def get_health() -> dict[str, Any]:
     """GET /health"""

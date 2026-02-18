@@ -2,12 +2,10 @@
 Test infrastructure for ltx2_server integration tests.
 
 Installs GPU/ML module stubs before importing the server module,
-redirects file paths to temp directories, and provides server fixtures.
+redirects file paths to temp directories, and provides TestClient fixtures.
 """
 import sys
 import os
-import threading
-import socketserver
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -89,7 +87,6 @@ sys.modules["safetensors"].safe_open.side_effect = Exception("stub")
 
 # Now import the server module (stubs are in place)
 import ltx2_server  # noqa: E402
-from ltx2_server import Handler  # noqa: E402
 
 # Suppress noisy server logging during tests
 import logging  # noqa: E402
@@ -256,23 +253,16 @@ def _reset_state():
 
 
 # ============================================================
-# 5. Server fixture
+# 5. TestClient fixture
 # ============================================================
 
-class _ReusableTCPServer(socketserver.TCPServer):
-    allow_reuse_address = True
-
-
 @pytest.fixture
-def server():
-    """Start a real HTTP server on a random port and yield its base URL."""
-    httpd = _ReusableTCPServer(("127.0.0.1", 0), Handler)
-    port = httpd.server_address[1]
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    yield f"http://127.0.0.1:{port}"
-    httpd.shutdown()
-    httpd.server_close()
+def client():
+    """Provide a Starlette TestClient wrapping the FastAPI app."""
+    from starlette.testclient import TestClient
+
+    with TestClient(ltx2_server.app) as c:
+        yield c
 
 
 # ============================================================

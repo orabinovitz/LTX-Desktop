@@ -9,9 +9,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from fastapi import APIRouter
+
+from _models import UpscaleRequest, UpscaleResponse
 from _routes._errors import HTTPError
 
 logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api", tags=["upscale"])
+
+
+@router.post("/upscale", response_model=UpscaleResponse)
+async def route_upscale(req: UpscaleRequest):
+    return post_upscale(req)
 
 
 def _sharpen_video(input_path: str | Path, output_path: str | None = None) -> bool:
@@ -54,11 +64,11 @@ def _sharpen_video(input_path: str | Path, output_path: str | None = None) -> bo
         return False
 
 
-def post_upscale(data: dict[str, Any], content_type: str | None = None) -> dict[str, Any]:
+def post_upscale(req: UpscaleRequest) -> dict[str, Any]:
     """POST /api/upscale"""
     import ltx2_server as _mod
 
-    video_path = data.get("video_path")
+    video_path = req.video_path
 
     if not video_path:
         raise HTTPError(400, "Missing video_path parameter")
@@ -116,15 +126,19 @@ def post_upscale(data: dict[str, Any], content_type: str | None = None) -> dict[
     params_json = json.dumps(params, separators=(",", ":"))
     logger.info(f"Sending to upscale API with params: {params_json}")
 
-    response = _mod.requests.post(
-        upscale_url,
-        headers=api_headers,
-        files={
-            "params": (None, params_json),
-            "input_video": (video_file.name, open(video_file, "rb"), "video/mp4"),
-        },
-        timeout=300,
-    )
+    try:
+        response = _mod.requests.post(
+            upscale_url,
+            headers=api_headers,
+            files={
+                "params": (None, params_json),
+                "input_video": (video_file.name, open(video_file, "rb"), "video/mp4"),
+            },
+            timeout=300,
+        )
+    except Exception as e:
+        logger.error(f"Upscale API request failed: {e}")
+        raise HTTPError(500, f"Upscale API request failed: {e}")
 
     logger.info(f"Upscale API response status: {response.status_code}")
     logger.info(f"Upscale API response headers: {dict(response.headers)}")

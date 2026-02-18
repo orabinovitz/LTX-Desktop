@@ -2,24 +2,20 @@
 LTX-2 Video Generation Server using the official ltx-pipelines package.
 Supports both text-to-video (T2V) and image-to-video (I2V).
 
-This module is a thin facade: all globals, the Handler class, and wrapper
+This module is a thin facade: all globals, the FastAPI app, and wrapper
 functions live here so that tests can import/patch them.  Heavy logic is
 delegated to ``_routes/`` (HTTP dispatch) and ``_services/`` (business logic).
 """
 import os
-import http.server
-import socketserver
 import json
 import logging
 from pathlib import Path
-import cgi
 import threading
 
 # Note: expandable_segments is not supported on all platforms
 
 import torch
 import requests  # type: ignore[reportUnusedImport]  # accessed via _mod.requests in _routes/
-from io import BytesIO
 
 # ============================================================
 # Logging Configuration
@@ -591,207 +587,65 @@ class DistilledNativePipeline:
 
 
 # ============================================================
-# CORS origin allowlist
+# FastAPI application
 # ============================================================
 
-# In production Electron loads from file:// which sends no Origin header,
-# so CORS does not apply. In dev, Vite runs on localhost:5173.
-ALLOWED_ORIGINS: set[str] = {
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from _routes._errors import HTTPError
+from _routes.health import router as health_router
+from _routes.generation import router as generation_router
+from _routes.models import router as models_router
+from _routes.settings import router as settings_router
+from _routes.image_gen import router as image_gen_router
+from _routes.prompt import router as prompt_router
+from _routes.upscale import router as upscale_router
+from _routes.retake import router as retake_router
+from _routes.ic_lora import router as ic_lora_router
+
+ALLOWED_ORIGINS: list[str] = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-}
+]
+
+app = FastAPI(title="LTX-2 Video Generation Server")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-# ============================================================
-# Handler — dispatches to _routes/
-# ============================================================
+@app.exception_handler(HTTPError)
+async def _route_http_error_handler(_request: Request, exc: HTTPError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.detail},
+    )
 
-class Handler(http.server.BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        pass
 
-    def _cors_origin(self) -> str:
-        """Return the value for Access-Control-Allow-Origin.
+@app.exception_handler(Exception)
+async def _route_generic_error_handler(_request: Request, exc: Exception) -> JSONResponse:
+    logger.error(f"Unhandled error: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc)},
+    )
 
-        If the request has an Origin header that matches the allowlist, echo
-        it back.  If the Origin is absent (non-browser / same-origin / tests),
-        return ``"*"`` which is harmless for those clients.  If the Origin is
-        present but not allowed, return empty string — caller should skip
-        sending the header so the browser blocks the response.
-        """
-        origin = self.headers.get("Origin")
-        if origin is None:
-            return "*"
-        if origin in ALLOWED_ORIGINS:
-            return origin
-        return ""
 
-    def send_json_response(self, status, data):
-        self.send_response(status)
-        self.send_header("Content-type", "application/json")
-        cors = self._cors_origin()
-        if cors:
-            self.send_header("Access-Control-Allow-Origin", cors)
-        self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
-
-    def do_OPTIONS(self):
-        self.send_response(200)
-        cors = self._cors_origin()
-        if cors:
-            self.send_header("Access-Control-Allow-Origin", cors)
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "*")
-        self.end_headers()
-
-    def _read_json_body(self):
-        content_len = int(self.headers.get('Content-Length', 0))
-        if content_len == 0:
-            return {}
-        body = self.rfile.read(content_len).decode('utf-8')
-        return json.loads(body) if body else {}
-
-    def _parse_multipart(self):
-        content_type = self.headers.get('Content-Type')
-        _, pdict = cgi.parse_header(content_type)
-        pdict['boundary'] = pdict['boundary'].encode()
-        return cgi.parse_multipart(self.rfile, pdict)
-
-    def do_GET(self):
-        from _routes._errors import HTTPError
-        try:
-            if self.path == "/health":
-                from _routes import health
-                self.send_json_response(200, health.get_health())
-            elif self.path == "/api/models":
-                from _routes import models
-                self.send_json_response(200, models.get_models())
-            elif self.path == "/api/models/status":
-                from _routes import models
-                self.send_json_response(200, models.get_models_status())
-            elif self.path == "/api/models/download/progress":
-                from _routes import models
-                self.send_json_response(200, models.get_download_progress())
-            elif self.path == "/api/ic-lora/list-models":
-                from _routes import ic_lora
-                self.send_json_response(200, ic_lora.get_list_models())
-            elif self.path == "/api/warmup/status":
-                from _routes import health
-                self.send_json_response(200, health.get_warmup_status())
-            elif self.path == "/api/generation/progress":
-                from _routes import generation
-                self.send_json_response(200, generation.get_generation_progress())
-            elif self.path == "/api/settings":
-                from _routes import settings
-                self.send_json_response(200, settings.get_settings())
-            elif self.path == "/api/gpu-info":
-                from _routes import health
-                self.send_json_response(200, health.get_gpu_info())
-            else:
-                self.send_response(404)
-                self.end_headers()
-        except HTTPError as e:
-            self.send_json_response(e.status_code, {"error": e.detail})
-        except Exception as e:
-            self.send_json_response(500, {"error": str(e)})
-
-    def do_POST(self):
-        from _routes._errors import HTTPError
-        try:
-            if self.path == "/api/models/download":
-                from _routes import models
-                data = self._read_json_body()
-                self.send_json_response(200, models.post_model_download(data))
-
-            elif self.path == "/api/text-encoder/download":
-                from _routes import models
-                self.send_json_response(200, models.post_text_encoder_download())
-
-            elif self.path == "/api/enhance-prompt":
-                from _routes import prompt
-                data = self._read_json_body()
-                self.send_json_response(200, prompt.post_enhance_prompt(data))
-
-            elif self.path == "/api/suggest-gap-prompt":
-                from _routes import prompt
-                data = self._read_json_body()
-                self.send_json_response(200, prompt.post_suggest_gap_prompt(data))
-
-            elif self.path == "/api/settings":
-                from _routes import settings
-                data = self._read_json_body()
-                self.send_json_response(200, settings.post_settings(data))
-
-            elif self.path == "/api/generate":
-                from _routes import generation
-                data = self._read_json_body()
-                self.send_json_response(200, generation.post_generate(data))
-
-            elif self.path == "/api/generate/cancel":
-                from _routes import generation
-                self.send_json_response(200, generation.post_cancel())
-
-            elif self.path == "/api/generate-image":
-                from _routes import image_gen
-                data = self._read_json_body()
-                self.send_json_response(200, image_gen.post_generate_image(data))
-
-            elif self.path == "/api/edit-image":
-                from _routes import image_gen
-                form = self._parse_multipart()
-                self.send_json_response(200, image_gen.post_edit_image(form))
-
-            elif self.path == "/api/upscale":
-                from _routes import upscale
-                content_type = self.headers.get('Content-Type', '')
-                ctype_parsed, pdict = cgi.parse_header(content_type)
-                if ctype_parsed == 'multipart/form-data':
-                    pdict['boundary'] = pdict['boundary'].encode()
-                    content_len = int(self.headers.get('Content-Length'))
-                    form_data = cgi.parse_multipart(BytesIO(self.rfile.read(content_len)), pdict)
-                    video_path = form_data.get('video_path', [None])[0]
-                    if isinstance(video_path, bytes):
-                        video_path = video_path.decode('utf-8')
-                    data = {
-                        'video_path': video_path,
-                        'width': int(form_data.get('width', [3840])[0]),
-                        'height': int(form_data.get('height', [2160])[0]),
-                    }
-                else:
-                    data = self._read_json_body()
-                self.send_json_response(200, upscale.post_upscale(data, content_type))
-
-            elif self.path == "/api/retake":
-                from _routes import retake
-                data = self._read_json_body()
-                self.send_json_response(200, retake.post_retake(data))
-
-            elif self.path == "/api/ic-lora/download-model":
-                from _routes import ic_lora
-                data = self._read_json_body()
-                self.send_json_response(200, ic_lora.post_download_model(data))
-
-            elif self.path == "/api/ic-lora/extract-conditioning":
-                from _routes import ic_lora
-                data = self._read_json_body()
-                self.send_json_response(200, ic_lora.post_extract_conditioning(data))
-
-            elif self.path == "/api/ic-lora/generate":
-                from _routes import ic_lora
-                data = self._read_json_body()
-                self.send_json_response(200, ic_lora.post_generate(data))
-
-            else:
-                self.send_response(404)
-                self.end_headers()
-
-        except HTTPError as e:
-            self.send_json_response(e.status_code, {"error": e.detail})
-        except Exception as e:
-            logger.error(f"Unhandled error on {self.path}: {e}")
-            import traceback
-            traceback.print_exc()
-            self.send_json_response(500, {"error": str(e)})
+app.include_router(health_router)
+app.include_router(generation_router)
+app.include_router(models_router)
+app.include_router(settings_router)
+app.include_router(image_gen_router)
+app.include_router(prompt_router)
+app.include_router(upscale_router)
+app.include_router(retake_router)
+app.include_router(ic_lora_router)
 
 
 # ============================================================
@@ -904,15 +758,14 @@ def background_warmup():
 
 
 if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("LTX_PORT", PORT))
     logger.info("=" * 60)
-    logger.info("LTX-2 Video Generation Server (Fast Mode)")
-    logger.info("Models stay loaded for fastest inference")
+    logger.info("LTX-2 Video Generation Server (FastAPI + Uvicorn)")
     logger.info("=" * 60)
 
     warmup_thread = threading.Thread(target=background_warmup, daemon=True)
     warmup_thread.start()
 
-    with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
-        logger.info(f"Server running on http://127.0.0.1:{PORT}")
-        logger.info("Models will load in background - frontend can connect now")
-        httpd.serve_forever()
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info", access_log=False)

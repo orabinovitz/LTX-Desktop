@@ -6,9 +6,46 @@ import logging
 import threading
 from typing import Any
 
+from fastapi import APIRouter
+
+from _models import (
+    ModelDownloadRequest,
+    ModelInfo,
+    ModelsStatusResponse,
+    DownloadProgressResponse,
+    ModelDownloadStartResponse,
+    TextEncoderDownloadResponse,
+)
 from _routes._errors import HTTPError
 
 logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api", tags=["models"])
+
+
+@router.get("/models", response_model=list[ModelInfo])
+async def route_models_list():
+    return get_models()
+
+
+@router.get("/models/status", response_model=ModelsStatusResponse)
+async def route_models_status():
+    return get_models_status()
+
+
+@router.get("/models/download/progress", response_model=DownloadProgressResponse)
+async def route_download_progress():
+    return get_download_progress()
+
+
+@router.post("/models/download", response_model=ModelDownloadStartResponse)
+async def route_model_download(req: ModelDownloadRequest):
+    return post_model_download(req)
+
+
+@router.post("/text-encoder/download", response_model=TextEncoderDownloadResponse)
+async def route_text_encoder_download():
+    return post_text_encoder_download()
 
 
 def get_models() -> list[dict[str, Any]]:
@@ -61,14 +98,14 @@ def get_download_progress() -> dict[str, Any]:
         }
 
 
-def post_model_download(data: dict[str, Any]) -> dict[str, Any]:
+def post_model_download(req: ModelDownloadRequest) -> dict[str, Any]:
     """POST /api/models/download"""
     import ltx2_server as _mod
 
     if _mod.model_download_state["status"] == "downloading":
         raise HTTPError(409, "Download already in progress")
 
-    skip_text_encoder = data.get("skipTextEncoder", False) if data else False
+    skip_text_encoder = req.skipTextEncoder
     if _mod.app_settings.get("ltx_api_key"):
         skip_text_encoder = True
 

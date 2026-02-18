@@ -8,6 +8,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from fastapi import APIRouter
+
+from _models import (
+    IcLoraDownloadRequest,
+    IcLoraExtractRequest,
+    IcLoraGenerateRequest,
+    IcLoraListResponse,
+    IcLoraDownloadResponse,
+    IcLoraExtractResponse,
+    IcLoraGenerateResponse,
+)
 from _routes._errors import HTTPError
 
 logger = logging.getLogger(__name__)
@@ -31,6 +42,28 @@ OFFICIAL_MODELS = {
         "file": "ltx-2-19b-ic-lora-detailer.safetensors",
     },
 }
+
+router = APIRouter(prefix="/api/ic-lora", tags=["ic-lora"])
+
+
+@router.get("/list-models", response_model=IcLoraListResponse)
+async def route_ic_lora_list_models():
+    return get_list_models()
+
+
+@router.post("/download-model", response_model=IcLoraDownloadResponse)
+async def route_ic_lora_download(req: IcLoraDownloadRequest):
+    return post_download_model(req)
+
+
+@router.post("/extract-conditioning", response_model=IcLoraExtractResponse)
+async def route_ic_lora_extract(req: IcLoraExtractRequest):
+    return post_extract_conditioning(req)
+
+
+@router.post("/generate", response_model=IcLoraGenerateResponse)
+async def route_ic_lora_generate(req: IcLoraGenerateRequest):
+    return post_generate(req)
 
 
 def get_list_models() -> dict[str, Any]:
@@ -60,11 +93,11 @@ def get_list_models() -> dict[str, Any]:
     return {"models": models, "directory": str(_mod.IC_LORA_DIR)}
 
 
-def post_download_model(data: dict[str, Any]) -> dict[str, Any]:
+def post_download_model(req: IcLoraDownloadRequest) -> dict[str, Any]:
     """POST /api/ic-lora/download-model"""
     import ltx2_server as _mod
 
-    model_key = data.get("model", "")
+    model_key = req.model
 
     if model_key not in OFFICIAL_MODELS:
         raise HTTPError(400, f"Unknown model: {model_key}. Must be one of: {list(OFFICIAL_MODELS.keys())}")
@@ -85,8 +118,8 @@ def post_download_model(data: dict[str, Any]) -> dict[str, Any]:
     tmp_path = dest_path.with_suffix(".tmp")
 
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "LTX-Studio-App/1.0"})
-        with urllib.request.urlopen(req) as response:
+        http_req = urllib.request.Request(url, headers={"User-Agent": "LTX-Studio-App/1.0"})
+        with urllib.request.urlopen(http_req) as response:
             total = int(response.headers.get("Content-Length", 0))
             downloaded = 0
             chunk_size = 1024 * 1024
@@ -110,20 +143,21 @@ def post_download_model(data: dict[str, Any]) -> dict[str, Any]:
 
         logger.info(f"IC-LoRA model downloaded: {dest_path} ({dest_path.stat().st_size / (1024 * 1024):.1f}MB)")
         return {"status": "complete", "path": str(dest_path), "already_existed": False}
-    except Exception:
+    except Exception as e:
         if tmp_path.exists():
             try:
                 tmp_path.unlink()
             except Exception:
                 pass
-        raise
+        logger.error(f"IC-LoRA download failed: {e}")
+        raise HTTPError(500, f"Download failed: {e}")
 
 
-def post_extract_conditioning(data: dict[str, Any]) -> dict[str, Any]:
+def post_extract_conditioning(req: IcLoraExtractRequest) -> dict[str, Any]:
     """POST /api/ic-lora/extract-conditioning"""
-    video_path = data.get("video_path")
-    conditioning_type = data.get("conditioning_type", "canny")
-    frame_time = data.get("frame_time", 0)
+    video_path = req.video_path
+    conditioning_type = req.conditioning_type
+    frame_time = req.frame_time
 
     if not video_path:
         raise HTTPError(400, "Missing video_path")
@@ -171,24 +205,18 @@ def post_extract_conditioning(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def post_generate(data: dict[str, Any]) -> dict[str, Any]:
+def post_generate(req: IcLoraGenerateRequest) -> dict[str, Any]:
     """POST /api/ic-lora/generate"""
     import ltx2_server as _mod
 
-    video_path = data.get("video_path")
-    lora_path = data.get("lora_path")
-    conditioning_type = data.get("conditioning_type", "canny")
-    prompt = data.get("prompt", "")
-    conditioning_strength = float(data.get("conditioning_strength", 1.0))
-    seed = int(data.get("seed", 42))
-    height = int(data.get("height", 512))
-    width = int(data.get("width", 768))
-    num_frames = int(data.get("num_frames", 121))
-    frame_rate = float(data.get("frame_rate", 24))
-    num_inference_steps = int(data.get("num_inference_steps", 30))
-    cfg_guidance_scale = float(data.get("cfg_guidance_scale", 1.0))
-    negative_prompt = data.get("negative_prompt", "")
-    images_input = data.get("images", [])
+    video_path = req.video_path
+    lora_path = req.lora_path
+    conditioning_type = req.conditioning_type
+    prompt = req.prompt
+    height = req.height
+    width = req.width
+    num_frames = req.num_frames
+    frame_rate = req.frame_rate
 
     if not video_path:
         raise HTTPError(400, "Missing video_path")
@@ -201,7 +229,7 @@ def post_generate(data: dict[str, Any]) -> dict[str, Any]:
 
     logger.info(f"IC-LoRA generate: video={video_path}, lora={lora_path}")
     logger.info(f"  conditioning_type={conditioning_type}, prompt={prompt[:100]}")
-    logger.info(f"  strength={conditioning_strength}, seed={seed}")
+    logger.info(f"  strength={req.conditioning_strength}, seed={req.seed}")
     logger.info(f"  resolution={width}x{height} (output will be {width * 2}x{height * 2}), frames={num_frames}, fps={frame_rate}")
 
     # Use LTX API for text encoding if available
@@ -262,13 +290,21 @@ def post_generate(data: dict[str, Any]) -> dict[str, Any]:
     logger.info(f"  Control signal video saved: {control_video_path} ({frame_idx} frames)")
 
     # Step 2: Load IC-LoRA pipeline
-    pipeline = _mod.load_ic_lora_pipeline(lora_path)
+    try:
+        pipeline = _mod.load_ic_lora_pipeline(lora_path)
+    except Exception as e:
+        logger.error(f"Failed to load IC-LoRA pipeline: {e}")
+        try:
+            Path(control_video_path).unlink()
+        except Exception:
+            pass
+        raise HTTPError(500, f"Pipeline error: {e}")
 
     # Step 3: Prepare conditioning
-    video_conditioning = [(control_video_path, conditioning_strength)]
+    video_conditioning = [(control_video_path, req.conditioning_strength)]
 
     images: list[tuple[str, int, float]] = []
-    for img in images_input:
+    for img in req.images:
         if isinstance(img, dict):
             images.append((img.get("path", ""), img.get("frame", 0), img.get("strength", 1.0)))
         elif isinstance(img, (list, tuple)) and len(img) >= 2:
@@ -284,22 +320,30 @@ def post_generate(data: dict[str, Any]) -> dict[str, Any]:
     output_path = _mod.OUTPUTS_DIR / output_filename
 
     # Step 4: Generate
-    logger.info("Starting IC-LoRA generation...")
-    pipeline(
-        prompt=prompt,
-        output_path=str(output_path),
-        negative_prompt=negative_prompt,
-        seed=seed,
-        height=height,
-        width=width,
-        num_frames=num_frames,
-        frame_rate=frame_rate,
-        num_inference_steps=num_inference_steps,
-        cfg_guidance_scale=cfg_guidance_scale,
-        images=images,
-        video_conditioning=video_conditioning,
-        tiling_config=tiling_config,
-    )
+    try:
+        logger.info("Starting IC-LoRA generation...")
+        pipeline(
+            prompt=prompt,
+            output_path=str(output_path),
+            negative_prompt=req.negative_prompt,
+            seed=req.seed,
+            height=height,
+            width=width,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            num_inference_steps=req.num_inference_steps,
+            cfg_guidance_scale=req.cfg_guidance_scale,
+            images=images,
+            video_conditioning=video_conditioning,
+            tiling_config=tiling_config,
+        )
+    except Exception as e:
+        logger.error(f"IC-LoRA generation failed: {e}")
+        try:
+            Path(control_video_path).unlink()
+        except Exception:
+            pass
+        raise HTTPError(500, f"Generation error: {e}")
 
     # Clean up temp control video
     try:

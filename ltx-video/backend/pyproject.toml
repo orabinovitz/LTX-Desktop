@@ -24,6 +24,7 @@ dependencies = [
     "opencv-python-headless>=4.8.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
     "triton-windows; sys_platform == 'win32'",
 ]
 
@@ -39,7 +40,7 @@ ltx-core = { git = "https://github.com/Lightricks/LTX-2.git", subdirectory = "pa
 ltx-pipelines = { git = "https://github.com/Lightricks/LTX-2.git", subdirectory = "packages/ltx-pipelines", rev = "28c3c73fe557666c3de176e1e50a5220152ccfca" }
 
 [project.optional-dependencies]
-test = ["pytest>=8.0", "requests>=2.31"]
+test = ["pytest>=8.0", "requests>=2.31", "httpx>=0.27"]
 dev = ["pyright>=1.1.380"]
 
 [tool.pytest.ini_options]

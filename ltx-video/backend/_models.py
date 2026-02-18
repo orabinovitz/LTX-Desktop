@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
 # ============================================================
@@ -78,8 +78,6 @@ class AppSettings(TypedDict):
 
 
 class ModelStatusItem(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     id: str
     name: str
     loaded: bool
@@ -87,8 +85,6 @@ class ModelStatusItem(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
     models_loaded: bool
     active_model: str | None
@@ -101,8 +97,6 @@ class HealthResponse(BaseModel):
 
 
 class GpuInfoResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     cuda_available: bool
     gpu_name: str | None
     vram_gb: int | None
@@ -110,35 +104,27 @@ class GpuInfoResponse(BaseModel):
 
 
 class WarmupStatusResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
-    currentStep: str = Field(alias="currentStep")
+    currentStep: str
     progress: int
     error: str | None
 
 
 class GenerationProgressResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
     phase: str
     progress: int
-    currentStep: int = Field(alias="currentStep")
-    totalSteps: int = Field(alias="totalSteps")
+    currentStep: int
+    totalSteps: int
 
 
 class ModelInfo(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     id: str
     name: str
     description: str
 
 
 class ModelFileStatus(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     name: str
     description: str
     downloaded: bool
@@ -150,8 +136,6 @@ class ModelFileStatus(BaseModel):
 
 
 class TextEncoderStatus(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     downloaded: bool
     size_bytes: int
     size_gb: float
@@ -159,8 +143,6 @@ class TextEncoderStatus(BaseModel):
 
 
 class ModelsStatusResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     models: list[dict[str, Any]]
     all_downloaded: bool
     total_size: int
@@ -174,43 +156,37 @@ class ModelsStatusResponse(BaseModel):
 
 
 class DownloadProgressResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
-    currentFile: str = Field(alias="currentFile")
-    currentFileProgress: int = Field(alias="currentFileProgress")
-    totalProgress: int = Field(alias="totalProgress")
-    downloadedBytes: int = Field(alias="downloadedBytes")
-    totalBytes: int = Field(alias="totalBytes")
-    filesCompleted: int = Field(alias="filesCompleted")
-    totalFiles: int = Field(alias="totalFiles")
+    currentFile: str
+    currentFileProgress: int
+    totalProgress: int
+    downloadedBytes: int
+    totalBytes: int
+    filesCompleted: int
+    totalFiles: int
     error: str | None
-    speedMbps: int = Field(alias="speedMbps")
+    speedMbps: int
 
 
 class SettingsResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    keepModelsLoaded: bool = Field(alias="keepModelsLoaded")
-    useTorchCompile: bool = Field(alias="useTorchCompile")
-    loadOnStartup: bool = Field(alias="loadOnStartup")
-    ltxApiKey: str = Field(alias="ltxApiKey")
-    useLocalTextEncoder: bool = Field(alias="useLocalTextEncoder")
-    fastModel: dict[str, Any] = Field(alias="fastModel")
-    proModel: dict[str, Any] = Field(alias="proModel")
-    promptCacheSize: int = Field(alias="promptCacheSize")
-    promptEnhancerEnabledT2V: bool = Field(alias="promptEnhancerEnabledT2V")
-    promptEnhancerEnabledI2V: bool = Field(alias="promptEnhancerEnabledI2V")
-    geminiApiKey: str = Field(alias="geminiApiKey")
-    t2vSystemPrompt: str = Field(alias="t2vSystemPrompt")
-    i2vSystemPrompt: str = Field(alias="i2vSystemPrompt")
-    seedLocked: bool = Field(alias="seedLocked")
-    lockedSeed: int = Field(alias="lockedSeed")
+    keepModelsLoaded: bool
+    useTorchCompile: bool
+    loadOnStartup: bool
+    ltxApiKey: str
+    useLocalTextEncoder: bool
+    fastModel: dict[str, Any]
+    proModel: dict[str, Any]
+    promptCacheSize: int
+    promptEnhancerEnabledT2V: bool
+    promptEnhancerEnabledI2V: bool
+    geminiApiKey: str
+    t2vSystemPrompt: str
+    i2vSystemPrompt: str
+    seedLocked: bool
+    lockedSeed: int
 
 
 class IcLoraModel(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     name: str
     path: str
     conditioning_type: str
@@ -218,15 +194,11 @@ class IcLoraModel(BaseModel):
 
 
 class IcLoraListResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     models: list[dict[str, Any]]
     directory: str
 
 
 class EnhancePromptResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str = "success"
     enhanced_prompt: str
     original_prompt: str | None = None
@@ -235,36 +207,26 @@ class EnhancePromptResponse(BaseModel):
 
 
 class SuggestGapPromptResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str = "success"
     suggested_prompt: str
 
 
 class GenerateVideoResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
     video_path: str | None = None
 
 
 class GenerateImageResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
     image_paths: list[str] | None = None
 
 
 class CancelResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
     id: str | None = None
 
 
 class UpscaleResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
     upscaled_path: str | None = None
     width: int | None = None
@@ -273,16 +235,12 @@ class UpscaleResponse(BaseModel):
 
 
 class RetakeResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
     video_path: str | None = None
     result: dict[str, Any] | None = None
 
 
 class IcLoraExtractResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     conditioning: str
     original: str
     conditioning_type: str
@@ -290,8 +248,6 @@ class IcLoraExtractResponse(BaseModel):
 
 
 class IcLoraDownloadResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
     path: str | None = None
     already_existed: bool | None = None
@@ -299,35 +255,125 @@ class IcLoraDownloadResponse(BaseModel):
 
 
 class IcLoraGenerateResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
     video_path: str | None = None
 
 
 class ModelDownloadStartResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
     message: str | None = None
-    skippingTextEncoder: bool | None = Field(None, alias="skippingTextEncoder")
+    skippingTextEncoder: bool | None = None
 
 
 class TextEncoderDownloadResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
     message: str | None = None
 
 
 class StatusResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     status: str
 
 
 class ErrorResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     error: str
     message: str | None = None
+
+
+# ============================================================
+# Request Models
+# ============================================================
+
+
+class GenerateVideoRequest(BaseModel):
+    prompt: str = "A beautiful video"
+    resolution: str = "512p"
+    model: str = "fast"
+    cameraMotion: str = "none"
+    negativePrompt: str = ""
+    duration: str = "2"
+    fps: str = "24"
+    imagePath: str | None = None
+
+
+class GenerateImageRequest(BaseModel):
+    prompt: str = "A beautiful image"
+    width: int = 1024
+    height: int = 1024
+    numSteps: int = 4
+    numImages: int = 1
+
+
+class UpdateSettingsRequest(BaseModel):
+    keepModelsLoaded: bool | None = None
+    useTorchCompile: bool | None = None
+    loadOnStartup: bool | None = None
+    ltxApiKey: str | None = None
+    useLocalTextEncoder: bool | None = None
+    fastModel: dict[str, Any] | None = None
+    proModel: dict[str, Any] | None = None
+    promptCacheSize: int | None = None
+    promptEnhancerEnabledT2V: bool | None = None
+    promptEnhancerEnabledI2V: bool | None = None
+    geminiApiKey: str | None = None
+    t2vSystemPrompt: str | None = None
+    i2vSystemPrompt: str | None = None
+    seedLocked: bool | None = None
+    lockedSeed: int | None = None
+
+
+class ModelDownloadRequest(BaseModel):
+    skipTextEncoder: bool = False
+
+
+class EnhancePromptRequest(BaseModel):
+    prompt: str
+    mode: str = "t2v"
+
+
+class SuggestGapPromptRequest(BaseModel):
+    beforePrompt: str = ""
+    afterPrompt: str = ""
+    beforeFrame: str | None = None
+    afterFrame: str | None = None
+    gapDuration: float = 5
+    mode: str = "t2v"
+    inputImage: str | None = None
+
+
+class UpscaleRequest(BaseModel):
+    video_path: str
+
+
+class RetakeRequest(BaseModel):
+    video_path: str
+    start_time: float
+    duration: float
+    prompt: str = ""
+    mode: str = "replace_audio_and_video"
+
+
+class IcLoraDownloadRequest(BaseModel):
+    model: str
+
+
+class IcLoraExtractRequest(BaseModel):
+    video_path: str
+    conditioning_type: str = "canny"
+    frame_time: float = 0
+
+
+class IcLoraGenerateRequest(BaseModel):
+    video_path: str
+    lora_path: str
+    conditioning_type: str = "canny"
+    prompt: str = ""
+    conditioning_strength: float = 1.0
+    seed: int = 42
+    height: int = 512
+    width: int = 768
+    num_frames: int = 121
+    frame_rate: float = 24
+    num_inference_steps: int = 30
+    cfg_guidance_scale: float = 1.0
+    negative_prompt: str = ""
+    images: list[Any] = Field(default_factory=list)

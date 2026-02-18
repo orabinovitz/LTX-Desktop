@@ -10,9 +10,34 @@ from typing import Any
 
 from PIL import Image
 
+from fastapi import APIRouter
+
+from _models import (
+    GenerateVideoRequest,
+    GenerateVideoResponse,
+    CancelResponse,
+    GenerationProgressResponse,
+)
 from _routes._errors import HTTPError
 
 logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api", tags=["generation"])
+
+
+@router.post("/generate", response_model=GenerateVideoResponse)
+async def route_generate(req: GenerateVideoRequest):
+    return post_generate(req)
+
+
+@router.post("/generate/cancel", response_model=CancelResponse)
+async def route_generate_cancel():
+    return post_cancel()
+
+
+@router.get("/generation/progress", response_model=GenerationProgressResponse)
+async def route_generation_progress():
+    return get_generation_progress()
 
 
 def get_generation_progress() -> dict[str, Any]:
@@ -29,21 +54,18 @@ def get_generation_progress() -> dict[str, Any]:
         }
 
 
-def post_generate(data: dict[str, Any]) -> dict[str, Any]:
+def post_generate(req: GenerateVideoRequest) -> dict[str, Any]:
     """POST /api/generate — video generation from JSON body."""
     import ltx2_server as _mod
 
     if _mod.current_generation["status"] == "running":
         raise HTTPError(409, "Generation already in progress")
 
-    prompt = data.get("prompt", "A beautiful video")
-    resolution = data.get("resolution", "512p")
-    model_type = data.get("model", "fast")
-    camera_motion = data.get("cameraMotion", "none")
-    negative_prompt = data.get("negativePrompt", "")
+    resolution = req.resolution
+    model_type = req.model
 
-    duration = int(float(data.get("duration", "2")))
-    fps = int(float(data.get("fps", "24")))
+    duration = int(float(req.duration))
+    fps = int(float(req.fps))
 
     use_upsampler = resolution == "1080p"
     if not use_upsampler:
@@ -68,7 +90,7 @@ def post_generate(data: dict[str, Any]) -> dict[str, Any]:
         num_frames = 9
 
     image = None
-    image_path = data.get("imagePath")
+    image_path = req.imagePath
     if image_path:
         if not os.path.isfile(image_path):
             raise HTTPError(400, f"Image file not found: {image_path}")
@@ -106,7 +128,7 @@ def post_generate(data: dict[str, Any]) -> dict[str, Any]:
 
     try:
         output_path = _mod.generate_video(
-            prompt=prompt,
+            prompt=req.prompt,
             image=image,
             height=height,
             width=width,
@@ -114,8 +136,8 @@ def post_generate(data: dict[str, Any]) -> dict[str, Any]:
             fps=fps,
             seed=seed,
             model_type=model_type,
-            camera_motion=camera_motion,
-            negative_prompt=negative_prompt,
+            camera_motion=req.cameraMotion,
+            negative_prompt=req.negativePrompt,
             generation_id=generation_id,
         )
 

@@ -9,25 +9,33 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from fastapi import APIRouter
+
+from _models import RetakeRequest, RetakeResponse
 from _routes._errors import HTTPError
 
 logger = logging.getLogger(__name__)
 
+router = APIRouter(prefix="/api", tags=["retake"])
 
-def post_retake(data: dict[str, Any]) -> dict[str, Any]:
+
+@router.post("/retake", response_model=RetakeResponse)
+async def route_retake(req: RetakeRequest):
+    return post_retake(req)
+
+
+def post_retake(req: RetakeRequest) -> dict[str, Any]:
     """POST /api/retake"""
     import ltx2_server as _mod
 
-    video_path = data.get("video_path")
-    start_time = data.get("start_time")
-    duration = data.get("duration")
-    prompt = data.get("prompt", "")
-    mode = data.get("mode", "replace_audio_and_video")
+    video_path = req.video_path
+    start_time = req.start_time
+    duration = req.duration
+    prompt = req.prompt
+    mode = req.mode
 
     if not video_path:
         raise HTTPError(400, "Missing video_path parameter")
-    if start_time is None or duration is None:
-        raise HTTPError(400, "Missing start_time or duration parameter")
     if duration < 2:
         raise HTTPError(400, "duration must be at least 2 seconds")
 

@@ -10,23 +10,64 @@ from typing import Any
 from PIL import Image
 from io import BytesIO
 
+from fastapi import APIRouter, UploadFile, File, Form
+
+from _models import GenerateImageRequest, GenerateImageResponse
 from _routes._errors import HTTPError
 
 logger = logging.getLogger(__name__)
 
+router = APIRouter(prefix="/api", tags=["image"])
 
-def post_generate_image(data: dict[str, Any]) -> dict[str, Any]:
+
+@router.post("/generate-image", response_model=GenerateImageResponse)
+async def route_generate_image(req: GenerateImageRequest):
+    return post_generate_image(req)
+
+
+@router.post("/edit-image", response_model=GenerateImageResponse)
+async def route_edit_image(
+    prompt: str = Form("Edit this image"),
+    width: int = Form(1024),
+    height: int = Form(1024),
+    numSteps: int = Form(4),
+    image: UploadFile = File(...),
+    image2: UploadFile | None = File(None),
+    image3: UploadFile | None = File(None),
+    image4: UploadFile | None = File(None),
+    image5: UploadFile | None = File(None),
+    image6: UploadFile | None = File(None),
+    image7: UploadFile | None = File(None),
+    image8: UploadFile | None = File(None),
+):
+    # Build the form dict that post_edit_image expects
+    form: dict = {}
+    form["prompt"] = [prompt.encode()]
+    form["width"] = [str(width).encode()]
+    form["height"] = [str(height).encode()]
+    form["numSteps"] = [str(numSteps).encode()]
+
+    img_data = await image.read()
+    form["image"] = [img_data]
+
+    for i, upload in enumerate([image2, image3, image4, image5, image6, image7, image8], start=2):
+        if upload is not None:
+            data = await upload.read()
+            form[f"image{i}"] = [data]
+
+    return post_edit_image(form)
+
+
+def post_generate_image(req: GenerateImageRequest) -> dict[str, Any]:
     """POST /api/generate-image"""
     import ltx2_server as _mod
 
     if _mod.current_generation["status"] == "running":
         raise HTTPError(409, "Generation already in progress")
 
-    prompt = data.get("prompt", "A beautiful image")
-    width = int(data.get("width", 1024))
-    height = int(data.get("height", 1024))
-    num_steps = int(data.get("numSteps", 4))
-    num_images = int(data.get("numImages", 1))
+    width = req.width
+    height = req.height
+    num_images = req.numImages
 
     num_images = max(1, min(12, num_images))
     width = (width // 16) * 16
@@ -48,10 +89,10 @@ def post_generate_image(data: dict[str, Any]) -> dict[str, Any]:
 
     try:
         output_paths = _mod.generate_image(
-            prompt=prompt,
+            prompt=req.prompt,
             width=width,
             height=height,
-            num_inference_steps=num_steps,
+            num_inference_steps=req.numSteps,
             seed=seed,
             generation_id=generation_id,
             num_images=num_images,

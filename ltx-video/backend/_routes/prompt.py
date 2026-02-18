@@ -5,17 +5,37 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from fastapi import APIRouter
+
+from _models import (
+    EnhancePromptRequest,
+    SuggestGapPromptRequest,
+    EnhancePromptResponse,
+    SuggestGapPromptResponse,
+)
 from _routes._errors import HTTPError
 
 logger = logging.getLogger(__name__)
 
+router = APIRouter(prefix="/api", tags=["prompt"])
 
-def post_enhance_prompt(data: dict[str, Any]) -> dict[str, Any]:
+
+@router.post("/enhance-prompt", response_model=EnhancePromptResponse)
+async def route_enhance_prompt(req: EnhancePromptRequest):
+    return post_enhance_prompt(req)
+
+
+@router.post("/suggest-gap-prompt", response_model=SuggestGapPromptResponse)
+async def route_suggest_gap_prompt(req: SuggestGapPromptRequest):
+    return post_suggest_gap_prompt(req)
+
+
+def post_enhance_prompt(req: EnhancePromptRequest) -> dict[str, Any]:
     """POST /api/enhance-prompt"""
     import ltx2_server as _mod
 
-    prompt = data.get("prompt", "").strip()
-    mode = data.get("mode", "t2v")
+    prompt = req.prompt.strip()
+    mode = req.mode
 
     if not prompt:
         raise HTTPError(400, "Prompt is required")
@@ -94,17 +114,17 @@ def post_enhance_prompt(data: dict[str, Any]) -> dict[str, Any]:
         raise HTTPError(500, "GEMINI_PARSE_ERROR")
 
 
-def post_suggest_gap_prompt(data: dict[str, Any]) -> dict[str, Any]:
+def post_suggest_gap_prompt(req: SuggestGapPromptRequest) -> dict[str, Any]:
     """POST /api/suggest-gap-prompt"""
     import ltx2_server as _mod
 
-    before_frame = data.get("beforeFrame")
-    after_frame = data.get("afterFrame")
-    input_image = data.get("inputImage")
-    before_prompt = data.get("beforePrompt", "")
-    after_prompt = data.get("afterPrompt", "")
-    gap_duration = data.get("gapDuration", 5)
-    mode = data.get("mode", "t2v")
+    before_frame = req.beforeFrame
+    after_frame = req.afterFrame
+    input_image = req.inputImage
+    before_prompt = req.beforePrompt
+    after_prompt = req.afterPrompt
+    gap_duration = req.gapDuration
+    mode = req.mode
 
     if not before_frame and not after_frame and not before_prompt and not after_prompt:
         raise HTTPError(400, "At least one neighboring frame or prompt is required")
