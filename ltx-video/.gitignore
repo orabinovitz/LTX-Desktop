@@ -22,6 +22,9 @@ backend/**/__pycache__/
 *.egg-info/
 .eggs/
 
+# Claude Code
+.claude/
+
 # IDE
 .idea/
 .vscode/
