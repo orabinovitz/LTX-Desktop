@@ -3,6 +3,7 @@ import { spawn, spawnSync, ChildProcess, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
+import { PathValidator } from './path-validator'
 
 // Get directory - works in both CJS and ESM contexts
 const getCurrentDir = (): string => {
@@ -16,6 +17,7 @@ const getCurrentDir = (): string => {
 
 let mainWindow: BrowserWindow | null = null
 let pythonProcess: ChildProcess | null = null
+let pathValidator: PathValidator
 
 const PYTHON_PORT = 8000
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
@@ -287,6 +289,7 @@ ipcMain.handle('get-downloads-path', () => {
 
 ipcMain.handle('ensure-directory', async (_event, dirPath: string) => {
   try {
+    pathValidator.validate(dirPath)
     if (!fs.existsSync(dirPath)) {
       fs.mkdirSync(dirPath, { recursive: true })
     }
@@ -340,17 +343,8 @@ ipcMain.handle('show-item-in-folder', async (_event, filePath: string) => {
 
 ipcMain.handle('read-local-file', async (_event, filePath: string) => {
   try {
-    // Normalize the file path (handle file:// URLs)
-    let normalizedPath = filePath
-    if (filePath.startsWith('file:///')) {
-      normalizedPath = filePath.slice(8) // Remove 'file:///'
-    } else if (filePath.startsWith('file://')) {
-      normalizedPath = filePath.slice(7) // Remove 'file://'
-    }
-    
-    // On Windows, paths like 'C:/...' are valid
-    normalizedPath = normalizedPath.replace(/\//g, path.sep)
-    
+    const normalizedPath = pathValidator.validate(filePath)
+
     if (!fs.existsSync(normalizedPath)) {
       throw new Error(`File not found: ${normalizedPath}`)
     }
@@ -501,11 +495,13 @@ ipcMain.handle('show-save-dialog', async (_event, options: {
     filters: options.filters || [],
   })
   if (result.canceled || !result.filePath) return null
+  pathValidator.approve(result.filePath)
   return result.filePath
 })
 
 ipcMain.handle('save-file', async (_event, filePath: string, data: string, encoding?: string) => {
   try {
+    pathValidator.validate(filePath)
     if (encoding === 'base64') {
       fs.writeFileSync(filePath, Buffer.from(data, 'base64'))
     } else {
@@ -520,6 +516,7 @@ ipcMain.handle('save-file', async (_event, filePath: string, data: string, encod
 
 ipcMain.handle('save-binary-file', async (_event, filePath: string, data: ArrayBuffer) => {
   try {
+    pathValidator.validate(filePath)
     fs.writeFileSync(filePath, Buffer.from(data))
     return { success: true, path: filePath }
   } catch (error) {
@@ -536,6 +533,7 @@ ipcMain.handle('show-open-directory-dialog', async (_event, options: { title?: s
     properties: ['openDirectory', 'createDirectory'],
   })
   if (result.canceled || result.filePaths.length === 0) return null
+  pathValidator.approveAndPersist(result.filePaths[0])
   return result.filePaths[0]
 })
 
@@ -574,6 +572,8 @@ ipcMain.handle('search-directory-for-files', async (_event, dir: string, filenam
 // Copy file
 ipcMain.handle('copy-file', async (_event, src: string, dest: string) => {
   try {
+    pathValidator.validate(src)
+    pathValidator.validate(dest)
     const dir = path.dirname(dest)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     fs.copyFileSync(src, dest)
@@ -645,6 +645,9 @@ ipcMain.handle('show-open-file-dialog', async (_event, options: {
     properties: props,
   })
   if (result.canceled || result.filePaths.length === 0) return null
+  for (const fp of result.filePaths) {
+    pathValidator.approve(fp)
+  }
   return result.filePaths
 })
 
@@ -837,6 +840,18 @@ ipcMain.handle('export-native', async (_event, data: {
   if (!ffmpegPath) return { error: 'FFmpeg not found' }
 
   const { clips, outputPath, codec, width, height, fps, quality, letterbox, subtitles } = data
+
+  // Validate output path and all clip source paths
+  try {
+    pathValidator.validate(outputPath)
+    for (const clip of clips) {
+      const fp = urlToFilePath(clip.url)
+      if (fp) pathValidator.validate(fp)
+    }
+  } catch (err) {
+    return { error: String(err) }
+  }
+
   const segments = flattenTimeline(clips)
   if (segments.length === 0) return { error: 'No clips to export' }
 
@@ -1189,12 +1204,27 @@ ipcMain.handle('export-cancel', async () => {
 
 // App lifecycle
 app.whenReady().then(async () => {
+  // Initialize path validator — roots are fetched fresh on each validation
+  const approvedDirsFile = path.join(app.getPath('userData'), 'approved-dirs.json')
+  pathValidator = new PathValidator(() => {
+    const roots = [
+      getCurrentDir(),              // covers backend/outputs/
+      app.getPath('userData'),      // settings, logs, models
+      app.getPath('downloads'),     // default export destination
+      os.tmpdir(),                  // FFmpeg temp files
+    ]
+    if (!isDev && process.resourcesPath) {
+      roots.push(process.resourcesPath) // bundled assets
+    }
+    return roots
+  }, approvedDirsFile)
+
   try {
     // Start Python backend first
     console.log('Starting Python backend...')
     await startPythonBackend()
     console.log('Python backend started successfully')
-    
+
     // Then create the window
     createWindow()
   } catch (error) {
