@@ -4,6 +4,15 @@ from unittest.mock import patch, MagicMock
 
 import ltx2_server
 
+# Shared JSON payload for T2V tests
+_T2V_JSON = {
+    "prompt": "test",
+    "resolution": "540p",
+    "model": "fast",
+    "duration": "2",
+    "fps": "24",
+}
+
 
 class TestGenerate:
     """POST /api/generate"""
@@ -12,13 +21,13 @@ class TestGenerate:
     def test_t2v_happy_path(self, mock_gen, server):
         r = requests.post(
             f"{server}/api/generate",
-            files={
-                "prompt": (None, "A beautiful sunset"),
-                "resolution": (None, "1080p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-                "cameraMotion": (None, "none"),
+            json={
+                "prompt": "A beautiful sunset",
+                "resolution": "1080p",
+                "model": "fast",
+                "duration": "2",
+                "fps": "24",
+                "cameraMotion": "none",
             },
         )
         assert r.status_code == 200
@@ -29,49 +38,34 @@ class TestGenerate:
 
     def test_already_running(self, server):
         ltx2_server.current_generation["status"] = "running"
-        r = requests.post(
-            f"{server}/api/generate",
-            files={
-                "prompt": (None, "test"),
-                "resolution": (None, "540p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-            },
-        )
+        r = requests.post(f"{server}/api/generate", json=_T2V_JSON)
         assert r.status_code == 409
 
     @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
-    def test_i2v_with_image(self, mock_gen, server, make_test_image):
+    def test_i2v_with_image(self, mock_gen, server, tmp_path, make_test_image):
+        # Save a real image to disk so the backend can open it by path
         img_buf = make_test_image(100, 100)
+        img_file = tmp_path / "test.png"
+        img_file.write_bytes(img_buf.read())
         r = requests.post(
             f"{server}/api/generate",
-            files={
-                "prompt": (None, "Animate this"),
-                "resolution": (None, "540p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-                "image": ("test.png", img_buf, "image/png"),
-            },
+            json={**_T2V_JSON, "prompt": "Animate this", "imagePath": str(img_file)},
         )
         assert r.status_code == 200
         # Verify image was passed to generate_video
         call_kwargs = mock_gen.call_args.kwargs
         assert call_kwargs["image"] is not None
 
-    @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
-    def test_resolution_mapping_540p(self, mock_gen, server):
+    def test_i2v_nonexistent_image(self, server):
         r = requests.post(
             f"{server}/api/generate",
-            files={
-                "prompt": (None, "test"),
-                "resolution": (None, "540p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-            },
+            json={**_T2V_JSON, "imagePath": "/no/such/file.png"},
         )
+        assert r.status_code == 400
+
+    @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
+    def test_resolution_mapping_540p(self, mock_gen, server):
+        r = requests.post(f"{server}/api/generate", json=_T2V_JSON)
         assert r.status_code == 200
         kw = mock_gen.call_args.kwargs
         assert kw["model_type"] == "fast-native"
@@ -82,13 +76,7 @@ class TestGenerate:
     def test_resolution_mapping_720p(self, mock_gen, server):
         r = requests.post(
             f"{server}/api/generate",
-            files={
-                "prompt": (None, "test"),
-                "resolution": (None, "720p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-            },
+            json={**_T2V_JSON, "resolution": "720p"},
         )
         assert r.status_code == 200
         kw = mock_gen.call_args.kwargs
@@ -100,13 +88,7 @@ class TestGenerate:
     def test_resolution_mapping_1080p(self, mock_gen, server):
         r = requests.post(
             f"{server}/api/generate",
-            files={
-                "prompt": (None, "test"),
-                "resolution": (None, "1080p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-            },
+            json={**_T2V_JSON, "resolution": "1080p"},
         )
         assert r.status_code == 200
         kw = mock_gen.call_args.kwargs
@@ -117,16 +99,7 @@ class TestGenerate:
 
     @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
     def test_frame_calculation(self, mock_gen, server):
-        r = requests.post(
-            f"{server}/api/generate",
-            files={
-                "prompt": (None, "test"),
-                "resolution": (None, "540p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-            },
-        )
+        r = requests.post(f"{server}/api/generate", json=_T2V_JSON)
         assert r.status_code == 200
         kw = mock_gen.call_args.kwargs
         # duration=2, fps=24 -> (48 // 8) * 8 + 1 = 49
@@ -136,16 +109,7 @@ class TestGenerate:
     def test_locked_seed(self, mock_gen, server):
         ltx2_server.app_settings["seed_locked"] = True
         ltx2_server.app_settings["locked_seed"] = 123
-        r = requests.post(
-            f"{server}/api/generate",
-            files={
-                "prompt": (None, "test"),
-                "resolution": (None, "540p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-            },
-        )
+        r = requests.post(f"{server}/api/generate", json=_T2V_JSON)
         assert r.status_code == 200
         kw = mock_gen.call_args.kwargs
         assert kw["seed"] == 123
@@ -154,14 +118,7 @@ class TestGenerate:
     def test_camera_motion_forwarded(self, mock_gen, server):
         r = requests.post(
             f"{server}/api/generate",
-            files={
-                "prompt": (None, "test"),
-                "resolution": (None, "540p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-                "cameraMotion": (None, "dolly_in"),
-            },
+            json={**_T2V_JSON, "cameraMotion": "dolly_in"},
         )
         assert r.status_code == 200
         kw = mock_gen.call_args.kwargs
@@ -169,47 +126,20 @@ class TestGenerate:
 
     @patch("ltx2_server.generate_video", side_effect=RuntimeError("GPU OOM"))
     def test_error_sets_state(self, _mock, server):
-        r = requests.post(
-            f"{server}/api/generate",
-            files={
-                "prompt": (None, "test"),
-                "resolution": (None, "540p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-            },
-        )
+        r = requests.post(f"{server}/api/generate", json=_T2V_JSON)
         assert r.status_code == 500
         assert ltx2_server.current_generation["status"] == "error"
 
     @patch("ltx2_server.generate_video", side_effect=RuntimeError("cancelled"))
     def test_cancelled_response(self, _mock, server):
-        r = requests.post(
-            f"{server}/api/generate",
-            files={
-                "prompt": (None, "test"),
-                "resolution": (None, "540p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-            },
-        )
+        r = requests.post(f"{server}/api/generate", json=_T2V_JSON)
         assert r.status_code == 200
         data = r.json()
         assert data["status"] == "cancelled"
 
     @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
     def test_state_reset_before_generation(self, _mock, server):
-        r = requests.post(
-            f"{server}/api/generate",
-            files={
-                "prompt": (None, "test"),
-                "resolution": (None, "540p"),
-                "model": (None, "fast"),
-                "duration": (None, "2"),
-                "fps": (None, "24"),
-            },
-        )
+        r = requests.post(f"{server}/api/generate", json=_T2V_JSON)
         assert r.status_code == 200
         # A new generation ID should have been assigned
         assert ltx2_server.current_generation["id"] is not None

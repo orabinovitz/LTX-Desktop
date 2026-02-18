@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import type { Asset, TimelineClip, Track } from '../../types/project'
 import type { GenerationSettings } from '../../components/SettingsPanel'
 import { copyToAssetFolder } from '../../lib/asset-copy'
+import { fileUrlToPath } from '../../lib/url-to-path'
 
 export interface UseRegenerationParams {
   clips: TimelineClip[]
@@ -24,7 +25,7 @@ export interface UseRegenerationParams {
   loadedTimelineIdRef: React.MutableRefObject<string | null>
   autoSaveTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>
   // Generation hook values
-  regenGenerate: (prompt: string, imageFile: File | null, settings: GenerationSettings) => Promise<void>
+  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings) => Promise<void>
   regenGenerateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
   regenVideoUrl: string | null
   regenVideoPath: string | null
@@ -90,60 +91,23 @@ export function useRegeneration(params: UseRegenerationParams) {
     const clip = clips.find(c => c.id === i2vClipId)
     if (!clip) return
 
-    // Get the image URL for this clip
+    // Get the image URL for this clip and extract the filesystem path
     const imageUrl = resolveClipSrc(clip)
     if (!imageUrl) return
 
-    // Convert the image URL/path to a File object for the generation API
-    // NOTE: fetch() cannot access file:// URLs in Electron renderer, so we use
-    // either readLocalFile IPC (for file:// paths) or canvas capture as fallback
+    const imagePath = fileUrlToPath(imageUrl)
+    if (!imagePath) {
+      console.error('I2V: cannot extract path from', imageUrl)
+      return
+    }
+
+    const settings: GenerationSettings = {
+      ...i2vSettings,
+      duration: Math.min(Math.max(1, Math.round(clip.duration)), i2vSettings.model === 'pro' ? 10 : 20),
+    }
+
     try {
-      let file: File
-
-      // Extract the file path from the URL (handle file:/// prefix)
-      const filePath = imageUrl.startsWith('file:///')
-        ? decodeURIComponent(imageUrl.replace('file:///', ''))  // Windows: file:///C:/... → C:/...
-        : imageUrl.startsWith('file://')
-        ? decodeURIComponent(imageUrl.replace('file://', ''))   // Unix: file:///path → /path
-        : null
-
-      if (filePath && window.electronAPI?.readLocalFile) {
-        // Use Electron IPC to read the local file as base64
-        const { data, mimeType } = await window.electronAPI.readLocalFile(filePath)
-        const byteString = atob(data)
-        const ab = new ArrayBuffer(byteString.length)
-        const ia = new Uint8Array(ab)
-        for (let i = 0; i < byteString.length; i++) {
-          ia[i] = byteString.charCodeAt(i)
-        }
-        const blob = new Blob([ab], { type: mimeType || 'image/png' })
-        file = new File([blob], 'input-image.png', { type: mimeType || 'image/png' })
-      } else {
-        // Fallback: draw the image onto a canvas to get a blob
-        const img = new window.Image()
-        img.crossOrigin = 'anonymous'
-        await new Promise<void>((resolve, reject) => {
-          img.onload = () => resolve()
-          img.onerror = () => reject(new Error('Failed to load image for I2V'))
-          img.src = imageUrl
-        })
-        const canvas = document.createElement('canvas')
-        canvas.width = img.naturalWidth
-        canvas.height = img.naturalHeight
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(img, 0, 0)
-        const blob = await new Promise<Blob>((resolve, reject) => {
-          canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas toBlob failed')), 'image/png')
-        })
-        file = new File([blob], 'input-image.png', { type: 'image/png' })
-      }
-
-      const settings: GenerationSettings = {
-        ...i2vSettings,
-        duration: Math.min(Math.max(1, Math.round(clip.duration)), i2vSettings.model === 'pro' ? 10 : 20),
-      }
-
-      await regenGenerate(i2vPrompt, file, settings)
+      await regenGenerate(i2vPrompt, imagePath, settings)
     } catch (err) {
       console.error('I2V generation failed:', err)
     }
@@ -294,46 +258,12 @@ export function useRegeneration(params: UseRegenerationParams) {
       })
     } else {
       // For video generation (T2V or I2V)
-      let imageFile: File | null = null
+      // Extract filesystem path from the input image URL if present
+      const imagePath = params.mode === 'image-to-video' && params.inputImageUrl
+        ? fileUrlToPath(params.inputImageUrl)
+        : null
 
-      // If I2V and we have an input image URL, convert to File
-      if (params.mode === 'image-to-video' && params.inputImageUrl) {
-        try {
-          const imgUrl = params.inputImageUrl
-          if (imgUrl.startsWith('blob:') || imgUrl.startsWith('http')) {
-            const response = await fetch(imgUrl)
-            const blob = await response.blob()
-            imageFile = new File([blob], 'input-image.png', { type: blob.type })
-          } else if (imgUrl.startsWith('file:///') || imgUrl.startsWith('file://')) {
-            // Load via canvas for file:// URLs
-            let filePath = imgUrl.startsWith('file:///') ? imgUrl.slice(8) : imgUrl.slice(7)
-            filePath = decodeURIComponent(filePath)
-            const img = document.createElement('img')
-            img.crossOrigin = 'anonymous'
-            const blob = await new Promise<Blob>((resolve, reject) => {
-              img.onload = () => {
-                const canvas = document.createElement('canvas')
-                canvas.width = img.naturalWidth
-                canvas.height = img.naturalHeight
-                const ctx = canvas.getContext('2d')
-                if (!ctx) { reject(new Error('No canvas context')); return }
-                ctx.drawImage(img, 0, 0)
-                canvas.toBlob((b) => {
-                  if (b) resolve(b)
-                  else reject(new Error('Failed to convert'))
-                }, 'image/png')
-              }
-              img.onerror = () => reject(new Error('Failed to load'))
-              img.src = imgUrl
-            })
-            imageFile = new File([blob], 'input-image.png', { type: 'image/png' })
-          }
-        } catch (e) {
-          console.warn('Failed to load input image for regeneration:', e)
-        }
-      }
-
-      regenGenerate(params.prompt, imageFile, {
+      regenGenerate(params.prompt, imagePath, {
         model: params.model as 'fast' | 'pro',
         duration: params.duration,
         resolution: params.resolution,

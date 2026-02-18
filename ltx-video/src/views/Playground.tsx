@@ -12,6 +12,7 @@ import { Button } from '../components/ui/button'
 import { useGeneration } from '../hooks/use-generation'
 import { useBackend } from '../hooks/use-backend'
 import { useProjects } from '../contexts/ProjectContext'
+import { fileUrlToPath } from '../lib/url-to-path'
 
 const DEFAULT_SETTINGS: GenerationSettings = {
   model: 'fast',
@@ -29,7 +30,7 @@ export function Playground() {
   const { goHome } = useProjects()
   const [mode, setMode] = useState<GenerationMode>('text-to-video')
   const [prompt, setPrompt] = useState('')
-  const [selectedImage, setSelectedImage] = useState<File | null>(null)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [settings, setSettings] = useState<GenerationSettings>(DEFAULT_SETTINGS)
 
   const { status } = useBackend()
@@ -62,40 +63,22 @@ export function Playground() {
     } else {
       // Auto-detect: if image is loaded → I2V, otherwise → T2V
       if (!prompt.trim() && !selectedImage) return
-      generate(prompt, selectedImage, settings)
+      const imagePath = selectedImage ? fileUrlToPath(selectedImage) : null
+      generate(prompt, imagePath, settings)
     }
   }
   
   // Handle "Create video" from generated image
-  const handleCreateVideoFromImage = async () => {
+  const handleCreateVideoFromImage = () => {
     if (!imageUrl) {
       console.error('No image URL available')
       return
     }
-    
-    try {
-      // Read the local file via Electron IPC
-      const { data, mimeType } = await window.electronAPI.readLocalFile(imageUrl)
-      
-      // Convert base64 to Blob then File
-      const byteCharacters = atob(data)
-      const byteNumbers = new Array(byteCharacters.length)
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i)
-      }
-      const byteArray = new Uint8Array(byteNumbers)
-      const blob = new Blob([byteArray], { type: mimeType })
-      const file = new File([blob], 'generated-image.png', { type: mimeType })
-      
-      // Switch to image-to-video mode with the generated image
-      setSelectedImage(file)
-      setMode('image-to-video')
-      
-      // Store the image URL for reference
-      generatedImageRef.current = imageUrl
-    } catch (error) {
-      console.error('Failed to prepare image for video:', error)
-    }
+
+    // imageUrl is already a file:// URL — just pass it as the selected image path
+    setSelectedImage(imageUrl)
+    setMode('image-to-video')
+    generatedImageRef.current = imageUrl
   }
 
   const handleClearAll = () => {

@@ -13,7 +13,7 @@ export interface UseGapGenerationParams {
   currentProjectId: string | null
   addAsset: (projectId: string, asset: Omit<Asset, 'id' | 'createdAt'>) => Asset
   resolveClipSrc: (clip: TimelineClip | null) => string
-  regenGenerate: (prompt: string, imageFile: File | null, settings: GenerationSettings) => Promise<void>
+  regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings) => Promise<void>
   regenGenerateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
   regenEditImage: (prompt: string, inputImages: File[], settings: GenerationSettings) => Promise<void>
   regenVideoUrl: string | null
@@ -181,7 +181,24 @@ export function useGapGeneration({
       } else if (mode === 'text-to-image') {
         await regenGenerateImage(finalPrompt, settings)
       } else {
-        await regenGenerate(finalPrompt, gapImageFile, settings)
+        // Convert File to filesystem path for the JSON-based generate API
+        let imagePath: string | null = null
+        if (gapImageFile) {
+          const electronPath = (gapImageFile as any).path as string | undefined
+          if (electronPath) {
+            imagePath = electronPath
+          } else {
+            // In-memory file (e.g. canvas capture) — save to temp file
+            const buf = await gapImageFile.arrayBuffer()
+            const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+            const modelsPath = await window.electronAPI.getModelsPath()
+            const tmpDir = modelsPath.replace(/[/\\]models$/, '')
+            const tmpPath = `${tmpDir}/tmp_gap_image_${Date.now()}.png`
+            await window.electronAPI.saveFile(tmpPath, b64, 'base64')
+            imagePath = tmpPath
+          }
+        }
+        await regenGenerate(finalPrompt, imagePath, settings)
       }
     } catch (err) {
       console.error('Gap generation failed:', err)

@@ -131,10 +131,10 @@ async def post_settings(request: Request) -> dict[str, str]:
 
 @app.post("/api/generate")
 async def generate(request: Request) -> dict[str, Any]:
-    """Video generation — accepts multipart/form-data."""
+    """Video generation — accepts JSON body."""
     from _routes import generation as _gen
-    form = await _parse_multipart(request)
-    return _gen.post_generate(form)
+    data = await _safe_json(request)
+    return _gen.post_generate(data)
 
 
 @app.post("/api/generate/cancel")

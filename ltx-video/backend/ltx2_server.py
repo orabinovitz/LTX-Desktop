@@ -733,8 +733,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             elif self.path == "/api/generate":
                 from _routes import generation
-                form = self._parse_multipart()
-                self.send_json_response(200, generation.post_generate(form))
+                data = self._read_json_body()
+                self.send_json_response(200, generation.post_generate(data))
 
             elif self.path == "/api/generate/cancel":
                 from _routes import generation

@@ -21,7 +21,7 @@ interface GenerationProgress {
 }
 
 interface UseGenerationReturn extends GenerationState {
-  generate: (prompt: string, image: File | null, settings: GenerationSettings) => Promise<void>
+  generate: (prompt: string, imagePath: string | null, settings: GenerationSettings) => Promise<void>
   generateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
   editImage: (prompt: string, inputImages: File[], settings: GenerationSettings) => Promise<void>
   cancel: () => void
@@ -62,7 +62,7 @@ export function useGeneration(): UseGenerationReturn {
 
   const generate = useCallback(async (
     prompt: string,
-    image: File | null,
+    imagePath: string | null,
     settings: GenerationSettings
   ) => {
     // Reset state - show different message if using Pro model (may need to load)
@@ -84,7 +84,7 @@ export function useGeneration(): UseGenerationReturn {
       const backendUrl = await window.electronAPI.getBackendUrl()
 
       // Step 1: Enhance prompt (if enabled — backend checks per-mode setting)
-      const enhanceMode = image ? 'i2v' : 't2v'
+      const enhanceMode = imagePath ? 'i2v' : 't2v'
       let finalPrompt = prompt
       try {
         const enhanceResponse = await fetch(`${backendUrl}/api/enhance-prompt`, {
@@ -122,18 +122,18 @@ export function useGeneration(): UseGenerationReturn {
         : 'Generating video...'
       setState(prev => ({ ...prev, statusMessage: statusMsg }))
 
-      // Prepare form data
-      const formData = new FormData()
-      formData.append('prompt', finalPrompt)
-      formData.append('model', settings.model)
-      formData.append('duration', String(settings.duration))
-      formData.append('resolution', settings.resolution)
-      formData.append('fps', String(settings.fps))
-      formData.append('audio', String(settings.audio))
-      formData.append('cameraMotion', settings.cameraMotion)
-      
-      if (image) {
-        formData.append('image', image)
+      // Prepare JSON body
+      const body: Record<string, unknown> = {
+        prompt: finalPrompt,
+        model: settings.model,
+        duration: String(settings.duration),
+        resolution: settings.resolution,
+        fps: String(settings.fps),
+        audio: String(settings.audio),
+        cameraMotion: settings.cameraMotion,
+      }
+      if (imagePath) {
+        body.imagePath = imagePath
       }
 
       // Poll for real progress from backend with time-based interpolation
@@ -179,7 +179,8 @@ export function useGeneration(): UseGenerationReturn {
       // Start generation (HTTP POST - synchronous, returns when done)
       const response = await fetch(`${backendUrl}/api/generate`, {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
         signal: abortControllerRef.current.signal,
       })
 

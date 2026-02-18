@@ -9,6 +9,7 @@ import { useProjects } from '../contexts/ProjectContext'
 import { useGeneration } from '../hooks/use-generation'
 import type { Asset } from '../types/project'
 import { copyToAssetFolder } from '../lib/asset-copy'
+import { fileUrlToPath } from '../lib/url-to-path'
 
 // Asset card with hover overlays
 function AssetCard({ 
@@ -351,8 +352,16 @@ function PromptBar({
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file && file.type.startsWith('image/')) {
-      const url = URL.createObjectURL(file)
-      onInputImageChange(url)
+      // In Electron, File objects have a .path property with the full filesystem path
+      const filePath = (file as any).path as string | undefined
+      if (filePath) {
+        const normalized = filePath.replace(/\\/g, '/')
+        const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
+        onInputImageChange(fileUrl)
+      } else {
+        const url = URL.createObjectURL(file)
+        onInputImageChange(url)
+      }
     }
   }
   
@@ -923,65 +932,12 @@ export function GenSpace() {
       }
     } else {
       // Generate video (t2v if no image, i2v if image is provided)
-      // Convert inputImage URL to File if we have one
-      let imageFile: File | null = null
-      if (inputImage) {
-        try {
-          if (inputImage.startsWith('blob:')) {
-            // Blob URL - fetch and convert to File
-            const response = await fetch(inputImage)
-            const blob = await response.blob()
-            imageFile = new File([blob], 'input-image.png', { type: blob.type })
-          } else if (inputImage.startsWith('file:///') || inputImage.startsWith('file://')) {
-            // File URL from existing asset - read via canvas to bypass file:// fetch restrictions
-            let filePath = inputImage
-            if (filePath.startsWith('file:///')) {
-              filePath = filePath.slice(8)
-            } else if (filePath.startsWith('file://')) {
-              filePath = filePath.slice(7)
-            }
-            filePath = decodeURIComponent(filePath)
-            const fileName = filePath.split(/[/\\]/).pop() || 'input-image.png'
-            
-            // Load image into canvas and convert to blob
-            const img = document.createElement('img')
-            img.crossOrigin = 'anonymous'
-            const blob = await new Promise<Blob>((resolve, reject) => {
-              img.onload = () => {
-                const canvas = document.createElement('canvas')
-                canvas.width = img.naturalWidth
-                canvas.height = img.naturalHeight
-                const ctx = canvas.getContext('2d')
-                if (!ctx) { reject(new Error('No canvas context')); return }
-                ctx.drawImage(img, 0, 0)
-                canvas.toBlob((b) => {
-                  if (b) resolve(b)
-                  else reject(new Error('Failed to convert canvas to blob'))
-                }, 'image/png')
-              }
-              img.onerror = () => reject(new Error('Failed to load image'))
-              img.src = inputImage
-            })
-            imageFile = new File([blob], fileName, { type: 'image/png' })
-          } else if (inputImage.startsWith('http://') || inputImage.startsWith('https://')) {
-            // HTTP URL - fetch directly
-            const response = await fetch(inputImage)
-            const blob = await response.blob()
-            imageFile = new File([blob], 'input-image.png', { type: blob.type })
-          }
-          
-          if (imageFile) {
-            console.log(`I2V: Image loaded (${imageFile.size} bytes, ${imageFile.type})`)
-          }
-        } catch (e) {
-          console.error('Failed to convert input image:', e)
-        }
-      }
-      
-      // Generate: if imageFile exists, it's i2v; otherwise, it's t2v
+      // Extract filesystem path from the file:// URL for the backend
+      const imagePath = inputImage ? fileUrlToPath(inputImage) : null
+
       generate(
         prompt,
-        imageFile,
+        imagePath,
         {
           model: settings.model as 'fast' | 'pro',
           duration: settings.duration,

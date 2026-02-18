@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 from typing import Any
 
 from PIL import Image
-from io import BytesIO
 
 from _routes._errors import HTTPError
 
@@ -29,30 +29,21 @@ def get_generation_progress() -> dict[str, Any]:
         }
 
 
-def post_generate(form: dict[str, list[Any]]) -> dict[str, Any]:
-    """POST /api/generate — video generation from multipart form data.
-
-    ``form`` is the parsed multipart dict (key -> list of values).
-    """
+def post_generate(data: dict[str, Any]) -> dict[str, Any]:
+    """POST /api/generate — video generation from JSON body."""
     import ltx2_server as _mod
 
     if _mod.current_generation["status"] == "running":
         raise HTTPError(409, "Generation already in progress")
 
-    def get_form_value(key: str, default: Any) -> Any:
-        val = form.get(key, [default])[0]
-        if isinstance(val, bytes):
-            val = val.decode()
-        return val
+    prompt = data.get("prompt", "A beautiful video")
+    resolution = data.get("resolution", "512p")
+    model_type = data.get("model", "fast")
+    camera_motion = data.get("cameraMotion", "none")
+    negative_prompt = data.get("negativePrompt", "")
 
-    prompt = get_form_value("prompt", "A beautiful video")
-    resolution = get_form_value("resolution", "512p")
-    model_type = get_form_value("model", "fast")
-    camera_motion = get_form_value("cameraMotion", "none")
-    negative_prompt = get_form_value("negativePrompt", "")
-
-    duration = int(float(get_form_value("duration", "2")))
-    fps = int(float(get_form_value("fps", "24")))
+    duration = int(float(data.get("duration", "2")))
+    fps = int(float(data.get("fps", "24")))
 
     use_upsampler = resolution == "1080p"
     if not use_upsampler:
@@ -77,9 +68,11 @@ def post_generate(form: dict[str, list[Any]]) -> dict[str, Any]:
         num_frames = 9
 
     image = None
-    image_data = form.get("image", [None])[0]
-    if image_data:
-        img = Image.open(BytesIO(image_data)).convert("RGB")
+    image_path = data.get("imagePath")
+    if image_path:
+        if not os.path.isfile(image_path):
+            raise HTTPError(400, f"Image file not found: {image_path}")
+        img = Image.open(image_path).convert("RGB")
         img_w, img_h = img.size
         target_ratio = width / height
         img_ratio = img_w / img_h
@@ -95,7 +88,7 @@ def post_generate(form: dict[str, list[Any]]) -> dict[str, Any]:
         left = (new_w - width) // 2
         top = (new_h - height) // 2
         image = resized.crop((left, top, left + width, top + height))
-        logger.info(f"Image: {img_w}x{img_h} -> {width}x{height}")
+        logger.info(f"Image: {image_path} {img_w}x{img_h} -> {width}x{height}")
 
     generation_id = uuid.uuid4().hex[:8]
     with _mod.generation_lock:
