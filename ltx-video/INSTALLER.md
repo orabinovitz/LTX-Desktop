@@ -150,7 +150,7 @@ npm run dev
 3. Installs `uv` package manager for fast dependency resolution
 4. Installs PyTorch with CUDA 12.8
 5. Installs all backend dependencies from `pyproject.toml`
-6. Installs `ltx-core` and `ltx-pipelines` from the private repo
+6. Installs `ltx-core` and `ltx-pipelines` from the LTX-2 repo
 7. Optionally installs SageAttention + Triton for performance
 8. Verifies the installation
 

@@ -32,8 +32,8 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchaudio = { index = "pytorch-cu128" }
-ltx-core = { git = "https://github.com/LightricksResearch/ltx-2-internal.git", subdirectory = "packages/ltx-core", rev = "d10477aec456c9c70103ee276318c316076c5ec2" }
-ltx-pipelines = { git = "https://github.com/LightricksResearch/ltx-2-internal.git", subdirectory = "packages/ltx-pipelines", rev = "d10477aec456c9c70103ee276318c316076c5ec2" }
+ltx-core = { git = "https://github.com/Lightricks/LTX-2.git", subdirectory = "packages/ltx-core", rev = "28c3c73fe557666c3de176e1e50a5220152ccfca" }
+ltx-pipelines = { git = "https://github.com/Lightricks/LTX-2.git", subdirectory = "packages/ltx-pipelines", rev = "28c3c73fe557666c3de176e1e50a5220152ccfca" }
 
 [project.optional-dependencies]
 test = ["pytest>=8.0", "requests>=2.31"]

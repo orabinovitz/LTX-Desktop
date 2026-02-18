@@ -6,8 +6,6 @@
 #
 # Prerequisites:
 #   - uv must be installed (https://docs.astral.sh/uv/)
-#   - Dev venv must exist (run `uv sync` in backend/ first) — needed for
-#     ltx-core and ltx-pipelines which come from a private git repo.
 
 param(
     [string]$PythonVersion = "3.11.9",
@@ -25,7 +23,6 @@ $ProjectDir = Split-Path -Parent $ScriptDir
 $BackendDir = Join-Path $ProjectDir "backend"
 $OutputPath = Join-Path $ProjectDir $OutputDir
 $TempDir = Join-Path $env:TEMP "ltx-python-build"
-$VenvSitePackages = Join-Path $BackendDir ".venv\Lib\site-packages"
 
 # Python embed URL
 $PythonUrl = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-embed-amd64.zip"
@@ -53,14 +50,6 @@ if (-not $UvExe) {
 }
 Write-Host "uv: $UvExe" -ForegroundColor Green
 
-# Check dev venv exists (needed for ltx-core/ltx-pipelines)
-if (-not (Test-Path $VenvSitePackages)) {
-    Write-Host "ERROR: Dev venv not found at $VenvSitePackages" -ForegroundColor Red
-    Write-Host "Run 'uv sync' in the backend/ directory first." -ForegroundColor Red
-    exit 1
-}
-Write-Host "Dev venv: OK" -ForegroundColor Green
-
 # ============================================================
 # Step 2: Generate requirements.txt from uv.lock
 # ============================================================
@@ -68,12 +57,8 @@ Write-Host "`nStep 2: Generating requirements.txt from uv.lock..." -ForegroundCo
 
 $RequirementsFile = Join-Path $BackendDir "requirements-dist.txt"
 
-# Export pinned deps, excluding:
-#   - The project itself (--no-emit-project)
-#   - ltx-core/ltx-pipelines (copied from venv, private repo)
-#   - No hashes (simpler, embedded Python doesn't need them)
+# Export pinned deps, excluding the project itself (--no-emit-project)
 & uv export --frozen --no-hashes --no-editable --no-emit-project `
-    --no-emit-package ltx-core --no-emit-package ltx-pipelines `
     --no-header --no-annotate `
     --project $BackendDir `
     > $RequirementsFile
@@ -153,25 +138,9 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "All dependencies installed" -ForegroundColor Green
 
 # ============================================================
-# Step 7: Copy ltx-core and ltx-pipelines from dev venv
+# Step 7: Copy Python headers for Triton/SageAttention JIT
 # ============================================================
-Write-Host "`nStep 7: Copying ltx-core and ltx-pipelines from dev venv..." -ForegroundColor Yellow
-
-$EmbedSitePackages = Join-Path $OutputPath "Lib\site-packages"
-$PackagesToCopy = @("ltx_core", "ltx_pipelines", "ltx_core-*.dist-info", "ltx_pipelines-*.dist-info")
-
-foreach ($pkg in $PackagesToCopy) {
-    $source = Get-ChildItem -Path $VenvSitePackages -Filter $pkg -ErrorAction SilentlyContinue
-    if ($source) {
-        Copy-Item -Path $source.FullName -Destination $EmbedSitePackages -Recurse -Force
-        Write-Host "  Copied: $($source.Name)"
-    }
-}
-
-# ============================================================
-# Step 8: Copy Python headers for Triton/SageAttention JIT
-# ============================================================
-Write-Host "`nStep 8: Copying Python development files for Triton JIT..." -ForegroundColor Yellow
+Write-Host "`nStep 7: Copying Python development files for Triton JIT..." -ForegroundColor Yellow
 
 $SystemPython = "$env:LOCALAPPDATA\Programs\Python\Python311"
 if (Test-Path $SystemPython) {
@@ -194,9 +163,9 @@ if (Test-Path $SystemPython) {
 }
 
 # ============================================================
-# Step 9: Clean up
+# Step 8: Clean up
 # ============================================================
-Write-Host "`nStep 9: Cleaning up..." -ForegroundColor Yellow
+Write-Host "`nStep 8: Cleaning up..." -ForegroundColor Yellow
 
 # Remove pip cache
 $PipCachePaths = @(
@@ -221,9 +190,9 @@ Remove-Item -Recurse -Force $TempDir
 Remove-Item -Force $RequirementsFile -ErrorAction SilentlyContinue
 
 # ============================================================
-# Step 10: Verify
+# Step 9: Verify
 # ============================================================
-Write-Host "`nStep 10: Verifying installation..." -ForegroundColor Yellow
+Write-Host "`nStep 9: Verifying installation..." -ForegroundColor Yellow
 
 $TestScript = @"
 import sys
