@@ -7,26 +7,19 @@ functions live here so that tests can import/patch them.  Heavy logic is
 delegated to ``_routes/`` (HTTP dispatch) and ``_services/`` (business logic).
 """
 import os
-import gc
 import http.server
 import socketserver
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
-import uuid
 import cgi
-import time
-import tempfile
 import threading
 
 # Note: expandable_segments is not supported on all platforms
 
 import torch
-import requests
-from PIL import Image
+import requests  # type: ignore[reportUnusedImport]  # accessed via _mod.requests in _routes/
 from io import BytesIO
-from huggingface_hub import hf_hub_download, snapshot_download
 
 # ============================================================
 # Logging Configuration
@@ -540,8 +533,7 @@ class DistilledNativePipeline:
         from ltx_pipelines.media_io import encode_video
         from ltx_core.pipeline.components.diffusion_steps import EulerDiffusionStep
         from ltx_core.pipeline.components.noisers import GaussianNoiser
-        from ltx_core.pipeline.components.protocols import DiffusionStepProtocol, VideoPixelShape
-        from ltx_core.pipeline.conditioning.item import LatentState
+        from ltx_core.pipeline.components.protocols import VideoPixelShape
         from ltx_pipelines.utils import image_conditionings_by_replacing_latent
 
         logger.info("Fast Native: 8-step distilled model at native resolution (no upsampler)")
@@ -661,9 +653,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _parse_multipart(self):
         content_type = self.headers.get('Content-Type')
-        ctype, pdict = cgi.parse_header(content_type)
+        _, pdict = cgi.parse_header(content_type)
         pdict['boundary'] = pdict['boundary'].encode()
-        content_len = int(self.headers.get('Content-Length'))
         return cgi.parse_multipart(self.rfile, pdict)
 
     def do_GET(self):

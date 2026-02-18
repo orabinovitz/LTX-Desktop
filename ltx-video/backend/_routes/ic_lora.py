@@ -121,8 +121,6 @@ def post_download_model(data: dict[str, Any]) -> dict[str, Any]:
 
 def post_extract_conditioning(data: dict[str, Any]) -> dict[str, Any]:
     """POST /api/ic-lora/extract-conditioning"""
-    import ltx2_server as _mod
-
     video_path = data.get("video_path")
     conditioning_type = data.get("conditioning_type", "canny")
     frame_time = data.get("frame_time", 0)

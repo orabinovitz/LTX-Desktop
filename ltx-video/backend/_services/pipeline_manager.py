@@ -53,7 +53,6 @@ def compile_pipeline_transformer(pipeline: Any, model_type: str) -> None:
 def load_pipeline_impl(model_type: str = "fast") -> Any:
     """Load the appropriate LTX-2 pipeline based on model type."""
     import ltx2_server as _mod
-    import torch
 
     if not _mod.CHECKPOINT_PATH.exists():
         logger.warning(f"Model checkpoint not found at {_mod.CHECKPOINT_PATH}. Models need to be downloaded first.")

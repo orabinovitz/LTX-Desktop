@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import requests
-
 from _routes._errors import HTTPError
 
 logger = logging.getLogger(__name__)

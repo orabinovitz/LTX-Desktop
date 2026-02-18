@@ -59,8 +59,6 @@ def post_upscale(data: dict[str, Any], content_type: str | None = None) -> dict[
     import ltx2_server as _mod
 
     video_path = data.get("video_path")
-    width = data.get("width", 3840)
-    height = data.get("height", 2160)
 
     if not video_path:
         raise HTTPError(400, "Missing video_path parameter")

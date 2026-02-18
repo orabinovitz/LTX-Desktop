@@ -64,7 +64,6 @@ def generate_video_impl(
             )
 
     with _mod.settings_lock:
-        fast_model_settings = _mod.app_settings.get("fast_model", {"steps": 8})
         pro_model_settings = _mod.app_settings.get("pro_model", {"steps": 20})
 
     if model_type in ("fast", "fast-native"):
@@ -144,7 +143,6 @@ def generate_video_impl(
         _mod.update_generation_progress("inference", 15, 0, total_steps)
 
         with _mod.settings_lock:
-            fast_settings = _mod.app_settings.get("fast_model", {"steps": 8, "use_upscaler": True})
             pro_settings = _mod.app_settings.get("pro_model", {"steps": 20, "use_upscaler": True})
 
         try:
