@@ -17,7 +17,7 @@
     "prepare:python": "powershell -ExecutionPolicy Bypass -File scripts/prepare-python.ps1",
     "setup:dev": "powershell -ExecutionPolicy Bypass -File scripts/setup-dev.ps1",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "vite",
     "electron:build": "npm run build:frontend && electron-builder --config electron-builder.json",
     "typecheck": "tsc --noEmit",
     "start:unpacked": "powershell -Command \"& '.\\release\\win-unpacked\\LTX Desktop.exe'\""
