@@ -720,12 +720,16 @@ interface ExportClip {
 }
 
 function findFfmpegPath(): string | null {
-  const venvBinDir = path.join(getCurrentDir(), 'backend', '.venv', 'Lib', 'site-packages', 'imageio_ffmpeg', 'binaries')
-  if (fs.existsSync(venvBinDir)) {
-    const files = fs.readdirSync(venvBinDir)
-    const ffmpegBin = files.find(f => f.startsWith('ffmpeg') && (f.endsWith('.exe') || !f.includes('.')))
-    if (ffmpegBin) return path.join(venvBinDir, ffmpegBin)
+  const imageioRelPath = path.join('Lib', 'site-packages', 'imageio_ffmpeg', 'binaries')
+  const binDir = isDev
+    ? path.join(getCurrentDir(), 'backend', '.venv', imageioRelPath)
+    : path.join(process.resourcesPath, 'python', imageioRelPath)
+
+  if (fs.existsSync(binDir)) {
+    const bin = fs.readdirSync(binDir).find(f => f.startsWith('ffmpeg') && (f.endsWith('.exe') || !f.includes('.')))
+    if (bin) return path.join(binDir, bin)
   }
+
   try { execSync('ffmpeg -version', { stdio: 'ignore' }); return 'ffmpeg' } catch { return null }
 }
 
