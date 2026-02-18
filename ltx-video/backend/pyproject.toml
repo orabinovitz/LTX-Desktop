@@ -21,6 +21,9 @@ dependencies = [
     "protobuf>=3.20.0",
     "sentencepiece>=0.1.99",
     "sageattention>=1.0.0",
+    "opencv-python-headless>=4.8.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
     "triton-windows; sys_platform == 'win32'",
 ]
 
@@ -37,13 +40,8 @@ ltx-pipelines = { git = "https://github.com/Lightricks/LTX-2.git", subdirectory 
 
 [project.optional-dependencies]
 test = ["pytest>=8.0", "requests>=2.31"]
-fastapi = ["fastapi>=0.115.0", "uvicorn[standard]>=0.30.0"]
 dev = ["pyright>=1.1.380"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
