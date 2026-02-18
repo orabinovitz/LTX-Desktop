@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import './FirstRunSetup.css'
 
 interface FirstRunSetupProps {
   onComplete: () => void
@@ -845,32 +846,6 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
         </div>
       </div>
 
-      {/* CSS Animations */}
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Miriam+Libre:wght@400;700&display=swap');
-        
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        
-        @keyframes gradientShift {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-        
-        @keyframes gradientBg {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-        
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.05); opacity: 0.9; }
-        }
-      `}</style>
     </div>
   )
 }

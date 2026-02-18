@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeImage, session } from 'electron'
 import { spawn, spawnSync, ChildProcess, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
@@ -21,6 +21,46 @@ let pathValidator: PathValidator
 
 const PYTHON_PORT = 8000
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+
+// Enforce Content Security Policy via response headers (tamper-proof from renderer)
+function setupCSP(): void {
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const csp = isDev
+      ? [
+          "default-src 'self'",
+          "script-src 'self' 'unsafe-inline'",
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+          "font-src 'self' https://fonts.gstatic.com",
+          "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
+          "img-src 'self' data: blob: file:",
+          "media-src 'self' blob: file:",
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+          "frame-ancestors 'none'",
+        ].join('; ')
+      : [
+          "default-src 'self'",
+          "script-src 'self'",
+          "style-src 'self' https://fonts.googleapis.com",
+          "font-src 'self' https://fonts.gstatic.com",
+          "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
+          "img-src 'self' data: blob: file:",
+          "media-src 'self' blob: file:",
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+          "frame-ancestors 'none'",
+        ].join('; ')
+
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    })
+  })
+}
 
 // Get user data path for models
 function getModelsPath(): string {
@@ -227,7 +267,8 @@ function createWindow(): void {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      // Disable web security in dev to allow localhost API calls
+      // Dev only: disabled so Vite (port 5173) can reach the Python backend
+      // (port 8000) cross-origin. Remove once backend sends proper CORS headers.
       webSecurity: isDev ? false : true,
     },
     backgroundColor: '#1a1a1a',
@@ -1204,6 +1245,8 @@ ipcMain.handle('export-cancel', async () => {
 
 // App lifecycle
 app.whenReady().then(async () => {
+  setupCSP()
+
   // Initialize path validator — roots are fetched fresh on each validation
   const approvedDirsFile = path.join(app.getPath('userData'), 'approved-dirs.json')
   pathValidator = new PathValidator(() => {
