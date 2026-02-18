@@ -19,6 +19,8 @@ dependencies = [
     "peft>=0.13.2",
     "protobuf>=3.20.0",
     "sentencepiece>=0.1.99",
+    "sageattention>=1.0.0",
+    "triton-windows; sys_platform == 'win32'",
 ]
 
 [[tool.uv.index]]
