@@ -244,6 +244,15 @@ function stopPythonBackend(): void {
   }
 }
 
+// Stop any active FFmpeg export process
+function stopExportProcess(): void {
+  if (activeExportProcess) {
+    console.log('Stopping active export process...')
+    activeExportProcess.kill()
+    activeExportProcess = null
+  }
+}
+
 // Create the main application window
 function createWindow(): void {
   // Get the path to preload script
@@ -1236,10 +1245,7 @@ ipcMain.handle('export-native', async (_event, data: {
 })
 
 ipcMain.handle('export-cancel', async () => {
-  if (activeExportProcess) {
-    try { activeExportProcess.kill() } catch {}
-    activeExportProcess = null
-  }
+  stopExportProcess()
   return { ok: true }
 })
 
@@ -1291,5 +1297,6 @@ app.on('activate', () => {
 })
 
 app.on('before-quit', () => {
+  stopExportProcess()
   stopPythonBackend()
 })
