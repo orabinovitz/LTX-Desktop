@@ -1,0 +1,25 @@
+{
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "standard",
+  "include": [
+    "ltx2_server.py",
+    "_models.py",
+    "_fastapi_app.py",
+    "_routes",
+    "_services"
+  ],
+  "exclude": [
+    "tests",
+    ".venv",
+    "node_modules",
+    "dist"
+  ],
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownParameterType": false,
+  "reportUnusedImport": "warning",
+  "reportUnusedVariable": "warning"
+}

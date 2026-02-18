@@ -276,9 +276,7 @@ function createWindow(): void {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      // Dev only: disabled so Vite (port 5173) can reach the Python backend
-      // (port 8000) cross-origin. Remove once backend sends proper CORS headers.
-      webSecurity: isDev ? false : true,
+      webSecurity: true,
     },
     backgroundColor: '#1a1a1a',
     titleBarStyle: 'default',
