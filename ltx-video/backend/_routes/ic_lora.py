@@ -320,7 +320,9 @@ def post_generate(req: IcLoraGenerateRequest) -> dict[str, Any]:
     output_filename = f"ic_lora_{timestamp}_{unique_id2}.mp4"
     output_path = _mod.OUTPUTS_DIR / output_filename
 
-    # Step 4: Generate
+    # Step 4: Generate — round to nearest multiple of 64 (two-stage pipeline)
+    height = round(height / 64) * 64
+    width = round(width / 64) * 64
     try:
         logger.info("Starting IC-LoRA generation...")
         generation_result = pipeline(
