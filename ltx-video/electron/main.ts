@@ -5,10 +5,14 @@ import fs from 'fs'
 import os from 'os'
 import { validatePath, approvePath } from './path-validation'
 
+const PYTHON_PORT = 8000
+const BACKEND_BASE_URL = `http://localhost:${PYTHON_PORT}`
+const isDev = !app.isPackaged
+
 // Get directory - works in both CJS and ESM contexts
 const getCurrentDir = (): string => {
   // In bundled output, use app.getAppPath()
-  if (app.isPackaged) {
+  if (!isDev) {
     return path.dirname(app.getPath('exe'))
   }
   // In development, use process.cwd() which is the project root
@@ -17,9 +21,6 @@ const getCurrentDir = (): string => {
 
 let mainWindow: BrowserWindow | null = null
 let pythonProcess: ChildProcess | null = null
-
-const PYTHON_PORT = 8000
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
 function getAllowedRoots(): string[] {
   const roots = [
@@ -150,7 +151,7 @@ function getPythonPath(): string {
 async function checkGPU(): Promise<{ available: boolean; name?: string; vram?: number }> {
   try {
     // Try to get GPU info from the backend API first (more reliable)
-    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/gpu-info`, {
+    const response = await fetch(`${BACKEND_BASE_URL}/api/gpu-info`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     })
@@ -314,7 +315,7 @@ function createWindow(): void {
 
 // IPC Handlers
 ipcMain.handle('get-backend-url', () => {
-  return `http://localhost:${PYTHON_PORT}`
+  return BACKEND_BASE_URL
 })
 
 ipcMain.handle('get-models-path', () => {
@@ -323,7 +324,7 @@ ipcMain.handle('get-models-path', () => {
 
 ipcMain.handle('check-backend-health', async () => {
   try {
-    const response = await fetch(`http://localhost:${PYTHON_PORT}/health`)
+    const response = await fetch(`${BACKEND_BASE_URL}/health`)
     return response.ok
   } catch {
     return false
@@ -443,7 +444,7 @@ ipcMain.handle('read-local-file', async (_event, filePath: string) => {
 // Model management handlers
 ipcMain.handle('get-models-status', async () => {
   try {
-    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/models/status`)
+    const response = await fetch(`${BACKEND_BASE_URL}/api/models/status`)
     if (response.ok) {
       return await response.json()
     }
@@ -463,7 +464,7 @@ ipcMain.handle('get-models-status', async () => {
 
 ipcMain.handle('start-model-download', async (_event, options: { skipTextEncoder?: boolean } = {}) => {
   try {
-    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/models/download`, {
+    const response = await fetch(`${BACKEND_BASE_URL}/api/models/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -479,7 +480,7 @@ ipcMain.handle('start-model-download', async (_event, options: { skipTextEncoder
 
 ipcMain.handle('get-model-download-progress', async () => {
   try {
-    const response = await fetch(`http://localhost:${PYTHON_PORT}/api/models/download/progress`)
+    const response = await fetch(`${BACKEND_BASE_URL}/api/models/download/progress`)
     if (response.ok) {
       return await response.json()
     }
@@ -713,7 +714,7 @@ ipcMain.handle('show-open-file-dialog', async (_event, options: {
 
 // Get resource path for unpacked assets (like splash video)
 ipcMain.handle('get-resource-path', () => {
-  if (app.isPackaged) {
+  if (!isDev) {
     return process.resourcesPath
   }
   return null
