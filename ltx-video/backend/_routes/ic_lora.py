@@ -259,7 +259,7 @@ def post_generate(req: IcLoraGenerateRequest) -> dict[str, Any]:
     logger.info(f"  Source video: {src_w}x{src_h}, {src_frame_count} frames, {src_fps:.1f} fps")
 
     control_video_path = str(_mod.OUTPUTS_DIR / f"_control_{conditioning_type}_{uuid.uuid4().hex[:8]}.mp4")
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    fourcc = cv2.VideoWriter.fourcc(*"mp4v")
     out_writer = cv2.VideoWriter(control_video_path, fourcc, src_fps, (src_w, src_h))
 
     frame_idx = 0
