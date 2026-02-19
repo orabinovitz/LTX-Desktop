@@ -1035,12 +1035,9 @@ export function VideoEditor() {
   const matchFrameRef = useRef<() => void>(() => {})
   
 
-  // Regeneration / upscale / retake / I2V hook (state + logic extracted)
+  // Regeneration / retake / I2V hook (state + logic extracted)
   const {
     regeneratingAssetId,
-    upscalingClipIds,
-    upscaleTimelineProgress,
-    showUpscaleDialog, setShowUpscaleDialog,
     retakeClipId, setRetakeClipId,
     isRetaking, setIsRetaking,
     retakeStatus, setRetakeStatus,
@@ -1051,16 +1048,13 @@ export function VideoEditor() {
     i2vSettings, setI2vSettings,
     handleI2vGenerate,
     handleRegenerate, handleCancelRegeneration,
-    handleUpscaleClip, handleRetakeSubmit,
-    handleICLoraResult, handleUpscaleTimeline,
+    handleRetakeSubmit,
+    handleICLoraResult,
     handleClipTakeChange, handleDeleteTake,
   } = useRegeneration({
     clips, setClips, assets, currentProjectId,
     addAsset, updateAsset, addTakeToAsset, deleteTakeFromAsset,
-    resolveClipSrc, tracks, activeTimeline,
-    duplicateTimeline, renameTimeline, setActiveTimeline, updateTimeline,
-    setOpenTimelineIds, setResolutionCache,
-    loadedTimelineIdRef, autoSaveTimerRef,
+    resolveClipSrc,
     regenGenerate, regenGenerateImage,
     regenVideoUrl, regenVideoPath, regenImageUrl,
     isRegenerating, regenProgress, regenStatusMessage,
@@ -2061,15 +2055,12 @@ export function VideoEditor() {
               </button>
               <div className="h-px bg-zinc-700 my-0.5" />
               <button
-                onClick={() => {
-                  setShowUpscaleDialog({ timelineId: timelineContextMenu.timelineId })
-                  setTimelineContextMenu(null)
-                }}
-                disabled={upscaleTimelineProgress?.active}
-                className="w-full text-left px-3 py-1.5 text-xs text-blue-300 hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={true}
+                title="Coming Soon!"
+                className="w-full text-left px-3 py-1.5 text-xs text-zinc-500 flex items-center gap-2 opacity-50 cursor-not-allowed"
               >
                 <ZoomIn className="h-3 w-3" />
-                {upscaleTimelineProgress?.active ? `Upscaling ${upscaleTimelineProgress.current}/${upscaleTimelineProgress.total}...` : 'Upscale Timeline'}
+                Upscale Timeline
               </button>
               <div className="h-px bg-zinc-700 my-0.5" />
               <button
@@ -3413,15 +3404,6 @@ export function VideoEditor() {
                         </div>
                       )}
                       
-                      {/* Upscaling overlay on the clip */}
-                      {upscalingClipIds.has(clip.id) && (
-                        <div className="absolute inset-0 bg-blue-900/30 backdrop-blur-[2px] flex items-center justify-center rounded-lg z-10">
-                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-blue-900/80 border border-blue-500/40">
-                            <Loader2 className="h-3 w-3 text-blue-300 animate-spin" />
-                            <span className="text-[9px] text-blue-200 font-medium">Upscaling...</span>
-                          </div>
-                        </div>
-                      )}
                       
                       {/* Transition in indicator */}
                       {clip.transitionIn?.type !== 'none' && clip.transitionIn?.duration > 0 && (
@@ -4068,7 +4050,6 @@ export function VideoEditor() {
             getMaxClipDuration={getMaxClipDuration}
             handleRegenerate={(clipId) => { const c = clips.find(x => x.id === clipId); if (c?.assetId) handleRegenerate(c.assetId, clipId) }}
             handleCancelRegeneration={handleCancelRegeneration}
-            handleUpscaleClip={handleUpscaleClip}
             setClips={setClips}
             pushUndo={pushUndo}
             handleClipTakeChange={handleClipTakeChange}
@@ -4208,7 +4189,6 @@ export function VideoEditor() {
             hasClipboard={clipboardRef.current.length > 0}
             isRegenerating={isRegenerating}
             i2vClipId={i2vClipId}
-            upscalingClipIds={upscalingClipIds}
             assets={assets}
             isRetaking={isRetaking}
             assetGridRef={assetGridRef}
@@ -4223,7 +4203,6 @@ export function VideoEditor() {
             setClips={setClips}
             handleRegenerate={handleRegenerate}
             handleCancelRegeneration={handleCancelRegeneration}
-            handleUpscaleClip={handleUpscaleClip}
             handleClipTakeChange={handleClipTakeChange}
             handleDeleteTake={handleDeleteTake}
             duplicateClip={duplicateClip}
@@ -4247,74 +4226,7 @@ export function VideoEditor() {
         )
       })()}
       
-      {/* Upscale Timeline Dialog */}
-      {showUpscaleDialog && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl p-6 w-[400px]" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-white mb-2">Upscale Timeline</h3>
-            <p className="text-sm text-zinc-400 mb-1">
-              This will upscale all video clips in the timeline (2x resolution) using the LTX API.
-            </p>
-            <p className="text-xs text-zinc-500 mb-5">
-              Each clip will be sent to the upscale API one at a time. This may take a while depending on the number of clips.
-            </p>
-            
-            <div className="flex flex-col gap-2 mb-4">
-              <button
-                onClick={() => handleUpscaleTimeline(showUpscaleDialog.timelineId, 'duplicate')}
-                className="w-full text-left px-4 py-3 rounded-xl bg-blue-600/20 border border-blue-500/40 hover:bg-blue-600/30 hover:border-blue-500/60 transition-colors group"
-              >
-                <div className="flex items-center gap-3">
-                  <Copy className="h-4 w-4 text-blue-400" />
-                  <div>
-                    <div className="text-sm font-medium text-white">Duplicate & Upscale</div>
-                    <div className="text-[11px] text-zinc-400">Creates a copy of the timeline with upscaled clips. Original is preserved.</div>
-                  </div>
-                </div>
-                <span className="text-[10px] text-blue-400 font-medium ml-7">Recommended</span>
-              </button>
-              
-              <button
-                onClick={() => handleUpscaleTimeline(showUpscaleDialog.timelineId, 'replace')}
-                className="w-full text-left px-4 py-3 rounded-xl bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 hover:border-zinc-600 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <RefreshCw className="h-4 w-4 text-zinc-400" />
-                  <div>
-                    <div className="text-sm font-medium text-zinc-300">Replace in Place</div>
-                    <div className="text-[11px] text-zinc-500">Upscales clips in the current timeline. Cannot be undone.</div>
-                  </div>
-                </div>
-              </button>
-            </div>
-            
-            <button
-              onClick={() => setShowUpscaleDialog(null)}
-              className="w-full text-center py-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
       
-      {/* Timeline Upscale Progress Bar */}
-      {upscaleTimelineProgress?.active && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] bg-zinc-900 border border-blue-500/40 rounded-xl shadow-2xl px-5 py-3 flex items-center gap-3">
-          <Loader2 className="h-4 w-4 text-blue-400 animate-spin flex-shrink-0" />
-          <div className="flex flex-col gap-1 min-w-[180px]">
-            <span className="text-xs text-white font-medium">
-              Upscaling clip {upscaleTimelineProgress.current} of {upscaleTimelineProgress.total}
-            </span>
-            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                style={{ width: `${(upscaleTimelineProgress.current / upscaleTimelineProgress.total) * 100}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
       
       <ExportModal
         open={showExportModal}

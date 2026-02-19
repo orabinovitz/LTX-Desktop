@@ -22,7 +22,6 @@ export interface ClipContextMenuProps {
   hasClipboard: boolean
   isRegenerating: boolean
   i2vClipId: string | null
-  upscalingClipIds: Set<string>
   assets: Asset[]
   isRetaking: boolean
   assetGridRef: React.RefObject<HTMLDivElement | null>
@@ -37,7 +36,6 @@ export interface ClipContextMenuProps {
   setClips: React.Dispatch<React.SetStateAction<TimelineClip[]>>
   handleRegenerate: (assetId: string, clipId: string) => void
   handleCancelRegeneration: () => void
-  handleUpscaleClip: (clipId: string) => void
   handleClipTakeChange: (clipId: string, direction: 'prev' | 'next') => void
   handleDeleteTake: (clipId: string) => void
   duplicateClip: (clipId: string) => void
@@ -60,14 +58,15 @@ export interface ClipContextMenuProps {
 }
 
 // Reusable menu item component
-function MenuItem({ icon: Icon, iconClass, label, shortcut, badge, badgeClass, disabled, danger, onClick }: {
+function MenuItem({ icon: Icon, iconClass, label, shortcut, badge, badgeClass, disabled, danger, title, onClick }: {
   icon: any; iconClass?: string; label: string; shortcut?: string; badge?: string; badgeClass?: string
-  disabled?: boolean; danger?: boolean; onClick: () => void
+  disabled?: boolean; danger?: boolean; title?: string; onClick: () => void
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`w-full text-left px-3 py-1.5 flex items-center gap-3 transition-colors ${
         disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-zinc-700'
       } ${danger ? 'text-red-400' : 'text-zinc-300'}`}
@@ -104,7 +103,6 @@ export function ClipContextMenu({
   hasClipboard,
   isRegenerating,
   i2vClipId,
-  upscalingClipIds,
   assets,
   isRetaking,
   assetGridRef,
@@ -119,7 +117,6 @@ export function ClipContextMenu({
   setClips,
   handleRegenerate,
   handleCancelRegeneration,
-  handleUpscaleClip,
   handleClipTakeChange,
   handleDeleteTake,
   duplicateClip,
@@ -231,7 +228,6 @@ export function ClipContextMenu({
           selectedClipIds={selectedClipIds}
           hasClipboard={hasClipboard}
           isRegenerating={isRegenerating} i2vClipId={i2vClipId}
-          upscalingClipIds={upscalingClipIds}
           assets={assets} isRetaking={isRetaking}
           assetGridRef={assetGridRef}
           currentProjectId={currentProjectId}
@@ -240,7 +236,6 @@ export function ClipContextMenu({
           pushUndo={pushUndo} setClips={setClips}
           handleRegenerate={handleRegenerate}
           handleCancelRegeneration={handleCancelRegeneration}
-          handleUpscaleClip={handleUpscaleClip}
           handleClipTakeChange={handleClipTakeChange}
           handleDeleteTake={handleDeleteTake}
           duplicateClip={duplicateClip}
@@ -281,10 +276,10 @@ export function ClipContextMenu({
    ────────────────────────────────────────────── */
 function SingleClipMenu({
   contextClip, clips, tracks, selectedClipIds, hasClipboard,
-  isRegenerating, i2vClipId, upscalingClipIds, assets, isRetaking, assetGridRef,
+  isRegenerating, i2vClipId, assets, isRetaking, assetGridRef,
   currentProjectId, updateAsset,
   handleCopy, handleCut, handlePaste, pushUndo, setClips,
-  handleRegenerate, handleCancelRegeneration, handleUpscaleClip,
+  handleRegenerate, handleCancelRegeneration,
   handleClipTakeChange, handleDeleteTake,
   duplicateClip, splitClipAtPlayhead, removeClip, updateClip,
   getLiveAsset, getMaxClipDuration,
@@ -297,7 +292,7 @@ function SingleClipMenu({
   clips: TimelineClip[]; tracks: Track[]
   selectedClipIds: Set<string>; hasClipboard: boolean
   isRegenerating: boolean; i2vClipId: string | null
-  upscalingClipIds: Set<string>; assets: Asset[]; isRetaking: boolean
+  assets: Asset[]; isRetaking: boolean
   assetGridRef: React.RefObject<HTMLDivElement | null>
   currentProjectId: string | null
   updateAsset: (projectId: string, assetId: string, updates: Partial<Asset>) => void
@@ -305,7 +300,6 @@ function SingleClipMenu({
   pushUndo: () => void; setClips: React.Dispatch<React.SetStateAction<TimelineClip[]>>
   handleRegenerate: (assetId: string, clipId: string) => void
   handleCancelRegeneration: () => void
-  handleUpscaleClip: (clipId: string) => void
   handleClipTakeChange: (clipId: string, direction: 'prev' | 'next') => void
   handleDeleteTake: (clipId: string) => void
   duplicateClip: (clipId: string) => void
@@ -521,8 +515,8 @@ function SingleClipMenu({
           )}
 
           {isVideo && contextClip.assetId && (
-            <MenuItem icon={ZoomIn} iconClass="text-blue-400" label={upscalingClipIds.has(contextClip.id) ? 'Upscaling...' : 'Upscale (2x)'}
-              disabled={upscalingClipIds.has(contextClip.id)} onClick={() => { handleUpscaleClip(contextClip.id); close() }} />
+            <MenuItem icon={ZoomIn} iconClass="text-zinc-500" label="Upscale (2x)"
+              disabled={true} title="Coming Soon!" onClick={() => {}} />
           )}
           {isImage && (
             <MenuItem icon={Film} iconClass="text-blue-400" label="Image to Video (I2V)"

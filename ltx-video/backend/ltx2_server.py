@@ -11,6 +11,15 @@ import json
 import logging
 from pathlib import Path
 import threading
+from typing import Literal, TYPE_CHECKING, overload
+
+if TYPE_CHECKING:
+    from _services.pipeline_manager import VideoPipeline
+    from ltx_pipelines.distilled import DistilledPipeline
+    from ltx_pipelines.ti2vid_two_stages import TI2VidTwoStagesPipeline
+    from ltx_pipelines.ti2vid_one_stage import TI2VidOneStagePipeline
+
+ModelType = Literal["fast", "fast-native", "pro", "pro-native"]
 
 # Note: expandable_segments is not supported on all platforms
 
@@ -387,23 +396,41 @@ def encode_text_via_api(prompt, api_key, model_id):
     from _services.text_encoding import encode_text_via_api_impl
     return encode_text_via_api_impl(prompt, api_key, model_id)
 
-def compile_pipeline_transformer(pipeline, model_type):
+def compile_pipeline_transformer(pipeline: "VideoPipeline", model_type: "ModelType") -> None:
     from _services.pipeline_manager import compile_pipeline_transformer as _impl
     return _impl(pipeline, model_type)
 
-def load_pipeline(model_type="fast"):
+@overload
+def load_pipeline(model_type: "Literal['fast']" = ...) -> "DistilledPipeline | None": ...
+@overload
+def load_pipeline(model_type: "Literal['fast-native']") -> "DistilledNativePipeline | None": ...
+@overload
+def load_pipeline(model_type: "Literal['pro']") -> "TI2VidTwoStagesPipeline | None": ...
+@overload
+def load_pipeline(model_type: "Literal['pro-native']") -> "TI2VidOneStagePipeline | None": ...
+
+def load_pipeline(model_type: "ModelType" = "fast") -> "VideoPipeline | None":
     from _services.pipeline_manager import load_pipeline_impl
     return load_pipeline_impl(model_type)
 
-def unload_pipeline(model_type):
+def unload_pipeline(model_type: str) -> None:
     from _services.pipeline_manager import unload_pipeline_impl
     unload_pipeline_impl(model_type)
 
-def get_pipeline(model_type="fast", skip_warmup=False):
+@overload
+def get_pipeline(model_type: "Literal['fast']" = ..., skip_warmup: bool = ...) -> "DistilledPipeline | None": ...
+@overload
+def get_pipeline(model_type: "Literal['fast-native']", skip_warmup: bool = ...) -> "DistilledNativePipeline | None": ...
+@overload
+def get_pipeline(model_type: "Literal['pro']", skip_warmup: bool = ...) -> "TI2VidTwoStagesPipeline | None": ...
+@overload
+def get_pipeline(model_type: "Literal['pro-native']", skip_warmup: bool = ...) -> "TI2VidOneStagePipeline | None": ...
+
+def get_pipeline(model_type: "ModelType" = "fast", skip_warmup: bool = False) -> "VideoPipeline | None":
     from _services.pipeline_manager import get_pipeline_impl
     return get_pipeline_impl(model_type, skip_warmup)
 
-def warmup_pipeline(model_type):
+def warmup_pipeline(model_type: "ModelType") -> None:
     from _services.pipeline_manager import warmup_pipeline_impl
     warmup_pipeline_impl(model_type)
 
@@ -452,8 +479,8 @@ def update_generation_progress(phase, progress, current_step=0, total_steps=0):
     update_generation_progress_impl(phase, progress, current_step, total_steps)
 
 def generate_video(prompt, image, height, width, num_frames, fps, seed,
-                   model_type="fast", camera_motion="none", negative_prompt="",
-                   generation_id=None):
+                   model_type: "ModelType" = "fast", camera_motion="none",
+                   negative_prompt="", generation_id=None):
     from _services.video_generation import generate_video_impl
     return generate_video_impl(prompt, image, height, width, num_frames, fps, seed,
                                model_type, camera_motion, negative_prompt, generation_id)
@@ -602,7 +629,6 @@ from _routes.models import router as models_router
 from _routes.settings import router as settings_router
 from _routes.image_gen import router as image_gen_router
 from _routes.prompt import router as prompt_router
-from _routes.upscale import router as upscale_router
 from _routes.retake import router as retake_router
 from _routes.ic_lora import router as ic_lora_router
 
@@ -644,7 +670,6 @@ app.include_router(models_router)
 app.include_router(settings_router)
 app.include_router(image_gen_router)
 app.include_router(prompt_router)
-app.include_router(upscale_router)
 app.include_router(retake_router)
 app.include_router(ic_lora_router)
 

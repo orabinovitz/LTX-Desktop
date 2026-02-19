@@ -26,8 +26,6 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
   const [isDragging, setIsDragging] = useState(false)
   const [isLooping, setIsLooping] = useState(true)
   const [isMuted, setIsMuted] = useState(false)
-  const [isUpscaling, setIsUpscaling] = useState(false)
-  const [upscaleStatus, setUpscaleStatus] = useState<string | null>(null)
   const [isHovering, setIsHovering] = useState(false)
   const [hasBeenUpscaled, setHasBeenUpscaled] = useState(false)
   const [_currentResolution, setCurrentResolution] = useState<string | null>(null)
@@ -45,9 +43,6 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
   // The video URL to display (original or upscaled)
   const displayedVideoUrl = showingUpscaled && upscaledVideoUrl ? upscaledVideoUrl : videoUrl
   const displayedResolution = showingUpscaled ? upscaleTargetResolution : videoResolution
-  
-  // Show upscale option for all resolutions that haven't been upscaled yet
-  const canUpscale = (videoResolution === '540p' || videoResolution === '720p' || videoResolution === '1080p') && videoPath && !isUpscaling && !hasBeenUpscaled
   
   // Update current resolution when video changes or after upscaling
   useEffect(() => {
@@ -265,58 +260,6 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
     }
   }
 
-  const handleUpscale = async () => {
-    if (!videoPath || isUpscaling) return
-    
-    setIsUpscaling(true)
-    setUpscaleStatus(`Upscaling to ${upscaleTargetResolution}...`)
-    
-    try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
-      
-      const response = await fetch(`${backendUrl}/api/upscale`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          video_path: videoPath
-          // Backend auto-calculates target resolution based on original
-        })
-      })
-      
-      const data = await response.json()
-      
-      if (response.ok && data.status === 'complete') {
-        setUpscaleStatus('Upscale complete!')
-        setHasBeenUpscaled(true)
-        setCurrentResolution(upscaleTargetResolution)
-        
-        // Get the upscaled video URL (Windows paths need file:///)
-        const upscaledFilePath = data.upscaled_path || data.video_path
-        if (upscaledFilePath) {
-          const videoPathNormalized = upscaledFilePath.replace(/\\/g, '/')
-          const upscaledUrl = videoPathNormalized.startsWith('/') 
-            ? `file://${videoPathNormalized}` 
-            : `file:///${videoPathNormalized}`
-          setUpscaledVideoUrl(upscaledUrl)
-          setShowingUpscaled(true) // Automatically show the upscaled version
-        }
-        
-        setTimeout(() => setUpscaleStatus(null), 3000)
-      } else {
-        setUpscaleStatus(`Error: ${data.error || 'Unknown error'}`)
-        setTimeout(() => setUpscaleStatus(null), 5000)
-      }
-    } catch (error) {
-      console.error('Upscale error:', error)
-      setUpscaleStatus(`Error: ${error}`)
-      setTimeout(() => setUpscaleStatus(null), 5000)
-    } finally {
-      setIsUpscaling(false)
-    }
-  }
-
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0
 
   return (
@@ -481,12 +424,13 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
                 </div>
               )}
               
-              {/* Upscale overlay button for 540p/720p videos */}
-              {canUpscale && isHovering && (
+              {/* Upscale overlay button — Coming Soon */}
+              {videoPath && isHovering && !hasBeenUpscaled && (videoResolution === '540p' || videoResolution === '720p' || videoResolution === '1080p') && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40 transition-opacity">
                   <Button
-                    onClick={handleUpscale}
-                    className="bg-violet-600 hover:bg-violet-700 text-white px-6 py-3 rounded-lg font-medium flex items-center gap-2 shadow-lg"
+                    disabled
+                    title="Coming Soon!"
+                    className="bg-zinc-600 text-white px-6 py-3 rounded-lg font-medium flex items-center gap-2 shadow-lg cursor-not-allowed opacity-50"
                   >
                     <Maximize2 className="h-5 w-5" />
                     Upscale to {upscaleTargetResolution}
@@ -494,13 +438,6 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
                 </div>
               )}
               
-              {/* Upscaling in progress overlay */}
-              {isUpscaling && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60">
-                  <RefreshCw className="h-8 w-8 text-violet-400 animate-spin mb-3" />
-                  <p className="text-white font-medium">{upscaleStatus}</p>
-                </div>
-              )}
             </div>
             
             {/* Video controls bar */}
@@ -581,12 +518,6 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
                 </div>
               </div>
               
-              {/* Upscale status message */}
-              {upscaleStatus && (
-                <div className="mt-2 text-xs text-center text-zinc-400">
-                  {upscaleStatus}
-                </div>
-              )}
             </div>
           </div>
         ) : (

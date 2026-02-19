@@ -41,7 +41,6 @@ interface ClipPropertiesPanelProps {
   getMaxClipDuration: (clip: TimelineClip) => number
   handleRegenerate: (clipId: string) => void
   handleCancelRegeneration: () => void
-  handleUpscaleClip: (clipId: string) => void
   setClips: React.Dispatch<React.SetStateAction<TimelineClip[]>>
   pushUndo: (currentClips?: TimelineClip[]) => void
   handleClipTakeChange: (clipId: string, direction: 'prev' | 'next') => void

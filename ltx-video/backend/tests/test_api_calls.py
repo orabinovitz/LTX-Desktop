@@ -1,6 +1,5 @@
-"""Tests for /api/enhance-prompt, /api/suggest-gap-prompt, /api/upscale, /api/retake."""
+"""Tests for /api/enhance-prompt, /api/suggest-gap-prompt, /api/retake."""
 import json
-import sys
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -33,23 +32,6 @@ def _gemini_empty_candidates():
     resp.status_code = 200
     resp.json.return_value = {"candidates": []}
     return resp
-
-
-def _setup_av_mock(width=640, height=480, duration_us=5_000_000):
-    """Configure sys.modules['av'] so `av.open(...)` returns useful metadata."""
-    av_mock = sys.modules["av"]
-    ctx = MagicMock()
-    stream = MagicMock()
-    stream.width = width
-    stream.height = height
-    stream.duration = None
-    stream.time_base = None
-    ctx.streams.video = [stream]
-    ctx.duration = duration_us
-    ctx.__enter__ = MagicMock(return_value=ctx)
-    ctx.__exit__ = MagicMock(return_value=False)
-    av_mock.open.return_value = ctx
-    return av_mock
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -260,119 +242,6 @@ class TestSuggestGapPrompt:
         user_parts = call_payload["contents"][0]["parts"]
         inline_parts = [p for p in user_parts if "inlineData" in p]
         assert len(inline_parts) >= 1
-
-
-# ═════════════════════════════════════════════════════════════════════
-# POST /api/upscale
-# ═════════════════════════════════════════════════════════════════════
-
-class TestUpscale:
-    """POST /api/upscale"""
-
-    @patch("ltx2_server.requests.get")
-    @patch("ltx2_server.requests.post")
-    def test_happy_path_direct_video(self, mock_post, _mock_get, client):
-        """API returns video/mp4 content-type directly."""
-        _setup_av_mock(640, 480, 5_000_000)
-
-        video_file = ltx2_server.OUTPUTS_DIR / "test_input.mp4"
-        video_file.write_bytes(b"\x00" * 2048)
-
-        # API returns non-JSON video bytes
-        api_resp = MagicMock()
-        api_resp.status_code = 200
-        api_resp.text = "notjson"
-        api_resp.json.side_effect = json.JSONDecodeError("", "", 0)
-        api_resp.headers = {"Content-Type": "video/mp4"}
-        api_resp.content = b"\x00\x00\x00\x1cftypisom" + b"\x00" * 1000
-        mock_post.return_value = api_resp
-
-        r = client.post("/api/upscale", json={
-            "video_path": str(video_file),
-        })
-        assert r.status_code == 200
-        data = r.json()
-        assert data["status"] == "complete"
-        assert "upscaled_path" in data
-
-    def test_missing_video_path(self, client):
-        r = client.post("/api/upscale", json={})
-        assert r.status_code == 422
-
-    def test_video_not_found(self, client):
-        r = client.post("/api/upscale", json={
-            "video_path": "/nonexistent/video.mp4",
-        })
-        assert r.status_code == 400
-
-    @patch("ltx2_server.requests.post")
-    def test_api_error_forwarded(self, mock_post, client):
-        _setup_av_mock()
-        video_file = ltx2_server.OUTPUTS_DIR / "test_input.mp4"
-        video_file.write_bytes(b"\x00" * 2048)
-
-        api_resp = MagicMock()
-        api_resp.status_code = 500
-        api_resp.text = "Internal server error"
-        mock_post.return_value = api_resp
-
-        r = client.post("/api/upscale", json={
-            "video_path": str(video_file),
-        })
-        assert r.status_code == 500
-
-    @patch("ltx2_server.requests.post")
-    def test_empty_api_response(self, mock_post, client):
-        _setup_av_mock()
-        video_file = ltx2_server.OUTPUTS_DIR / "test_input.mp4"
-        video_file.write_bytes(b"\x00" * 2048)
-
-        api_resp = MagicMock()
-        api_resp.status_code = 200
-        api_resp.text = ""
-        mock_post.return_value = api_resp
-
-        r = client.post("/api/upscale", json={
-            "video_path": str(video_file),
-        })
-        assert r.status_code == 500
-
-    @patch("ltx2_server.requests.post")
-    def test_dimensions_doubled(self, mock_post, client):
-        """640x480 input -> params should request 1280x960."""
-        _setup_av_mock(640, 480, 5_000_000)
-        video_file = ltx2_server.OUTPUTS_DIR / "test_input.mp4"
-        video_file.write_bytes(b"\x00" * 2048)
-
-        api_resp = MagicMock()
-        api_resp.status_code = 200
-        api_resp.text = '{"status": "ok"}'
-        api_resp.json.return_value = {"status": "ok"}
-        api_resp.headers = {"Content-Type": "application/json"}
-        mock_post.return_value = api_resp
-
-        client.post("/api/upscale", json={
-            "video_path": str(video_file),
-        })
-
-        # Inspect the params JSON sent to the API
-        call_kwargs = mock_post.call_args
-        files_dict = call_kwargs.kwargs.get("files") or call_kwargs[1].get("files")
-        params_json = files_dict["params"][1]
-        params = json.loads(params_json)
-        assert params["width"] == 1280
-        assert params["height"] == 960
-
-    @patch("ltx2_server.requests.post", side_effect=RuntimeError("boom"))
-    def test_generic_exception_500(self, _mock, client):
-        _setup_av_mock()
-        video_file = ltx2_server.OUTPUTS_DIR / "test_input.mp4"
-        video_file.write_bytes(b"\x00" * 2048)
-
-        r = client.post("/api/upscale", json={
-            "video_path": str(video_file),
-        })
-        assert r.status_code == 500
 
 
 # ═════════════════════════════════════════════════════════════════════

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import type { Asset, TimelineClip, Track } from '../../types/project'
+import type { Asset, TimelineClip } from '../../types/project'
 import type { GenerationSettings } from '../../components/SettingsPanel'
 import { copyToAssetFolder } from '../../lib/asset-copy'
 import { fileUrlToPath } from '../../lib/url-to-path'
@@ -14,16 +14,6 @@ export interface UseRegenerationParams {
   addTakeToAsset: (projectId: string, assetId: string, take: { url: string; path: string; createdAt: number }) => void
   deleteTakeFromAsset: (projectId: string, assetId: string, takeIndex: number) => void
   resolveClipSrc: (clip: TimelineClip | null) => string
-  tracks: Track[]
-  activeTimeline: { id: string; name?: string; clips: TimelineClip[] } | null
-  duplicateTimeline: (projectId: string, timelineId: string) => { id: string; clips: TimelineClip[] } | null
-  renameTimeline: (projectId: string, timelineId: string, name: string) => void
-  setActiveTimeline: (projectId: string, timelineId: string) => void
-  updateTimeline: (projectId: string, timelineId: string, updates: any) => void
-  setOpenTimelineIds: React.Dispatch<React.SetStateAction<Set<string>>>
-  setResolutionCache: React.Dispatch<React.SetStateAction<Record<string, { width: number; height: number }>>>
-  loadedTimelineIdRef: React.MutableRefObject<string | null>
-  autoSaveTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>
   // Generation hook values
   regenGenerate: (prompt: string, imagePath: string | null, settings: GenerationSettings) => Promise<void>
   regenGenerateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
@@ -42,10 +32,7 @@ export function useRegeneration(params: UseRegenerationParams) {
   const {
     clips, setClips, assets, currentProjectId,
     addAsset, updateAsset, addTakeToAsset, deleteTakeFromAsset,
-    resolveClipSrc, tracks, activeTimeline,
-    duplicateTimeline, renameTimeline, setActiveTimeline, updateTimeline,
-    setOpenTimelineIds, setResolutionCache,
-    loadedTimelineIdRef, autoSaveTimerRef,
+    resolveClipSrc,
     regenGenerate, regenGenerateImage,
     regenVideoUrl, regenVideoPath, regenImageUrl,
     isRegenerating, regenProgress, regenStatusMessage,
@@ -56,11 +43,6 @@ export function useRegeneration(params: UseRegenerationParams) {
   // Track which asset/clip is being regenerated
   const [regeneratingAssetId, setRegeneratingAssetId] = useState<string | null>(null)
   const [regeneratingClipId, setRegeneratingClipId] = useState<string | null>(null)
-
-  // Upscale state
-  const [upscalingClipIds, setUpscalingClipIds] = useState<Set<string>>(new Set())
-  const [upscaleTimelineProgress, setUpscaleTimelineProgress] = useState<{ current: number; total: number; active: boolean } | null>(null)
-  const [showUpscaleDialog, setShowUpscaleDialog] = useState<{ timelineId: string } | null>(null)
 
   // Retake state
   const [retakeClipId, setRetakeClipId] = useState<string | null>(null)
@@ -343,82 +325,6 @@ export function useRegeneration(params: UseRegenerationParams) {
     }
   }, [regenImageUrl, regeneratingAssetId, currentProjectId, isRegenerating])
 
-  // Upscale a single clip's video
-  const handleUpscaleClip = useCallback(async (clipId: string) => {
-    const clip = clips.find(c => c.id === clipId)
-    if (!clip || clip.type !== 'video') return
-
-    // Get the video path from the asset
-    const asset = clip.assetId ? assets.find(a => a.id === clip.assetId) : null
-    let videoPath: string | null = null
-
-    if (asset) {
-      // Check if using a specific take
-      if (asset.takes && asset.takes.length > 0 && clip.takeIndex !== undefined) {
-        const idx = Math.max(0, Math.min(clip.takeIndex, asset.takes.length - 1))
-        videoPath = asset.takes[idx].path
-      } else {
-        videoPath = asset.path
-      }
-    }
-
-    if (!videoPath) return
-
-    // Mark clip as upscaling
-    setUpscalingClipIds(prev => new Set(prev).add(clipId))
-
-    try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
-      const response = await fetch(`${backendUrl}/api/upscale`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ video_path: videoPath }),
-      })
-
-      const data = await response.json()
-
-      const upscaledPath = data.upscaled_path || data.video_path
-      if (response.ok && data.status === 'complete' && upscaledPath) {
-        const pathNormalized = upscaledPath.replace(/\\/g, '/')
-        const upscaledUrl = pathNormalized.startsWith('/') ? `file://${pathNormalized}` : `file:///${pathNormalized}`
-
-        // Add as a new take on the asset so the user can compare
-        if (asset && currentProjectId) {
-          // Calculate the new take index BEFORE calling addTakeToAsset
-          // If takes already exist, the new take will be appended at the end
-          // If no takes exist, addTakeToAsset initializes [original, newTake], so index = 1
-          const newTakeIdx = asset.takes ? asset.takes.length : 1
-
-          addTakeToAsset(currentProjectId, asset.id, {
-            url: upscaledUrl,
-            path: upscaledPath,
-            createdAt: Date.now(),
-          })
-          // Pre-populate resolution cache for the upscaled URL so it shows immediately
-          // (the probing effect will also detect and probe it if this data is missing)
-          if (data.width && data.height) {
-            setResolutionCache(prev => ({ ...prev, [upscaledUrl]: { width: data.width, height: data.height } }))
-          }
-          // Update clip to use the new upscaled take
-          setClips(prev => prev.map(c => {
-            if (c.id !== clipId) return c
-            return { ...c, takeIndex: newTakeIdx }
-          }))
-        }
-      } else {
-        console.error('Upscale failed:', data.error || 'Unknown error')
-      }
-    } catch (error) {
-      console.error('Upscale error:', error)
-    } finally {
-      setUpscalingClipIds(prev => {
-        const next = new Set(prev)
-        next.delete(clipId)
-        return next
-      })
-    }
-  }, [clips, assets, currentProjectId, addTakeToAsset])
-
   // Retake: regenerate a section of a video clip via LTX Cloud API
   const handleRetakeSubmit = useCallback(async (params: {
     videoPath: string
@@ -541,134 +447,6 @@ export function useRegeneration(params: UseRegenerationParams) {
     setIcLoraSourceClipId(null)
   }, [currentProjectId, clips, assets, addTakeToAsset, addAsset])
 
-  // Upscale all video clips in a timeline
-  const handleUpscaleTimeline = useCallback(async (timelineId: string, mode: 'duplicate' | 'replace') => {
-    if (!currentProjectId) return
-    setShowUpscaleDialog(null)
-
-    // Save current timeline first
-    if (loadedTimelineIdRef.current) {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-      updateTimeline(currentProjectId, loadedTimelineIdRef.current, { clips, tracks })
-    }
-
-    let targetTimelineId = timelineId
-    let targetClips = [...clips]
-
-    if (mode === 'duplicate') {
-      // Duplicate the timeline first
-      const newTimeline = duplicateTimeline(currentProjectId, timelineId)
-      if (!newTimeline) return
-      // Rename it
-      renameTimeline(currentProjectId, newTimeline.id, `${activeTimeline?.name || 'Timeline'} (Upscaled)`)
-      // Switch to the new timeline
-      targetTimelineId = newTimeline.id
-      targetClips = [...newTimeline.clips]
-
-      // Switch to the duplicated timeline so user can see progress
-      loadedTimelineIdRef.current = null
-      setActiveTimeline(currentProjectId, targetTimelineId)
-      setOpenTimelineIds(prev => { const next = new Set(prev); next.add(targetTimelineId); return next })
-      // Wait a tick for state to settle
-      await new Promise(r => setTimeout(r, 100))
-    }
-
-    // Find all video clips that can be upscaled
-    const videoClips = targetClips.filter(c => c.type === 'video' && c.assetId)
-    if (videoClips.length === 0) return
-
-    setUpscaleTimelineProgress({ current: 0, total: videoClips.length, active: true })
-
-    // Track how many takes have been added per asset during this batch,
-    // so we can compute the correct take index even though the context
-    // assets array is stale within this async loop.
-    const addedTakesPerAsset: Record<string, number> = {}
-
-    for (let i = 0; i < videoClips.length; i++) {
-      const clip = videoClips[i]
-      setUpscaleTimelineProgress({ current: i + 1, total: videoClips.length, active: true })
-
-      // Get the video path
-      const asset = clip.assetId ? assets.find(a => a.id === clip.assetId) : null
-      let videoPath: string | null = null
-      if (asset) {
-        if (asset.takes && asset.takes.length > 0 && clip.takeIndex !== undefined) {
-          const idx = Math.max(0, Math.min(clip.takeIndex, asset.takes.length - 1))
-          videoPath = asset.takes[idx].path
-        } else {
-          videoPath = asset.path
-        }
-      }
-
-      if (!videoPath || !asset) continue
-
-      // Mark clip as upscaling
-      setUpscalingClipIds(prev => new Set(prev).add(clip.id))
-
-      try {
-        const backendUrl = await window.electronAPI.getBackendUrl()
-        const response = await fetch(`${backendUrl}/api/upscale`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ video_path: videoPath }),
-        })
-
-        const data = await response.json()
-
-        const upscaledPath = data.upscaled_path || data.video_path
-        if (response.ok && data.status === 'complete' && upscaledPath) {
-          const pathNormalized = upscaledPath.replace(/\\/g, '/')
-          const upscaledUrl = pathNormalized.startsWith('/') ? `file://${pathNormalized}` : `file:///${pathNormalized}`
-
-          // Calculate the new take index BEFORE adding, accounting for any
-          // takes we've already added to this same asset in this batch
-          const baseTakeCount = asset.takes ? asset.takes.length : 1 // 1 because addTakeToAsset creates [original, new] if no takes
-          const alreadyAdded = addedTakesPerAsset[asset.id] || 0
-          const newTakeIdx = baseTakeCount + alreadyAdded
-          addedTakesPerAsset[asset.id] = alreadyAdded + 1
-
-          // Add as new take
-          addTakeToAsset(currentProjectId, asset.id, {
-            url: upscaledUrl,
-            path: upscaledPath,
-            createdAt: Date.now(),
-          })
-          // Pre-populate resolution cache for the upscaled URL
-          if (data.width && data.height) {
-            setResolutionCache(prev => ({ ...prev, [upscaledUrl]: { width: data.width, height: data.height } }))
-          }
-          // Update clip to use the new upscaled take
-          setClips(prev => prev.map(c => {
-            if (c.id !== clip.id) return c
-            return { ...c, takeIndex: newTakeIdx }
-          }))
-        }
-      } catch (error) {
-        console.error(`Upscale error for clip ${clip.id}:`, error)
-      } finally {
-        setUpscalingClipIds(prev => {
-          const next = new Set(prev)
-          next.delete(clip.id)
-          return next
-        })
-      }
-    }
-
-    // Force an immediate save of the updated clips to the context.
-    // We read the latest local clips via a state-reader pattern to ensure
-    // all the setClips updates from the loop have been applied.
-    await new Promise<void>(resolve => {
-      setClips(currentClips => {
-        // Save to context — currentClips has all the updated takeIndex values
-        updateTimeline(currentProjectId, targetTimelineId, { clips: currentClips })
-        resolve()
-        return currentClips // no mutation, just reading
-      })
-    })
-
-    setUpscaleTimelineProgress(null)
-  }, [currentProjectId, clips, tracks, assets, activeTimeline, duplicateTimeline, renameTimeline, setActiveTimeline, updateTimeline, addTakeToAsset])
-
   // Handle take navigation on a clip (also updates linked audio/video clips)
   const handleClipTakeChange = useCallback((clipId: string, direction: 'prev' | 'next') => {
     setClips(prev => {
@@ -726,9 +504,6 @@ export function useRegeneration(params: UseRegenerationParams) {
     // State
     regeneratingAssetId, setRegeneratingAssetId,
     regeneratingClipId, setRegeneratingClipId,
-    upscalingClipIds, setUpscalingClipIds,
-    upscaleTimelineProgress, setUpscaleTimelineProgress,
-    showUpscaleDialog, setShowUpscaleDialog,
     retakeClipId, setRetakeClipId,
     isRetaking, setIsRetaking,
     retakeStatus, setRetakeStatus,
@@ -743,10 +518,8 @@ export function useRegeneration(params: UseRegenerationParams) {
     handleI2vGenerate,
     handleRegenerate,
     handleCancelRegeneration,
-    handleUpscaleClip,
     handleRetakeSubmit,
     handleICLoraResult,
-    handleUpscaleTimeline,
     handleClipTakeChange,
     handleDeleteTake,
   }

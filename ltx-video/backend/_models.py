@@ -226,14 +226,6 @@ class CancelResponse(BaseModel):
     id: str | None = None
 
 
-class UpscaleResponse(BaseModel):
-    status: str
-    upscaled_path: str | None = None
-    width: int | None = None
-    height: int | None = None
-    result: dict[str, Any] | None = None
-
-
 class RetakeResponse(BaseModel):
     status: str
     video_path: str | None = None
@@ -338,10 +330,6 @@ class SuggestGapPromptRequest(BaseModel):
     gapDuration: float = 5
     mode: str = "t2v"
     inputImage: str | None = None
-
-
-class UpscaleRequest(BaseModel):
-    video_path: str
 
 
 class RetakeRequest(BaseModel):
