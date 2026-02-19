@@ -499,38 +499,40 @@ class DistilledNativePipeline:
     """Fast Native pipeline - distilled model at native resolution WITHOUT upsampler."""
 
     def __init__(self, checkpoint_path, gemma_root, device=None, fp8transformer=False):
-        from ltx_core.model.model_ledger import ModelLedger
-        from ltx_pipelines.pipeline_utils import PipelineComponents
-        from ltx_pipelines import utils
+        from ltx_pipelines.utils import ModelLedger
+        from ltx_pipelines.utils.types import PipelineComponents
+        from ltx_pipelines.utils.helpers import get_device
 
         if device is None:
-            device = utils.get_device()
+            device = get_device()
 
         self.device = device
         self.dtype = torch.bfloat16
 
+        from ltx_core.quantization import QuantizationPolicy
+
         self.model_ledger = ModelLedger(
             dtype=self.dtype, device=device,
             checkpoint_path=checkpoint_path, gemma_root_path=gemma_root,
-            loras=[], fp8transformer=fp8transformer,
+            loras=None,
+            quantization=QuantizationPolicy.fp8_cast() if fp8transformer else None,
         )
         self.pipeline_components = PipelineComponents(dtype=self.dtype, device=device)
 
     @torch.inference_mode()
-    def __call__(self, prompt, output_path, seed, height, width, num_frames,
+    def __call__(self, prompt, seed, height, width, num_frames,
                  frame_rate, images, tiling_config=None):
-        from ltx_pipelines import utils
-        from ltx_pipelines.pipeline_utils import (
-            denoise_audio_video, encode_text, euler_denoising_loop, simple_denoising_func,
+        from ltx_pipelines.utils.helpers import (
+            cleanup_memory, denoise_audio_video, euler_denoising_loop,
+            image_conditionings_by_replacing_latent, simple_denoising_func,
         )
-        from ltx_pipelines.pipeline_utils import decode_audio as vae_decode_audio
-        from ltx_pipelines.pipeline_utils import decode_video as vae_decode_video
-        from ltx_pipelines.constants import DISTILLED_SIGMA_VALUES, AUDIO_SAMPLE_RATE
-        from ltx_pipelines.media_io import encode_video
-        from ltx_core.pipeline.components.diffusion_steps import EulerDiffusionStep
-        from ltx_core.pipeline.components.noisers import GaussianNoiser
-        from ltx_core.pipeline.components.protocols import VideoPixelShape
-        from ltx_pipelines.utils import image_conditionings_by_replacing_latent
+        from ltx_core.text_encoders.gemma import encode_text
+        from ltx_core.model.audio_vae import decode_audio as vae_decode_audio
+        from ltx_core.model.video_vae import decode_video as vae_decode_video
+        from ltx_pipelines.utils.constants import DISTILLED_SIGMA_VALUES
+        from ltx_core.components.diffusion_steps import EulerDiffusionStep
+        from ltx_core.components.noisers import GaussianNoiser
+        from ltx_core.types import VideoPixelShape
 
         logger.info("Fast Native: 8-step distilled model at native resolution (no upsampler)")
 
@@ -545,7 +547,7 @@ class DistilledNativePipeline:
 
         torch.cuda.synchronize()
         del text_encoder
-        utils.cleanup_memory()
+        cleanup_memory()
 
         video_encoder = self.model_ledger.video_encoder()
         transformer = self.model_ledger.transformer()
@@ -577,13 +579,12 @@ class DistilledNativePipeline:
         torch.cuda.synchronize()
         del transformer
         del video_encoder
-        utils.cleanup_memory()
+        cleanup_memory()
 
-        decoded_video = vae_decode_video(video_state, self.model_ledger.video_decoder(), tiling_config)
-        decoded_audio = vae_decode_audio(audio_state, self.model_ledger.audio_decoder(), self.model_ledger.vocoder())
+        decoded_video = vae_decode_video(video_state.latent, self.model_ledger.video_decoder(), tiling_config)
+        decoded_audio = vae_decode_audio(audio_state.latent, self.model_ledger.audio_decoder(), self.model_ledger.vocoder())
 
-        encode_video(video=decoded_video, fps=frame_rate, audio=decoded_audio,
-                     audio_sample_rate=AUDIO_SAMPLE_RATE, output_path=output_path)
+        return decoded_video, decoded_audio
 
 
 # ============================================================

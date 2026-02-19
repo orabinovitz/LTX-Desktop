@@ -8,7 +8,11 @@ import tempfile
 import time
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING
+import torch
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +27,10 @@ def update_generation_progress_impl(phase: str, progress: int, current_step: int
         _mod.current_generation["current_step"] = current_step
         _mod.current_generation["total_steps"] = total_steps
 
-
+@torch.inference_mode()
 def generate_video_impl(
     prompt: str,
-    image: Any,
+    image: Image.Image | None,
     height: int,
     width: int,
     num_frames: int,
@@ -79,7 +83,10 @@ def generate_video_impl(
     if pipeline is None:
         raise RuntimeError(f"Failed to load {model_type} pipeline. Check the console for detailed error messages.")
 
-    from ltx_core.tiling import TilingConfig
+    from ltx_core.components.guiders import MultiModalGuiderParams
+    from ltx_core.model.video_vae import TilingConfig, get_video_chunks_number
+    from ltx_pipelines.utils.media_io import encode_video
+    from ltx_pipelines.utils.constants import AUDIO_SAMPLE_RATE
 
     _mod.update_generation_progress("encoding_text", 10, 0, total_steps)
 
@@ -146,22 +153,9 @@ def generate_video_impl(
             pro_settings = _mod.app_settings.get("pro_model", {"steps": 20, "use_upscaler": True})
 
         try:
-            if model_type == "fast":
-                pipeline(
+            if model_type in ("fast", "fast-native"):
+                video, audio = pipeline(
                     prompt=enhanced_prompt,
-                    output_path=str(output_path),
-                    seed=seed,
-                    height=height,
-                    width=width,
-                    num_frames=num_frames,
-                    frame_rate=fps,
-                    images=images,
-                    tiling_config=tiling_config,
-                )
-            elif model_type == "fast-native":
-                pipeline(
-                    prompt=enhanced_prompt,
-                    output_path=str(output_path),
                     seed=seed,
                     height=height,
                     width=width,
@@ -173,9 +167,8 @@ def generate_video_impl(
             elif model_type == "pro":
                 pro_steps = pro_settings.get("steps", 20)
                 neg_prompt = negative_prompt if negative_prompt else _mod.DEFAULT_NEGATIVE_PROMPT
-                pipeline(
+                video, audio = pipeline(
                     prompt=enhanced_prompt,
-                    output_path=str(output_path),
                     negative_prompt=neg_prompt,
                     seed=seed,
                     height=height,
@@ -183,16 +176,16 @@ def generate_video_impl(
                     num_frames=num_frames,
                     frame_rate=fps,
                     num_inference_steps=pro_steps,
-                    cfg_guidance_scale=3.0,
+                    video_guider_params=MultiModalGuiderParams(cfg_scale=3.0),
+                    audio_guider_params=MultiModalGuiderParams(cfg_scale=3.0),
                     images=images,
                     tiling_config=tiling_config,
                 )
             elif model_type == "pro-native":
                 pro_steps = pro_settings.get("steps", 20)
                 neg_prompt = negative_prompt if negative_prompt else _mod.DEFAULT_NEGATIVE_PROMPT
-                pipeline(
+                video, audio = pipeline(
                     prompt=enhanced_prompt,
-                    output_path=str(output_path),
                     negative_prompt=neg_prompt,
                     seed=seed,
                     height=height,
@@ -200,9 +193,24 @@ def generate_video_impl(
                     num_frames=num_frames,
                     frame_rate=fps,
                     num_inference_steps=pro_steps,
-                    cfg_guidance_scale=3.0,
+                    video_guider_params=MultiModalGuiderParams(cfg_scale=3.0),
+                    audio_guider_params=MultiModalGuiderParams(cfg_scale=3.0),
                     images=images,
                 )
+            else:
+                raise RuntimeError(f"Unknown model type: {model_type}")
+
+            video_chunks_number = get_video_chunks_number(
+                num_frames, tiling_config if model_type != "pro-native" else None
+            )
+            encode_video(
+                video=video,
+                fps=int(fps),
+                audio=audio,
+                audio_sample_rate=AUDIO_SAMPLE_RATE,
+                output_path=str(output_path),
+                video_chunks_number=video_chunks_number,
+            )
         finally:
             _mod._api_embeddings = None
 

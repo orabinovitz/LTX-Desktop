@@ -5,12 +5,26 @@ from __future__ import annotations
 import gc
 import logging
 import time
-from typing import Any
+from typing import Any, TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from ltx_pipelines.distilled import DistilledPipeline
+    from ltx_pipelines.ti2vid_two_stages import TI2VidTwoStagesPipeline
+    from ltx_pipelines.ti2vid_one_stage import TI2VidOneStagePipeline
+    from ltx_pipelines.ic_lora import ICLoraPipeline
+    import ltx2_server as _ltx_mod
+
+    VideoPipeline = Union[
+        DistilledPipeline,
+        _ltx_mod.DistilledNativePipeline,
+        TI2VidTwoStagesPipeline,
+        TI2VidOneStagePipeline,
+    ]
 
 logger = logging.getLogger(__name__)
 
 
-def compile_pipeline_transformer(pipeline: Any, model_type: str) -> None:
+def compile_pipeline_transformer(pipeline: VideoPipeline, model_type: str) -> None:
     """Compile the transformer model using torch.compile() for faster inference."""
     import ltx2_server as _mod
     import torch
@@ -50,7 +64,7 @@ def compile_pipeline_transformer(pipeline: Any, model_type: str) -> None:
         logger.warning("Continuing without torch.compile() optimization")
 
 
-def load_pipeline_impl(model_type: str = "fast") -> Any:
+def load_pipeline_impl(model_type: str = "fast") -> VideoPipeline | None:
     """Load the appropriate LTX-2 pipeline based on model type."""
     import ltx2_server as _mod
 
@@ -79,13 +93,15 @@ def load_pipeline_impl(model_type: str = "fast") -> Any:
 
             logger.info("Loading LTX-2 Distilled Pipeline (Fast, 2-stage with upsampling)...")
             start = time.time()
+            from ltx_core.quantization import QuantizationPolicy
+
             _mod.distilled_pipeline = DistilledPipeline(
                 checkpoint_path=str(_mod.CHECKPOINT_PATH),
                 gemma_root=gemma_root,
                 spatial_upsampler_path=str(_mod.UPSAMPLER_PATH),
                 loras=[],
                 device=_mod.DEVICE,
-                fp8transformer=True,
+                quantization=QuantizationPolicy.fp8_cast(),
             )
             compile_pipeline_transformer(_mod.distilled_pipeline, "fast")
             logger.info(f"Distilled Pipeline loaded in {time.time() - start:.1f}s")
@@ -98,7 +114,7 @@ def load_pipeline_impl(model_type: str = "fast") -> Any:
                 checkpoint_path=str(_mod.CHECKPOINT_PATH),
                 gemma_root=gemma_root,
                 device=_mod.DEVICE,
-                fp8transformer=True,
+                fp8transformer=True,  # translated to QuantizationPolicy inside the class
             )
             compile_pipeline_transformer(_mod.distilled_native_pipeline, "fast-native")
             logger.info(f"Fast Native Pipeline loaded in {time.time() - start:.1f}s")
@@ -109,15 +125,22 @@ def load_pipeline_impl(model_type: str = "fast") -> Any:
 
             logger.info("Loading LTX-2 Two-Stage Pipeline (Pro)...")
             start = time.time()
+            from ltx_core.quantization import QuantizationPolicy
+            from ltx_core.loader.primitives import LoraPathStrengthAndSDOps
+            from ltx_core.loader.sd_ops import LTXV_LORA_COMFY_RENAMING_MAP
+
             _mod.pro_pipeline = TI2VidTwoStagesPipeline(
                 checkpoint_path=str(_mod.CHECKPOINT_PATH),
                 gemma_root=gemma_root,
                 spatial_upsampler_path=str(_mod.UPSAMPLER_PATH),
-                distilled_lora_path=str(_mod.DISTILLED_LORA_PATH),
-                distilled_lora_strength=1.0,
+                distilled_lora=[
+                    LoraPathStrengthAndSDOps(
+                        str(_mod.DISTILLED_LORA_PATH), 1.0, LTXV_LORA_COMFY_RENAMING_MAP,
+                    ),
+                ],
                 loras=[],
                 device=_mod.DEVICE,
-                fp8transformer=True,
+                quantization=QuantizationPolicy.fp8_cast(),
             )
             compile_pipeline_transformer(_mod.pro_pipeline, "pro")
             logger.info(f"Pro Pipeline loaded in {time.time() - start:.1f}s")
@@ -128,12 +151,14 @@ def load_pipeline_impl(model_type: str = "fast") -> Any:
 
             logger.info("Loading LTX-2 One-Stage Pipeline (Pro Native, no upscaler)...")
             start = time.time()
+            from ltx_core.quantization import QuantizationPolicy
+
             _mod.pro_native_pipeline = TI2VidOneStagePipeline(
                 checkpoint_path=str(_mod.CHECKPOINT_PATH),
                 gemma_root=gemma_root,
                 loras=[],
                 device=_mod.DEVICE,
-                fp8transformer=True,
+                quantization=QuantizationPolicy.fp8_cast(),
             )
             compile_pipeline_transformer(_mod.pro_native_pipeline, "pro-native")
             logger.info(f"Pro Native Pipeline loaded in {time.time() - start:.1f}s")
@@ -207,7 +232,7 @@ def unload_pipeline_impl(model_type: str) -> None:
         logger.info("IC-LoRA pipeline unloaded")
 
 
-def get_pipeline_impl(model_type: str = "fast", skip_warmup: bool = False) -> Any:
+def get_pipeline_impl(model_type: str = "fast", skip_warmup: bool = False) -> VideoPipeline | None:
     """Get or load the appropriate pipeline."""
     import ltx2_server as _mod
     import torch
@@ -270,17 +295,19 @@ def warmup_pipeline_impl(model_type: str) -> None:
     logger.info(f"Warming up {model_type} pipeline (loading text encoder)...")
 
     try:
-        from ltx_core.tiling import TilingConfig
+        from ltx_core.components.guiders import MultiModalGuiderParams
+        from ltx_core.model.video_vae import TilingConfig, get_video_chunks_number
+        from ltx_pipelines.utils.constants import AUDIO_SAMPLE_RATE
+        from ltx_pipelines.utils.media_io import encode_video
 
         warmup_path = _mod.OUTPUTS_DIR / f"_warmup_{model_type}.mp4"
         warmup_height = 256
         warmup_width = 384
         warmup_frames = 9
 
-        if model_type == "fast":
-            pipeline(
+        if model_type in ("fast", "fast-native"):
+            video, audio = pipeline(
                 prompt="test warmup",
-                output_path=str(warmup_path),
                 seed=42,
                 height=warmup_height,
                 width=warmup_width,
@@ -289,10 +316,10 @@ def warmup_pipeline_impl(model_type: str) -> None:
                 images=[],
                 tiling_config=TilingConfig.default(),
             )
-        else:
-            pipeline(
+            video_chunks_number = get_video_chunks_number(warmup_frames, TilingConfig.default())
+        elif model_type == "pro-native":
+            video, audio = pipeline(
                 prompt="test warmup",
-                output_path=str(warmup_path),
                 negative_prompt="",
                 seed=42,
                 height=warmup_height,
@@ -300,10 +327,36 @@ def warmup_pipeline_impl(model_type: str) -> None:
                 num_frames=warmup_frames,
                 frame_rate=8,
                 num_inference_steps=5,
-                cfg_guidance_scale=3.0,
+                video_guider_params=MultiModalGuiderParams(cfg_scale=3.0),
+                audio_guider_params=MultiModalGuiderParams(cfg_scale=3.0),
+                images=[],
+            )
+            video_chunks_number = 1
+        else:
+            video, audio = pipeline(
+                prompt="test warmup",
+                negative_prompt="",
+                seed=42,
+                height=warmup_height,
+                width=warmup_width,
+                num_frames=warmup_frames,
+                frame_rate=8,
+                num_inference_steps=5,
+                video_guider_params=MultiModalGuiderParams(cfg_scale=3.0),
+                audio_guider_params=MultiModalGuiderParams(cfg_scale=3.0),
                 images=[],
                 tiling_config=TilingConfig.default(),
             )
+            video_chunks_number = get_video_chunks_number(warmup_frames, TilingConfig.default())
+
+        encode_video(
+            video=video,
+            fps=8,
+            audio=audio,
+            audio_sample_rate=AUDIO_SAMPLE_RATE,
+            output_path=str(warmup_path),
+            video_chunks_number=video_chunks_number,
+        )
 
         if warmup_path.exists():
             warmup_path.unlink()
@@ -316,7 +369,7 @@ def warmup_pipeline_impl(model_type: str) -> None:
         traceback.print_exc()
 
 
-def load_ic_lora_pipeline_impl(lora_path: str) -> Any:
+def load_ic_lora_pipeline_impl(lora_path: str) -> ICLoraPipeline:
     """Load the IC-LoRA pipeline with a specific LoRA file."""
     import ltx2_server as _mod
     import torch
@@ -362,15 +415,15 @@ def load_ic_lora_pipeline_impl(lora_path: str) -> Any:
             path=lora_path_str, strength=1.0, sd_ops=LTXV_LORA_COMFY_RENAMING_MAP
         )
 
+        from ltx_core.quantization import QuantizationPolicy
+
         _mod.ic_lora_pipeline = ICLoraPipeline(
             checkpoint_path=str(_mod.CHECKPOINT_PATH),
-            distilled_lora_path=str(_mod.DISTILLED_LORA_PATH),
-            distilled_lora_strength=1.0,
             spatial_upsampler_path=str(_mod.UPSAMPLER_PATH),
             gemma_root=gemma_root,
             loras=[lora_entry],
             device=_mod.DEVICE,
-            fp8transformer=True,
+            quantization=QuantizationPolicy.fp8_cast(),
         )
 
         _mod.ic_lora_pipeline_path = lora_path_str

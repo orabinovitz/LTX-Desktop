@@ -124,7 +124,7 @@ def patch_model_ledger_class_impl() -> None:
         return
 
     try:
-        from ltx_core.model.model_ledger import ModelLedger
+        from ltx_pipelines.utils import ModelLedger
 
         original_text_encoder = ModelLedger.text_encoder
 
@@ -150,7 +150,7 @@ def patch_model_ledger_class_impl() -> None:
         _mod._model_ledger_patched = True
         logger.info("ModelLedger.text_encoder patched globally for API embeddings support")
 
-        from ltx_pipelines import utils as ltx_utils
+        from ltx_pipelines.utils import helpers as ltx_utils
 
         original_cleanup = ltx_utils.cleanup_memory
 
@@ -178,10 +178,10 @@ def patch_encode_text_for_api_impl() -> None:
         return
 
     try:
-        from ltx_pipelines import pipeline_utils
+        from ltx_core.text_encoders import gemma as text_enc_module
         from ltx_pipelines import distilled as distilled_module
 
-        original_encode_text = pipeline_utils.encode_text
+        original_encode_text = text_enc_module.encode_text
 
         def patched_encode_text(text_encoder: Any, prompts: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, Any]]:
             if _mod._api_embeddings is not None:
@@ -199,7 +199,7 @@ def patch_encode_text_for_api_impl() -> None:
                 return results
             return original_encode_text(text_encoder, prompts, *args, **kwargs)
 
-        pipeline_utils.encode_text = patched_encode_text
+        text_enc_module.encode_text = patched_encode_text
         distilled_module.encode_text = patched_encode_text
 
         try:

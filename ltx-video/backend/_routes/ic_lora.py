@@ -310,7 +310,9 @@ def post_generate(req: IcLoraGenerateRequest) -> dict[str, Any]:
         elif isinstance(img, (list, tuple)) and len(img) >= 2:
             images.append((str(img[0]), int(img[1]), float(img[2]) if len(img) > 2 else 1.0))
 
-    from ltx_core.tiling import TilingConfig
+    from ltx_core.model.video_vae import TilingConfig, get_video_chunks_number
+    from ltx_pipelines.utils.constants import AUDIO_SAMPLE_RATE
+    from ltx_pipelines.utils.media_io import encode_video
 
     tiling_config = TilingConfig.default()
 
@@ -322,20 +324,25 @@ def post_generate(req: IcLoraGenerateRequest) -> dict[str, Any]:
     # Step 4: Generate
     try:
         logger.info("Starting IC-LoRA generation...")
-        pipeline(
+        video, audio = pipeline(
             prompt=prompt,
-            output_path=str(output_path),
-            negative_prompt=req.negative_prompt,
             seed=req.seed,
             height=height,
             width=width,
             num_frames=num_frames,
             frame_rate=frame_rate,
-            num_inference_steps=req.num_inference_steps,
-            cfg_guidance_scale=req.cfg_guidance_scale,
             images=images,
             video_conditioning=video_conditioning,
             tiling_config=tiling_config,
+        )
+        video_chunks_number = get_video_chunks_number(num_frames, tiling_config)
+        encode_video(
+            video=video,
+            fps=int(frame_rate),
+            audio=audio,
+            audio_sample_rate=AUDIO_SAMPLE_RATE,
+            output_path=str(output_path),
+            video_chunks_number=video_chunks_number,
         )
     except Exception as e:
         logger.error(f"IC-LoRA generation failed: {e}")

@@ -5,7 +5,10 @@ from __future__ import annotations
 import gc
 import logging
 import time
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from diffusers import Flux2KleinPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +36,7 @@ def download_flux_model_impl() -> bool:
         return False
 
 
-def load_flux_pipeline_impl(to_gpu: bool = True) -> Any:
+def load_flux_pipeline_impl(to_gpu: bool = True) -> Flux2KleinPipeline | None:
     """Load the Flux Klein 4B pipeline for image generation."""
     import torch
 
@@ -82,7 +85,7 @@ def load_flux_pipeline_impl(to_gpu: bool = True) -> Any:
         return None
 
 
-def get_flux_pipeline_impl() -> Any:
+def get_flux_pipeline_impl() -> Flux2KleinPipeline | None:
     """Get or load the Flux pipeline, ensuring it's on GPU."""
     import torch
 
