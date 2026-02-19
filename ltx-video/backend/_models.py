@@ -166,13 +166,22 @@ class DownloadProgressResponse(BaseModel):
     speedMbps: int
 
 
+class FastModelPayload(BaseModel):
+    useUpscaler: bool = True
+
+
+class ProModelPayload(BaseModel):
+    steps: int = 20
+    useUpscaler: bool = True
+
+
 class SettingsResponse(BaseModel):
     useTorchCompile: bool
     loadOnStartup: bool
     ltxApiKey: str
     useLocalTextEncoder: bool
-    fastModel: dict[str, Any]
-    proModel: dict[str, Any]
+    fastModel: FastModelPayload
+    proModel: ProModelPayload
     promptCacheSize: int
     promptEnhancerEnabledT2V: bool
     promptEnhancerEnabledI2V: bool
@@ -297,8 +306,8 @@ class UpdateSettingsRequest(BaseModel):
     loadOnStartup: bool | None = None
     ltxApiKey: str | None = None
     useLocalTextEncoder: bool | None = None
-    fastModel: dict[str, Any] | None = None
-    proModel: dict[str, Any] | None = None
+    fastModel: FastModelPayload | None = None
+    proModel: ProModelPayload | None = None
     promptCacheSize: int | None = None
     promptEnhancerEnabledT2V: bool | None = None
     promptEnhancerEnabledI2V: bool | None = None

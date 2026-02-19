@@ -88,9 +88,9 @@ def post_settings(req: UpdateSettingsRequest) -> dict[str, str]:
                 else:
                     logger.info("Switched to LTX API for text encoding")
 
-        if req.fastModel is not None and isinstance(req.fastModel, dict):
+        if req.fastModel is not None:
             new_settings = {
-                "use_upscaler": bool(req.fastModel.get("useUpscaler", True)),
+                "use_upscaler": req.fastModel.useUpscaler,
             }
             if new_settings != _mod.app_settings["fast_model"]:
                 _mod.app_settings["fast_model"] = new_settings
@@ -99,10 +99,10 @@ def post_settings(req: UpdateSettingsRequest) -> dict[str, str]:
                     f"upscaler={'on' if new_settings['use_upscaler'] else 'off'}"
                 )
 
-        if req.proModel is not None and isinstance(req.proModel, dict):
+        if req.proModel is not None:
             new_settings = {
-                "steps": int(req.proModel.get("steps", 20)),
-                "use_upscaler": bool(req.proModel.get("useUpscaler", True)),
+                "steps": req.proModel.steps,
+                "use_upscaler": req.proModel.useUpscaler,
             }
             if new_settings != _mod.app_settings["pro_model"]:
                 _mod.app_settings["pro_model"] = new_settings
