@@ -31,7 +31,7 @@ def compile_pipeline_transformer(pipeline: VideoPipeline, model_type: ModelType)
     import ltx2_server as _mod
     import torch
 
-    if not _mod.app_settings.get("use_torch_compile", True):
+    if not _mod.get_settings_snapshot().use_torch_compile:
         logger.info(f"torch.compile() disabled in settings, skipping for {model_type}")
         return
 
@@ -90,9 +90,9 @@ def load_pipeline_impl(model_type: ModelType = "fast") -> VideoPipeline | None:
     _mod.patch_encode_text_for_api()
     _mod.patch_model_ledger_class()
 
-    with _mod.settings_lock:
-        ltx_api_key = _mod.app_settings.get("ltx_api_key", "")
-        use_local = _mod.app_settings.get("use_local_text_encoder", False)
+    settings = _mod.get_settings_snapshot()
+    ltx_api_key = settings.ltx_api_key
+    use_local = settings.use_local_text_encoder
 
     text_encoder_dir = _mod.GEMMA_PATH / "text_encoder"
     text_encoder_available = text_encoder_dir.exists() and any(text_encoder_dir.iterdir())
@@ -420,9 +420,9 @@ def load_ic_lora_pipeline_impl(lora_path: str) -> ICLoraPipeline:
     _mod.patch_encode_text_for_api()
     _mod.patch_model_ledger_class()
 
-    with _mod.settings_lock:
-        ltx_api_key = _mod.app_settings.get("ltx_api_key", "")
-        use_local = _mod.app_settings.get("use_local_text_encoder", False)
+    settings = _mod.get_settings_snapshot()
+    ltx_api_key = settings.ltx_api_key
+    use_local = settings.use_local_text_encoder
 
     text_encoder_dir = _mod.GEMMA_PATH / "text_encoder"
     text_encoder_available = text_encoder_dir.exists() and any(text_encoder_dir.iterdir())

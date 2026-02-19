@@ -106,8 +106,8 @@ class TestGenerate:
 
     @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
     def test_locked_seed(self, mock_gen, client):
-        ltx2_server.app_settings["seed_locked"] = True
-        ltx2_server.app_settings["locked_seed"] = 123
+        ltx2_server.app_settings.seed_locked = True
+        ltx2_server.app_settings.locked_seed = 123
         r = client.post("/api/generate", json=_T2V_JSON)
         assert r.status_code == 200
         kw = mock_gen.call_args.kwargs

@@ -18,7 +18,7 @@ class TestModelsList:
         assert "20 steps" in data[1]["description"]
 
     def test_custom_pro_steps(self, client):
-        ltx2_server.app_settings["pro_model"]["steps"] = 30
+        ltx2_server.app_settings.pro_model.steps = 30
         r = client.get("/api/models")
         data = r.json()
         assert "8 steps" in data[0]["description"]
@@ -53,7 +53,7 @@ class TestModelsStatus:
 
     def test_with_api_key(self, client, create_fake_model_files):
         create_fake_model_files()
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         # Need Flux too
         ltx2_server.FLUX_MODELS_DIR.mkdir(parents=True, exist_ok=True)
         (ltx2_server.FLUX_MODELS_DIR / "model.safetensors").write_bytes(b"\x00" * 1024)
@@ -111,7 +111,7 @@ class TestModelDownload:
 
     @patch("ltx2_server.start_model_download", return_value=True)
     def test_api_key_auto_skip(self, mock_dl, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         r = client.post("/api/models/download", json={})
         assert r.status_code == 200
         mock_dl.assert_called_once_with(skip_text_encoder=True)

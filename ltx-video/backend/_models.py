@@ -44,32 +44,6 @@ class ModelDownloadState(TypedDict):
     speed_mbps: int
 
 
-class FastModelSettings(TypedDict):
-    use_upscaler: bool
-
-
-class ProModelSettings(TypedDict):
-    steps: int
-    use_upscaler: bool
-
-
-class AppSettings(TypedDict):
-    use_torch_compile: bool
-    load_on_startup: bool
-    ltx_api_key: str
-    use_local_text_encoder: bool
-    fast_model: FastModelSettings
-    pro_model: ProModelSettings
-    prompt_cache_size: int
-    prompt_enhancer_enabled_t2v: bool
-    prompt_enhancer_enabled_i2v: bool
-    gemini_api_key: str
-    t2v_system_prompt: str
-    i2v_system_prompt: str
-    seed_locked: bool
-    locked_seed: int
-
-
 # ============================================================
 # Response Models
 # ============================================================
@@ -164,32 +138,6 @@ class DownloadProgressResponse(BaseModel):
     totalFiles: int
     error: str | None
     speedMbps: int
-
-
-class FastModelPayload(BaseModel):
-    useUpscaler: bool = True
-
-
-class ProModelPayload(BaseModel):
-    steps: int = 20
-    useUpscaler: bool = True
-
-
-class SettingsResponse(BaseModel):
-    useTorchCompile: bool
-    loadOnStartup: bool
-    ltxApiKey: str
-    useLocalTextEncoder: bool
-    fastModel: FastModelPayload
-    proModel: ProModelPayload
-    promptCacheSize: int
-    promptEnhancerEnabledT2V: bool
-    promptEnhancerEnabledI2V: bool
-    geminiApiKey: str
-    t2vSystemPrompt: str
-    i2vSystemPrompt: str
-    seedLocked: bool
-    lockedSeed: int
 
 
 class IcLoraModel(BaseModel):
@@ -299,23 +247,6 @@ class GenerateImageRequest(BaseModel):
     height: int = 1024
     numSteps: int = 4
     numImages: int = 1
-
-
-class UpdateSettingsRequest(BaseModel):
-    useTorchCompile: bool | None = None
-    loadOnStartup: bool | None = None
-    ltxApiKey: str | None = None
-    useLocalTextEncoder: bool | None = None
-    fastModel: FastModelPayload | None = None
-    proModel: ProModelPayload | None = None
-    promptCacheSize: int | None = None
-    promptEnhancerEnabledT2V: bool | None = None
-    promptEnhancerEnabledI2V: bool | None = None
-    geminiApiKey: str | None = None
-    t2vSystemPrompt: str | None = None
-    i2vSystemPrompt: str | None = None
-    seedLocked: bool | None = None
-    lockedSeed: int | None = None
 
 
 class ModelDownloadRequest(BaseModel):

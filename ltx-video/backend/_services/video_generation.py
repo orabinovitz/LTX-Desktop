@@ -49,9 +49,9 @@ def generate_video_impl(
     if _mod.current_generation["cancelled"]:
         raise RuntimeError("Generation was cancelled")
 
-    with _mod.settings_lock:
-        ltx_api_key = _mod.app_settings.get("ltx_api_key", "")
-        use_local = _mod.app_settings.get("use_local_text_encoder", False)
+    settings = _mod.get_settings_snapshot()
+    ltx_api_key = settings.ltx_api_key
+    use_local = settings.use_local_text_encoder
 
     if not use_local and not ltx_api_key:
         raise RuntimeError(
@@ -69,13 +69,12 @@ def generate_video_impl(
                 "Please download it from Settings (~8 GB), or switch to using the LTX API."
             )
 
-    with _mod.settings_lock:
-        pro_model_settings = _mod.app_settings.get("pro_model", {"steps": 20})
+    pro_model_settings = _mod.get_settings_snapshot().pro_model
 
     if model_type in ("fast", "fast-native"):
         total_steps = 8
     else:
-        total_steps = pro_model_settings.get("steps", 20)
+        total_steps = pro_model_settings.steps
     _mod.update_generation_progress("loading_model", 5, 0, total_steps)
 
     if not _mod.CHECKPOINT_PATH.exists():
@@ -117,9 +116,9 @@ def generate_video_impl(
 
         _mod._api_embeddings = None
 
-        with _mod.settings_lock:
-            ltx_api_key = _mod.app_settings.get("ltx_api_key", "")
-            use_local = _mod.app_settings.get("use_local_text_encoder", False)
+        settings = _mod.get_settings_snapshot()
+        ltx_api_key = settings.ltx_api_key
+        use_local = settings.use_local_text_encoder
 
         # Determine gemma_root for fallback
         text_encoder_dir = _mod.GEMMA_PATH / "text_encoder"
@@ -151,8 +150,7 @@ def generate_video_impl(
 
         _mod.update_generation_progress("inference", 15, 0, total_steps)
 
-        with _mod.settings_lock:
-            pro_settings = _mod.app_settings.get("pro_model", {"steps": 20, "use_upscaler": True})
+        pro_settings = _mod.get_settings_snapshot().pro_model
 
         # Round dimensions to the nearest multiple required by the pipeline.
         # Two-stage pipelines (fast, pro, IC-LoRA) require multiples of 64;
@@ -178,7 +176,7 @@ def generate_video_impl(
                     tiling_config=tiling_config,
                 )
             elif isinstance(pipeline, TI2VidTwoStagesPipeline):
-                pro_steps = pro_settings.get("steps", 20)
+                pro_steps = pro_settings.steps
                 neg_prompt = negative_prompt if negative_prompt else _mod.DEFAULT_NEGATIVE_PROMPT
                 video, audio = pipeline(
                     prompt=enhanced_prompt,
@@ -195,7 +193,7 @@ def generate_video_impl(
                     tiling_config=tiling_config,
                 )
             elif isinstance(pipeline, TI2VidOneStagePipeline):
-                pro_steps = pro_settings.get("steps", 20)
+                pro_steps = pro_settings.steps
                 neg_prompt = negative_prompt if negative_prompt else _mod.DEFAULT_NEGATIVE_PROMPT
                 video, audio = pipeline(
                     prompt=enhanced_prompt,

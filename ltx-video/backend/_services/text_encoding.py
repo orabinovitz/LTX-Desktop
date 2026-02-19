@@ -96,7 +96,7 @@ def encode_text_via_api_impl(prompt: str, api_key: str, model_id: str) -> tuple[
             elapsed = time.time() - start
             logger.info(f"Text encoded via API in {elapsed:.1f}s")
 
-            max_cache_size = _mod.app_settings.get("prompt_cache_size", 100)
+            max_cache_size = _mod.get_settings_snapshot().prompt_cache_size
             if max_cache_size > 0:
                 if len(_mod._prompt_embeddings_cache) >= max_cache_size:
                     oldest_key = next(iter(_mod._prompt_embeddings_cache))

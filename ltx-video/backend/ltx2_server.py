@@ -25,6 +25,13 @@ ModelType = Literal["fast", "fast-native", "pro", "pro-native"]
 
 import torch
 import requests  # type: ignore[reportUnusedImport]  # accessed via _mod.requests in _routes/
+from AppStettings import AppSettings, UpdateSettingsRequest
+from _settings_utils import (
+    collect_changed_paths,
+    deep_merge_dicts,
+    migrate_legacy_settings,
+    strip_none_values,
+)
 
 # ============================================================
 # Logging Configuration
@@ -234,81 +241,71 @@ Output must be a **single paragraph** in English (regardless of input language) 
 - This role may offer further collaboration based on performance and output quality.
 </RECAP>"""
 
-app_settings = {
-    "use_torch_compile": False,
-    "load_on_startup": False,
-    "ltx_api_key": "",
-    "use_local_text_encoder": False,
-    "fast_model": {"use_upscaler": True},
-    "pro_model": {"steps": 20, "use_upscaler": True},
-    "prompt_cache_size": 100,
-    "prompt_enhancer_enabled_t2v": True,
-    "prompt_enhancer_enabled_i2v": False,
-    "gemini_api_key": "",
-    "t2v_system_prompt": DEFAULT_T2V_SYSTEM_PROMPT,
-    "i2v_system_prompt": DEFAULT_I2V_SYSTEM_PROMPT,
-    "seed_locked": False,
-    "locked_seed": 42,
-}
+DEFAULT_APP_SETTINGS = AppSettings(
+    t2v_system_prompt=DEFAULT_T2V_SYSTEM_PROMPT,
+    i2v_system_prompt=DEFAULT_I2V_SYSTEM_PROMPT,
+)
+app_settings: AppSettings = DEFAULT_APP_SETTINGS.model_copy(deep=True)
 settings_lock = threading.Lock()
 
 
-def load_settings():
+def get_settings_snapshot() -> AppSettings:
+    with settings_lock:
+        return app_settings.model_copy(deep=True)
+
+
+def apply_settings_patch(patch: UpdateSettingsRequest) -> tuple[AppSettings, AppSettings, set[str]]:
+    global app_settings
+
+    patch_payload = patch.model_dump(by_alias=False, exclude_unset=True)
+    patch_payload = strip_none_values(patch_payload)
+
+    with settings_lock:
+        before_settings = app_settings.model_copy(deep=True)
+        before_payload = before_settings.model_dump(by_alias=False)
+
+        if patch_payload:
+            merged_payload = deep_merge_dicts(before_payload, patch_payload)
+            app_settings = AppSettings.model_validate(merged_payload)
+
+        after_settings = app_settings.model_copy(deep=True)
+        after_payload = after_settings.model_dump(by_alias=False)
+
+    changed_paths = collect_changed_paths(before_payload, after_payload)
+    return before_settings, after_settings, changed_paths
+
+
+def load_settings() -> None:
     """Load settings from disk on startup."""
     global app_settings
     if SETTINGS_FILE.exists():
         try:
-            with open(SETTINGS_FILE, 'r') as f:
+            with open(SETTINGS_FILE, "r") as f:
                 saved = json.load(f)
+
+            if not isinstance(saved, dict):
+                raise ValueError("Settings payload must be a JSON object")
+
+            migrated = migrate_legacy_settings(saved)
+            loaded_settings = AppSettings.model_validate(
+                deep_merge_dicts(
+                    DEFAULT_APP_SETTINGS.model_dump(by_alias=False),
+                    migrated,
+                )
+            )
             with settings_lock:
-                if 'use_torch_compile' in saved:
-                    app_settings['use_torch_compile'] = bool(saved['use_torch_compile'])
-                if 'load_on_startup' in saved:
-                    app_settings['load_on_startup'] = bool(saved['load_on_startup'])
-                if 'ltx_api_key' in saved:
-                    app_settings['ltx_api_key'] = str(saved['ltx_api_key'])
-                if 'use_local_text_encoder' in saved:
-                    app_settings['use_local_text_encoder'] = bool(saved['use_local_text_encoder'])
-                if 'fast_model' in saved and isinstance(saved['fast_model'], dict):
-                    app_settings['fast_model'] = {
-                        'use_upscaler': bool(saved['fast_model'].get('use_upscaler', True))
-                    }
-                if 'pro_model' in saved and isinstance(saved['pro_model'], dict):
-                    app_settings['pro_model'] = {
-                        'steps': int(saved['pro_model'].get('steps', 20)),
-                        'use_upscaler': bool(saved['pro_model'].get('use_upscaler', True))
-                    }
-                if 'prompt_cache_size' in saved:
-                    app_settings['prompt_cache_size'] = max(0, min(1000, int(saved['prompt_cache_size'])))
-                if 'prompt_enhancer_enabled_t2v' in saved:
-                    app_settings['prompt_enhancer_enabled_t2v'] = bool(saved['prompt_enhancer_enabled_t2v'])
-                if 'prompt_enhancer_enabled_i2v' in saved:
-                    app_settings['prompt_enhancer_enabled_i2v'] = bool(saved['prompt_enhancer_enabled_i2v'])
-                if 'prompt_enhancer_enabled' in saved and 'prompt_enhancer_enabled_t2v' not in saved:
-                    val = bool(saved['prompt_enhancer_enabled'])
-                    app_settings['prompt_enhancer_enabled_t2v'] = val
-                    app_settings['prompt_enhancer_enabled_i2v'] = val
-                if 'gemini_api_key' in saved:
-                    app_settings['gemini_api_key'] = str(saved['gemini_api_key'])
-                if 't2v_system_prompt' in saved:
-                    app_settings['t2v_system_prompt'] = str(saved['t2v_system_prompt'])
-                if 'i2v_system_prompt' in saved:
-                    app_settings['i2v_system_prompt'] = str(saved['i2v_system_prompt'])
-                if 'seed_locked' in saved:
-                    app_settings['seed_locked'] = bool(saved['seed_locked'])
-                if 'locked_seed' in saved:
-                    app_settings['locked_seed'] = int(saved['locked_seed'])
+                app_settings = loaded_settings
             logger.info(f"Settings loaded from {SETTINGS_FILE}")
         except Exception as e:
             logger.warning(f"Could not load settings: {e}")
 
 
-def save_settings():
+def save_settings() -> None:
     """Save current settings to disk."""
     try:
         with settings_lock:
-            settings_to_save = app_settings.copy()
-        with open(SETTINGS_FILE, 'w') as f:
+            settings_to_save = app_settings.model_dump(by_alias=False)
+        with open(SETTINGS_FILE, "w") as f:
             json.dump(settings_to_save, f, indent=2)
         logger.debug(f"Settings saved to {SETTINGS_FILE}")
     except Exception as e:
@@ -713,7 +710,7 @@ def background_warmup():
                 warmup_state["progress"] = 0
             return
 
-        if not app_settings.get("load_on_startup", False):
+        if not get_settings_snapshot().load_on_startup:
             with warmup_lock:
                 warmup_state["status"] = "ready"
                 warmup_state["current_step"] = "Ready (models load on first use)"

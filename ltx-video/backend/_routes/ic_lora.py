@@ -234,8 +234,7 @@ def post_generate(req: IcLoraGenerateRequest) -> dict[str, Any]:
 
     # Use LTX API for text encoding if available
     _mod._api_embeddings = None
-    with _mod.settings_lock:
-        ltx_api_key = _mod.app_settings.get("ltx_api_key", "")
+    ltx_api_key = _mod.get_settings_snapshot().ltx_api_key
     if ltx_api_key:
         logger.info("Using LTX API for text encoding...")
         embeddings = _mod.encode_text_via_api(prompt, ltx_api_key, _mod._cached_model_id)
@@ -324,7 +323,7 @@ def post_generate(req: IcLoraGenerateRequest) -> dict[str, Any]:
     # Step 4: Generate
     try:
         logger.info("Starting IC-LoRA generation...")
-        video, audio = pipeline(
+        generation_result = pipeline(
             prompt=prompt,
             seed=req.seed,
             height=height,
@@ -335,6 +334,18 @@ def post_generate(req: IcLoraGenerateRequest) -> dict[str, Any]:
             video_conditioning=video_conditioning,
             tiling_config=tiling_config,
         )
+        if isinstance(generation_result, tuple):
+            if len(generation_result) == 2:
+                video, audio = generation_result
+            elif len(generation_result) == 1:
+                video = generation_result[0]
+                audio = None
+            else:
+                raise ValueError("Unexpected IC-LoRA pipeline result shape")
+        else:
+            video = generation_result
+            audio = None
+
         video_chunks_number = get_video_chunks_number(num_frames, tiling_config)
         encode_video(
             video=video,

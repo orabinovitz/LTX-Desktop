@@ -43,7 +43,7 @@ def post_retake(req: RetakeRequest) -> dict[str, Any]:
     if not video_file.exists():
         raise HTTPError(400, f"Video file not found: {video_path}")
 
-    api_key = _mod.app_settings.get("ltx_api_key", "")
+    api_key = _mod.get_settings_snapshot().ltx_api_key
     if not api_key:
         raise HTTPError(400, "LTX API key not configured. Set it in Settings.")
 

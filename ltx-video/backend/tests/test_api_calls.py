@@ -43,7 +43,7 @@ class TestEnhancePrompt:
 
     @patch("ltx2_server.requests.post")
     def test_happy_path_t2v(self, mock_post, client):
-        ltx2_server.app_settings["gemini_api_key"] = "test-key"
+        ltx2_server.app_settings.gemini_api_key = "test-key"
         mock_post.return_value = _gemini_ok("A beautiful cinematic sunset")
 
         r = client.post("/api/enhance-prompt", json={
@@ -56,8 +56,8 @@ class TestEnhancePrompt:
 
     @patch("ltx2_server.requests.post")
     def test_happy_path_i2v(self, mock_post, client):
-        ltx2_server.app_settings["gemini_api_key"] = "test-key"
-        ltx2_server.app_settings["prompt_enhancer_enabled_i2v"] = True
+        ltx2_server.app_settings.gemini_api_key = "test-key"
+        ltx2_server.app_settings.prompt_enhancer_enabled_i2v = True
         mock_post.return_value = _gemini_ok("Animated image")
 
         r = client.post("/api/enhance-prompt", json={
@@ -69,7 +69,7 @@ class TestEnhancePrompt:
         # Verify i2v system prompt was used in the Gemini call
         call_payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
         sys_text = call_payload["systemInstruction"]["parts"][0]["text"]
-        assert sys_text == ltx2_server.app_settings["i2v_system_prompt"]
+        assert sys_text == ltx2_server.app_settings.i2v_system_prompt
 
     def test_skip_t2i_mode(self, client):
         r = client.post("/api/enhance-prompt", json={
@@ -80,7 +80,7 @@ class TestEnhancePrompt:
         assert data["skipped"] is True
 
     def test_skip_disabled_t2v(self, client):
-        ltx2_server.app_settings["prompt_enhancer_enabled_t2v"] = False
+        ltx2_server.app_settings.prompt_enhancer_enabled_t2v = False
         r = client.post("/api/enhance-prompt", json={
             "prompt": "a cat", "mode": "t2v",
         })
@@ -96,7 +96,7 @@ class TestEnhancePrompt:
         assert r.json()["skipped"] is True
 
     def test_empty_prompt_400(self, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         r = client.post("/api/enhance-prompt", json={
             "prompt": "", "mode": "t2v",
         })
@@ -111,7 +111,7 @@ class TestEnhancePrompt:
 
     @patch("ltx2_server.requests.post")
     def test_gemini_api_error_forwarded(self, mock_post, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         mock_post.return_value = _gemini_error(429, "rate limited")
 
         r = client.post("/api/enhance-prompt", json={
@@ -121,7 +121,7 @@ class TestEnhancePrompt:
 
     @patch("ltx2_server.requests.post")
     def test_gemini_parse_error(self, mock_post, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         mock_post.return_value = _gemini_empty_candidates()
 
         r = client.post("/api/enhance-prompt", json={
@@ -132,7 +132,7 @@ class TestEnhancePrompt:
 
     @patch("ltx2_server.requests.post", side_effect=requests.exceptions.Timeout)
     def test_timeout_504(self, _mock, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         r = client.post("/api/enhance-prompt", json={
             "prompt": "test", "mode": "t2v",
         })
@@ -140,7 +140,7 @@ class TestEnhancePrompt:
 
     @patch("ltx2_server.requests.post", side_effect=RuntimeError("boom"))
     def test_generic_exception_500(self, _mock, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         r = client.post("/api/enhance-prompt", json={
             "prompt": "test", "mode": "t2v",
         })
@@ -156,7 +156,7 @@ class TestSuggestGapPrompt:
 
     @patch("ltx2_server.requests.post")
     def test_happy_path_with_prompts(self, mock_post, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         mock_post.return_value = _gemini_ok("A smooth transition scene")
 
         r = client.post("/api/suggest-gap-prompt", json={
@@ -171,7 +171,7 @@ class TestSuggestGapPrompt:
 
     @patch("ltx2_server.requests.post")
     def test_happy_path_with_frames(self, mock_post, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         mock_post.return_value = _gemini_ok("Transition clip")
 
         r = client.post("/api/suggest-gap-prompt", json={
@@ -186,7 +186,7 @@ class TestSuggestGapPrompt:
         assert len(inline_parts) == 2
 
     def test_no_context_400(self, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         r = client.post("/api/suggest-gap-prompt", json={})
         assert r.status_code == 400
 
@@ -199,7 +199,7 @@ class TestSuggestGapPrompt:
 
     @patch("ltx2_server.requests.post")
     def test_gemini_api_error(self, mock_post, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         mock_post.return_value = _gemini_error(500, "internal")
 
         r = client.post("/api/suggest-gap-prompt", json={
@@ -209,7 +209,7 @@ class TestSuggestGapPrompt:
 
     @patch("ltx2_server.requests.post")
     def test_gemini_parse_error(self, mock_post, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         mock_post.return_value = _gemini_empty_candidates()
 
         r = client.post("/api/suggest-gap-prompt", json={
@@ -220,7 +220,7 @@ class TestSuggestGapPrompt:
 
     @patch("ltx2_server.requests.post", side_effect=requests.exceptions.Timeout)
     def test_timeout_504(self, _mock, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         r = client.post("/api/suggest-gap-prompt", json={
             "beforePrompt": "test",
         })
@@ -228,7 +228,7 @@ class TestSuggestGapPrompt:
 
     @patch("ltx2_server.requests.post")
     def test_image_edit_mode(self, mock_post, client):
-        ltx2_server.app_settings["gemini_api_key"] = "key"
+        ltx2_server.app_settings.gemini_api_key = "key"
         mock_post.return_value = _gemini_ok("Edit the background")
 
         r = client.post("/api/suggest-gap-prompt", json={
@@ -305,7 +305,7 @@ class TestRetake:
     @patch("ltx2_server.requests.put")
     @patch("ltx2_server.requests.post")
     def test_happy_path_binary_response(self, mock_post, mock_put, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         video_path = self._make_video()
 
         mock_post.side_effect = [_upload_resp_ok(), _retake_binary_resp()]
@@ -321,7 +321,7 @@ class TestRetake:
     @patch("ltx2_server.requests.put")
     @patch("ltx2_server.requests.post")
     def test_happy_path_json_video_url(self, mock_post, mock_put, mock_get, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         video_path = self._make_video()
 
         mock_post.side_effect = [_upload_resp_ok(), _retake_json_resp()]
@@ -339,14 +339,14 @@ class TestRetake:
         assert data["status"] == "complete"
 
     def test_missing_video_path(self, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         r = client.post("/api/retake", json={
             "start_time": 1.0, "duration": 3.0,
         })
         assert r.status_code == 422
 
     def test_missing_start_time(self, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         video_path = self._make_video()
         r = client.post("/api/retake", json={
             "video_path": video_path, "duration": 3.0,
@@ -354,7 +354,7 @@ class TestRetake:
         assert r.status_code == 422
 
     def test_missing_duration(self, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         video_path = self._make_video()
         r = client.post("/api/retake", json={
             "video_path": video_path, "start_time": 1.0,
@@ -362,7 +362,7 @@ class TestRetake:
         assert r.status_code == 422
 
     def test_duration_too_short(self, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         video_path = self._make_video()
         r = client.post("/api/retake", json={
             "video_path": video_path, "start_time": 0, "duration": 1,
@@ -370,7 +370,7 @@ class TestRetake:
         assert r.status_code == 400
 
     def test_video_not_found(self, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         r = client.post("/api/retake", json={
             "video_path": "/nonexistent/video.mp4",
             "start_time": 0, "duration": 3,
@@ -384,7 +384,7 @@ class TestRetake:
 
     @patch("ltx2_server.requests.post")
     def test_upload_url_failure(self, mock_post, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         video_path = self._make_video()
 
         fail_resp = MagicMock()
@@ -398,7 +398,7 @@ class TestRetake:
     @patch("ltx2_server.requests.put")
     @patch("ltx2_server.requests.post")
     def test_video_upload_failure(self, mock_post, mock_put, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         video_path = self._make_video()
 
         mock_post.return_value = _upload_resp_ok()
@@ -413,7 +413,7 @@ class TestRetake:
     @patch("ltx2_server.requests.put")
     @patch("ltx2_server.requests.post")
     def test_retake_api_422_safety_filter(self, mock_post, mock_put, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         video_path = self._make_video()
 
         safety_resp = MagicMock()
@@ -428,7 +428,7 @@ class TestRetake:
     @patch("ltx2_server.requests.put")
     @patch("ltx2_server.requests.post")
     def test_retake_api_other_error(self, mock_post, mock_put, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         video_path = self._make_video()
 
         error_resp = MagicMock()
@@ -443,7 +443,7 @@ class TestRetake:
     @patch("ltx2_server.requests.put")
     @patch("ltx2_server.requests.post")
     def test_prompt_and_mode_forwarded(self, mock_post, mock_put, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key"
+        ltx2_server.app_settings.ltx_api_key = "test-key"
         video_path = self._make_video()
 
         mock_post.side_effect = [_upload_resp_ok(), _retake_binary_resp()]

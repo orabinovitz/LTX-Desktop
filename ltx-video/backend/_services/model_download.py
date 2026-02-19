@@ -36,7 +36,7 @@ def get_models_status_impl(has_api_key: bool | None = None) -> dict[str, Any]:
     downloaded_size = 0
 
     if has_api_key is None:
-        has_api_key = bool(_mod.app_settings.get("ltx_api_key", ""))
+        has_api_key = bool(_mod.get_settings_snapshot().ltx_api_key)
 
     model_files = [
         ("ltx-2-19b-distilled-fp8.safetensors", _mod.CHECKPOINT_PATH, 19_000_000_000, "Main transformer model (FP8)"),
@@ -109,7 +109,7 @@ def get_models_status_impl(has_api_key: bool | None = None) -> dict[str, Any]:
         "models_path": str(_mod.MODELS_DIR),
         "has_api_key": has_api_key,
         "text_encoder_status": get_text_encoder_status_impl(),
-        "use_local_text_encoder": _mod.app_settings.get("use_local_text_encoder", False),
+        "use_local_text_encoder": _mod.get_settings_snapshot().use_local_text_encoder,
     }
 
 

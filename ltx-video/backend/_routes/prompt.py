@@ -36,6 +36,7 @@ def post_enhance_prompt(req: EnhancePromptRequest) -> dict[str, Any]:
 
     prompt = req.prompt.strip()
     mode = req.mode
+    settings = _mod.get_settings_snapshot()
 
     if not prompt:
         raise HTTPError(400, "Prompt is required")
@@ -49,9 +50,9 @@ def post_enhance_prompt(req: EnhancePromptRequest) -> dict[str, Any]:
         }
 
     if mode == "i2v":
-        enhancer_enabled = _mod.app_settings.get("prompt_enhancer_enabled_i2v", False)
+        enhancer_enabled = settings.prompt_enhancer_enabled_i2v
     else:
-        enhancer_enabled = _mod.app_settings.get("prompt_enhancer_enabled_t2v", True)
+        enhancer_enabled = settings.prompt_enhancer_enabled_t2v
 
     if not enhancer_enabled:
         return {
@@ -61,14 +62,14 @@ def post_enhance_prompt(req: EnhancePromptRequest) -> dict[str, Any]:
             "reason": f"Prompt enhancer is disabled for {mode.upper()}",
         }
 
-    gemini_api_key = _mod.app_settings.get("gemini_api_key", "")
+    gemini_api_key = settings.gemini_api_key
     if not gemini_api_key:
         raise HTTPError(400, "GEMINI_API_KEY_MISSING")
 
     if mode == "i2v":
-        system_prompt = _mod.app_settings.get("i2v_system_prompt", _mod.DEFAULT_I2V_SYSTEM_PROMPT)
+        system_prompt = settings.i2v_system_prompt
     else:
-        system_prompt = _mod.app_settings.get("t2v_system_prompt", _mod.DEFAULT_T2V_SYSTEM_PROMPT)
+        system_prompt = settings.t2v_system_prompt
 
     logger.info(f"Enhancing prompt ({mode}): {prompt[:50]}...")
 
@@ -129,7 +130,7 @@ def post_suggest_gap_prompt(req: SuggestGapPromptRequest) -> dict[str, Any]:
     if not before_frame and not after_frame and not before_prompt and not after_prompt:
         raise HTTPError(400, "At least one neighboring frame or prompt is required")
 
-    gemini_api_key = _mod.app_settings.get("gemini_api_key", "")
+    gemini_api_key = _mod.get_settings_snapshot().gemini_api_key
     if not gemini_api_key:
         raise HTTPError(400, "GEMINI_API_KEY_MISSING")
 

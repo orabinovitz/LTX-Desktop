@@ -123,8 +123,9 @@ def post_generate(req: GenerateVideoRequest) -> dict[str, Any]:
         _mod.current_generation["error"] = None
         _mod.current_generation["status"] = "running"
 
-    if _mod.app_settings.get("seed_locked", False):
-        seed = _mod.app_settings.get("locked_seed", 42)
+    settings = _mod.get_settings_snapshot()
+    if settings.seed_locked:
+        seed = settings.locked_seed
         logger.info(f"Using locked seed: {seed}")
     else:
         seed = int(time.time()) % 2147483647

@@ -142,22 +142,7 @@ def _redirect_paths():
 # ============================================================
 
 def _default_settings():
-    return {
-        "use_torch_compile": False,
-        "load_on_startup": False,
-        "ltx_api_key": "",
-        "use_local_text_encoder": False,
-        "fast_model": {"use_upscaler": True},
-        "pro_model": {"steps": 20, "use_upscaler": True},
-        "prompt_cache_size": 100,
-        "prompt_enhancer_enabled_t2v": True,
-        "prompt_enhancer_enabled_i2v": False,
-        "gemini_api_key": "",
-        "t2v_system_prompt": ltx2_server.DEFAULT_T2V_SYSTEM_PROMPT,
-        "i2v_system_prompt": ltx2_server.DEFAULT_I2V_SYSTEM_PROMPT,
-        "seed_locked": False,
-        "locked_seed": 42,
-    }
+    return ltx2_server.DEFAULT_APP_SETTINGS.model_copy(deep=True)
 
 
 # ============================================================

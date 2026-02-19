@@ -52,9 +52,9 @@ def get_models() -> list[dict[str, Any]]:
     """GET /api/models"""
     import ltx2_server as _mod
 
-    with _mod.settings_lock:
-        pro_steps = _mod.app_settings.get("pro_model", {}).get("steps", 20)
-        pro_upscaler = _mod.app_settings.get("pro_model", {}).get("use_upscaler", True)
+    settings = _mod.get_settings_snapshot()
+    pro_steps = settings.pro_model.steps
+    pro_upscaler = settings.pro_model.use_upscaler
 
     return [
         {
@@ -105,7 +105,7 @@ def post_model_download(req: ModelDownloadRequest) -> dict[str, Any]:
         raise HTTPError(409, "Download already in progress")
 
     skip_text_encoder = req.skipTextEncoder
-    if _mod.app_settings.get("ltx_api_key"):
+    if _mod.get_settings_snapshot().ltx_api_key:
         skip_text_encoder = True
 
     if skip_text_encoder:

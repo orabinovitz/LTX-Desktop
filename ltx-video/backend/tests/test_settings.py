@@ -1,7 +1,10 @@
 """Tests for GET /api/settings and POST /api/settings."""
+
+import json
 from unittest.mock import patch
 
 import ltx2_server
+from AppStettings import AppSettings, UpdateSettingsRequest
 
 
 class TestGetSettings:
@@ -25,7 +28,7 @@ class TestGetSettings:
         assert data["lockedSeed"] == 42
 
     def test_reflects_changed_settings(self, client):
-        ltx2_server.app_settings["use_torch_compile"] = True
+        ltx2_server.app_settings.use_torch_compile = True
         r = client.get("/api/settings")
         data = r.json()
         assert data["useTorchCompile"] is True
@@ -37,7 +40,7 @@ class TestGetSettings:
         assert data["i2vSystemPrompt"] == ltx2_server.DEFAULT_I2V_SYSTEM_PROMPT
 
     def test_returns_api_key_when_set(self, client):
-        ltx2_server.app_settings["ltx_api_key"] = "test-key-123"
+        ltx2_server.app_settings.ltx_api_key = "test-key-123"
         r = client.get("/api/settings")
         data = r.json()
         assert data["ltxApiKey"] == "test-key-123"
@@ -50,7 +53,7 @@ class TestPostSettings:
     def test_update_single_field(self, _save, client):
         r = client.post("/api/settings", json={"useTorchCompile": True})
         assert r.status_code == 200
-        assert ltx2_server.app_settings["use_torch_compile"] is True
+        assert ltx2_server.app_settings.use_torch_compile is True
 
     @patch("ltx2_server.save_settings")
     def test_update_multiple_fields(self, _save, client):
@@ -59,8 +62,8 @@ class TestPostSettings:
             "loadOnStartup": True,
         })
         assert r.status_code == 200
-        assert ltx2_server.app_settings["use_torch_compile"] is True
-        assert ltx2_server.app_settings["load_on_startup"] is True
+        assert ltx2_server.app_settings.use_torch_compile is True
+        assert ltx2_server.app_settings.load_on_startup is True
 
     @patch("ltx2_server.save_settings")
     def test_update_fast_model(self, _save, client):
@@ -68,7 +71,7 @@ class TestPostSettings:
             "fastModel": {"useUpscaler": False},
         })
         assert r.status_code == 200
-        assert ltx2_server.app_settings["fast_model"]["use_upscaler"] is False
+        assert ltx2_server.app_settings.fast_model.use_upscaler is False
 
     @patch("ltx2_server.save_settings")
     def test_update_pro_model(self, _save, client):
@@ -76,24 +79,37 @@ class TestPostSettings:
             "proModel": {"steps": 30, "useUpscaler": False},
         })
         assert r.status_code == 200
-        assert ltx2_server.app_settings["pro_model"]["steps"] == 30
-        assert ltx2_server.app_settings["pro_model"]["use_upscaler"] is False
+        assert ltx2_server.app_settings.pro_model.steps == 30
+        assert ltx2_server.app_settings.pro_model.use_upscaler is False
+
+    @patch("ltx2_server.save_settings")
+    def test_deep_partial_patch_preserves_nested_fields(self, _save, client):
+        assert ltx2_server.app_settings.pro_model.use_upscaler is True
+        r = client.post("/api/settings", json={"proModel": {"steps": 30}})
+        assert r.status_code == 200
+        assert ltx2_server.app_settings.pro_model.steps == 30
+        assert ltx2_server.app_settings.pro_model.use_upscaler is True
 
     @patch("ltx2_server.save_settings")
     def test_prompt_cache_size_clamped_max(self, _save, client):
         r = client.post("/api/settings", json={"promptCacheSize": 5000})
         assert r.status_code == 200
-        assert ltx2_server.app_settings["prompt_cache_size"] <= 1000
+        assert ltx2_server.app_settings.prompt_cache_size <= 1000
 
     @patch("ltx2_server.save_settings")
     def test_prompt_cache_size_clamped_min(self, _save, client):
         r = client.post("/api/settings", json={"promptCacheSize": -10})
         assert r.status_code == 200
-        assert ltx2_server.app_settings["prompt_cache_size"] >= 0
+        assert ltx2_server.app_settings.prompt_cache_size >= 0
+
+    @patch("ltx2_server.save_settings")
+    def test_locked_seed_clamped_range(self, _save, client):
+        r = client.post("/api/settings", json={"lockedSeed": 9_999_999_999})
+        assert r.status_code == 200
+        assert ltx2_server.app_settings.locked_seed == 2_147_483_647
 
     @patch("ltx2_server.save_settings")
     def test_prompt_cache_shrinks_cache(self, _save, client):
-        # Pre-populate the cache with 5 entries
         for i in range(5):
             ltx2_server._prompt_embeddings_cache[f"key_{i}"] = f"value_{i}"
         assert len(ltx2_server._prompt_embeddings_cache) == 5
@@ -109,8 +125,8 @@ class TestPostSettings:
             "geminiApiKey": "gemini-key-xyz",
         })
         assert r.status_code == 200
-        assert ltx2_server.app_settings["ltx_api_key"] == "ltx-key-abc"
-        assert ltx2_server.app_settings["gemini_api_key"] == "gemini-key-xyz"
+        assert ltx2_server.app_settings.ltx_api_key == "ltx-key-abc"
+        assert ltx2_server.app_settings.gemini_api_key == "gemini-key-xyz"
 
     @patch("ltx2_server.save_settings")
     def test_update_system_prompts(self, _save, client):
@@ -119,8 +135,8 @@ class TestPostSettings:
             "i2vSystemPrompt": "Custom I2V prompt",
         })
         assert r.status_code == 200
-        assert ltx2_server.app_settings["t2v_system_prompt"] == "Custom T2V prompt"
-        assert ltx2_server.app_settings["i2v_system_prompt"] == "Custom I2V prompt"
+        assert ltx2_server.app_settings.t2v_system_prompt == "Custom T2V prompt"
+        assert ltx2_server.app_settings.i2v_system_prompt == "Custom I2V prompt"
 
     @patch("ltx2_server.save_settings")
     def test_update_prompt_enhancer_flags(self, _save, client):
@@ -129,18 +145,17 @@ class TestPostSettings:
             "promptEnhancerEnabledI2V": True,
         })
         assert r.status_code == 200
-        assert ltx2_server.app_settings["prompt_enhancer_enabled_t2v"] is False
-        assert ltx2_server.app_settings["prompt_enhancer_enabled_i2v"] is True
+        assert ltx2_server.app_settings.prompt_enhancer_enabled_t2v is False
+        assert ltx2_server.app_settings.prompt_enhancer_enabled_i2v is True
 
     @patch("ltx2_server.save_settings")
     def test_partial_update_preserves_others(self, _save, client):
-        original_compile = ltx2_server.app_settings["use_torch_compile"]
-        original_startup = ltx2_server.app_settings["load_on_startup"]
+        original_compile = ltx2_server.app_settings.use_torch_compile
 
         r = client.post("/api/settings", json={"loadOnStartup": True})
         assert r.status_code == 200
-        assert ltx2_server.app_settings["load_on_startup"] is True
-        assert ltx2_server.app_settings["use_torch_compile"] == original_compile
+        assert ltx2_server.app_settings.load_on_startup is True
+        assert ltx2_server.app_settings.use_torch_compile == original_compile
 
     @patch("ltx2_server.save_settings")
     def test_calls_save_settings(self, mock_save, client):
@@ -149,8 +164,48 @@ class TestPostSettings:
 
     @patch("ltx2_server.save_settings")
     def test_empty_body_noop(self, _save, client):
-        snapshot = ltx2_server.app_settings.copy()
+        snapshot = ltx2_server.app_settings.model_copy(deep=True)
         r = client.post("/api/settings", json={})
         assert r.status_code == 200
-        assert ltx2_server.app_settings["use_torch_compile"] == snapshot["use_torch_compile"]
-        assert ltx2_server.app_settings["load_on_startup"] == snapshot["load_on_startup"]
+        assert ltx2_server.app_settings.use_torch_compile == snapshot.use_torch_compile
+        assert ltx2_server.app_settings.load_on_startup == snapshot.load_on_startup
+
+    def test_unknown_field_rejected(self, client):
+        r = client.post("/api/settings", json={"unknownSetting": True})
+        assert r.status_code == 422
+
+
+class TestSettingsPersistence:
+    def test_load_settings_clamps_from_disk(self):
+        ltx2_server.SETTINGS_FILE.write_text(
+            json.dumps(
+                {
+                    "prompt_cache_size": 5000,
+                    "locked_seed": -55,
+                    "pro_model": {"steps": 999},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        ltx2_server.load_settings()
+
+        assert ltx2_server.app_settings.prompt_cache_size == 1000
+        assert ltx2_server.app_settings.locked_seed == 0
+        assert ltx2_server.app_settings.pro_model.steps == 100
+
+    def test_legacy_prompt_enhancer_key_migrates(self):
+        ltx2_server.SETTINGS_FILE.write_text(
+            json.dumps({"prompt_enhancer_enabled": False}),
+            encoding="utf-8",
+        )
+
+        ltx2_server.load_settings()
+
+        assert ltx2_server.app_settings.prompt_enhancer_enabled_t2v is False
+        assert ltx2_server.app_settings.prompt_enhancer_enabled_i2v is False
+
+
+class TestSettingsSchemaDrift:
+    def test_update_request_tracks_app_settings_fields(self):
+        assert set(AppSettings.model_fields) == set(UpdateSettingsRequest.model_fields)
