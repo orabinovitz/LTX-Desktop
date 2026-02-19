@@ -1,6 +1,6 @@
 {
   "pythonVersion": "3.12",
-  "typeCheckingMode": "standard",
+  "typeCheckingMode": "strict",
   "venvPath": ".",
   "venv": ".venv",
   "include": [
@@ -18,10 +18,10 @@
   ],
   "reportMissingImports": "warning",
   "reportMissingTypeStubs": false,
-  "reportUnknownMemberType": false,
-  "reportUnknownVariableType": false,
-  "reportUnknownArgumentType": false,
-  "reportUnknownParameterType": false,
+  "reportUnknownMemberType": true,
+  "reportUnknownVariableType": true,
+  "reportUnknownArgumentType": true,
+  "reportUnknownParameterType": true,
   "reportUnusedImport": "warning",
   "reportUnusedVariable": "warning"
 }
