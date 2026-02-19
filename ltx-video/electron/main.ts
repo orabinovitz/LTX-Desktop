@@ -3,7 +3,7 @@ import { spawn, spawnSync, ChildProcess, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
-import { PathValidator } from './path-validator'
+import { validatePath, approvePath } from './path-validation'
 
 // Get directory - works in both CJS and ESM contexts
 const getCurrentDir = (): string => {
@@ -17,10 +17,22 @@ const getCurrentDir = (): string => {
 
 let mainWindow: BrowserWindow | null = null
 let pythonProcess: ChildProcess | null = null
-let pathValidator: PathValidator
 
 const PYTHON_PORT = 8000
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+
+function getAllowedRoots(): string[] {
+  const roots = [
+    getCurrentDir(),
+    app.getPath('userData'),
+    app.getPath('downloads'),
+    os.tmpdir(),
+  ]
+  if (!isDev && process.resourcesPath) {
+    roots.push(process.resourcesPath)
+  }
+  return roots
+}
 
 // Enforce Content Security Policy via response headers (tamper-proof from renderer)
 function setupCSP(): void {
@@ -337,7 +349,7 @@ ipcMain.handle('get-downloads-path', () => {
 
 ipcMain.handle('ensure-directory', async (_event, dirPath: string) => {
   try {
-    pathValidator.validate(dirPath)
+    validatePath(dirPath, getAllowedRoots())
     if (!fs.existsSync(dirPath)) {
       fs.mkdirSync(dirPath, { recursive: true })
     }
@@ -391,7 +403,7 @@ ipcMain.handle('show-item-in-folder', async (_event, filePath: string) => {
 
 ipcMain.handle('read-local-file', async (_event, filePath: string) => {
   try {
-    const normalizedPath = pathValidator.validate(filePath)
+    const normalizedPath = validatePath(filePath, getAllowedRoots())
 
     if (!fs.existsSync(normalizedPath)) {
       throw new Error(`File not found: ${normalizedPath}`)
@@ -543,13 +555,13 @@ ipcMain.handle('show-save-dialog', async (_event, options: {
     filters: options.filters || [],
   })
   if (result.canceled || !result.filePath) return null
-  pathValidator.approve(result.filePath)
+  approvePath(result.filePath)
   return result.filePath
 })
 
 ipcMain.handle('save-file', async (_event, filePath: string, data: string, encoding?: string) => {
   try {
-    pathValidator.validate(filePath)
+    validatePath(filePath, getAllowedRoots())
     if (encoding === 'base64') {
       fs.writeFileSync(filePath, Buffer.from(data, 'base64'))
     } else {
@@ -564,7 +576,7 @@ ipcMain.handle('save-file', async (_event, filePath: string, data: string, encod
 
 ipcMain.handle('save-binary-file', async (_event, filePath: string, data: ArrayBuffer) => {
   try {
-    pathValidator.validate(filePath)
+    validatePath(filePath, getAllowedRoots())
     fs.writeFileSync(filePath, Buffer.from(data))
     return { success: true, path: filePath }
   } catch (error) {
@@ -581,7 +593,7 @@ ipcMain.handle('show-open-directory-dialog', async (_event, options: { title?: s
     properties: ['openDirectory', 'createDirectory'],
   })
   if (result.canceled || result.filePaths.length === 0) return null
-  pathValidator.approveAndPersist(result.filePaths[0])
+  approvePath(result.filePaths[0])
   return result.filePaths[0]
 })
 
@@ -620,8 +632,8 @@ ipcMain.handle('search-directory-for-files', async (_event, dir: string, filenam
 // Copy file
 ipcMain.handle('copy-file', async (_event, src: string, dest: string) => {
   try {
-    pathValidator.validate(src)
-    pathValidator.validate(dest)
+    validatePath(src, getAllowedRoots())
+    validatePath(dest, getAllowedRoots())
     const dir = path.dirname(dest)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     fs.copyFileSync(src, dest)
@@ -694,7 +706,7 @@ ipcMain.handle('show-open-file-dialog', async (_event, options: {
   })
   if (result.canceled || result.filePaths.length === 0) return null
   for (const fp of result.filePaths) {
-    pathValidator.approve(fp)
+    approvePath(fp)
   }
   return result.filePaths
 })
@@ -895,10 +907,10 @@ ipcMain.handle('export-native', async (_event, data: {
 
   // Validate output path and all clip source paths
   try {
-    pathValidator.validate(outputPath)
+    validatePath(outputPath, getAllowedRoots())
     for (const clip of clips) {
       const fp = urlToFilePath(clip.url)
-      if (fp) pathValidator.validate(fp)
+      if (fp) validatePath(fp, getAllowedRoots())
     }
   } catch (err) {
     return { error: String(err) }
@@ -1254,21 +1266,6 @@ ipcMain.handle('export-cancel', async () => {
 // App lifecycle
 app.whenReady().then(async () => {
   setupCSP()
-
-  // Initialize path validator — roots are fetched fresh on each validation
-  const approvedDirsFile = path.join(app.getPath('userData'), 'approved-dirs.json')
-  pathValidator = new PathValidator(() => {
-    const roots = [
-      getCurrentDir(),              // covers backend/outputs/
-      app.getPath('userData'),      // settings, logs, models
-      app.getPath('downloads'),     // default export destination
-      os.tmpdir(),                  // FFmpeg temp files
-    ]
-    if (!isDev && process.resourcesPath) {
-      roots.push(process.resourcesPath) // bundled assets
-    }
-    return roots
-  }, approvedDirsFile)
 
   try {
     // Start Python backend first
