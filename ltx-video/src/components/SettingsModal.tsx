@@ -62,13 +62,16 @@ interface InferenceSettings {
   useUpscaler: boolean
 }
 
+interface FastModelSettings {
+  useUpscaler: boolean
+}
+
 interface AppSettings {
-  keepModelsLoaded: boolean
   useTorchCompile: boolean
   loadOnStartup: boolean
   ltxApiKey: string
   useLocalTextEncoder: boolean
-  fastModel: InferenceSettings
+  fastModel: FastModelSettings
   proModel: InferenceSettings
   promptCacheSize: number
   // Prompt Enhancer settings

@@ -11,12 +11,11 @@ class TestGetSettings:
         r = client.get("/api/settings")
         assert r.status_code == 200
         data = r.json()
-        assert data["keepModelsLoaded"] is True
         assert data["useTorchCompile"] is False
         assert data["loadOnStartup"] is False
         assert data["ltxApiKey"] == ""
         assert data["useLocalTextEncoder"] is False
-        assert data["fastModel"] == {"steps": 8, "useUpscaler": True}
+        assert data["fastModel"] == {"useUpscaler": True}
         assert data["proModel"] == {"steps": 20, "useUpscaler": True}
         assert data["promptCacheSize"] == 100
         assert data["promptEnhancerEnabledT2V"] is True
@@ -26,11 +25,9 @@ class TestGetSettings:
         assert data["lockedSeed"] == 42
 
     def test_reflects_changed_settings(self, client):
-        ltx2_server.app_settings["keep_models_loaded"] = False
         ltx2_server.app_settings["use_torch_compile"] = True
         r = client.get("/api/settings")
         data = r.json()
-        assert data["keepModelsLoaded"] is False
         assert data["useTorchCompile"] is True
 
     def test_system_prompt_defaults(self, client):
@@ -51,29 +48,26 @@ class TestPostSettings:
 
     @patch("ltx2_server.save_settings")
     def test_update_single_field(self, _save, client):
-        r = client.post("/api/settings", json={"keepModelsLoaded": False})
+        r = client.post("/api/settings", json={"useTorchCompile": True})
         assert r.status_code == 200
-        assert ltx2_server.app_settings["keep_models_loaded"] is False
+        assert ltx2_server.app_settings["use_torch_compile"] is True
 
     @patch("ltx2_server.save_settings")
     def test_update_multiple_fields(self, _save, client):
         r = client.post("/api/settings", json={
-            "keepModelsLoaded": False,
             "useTorchCompile": True,
             "loadOnStartup": True,
         })
         assert r.status_code == 200
-        assert ltx2_server.app_settings["keep_models_loaded"] is False
         assert ltx2_server.app_settings["use_torch_compile"] is True
         assert ltx2_server.app_settings["load_on_startup"] is True
 
     @patch("ltx2_server.save_settings")
     def test_update_fast_model(self, _save, client):
         r = client.post("/api/settings", json={
-            "fastModel": {"steps": 12, "useUpscaler": False},
+            "fastModel": {"useUpscaler": False},
         })
         assert r.status_code == 200
-        assert ltx2_server.app_settings["fast_model"]["steps"] == 12
         assert ltx2_server.app_settings["fast_model"]["use_upscaler"] is False
 
     @patch("ltx2_server.save_settings")
@@ -143,15 +137,14 @@ class TestPostSettings:
         original_compile = ltx2_server.app_settings["use_torch_compile"]
         original_startup = ltx2_server.app_settings["load_on_startup"]
 
-        r = client.post("/api/settings", json={"keepModelsLoaded": False})
+        r = client.post("/api/settings", json={"loadOnStartup": True})
         assert r.status_code == 200
-        assert ltx2_server.app_settings["keep_models_loaded"] is False
+        assert ltx2_server.app_settings["load_on_startup"] is True
         assert ltx2_server.app_settings["use_torch_compile"] == original_compile
-        assert ltx2_server.app_settings["load_on_startup"] == original_startup
 
     @patch("ltx2_server.save_settings")
     def test_calls_save_settings(self, mock_save, client):
-        client.post("/api/settings", json={"keepModelsLoaded": False})
+        client.post("/api/settings", json={"useTorchCompile": True})
         mock_save.assert_called_once()
 
     @patch("ltx2_server.save_settings")
@@ -159,6 +152,5 @@ class TestPostSettings:
         snapshot = ltx2_server.app_settings.copy()
         r = client.post("/api/settings", json={})
         assert r.status_code == 200
-        # Core fields unchanged
-        assert ltx2_server.app_settings["keep_models_loaded"] == snapshot["keep_models_loaded"]
         assert ltx2_server.app_settings["use_torch_compile"] == snapshot["use_torch_compile"]
+        assert ltx2_server.app_settings["load_on_startup"] == snapshot["load_on_startup"]

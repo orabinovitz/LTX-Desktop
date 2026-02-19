@@ -45,7 +45,6 @@ class ModelDownloadState(TypedDict):
 
 
 class FastModelSettings(TypedDict):
-    steps: int
     use_upscaler: bool
 
 
@@ -55,7 +54,6 @@ class ProModelSettings(TypedDict):
 
 
 class AppSettings(TypedDict):
-    keep_models_loaded: bool
     use_torch_compile: bool
     load_on_startup: bool
     ltx_api_key: str
@@ -169,7 +167,6 @@ class DownloadProgressResponse(BaseModel):
 
 
 class SettingsResponse(BaseModel):
-    keepModelsLoaded: bool
     useTorchCompile: bool
     loadOnStartup: bool
     ltxApiKey: str
@@ -296,7 +293,6 @@ class GenerateImageRequest(BaseModel):
 
 
 class UpdateSettingsRequest(BaseModel):
-    keepModelsLoaded: bool | None = None
     useTorchCompile: bool | None = None
     loadOnStartup: bool | None = None
     ltxApiKey: str | None = None

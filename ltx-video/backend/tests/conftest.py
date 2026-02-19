@@ -143,12 +143,11 @@ def _redirect_paths():
 
 def _default_settings():
     return {
-        "keep_models_loaded": True,
         "use_torch_compile": False,
         "load_on_startup": False,
         "ltx_api_key": "",
         "use_local_text_encoder": False,
-        "fast_model": {"steps": 8, "use_upscaler": True},
+        "fast_model": {"use_upscaler": True},
         "pro_model": {"steps": 20, "use_upscaler": True},
         "prompt_cache_size": 100,
         "prompt_enhancer_enabled_t2v": True,

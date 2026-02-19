@@ -84,7 +84,7 @@ class TestSettingsCamelCaseKeys:
         assert r.status_code == 200
         data = r.json()
 
-        assert "keepModelsLoaded" in data
+        assert "keepModelsLoaded" not in data
         assert "keep_models_loaded" not in data
         assert "useTorchCompile" in data
         assert "use_torch_compile" not in data

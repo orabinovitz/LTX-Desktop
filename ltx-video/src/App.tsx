@@ -13,12 +13,11 @@ import { LogViewer } from './components/LogViewer'
 import { Button } from './components/ui/button'
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
-  keepModelsLoaded: true,
   useTorchCompile: false,
   loadOnStartup: true,
   ltxApiKey: '',
   useLocalTextEncoder: false,
-  fastModel: { steps: 8, useUpscaler: true },
+  fastModel: { useUpscaler: true },
   proModel: { steps: 20, useUpscaler: true },
   promptCacheSize: 1,
   promptEnhancerEnabledT2V: false,
@@ -48,7 +47,6 @@ function AppContent() {
         if (response.ok) {
           const data = await response.json()
           setAppSettings({
-            keepModelsLoaded: data.keepModelsLoaded ?? DEFAULT_APP_SETTINGS.keepModelsLoaded,
             useTorchCompile: data.useTorchCompile ?? DEFAULT_APP_SETTINGS.useTorchCompile,
             loadOnStartup: data.loadOnStartup ?? DEFAULT_APP_SETTINGS.loadOnStartup,
             ltxApiKey: data.ltxApiKey ?? DEFAULT_APP_SETTINGS.ltxApiKey,

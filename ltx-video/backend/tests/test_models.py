@@ -17,12 +17,11 @@ class TestModelsList:
         assert data[1]["id"] == "pro"
         assert "20 steps" in data[1]["description"]
 
-    def test_custom_steps(self, client):
-        ltx2_server.app_settings["fast_model"]["steps"] = 12
+    def test_custom_pro_steps(self, client):
         ltx2_server.app_settings["pro_model"]["steps"] = 30
         r = client.get("/api/models")
         data = r.json()
-        assert "12 steps" in data[0]["description"]
+        assert "8 steps" in data[0]["description"]
         assert "30 steps" in data[1]["description"]
 
 

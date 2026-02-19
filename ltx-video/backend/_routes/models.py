@@ -53,7 +53,6 @@ def get_models() -> list[dict[str, Any]]:
     import ltx2_server as _mod
 
     with _mod.settings_lock:
-        fast_steps = _mod.app_settings.get("fast_model", {}).get("steps", 8)
         pro_steps = _mod.app_settings.get("pro_model", {}).get("steps", 20)
         pro_upscaler = _mod.app_settings.get("pro_model", {}).get("use_upscaler", True)
 
@@ -61,7 +60,7 @@ def get_models() -> list[dict[str, Any]]:
         {
             "id": "fast",
             "name": "Fast (Distilled)",
-            "description": f"{fast_steps} steps + 2x upscaler",
+            "description": "8 steps + 2x upscaler",
         },
         {
             "id": "pro",

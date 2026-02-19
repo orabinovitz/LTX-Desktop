@@ -29,13 +29,11 @@ def get_settings() -> dict[str, Any]:
     import ltx2_server as _mod
 
     return {
-        "keepModelsLoaded": _mod.app_settings["keep_models_loaded"],
         "useTorchCompile": _mod.app_settings["use_torch_compile"],
         "loadOnStartup": _mod.app_settings["load_on_startup"],
         "ltxApiKey": _mod.app_settings.get("ltx_api_key", ""),
         "useLocalTextEncoder": _mod.app_settings.get("use_local_text_encoder", False),
         "fastModel": {
-            "steps": _mod.app_settings["fast_model"]["steps"],
             "useUpscaler": _mod.app_settings["fast_model"]["use_upscaler"],
         },
         "proModel": {
@@ -58,12 +56,6 @@ def post_settings(req: UpdateSettingsRequest) -> dict[str, str]:
     import ltx2_server as _mod
 
     with _mod.settings_lock:
-        if req.keepModelsLoaded is not None:
-            old_value = _mod.app_settings["keep_models_loaded"]
-            _mod.app_settings["keep_models_loaded"] = bool(req.keepModelsLoaded)
-            if old_value != _mod.app_settings["keep_models_loaded"]:
-                logger.info(f"Setting 'keep_models_loaded' changed to: {_mod.app_settings['keep_models_loaded']}")
-
         if req.useTorchCompile is not None:
             old_value = _mod.app_settings["use_torch_compile"]
             _mod.app_settings["use_torch_compile"] = bool(req.useTorchCompile)
@@ -98,13 +90,12 @@ def post_settings(req: UpdateSettingsRequest) -> dict[str, str]:
 
         if req.fastModel is not None and isinstance(req.fastModel, dict):
             new_settings = {
-                "steps": int(req.fastModel.get("steps", 8)),
                 "use_upscaler": bool(req.fastModel.get("useUpscaler", True)),
             }
             if new_settings != _mod.app_settings["fast_model"]:
                 _mod.app_settings["fast_model"] = new_settings
                 logger.info(
-                    f"Fast model settings updated: {new_settings['steps']} steps, "
+                    f"Fast model settings updated: "
                     f"upscaler={'on' if new_settings['use_upscaler'] else 'off'}"
                 )
 

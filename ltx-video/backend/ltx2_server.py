@@ -235,12 +235,11 @@ Output must be a **single paragraph** in English (regardless of input language) 
 </RECAP>"""
 
 app_settings = {
-    "keep_models_loaded": True,
     "use_torch_compile": False,
     "load_on_startup": False,
     "ltx_api_key": "",
     "use_local_text_encoder": False,
-    "fast_model": {"steps": 8, "use_upscaler": True},
+    "fast_model": {"use_upscaler": True},
     "pro_model": {"steps": 20, "use_upscaler": True},
     "prompt_cache_size": 100,
     "prompt_enhancer_enabled_t2v": True,
@@ -262,8 +261,6 @@ def load_settings():
             with open(SETTINGS_FILE, 'r') as f:
                 saved = json.load(f)
             with settings_lock:
-                if 'keep_models_loaded' in saved:
-                    app_settings['keep_models_loaded'] = bool(saved['keep_models_loaded'])
                 if 'use_torch_compile' in saved:
                     app_settings['use_torch_compile'] = bool(saved['use_torch_compile'])
                 if 'load_on_startup' in saved:
@@ -274,7 +271,6 @@ def load_settings():
                     app_settings['use_local_text_encoder'] = bool(saved['use_local_text_encoder'])
                 if 'fast_model' in saved and isinstance(saved['fast_model'], dict):
                     app_settings['fast_model'] = {
-                        'steps': int(saved['fast_model'].get('steps', 8)),
                         'use_upscaler': bool(saved['fast_model'].get('use_upscaler', True))
                     }
                 if 'pro_model' in saved and isinstance(saved['pro_model'], dict):
