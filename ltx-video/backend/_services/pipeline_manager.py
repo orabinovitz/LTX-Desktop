@@ -5,7 +5,7 @@ from __future__ import annotations
 import gc
 import logging
 import time
-from typing import Any, TYPE_CHECKING, Union
+from typing import Any, Literal, TYPE_CHECKING, Union, overload
 
 if TYPE_CHECKING:
     from ltx_pipelines.distilled import DistilledPipeline
@@ -21,10 +21,12 @@ if TYPE_CHECKING:
         TI2VidOneStagePipeline,
     ]
 
+ModelType = Literal["fast", "fast-native", "pro", "pro-native"]
+
 logger = logging.getLogger(__name__)
 
 
-def compile_pipeline_transformer(pipeline: VideoPipeline, model_type: str) -> None:
+def compile_pipeline_transformer(pipeline: VideoPipeline, model_type: ModelType) -> None:
     """Compile the transformer model using torch.compile() for faster inference."""
     import ltx2_server as _mod
     import torch
@@ -64,7 +66,16 @@ def compile_pipeline_transformer(pipeline: VideoPipeline, model_type: str) -> No
         logger.warning("Continuing without torch.compile() optimization")
 
 
-def load_pipeline_impl(model_type: str = "fast") -> VideoPipeline | None:
+@overload
+def load_pipeline_impl(model_type: Literal["fast"] = ...) -> DistilledPipeline | None: ...
+@overload
+def load_pipeline_impl(model_type: Literal["fast-native"]) -> _ltx_mod.DistilledNativePipeline | None: ...
+@overload
+def load_pipeline_impl(model_type: Literal["pro"]) -> TI2VidTwoStagesPipeline | None: ...
+@overload
+def load_pipeline_impl(model_type: Literal["pro-native"]) -> TI2VidOneStagePipeline | None: ...
+
+def load_pipeline_impl(model_type: ModelType = "fast") -> VideoPipeline | None:
     """Load the appropriate LTX-2 pipeline based on model type."""
     import ltx2_server as _mod
 
@@ -232,7 +243,16 @@ def unload_pipeline_impl(model_type: str) -> None:
         logger.info("IC-LoRA pipeline unloaded")
 
 
-def get_pipeline_impl(model_type: str = "fast", skip_warmup: bool = False) -> VideoPipeline | None:
+@overload
+def get_pipeline_impl(model_type: Literal["fast"] = ..., skip_warmup: bool = ...) -> DistilledPipeline | None: ...
+@overload
+def get_pipeline_impl(model_type: Literal["fast-native"], skip_warmup: bool = ...) -> _ltx_mod.DistilledNativePipeline | None: ...
+@overload
+def get_pipeline_impl(model_type: Literal["pro"], skip_warmup: bool = ...) -> TI2VidTwoStagesPipeline | None: ...
+@overload
+def get_pipeline_impl(model_type: Literal["pro-native"], skip_warmup: bool = ...) -> TI2VidOneStagePipeline | None: ...
+
+def get_pipeline_impl(model_type: ModelType = "fast", skip_warmup: bool = False) -> VideoPipeline | None:
     """Get or load the appropriate pipeline."""
     import ltx2_server as _mod
     import torch
@@ -283,7 +303,7 @@ def get_pipeline_impl(model_type: str = "fast", skip_warmup: bool = False) -> Vi
     return None
 
 
-def warmup_pipeline_impl(model_type: str) -> None:
+def warmup_pipeline_impl(model_type: ModelType) -> None:
     """Run a minimal generation to pre-load all weights."""
     import ltx2_server as _mod
 
@@ -295,6 +315,9 @@ def warmup_pipeline_impl(model_type: str) -> None:
     logger.info(f"Warming up {model_type} pipeline (loading text encoder)...")
 
     try:
+        from ltx_pipelines.distilled import DistilledPipeline
+        from ltx_pipelines.ti2vid_two_stages import TI2VidTwoStagesPipeline
+        from ltx_pipelines.ti2vid_one_stage import TI2VidOneStagePipeline
         from ltx_core.components.guiders import MultiModalGuiderParams
         from ltx_core.model.video_vae import TilingConfig, get_video_chunks_number
         from ltx_pipelines.utils.constants import AUDIO_SAMPLE_RATE
@@ -305,7 +328,7 @@ def warmup_pipeline_impl(model_type: str) -> None:
         warmup_width = 384
         warmup_frames = 9
 
-        if model_type in ("fast", "fast-native"):
+        if isinstance(pipeline, (DistilledPipeline, _mod.DistilledNativePipeline)):
             video, audio = pipeline(
                 prompt="test warmup",
                 seed=42,
@@ -317,7 +340,7 @@ def warmup_pipeline_impl(model_type: str) -> None:
                 tiling_config=TilingConfig.default(),
             )
             video_chunks_number = get_video_chunks_number(warmup_frames, TilingConfig.default())
-        elif model_type == "pro-native":
+        elif isinstance(pipeline, TI2VidOneStagePipeline):
             video, audio = pipeline(
                 prompt="test warmup",
                 negative_prompt="",
@@ -332,7 +355,7 @@ def warmup_pipeline_impl(model_type: str) -> None:
                 images=[],
             )
             video_chunks_number = 1
-        else:
+        elif isinstance(pipeline, TI2VidTwoStagesPipeline):
             video, audio = pipeline(
                 prompt="test warmup",
                 negative_prompt="",
@@ -348,6 +371,8 @@ def warmup_pipeline_impl(model_type: str) -> None:
                 tiling_config=TilingConfig.default(),
             )
             video_chunks_number = get_video_chunks_number(warmup_frames, TilingConfig.default())
+        else:
+            raise RuntimeError(f"Unknown pipeline type: {type(pipeline)}")
 
         encode_video(
             video=video,

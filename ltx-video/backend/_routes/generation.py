@@ -6,7 +6,10 @@ import logging
 import os
 import time
 import uuid
-from typing import Any
+from typing import Any, TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from _services.pipeline_manager import ModelType
 
 from PIL import Image
 
@@ -135,7 +138,7 @@ def post_generate(req: GenerateVideoRequest) -> dict[str, Any]:
             num_frames=num_frames,
             fps=fps,
             seed=seed,
-            model_type=model_type,
+            model_type=cast("ModelType", model_type),
             camera_motion=req.cameraMotion,
             negative_prompt=req.negativePrompt,
             generation_id=generation_id,

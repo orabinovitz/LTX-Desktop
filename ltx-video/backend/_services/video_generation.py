@@ -9,6 +9,8 @@ import time
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
+
+from _services.pipeline_manager import ModelType
 import torch
 
 if TYPE_CHECKING:
@@ -36,7 +38,7 @@ def generate_video_impl(
     num_frames: int,
     fps: float,
     seed: int,
-    model_type: str = "fast",
+    model_type: ModelType = "fast",
     camera_motion: str = "none",
     negative_prompt: str = "",
     generation_id: str | None = None,
@@ -152,8 +154,19 @@ def generate_video_impl(
         with _mod.settings_lock:
             pro_settings = _mod.app_settings.get("pro_model", {"steps": 20, "use_upscaler": True})
 
+        # Round dimensions to the nearest multiple required by the pipeline.
+        # Two-stage pipelines (fast, pro, IC-LoRA) require multiples of 64;
+        # one-stage (pro-native) requires multiples of 32.
+        divisor = 32 if model_type == "pro-native" else 64
+        height = round(height / divisor) * divisor
+        width = round(width / divisor) * divisor
+
         try:
-            if model_type in ("fast", "fast-native"):
+            from ltx_pipelines.distilled import DistilledPipeline
+            from ltx_pipelines.ti2vid_two_stages import TI2VidTwoStagesPipeline
+            from ltx_pipelines.ti2vid_one_stage import TI2VidOneStagePipeline
+
+            if isinstance(pipeline, (DistilledPipeline, _mod.DistilledNativePipeline)):
                 video, audio = pipeline(
                     prompt=enhanced_prompt,
                     seed=seed,
@@ -164,7 +177,7 @@ def generate_video_impl(
                     images=images,
                     tiling_config=tiling_config,
                 )
-            elif model_type == "pro":
+            elif isinstance(pipeline, TI2VidTwoStagesPipeline):
                 pro_steps = pro_settings.get("steps", 20)
                 neg_prompt = negative_prompt if negative_prompt else _mod.DEFAULT_NEGATIVE_PROMPT
                 video, audio = pipeline(
@@ -181,7 +194,7 @@ def generate_video_impl(
                     images=images,
                     tiling_config=tiling_config,
                 )
-            elif model_type == "pro-native":
+            elif isinstance(pipeline, TI2VidOneStagePipeline):
                 pro_steps = pro_settings.get("steps", 20)
                 neg_prompt = negative_prompt if negative_prompt else _mod.DEFAULT_NEGATIVE_PROMPT
                 video, audio = pipeline(
@@ -198,7 +211,7 @@ def generate_video_impl(
                     images=images,
                 )
             else:
-                raise RuntimeError(f"Unknown model type: {model_type}")
+                raise RuntimeError(f"Unknown pipeline type: {type(pipeline)}")
 
             video_chunks_number = get_video_chunks_number(
                 num_frames, tiling_config if model_type != "pro-native" else None
