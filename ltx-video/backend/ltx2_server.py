@@ -113,8 +113,30 @@ if USE_SAGE_ATTENTION:
 # ============================================================
 
 PORT = 8000
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def _get_device() -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+DEVICE = _get_device()
 DTYPE = torch.bfloat16
+
+_use_fp8 = DEVICE.type == "cuda"
+
+def sync_device():
+    if DEVICE.type == "cuda":
+        torch.cuda.synchronize()
+    elif DEVICE.type == "mps":
+        torch.mps.synchronize()
+
+def empty_device_cache():
+    if DEVICE.type == "cuda":
+        torch.cuda.empty_cache()
+    elif DEVICE.type == "mps":
+        torch.mps.empty_cache()
 
 if platform.system() == "Windows":
     _app_data = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
@@ -497,6 +519,16 @@ def edit_image(prompt, input_images, width=1024, height=1024,
                            num_inference_steps, seed, generation_id)
 
 def get_gpu_info():
+    if platform.system() == "Darwin":
+        try:
+            import subprocess
+            result = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"],
+                                    capture_output=True, text=True, timeout=5)
+            chip = result.stdout.strip()
+            ram_mb = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') // (1024 * 1024)
+            return {"name": f"{chip} (MPS)", "vram": ram_mb, "vramUsed": 0}
+        except Exception:
+            return {"name": "Apple Silicon (MPS)", "vram": 0, "vramUsed": 0}
     try:
         import pynvml
         pynvml.nvmlInit()
@@ -571,7 +603,7 @@ class DistilledNativePipeline:
         context_p = encode_text(text_encoder, prompts=[prompt])[0]
         video_context, audio_context = context_p
 
-        torch.cuda.synchronize()
+        sync_device()
         del text_encoder
         cleanup_memory()
 
@@ -602,7 +634,7 @@ class DistilledNativePipeline:
             dtype=dtype, device=self.device,
         )
 
-        torch.cuda.synchronize()
+        sync_device()
         del transformer
         del video_encoder
         cleanup_memory()
