@@ -40,14 +40,24 @@ export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps
   const [isOpen, setIsOpen] = useState(false)
   const [modelsStatus, setModelsStatus] = useState<ModelsStatus | null>(null)
   const [downloadProgress, setDownloadProgress] = useState<ModelDownloadProgress | null>(null)
+  const [backendUrl, setBackendUrl] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Fetch backend URL once on mount
+  useEffect(() => {
+    window.electronAPI.getBackendUrl().then(setBackendUrl)
+  }, [])
 
   // Fetch models status periodically
   useEffect(() => {
+    if (!backendUrl) return
+
     const fetchModelsStatus = async () => {
       try {
-        const status = await window.electronAPI.getModelsStatus()
-        setModelsStatus(status)
+        const response = await fetch(`${backendUrl}/api/models/status`)
+        if (response.ok) {
+          setModelsStatus(await response.json())
+        }
       } catch (e) {
         console.error('Failed to fetch models status:', e)
       }
@@ -56,16 +66,18 @@ export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps
     fetchModelsStatus()
     const interval = setInterval(fetchModelsStatus, 5000)
     return () => clearInterval(interval)
-  }, [])
+  }, [backendUrl])
 
   // Poll download progress when downloading
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen || !backendUrl) return
 
     const pollProgress = async () => {
       try {
-        const progress = await window.electronAPI.getModelDownloadProgress()
-        setDownloadProgress(progress)
+        const response = await fetch(`${backendUrl}/api/models/download/progress`)
+        if (response.ok) {
+          setDownloadProgress(await response.json())
+        }
       } catch (e) {
         console.error('Failed to fetch download progress:', e)
       }
@@ -74,7 +86,7 @@ export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps
     pollProgress()
     const interval = setInterval(pollProgress, 1000)
     return () => clearInterval(interval)
-  }, [isOpen])
+  }, [isOpen, backendUrl])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -121,8 +133,13 @@ export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps
   }
 
   const startDownload = async () => {
+    if (!backendUrl) return
     try {
-      await window.electronAPI.startModelDownload()
+      await fetch(`${backendUrl}/api/models/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
     } catch (e) {
       console.error('Failed to start download:', e)
     }

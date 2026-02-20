@@ -50,15 +50,6 @@ export function registerAppHandlers(): void {
     return getModelsPath()
   })
 
-  ipcMain.handle('check-backend-health', async () => {
-    try {
-      const response = await fetch(`${BACKEND_BASE_URL}/health`)
-      return response.ok
-    } catch {
-      return false
-    }
-  })
-
   ipcMain.handle('check-gpu', async () => {
     return await checkGPU()
   })
@@ -94,64 +85,4 @@ export function registerAppHandlers(): void {
     return process.resourcesPath
   })
 
-  // Model management handlers
-  ipcMain.handle('get-models-status', async () => {
-    try {
-      const response = await fetch(`${BACKEND_BASE_URL}/api/models/status`)
-      if (response.ok) {
-        return await response.json()
-      }
-      throw new Error('Failed to get models status')
-    } catch (error) {
-      console.error('Error getting models status:', error)
-      return {
-        models: [],
-        all_downloaded: false,
-        total_size: 0,
-        downloaded_size: 0,
-        total_size_gb: 0,
-        downloaded_size_gb: 0,
-      }
-    }
-  })
-
-  ipcMain.handle('start-model-download', async (_event, options: { skipTextEncoder?: boolean } = {}) => {
-    try {
-      const response = await fetch(`${BACKEND_BASE_URL}/api/models/download`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          skipTextEncoder: options.skipTextEncoder || false,
-        }),
-      })
-      return await response.json()
-    } catch (error) {
-      console.error('Error starting model download:', error)
-      return { status: 'error', error: String(error) }
-    }
-  })
-
-  ipcMain.handle('get-model-download-progress', async () => {
-    try {
-      const response = await fetch(`${BACKEND_BASE_URL}/api/models/download/progress`)
-      if (response.ok) {
-        return await response.json()
-      }
-      throw new Error('Failed to get download progress')
-    } catch (error) {
-      console.error('Error getting download progress:', error)
-      return {
-        status: 'error',
-        currentFile: '',
-        currentFileProgress: 0,
-        totalProgress: 0,
-        downloadedBytes: 0,
-        totalBytes: 0,
-        filesCompleted: 0,
-        totalFiles: 0,
-        error: String(error),
-        speedMbps: 0,
-      }
-    }
-  })
 }

@@ -68,6 +68,7 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
   const [availableSpace, setAvailableSpace] = useState('...')
   const [videoPath, setVideoPath] = useState('/splash/splash.mp4')
   const [ltxApiKey, setLtxApiKey] = useState('')  // LTX API key for skipping text encoder
+  const [backendUrl, setBackendUrl] = useState<string | null>(null)
 
   // Get recommended model based on VRAM
   const getRecommendedModel = (vram?: number): 'ultimate' | 'pro' | 'light' => {
@@ -130,8 +131,9 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
         
         // Get models path from backend
         try {
-          const backendUrl = await window.electronAPI.getBackendUrl()
-          const response = await fetch(`${backendUrl}/api/models/status`)
+          const url = await window.electronAPI.getBackendUrl()
+          setBackendUrl(url)
+          const response = await fetch(`${url}/api/models/status`)
           if (response.ok) {
             const data = await response.json()
             if (data.models_path) {
@@ -164,34 +166,37 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
 
   // Poll download progress during installation
   useEffect(() => {
-    if (currentStep !== 3) return
-    
+    if (currentStep !== 3 || !backendUrl) return
+
     const pollProgress = async () => {
       try {
-        const progress = await window.electronAPI.getModelDownloadProgress()
-        setDownloadProgress(progress)
-        
-        if (progress.status === 'complete') {
-          setTimeout(() => setCurrentStep(4), 600)
+        const response = await fetch(`${backendUrl}/api/models/download/progress`)
+        if (response.ok) {
+          const progress = await response.json()
+          setDownloadProgress(progress)
+
+          if (progress.status === 'complete') {
+            setTimeout(() => setCurrentStep(4), 600)
+          }
         }
       } catch (e) {
         console.error('Progress poll error:', e)
       }
     }
-    
+
     pollProgress()
     const interval = setInterval(pollProgress, 500)
     return () => clearInterval(interval)
-  }, [currentStep])
+  }, [currentStep, backendUrl])
 
   // Start installation
   const startInstallation = async () => {
+    if (!backendUrl) return
     setCurrentStep(3)
     try {
       // If API key is provided, save it to settings first and skip text encoder download
       if (ltxApiKey.trim()) {
         try {
-          const backendUrl = await window.electronAPI.getBackendUrl()
           await fetch(`${backendUrl}/api/settings`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -201,10 +206,12 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
           console.error('Failed to save API key:', e)
         }
       }
-      
+
       // Start download - skip text encoder if API key is provided
-      await window.electronAPI.startModelDownload({
-        skipTextEncoder: !!ltxApiKey.trim(),
+      await fetch(`${backendUrl}/api/models/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skipTextEncoder: !!ltxApiKey.trim() }),
       })
     } catch (e) {
       console.error('Download start error:', e)
