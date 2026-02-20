@@ -16,6 +16,7 @@
     "build:fast": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -Unpack -SkipPython -SkipNpm",
     "prepare:python": "powershell -ExecutionPolicy Bypass -File scripts/prepare-python.ps1",
     "setup:dev": "powershell -ExecutionPolicy Bypass -File scripts/setup-dev.ps1",
+    "setup:dev:mac": "bash scripts/setup-dev.sh",
     "preview": "vite preview",
     "electron:dev": "vite",
     "electron:build": "npm run build:frontend && electron-builder --config electron-builder.json",
