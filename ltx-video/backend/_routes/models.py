@@ -29,7 +29,7 @@ async def route_models_list():
 
 
 @router.get("/models/status", response_model=ModelsStatusResponse)
-async def route_models_status():
+def route_models_status():
     return get_models_status()
 
 

@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api", tags=["retake"])
 
 
 @router.post("/retake", response_model=RetakeResponse)
-async def route_retake(req: RetakeRequest):
+def route_retake(req: RetakeRequest):
     return post_retake(req)
 
 

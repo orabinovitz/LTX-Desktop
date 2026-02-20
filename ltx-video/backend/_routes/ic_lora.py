@@ -52,7 +52,7 @@ async def route_ic_lora_list_models():
 
 
 @router.post("/download-model", response_model=IcLoraDownloadResponse)
-async def route_ic_lora_download(req: IcLoraDownloadRequest):
+def route_ic_lora_download(req: IcLoraDownloadRequest):
     return post_download_model(req)
 
 
@@ -62,7 +62,7 @@ async def route_ic_lora_extract(req: IcLoraExtractRequest):
 
 
 @router.post("/generate", response_model=IcLoraGenerateResponse)
-async def route_ic_lora_generate(req: IcLoraGenerateRequest):
+def route_ic_lora_generate(req: IcLoraGenerateRequest):
     return post_generate(req)
 
 

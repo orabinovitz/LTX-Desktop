@@ -21,12 +21,12 @@ router = APIRouter(prefix="/api", tags=["prompt"])
 
 
 @router.post("/enhance-prompt", response_model=EnhancePromptResponse)
-async def route_enhance_prompt(req: EnhancePromptRequest):
+def route_enhance_prompt(req: EnhancePromptRequest):
     return post_enhance_prompt(req)
 
 
 @router.post("/suggest-gap-prompt", response_model=SuggestGapPromptResponse)
-async def route_suggest_gap_prompt(req: SuggestGapPromptRequest):
+def route_suggest_gap_prompt(req: SuggestGapPromptRequest):
     return post_suggest_gap_prompt(req)
 
 

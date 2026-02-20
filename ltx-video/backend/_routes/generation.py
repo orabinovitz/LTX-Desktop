@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api", tags=["generation"])
 
 
 @router.post("/generate", response_model=GenerateVideoResponse)
-async def route_generate(req: GenerateVideoRequest):
+def route_generate(req: GenerateVideoRequest):
     return post_generate(req)
 
 

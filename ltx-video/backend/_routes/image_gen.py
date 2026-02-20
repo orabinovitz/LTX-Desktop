@@ -21,12 +21,12 @@ router = APIRouter(prefix="/api", tags=["image"])
 
 
 @router.post("/generate-image", response_model=GenerateImageResponse)
-async def route_generate_image(req: GenerateImageRequest):
+def route_generate_image(req: GenerateImageRequest):
     return post_generate_image(req)
 
 
 @router.post("/edit-image", response_model=GenerateImageResponse)
-async def route_edit_image(
+def route_edit_image(
     prompt: str = Form("Edit this image"),
     width: int = Form(1024),
     height: int = Form(1024),
@@ -47,12 +47,12 @@ async def route_edit_image(
     form["height"] = [str(height).encode()]
     form["numSteps"] = [str(numSteps).encode()]
 
-    img_data = await image.read()
+    img_data = image.file.read()
     form["image"] = [img_data]
 
     for i, upload in enumerate([image2, image3, image4, image5, image6, image7, image8], start=2):
         if upload is not None:
-            data = await upload.read()
+            data = upload.file.read()
             form[f"image{i}"] = [data]
 
     return post_edit_image(form)
