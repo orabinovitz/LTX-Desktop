@@ -9,6 +9,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "dev:debug": "DEBUG=1 vite",
     "build": "tsc && vite build && electron-builder",
     "build:frontend": "tsc && vite build",
     "build:installer": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1",

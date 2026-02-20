@@ -7,6 +7,15 @@ functions live here so that tests can import/patch them.  Heavy logic is
 delegated to ``_routes/`` (HTTP dispatch) and ``_services/`` (business logic).
 """
 import os
+
+if os.environ.get("DEBUG") == "1":
+    try:
+        import debugpy
+        if not debugpy.is_client_connected():
+            debugpy.listen(("127.0.0.1", 5678))
+    except (ImportError, RuntimeError):
+        pass
+
 import json
 import logging
 from pathlib import Path
