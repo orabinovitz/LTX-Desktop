@@ -1,4 +1,4 @@
-"""Tests for /health, /api/gpu-info, /api/warmup/status endpoints."""
+"""Tests for /health and /api/gpu-info endpoints."""
 import sys
 
 from unittest.mock import MagicMock, patch
@@ -81,28 +81,3 @@ class TestGpuInfo:
         assert data["vram_gb"] == 32
 
 
-class TestWarmupStatus:
-    """GET /api/warmup/status"""
-
-    def test_pending(self, client):
-        r = client.get("/api/warmup/status")
-        assert r.status_code == 200
-        data = r.json()
-        assert data["status"] == "pending"
-        assert data["progress"] == 0
-
-    def test_ready(self, client):
-        ltx2_server.warmup_state["status"] = "ready"
-        ltx2_server.warmup_state["progress"] = 100
-        r = client.get("/api/warmup/status")
-        data = r.json()
-        assert data["status"] == "ready"
-        assert data["progress"] == 100
-
-    def test_error(self, client):
-        ltx2_server.warmup_state["status"] = "error"
-        ltx2_server.warmup_state["error"] = "GPU not found"
-        r = client.get("/api/warmup/status")
-        data = r.json()
-        assert data["status"] == "error"
-        assert data["error"] == "GPU not found"

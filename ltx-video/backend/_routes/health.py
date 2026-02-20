@@ -1,4 +1,4 @@
-"""Route handlers for /health, /api/gpu-info, /api/warmup/status."""
+"""Route handlers for /health and /api/gpu-info."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from _models import HealthResponse, GpuInfoResponse, WarmupStatusResponse
+from _models import HealthResponse, GpuInfoResponse
 
 router = APIRouter(tags=["health"])
 
@@ -19,11 +19,6 @@ async def route_health():
 @router.get("/api/gpu-info", response_model=GpuInfoResponse)
 async def route_gpu_info():
     return get_gpu_info()
-
-
-@router.get("/api/warmup/status", response_model=WarmupStatusResponse)
-async def route_warmup_status():
-    return get_warmup_status()
 
 
 def get_health() -> dict[str, Any]:
@@ -97,16 +92,4 @@ def get_gpu_info() -> dict[str, Any]:
         "gpu_name": gpu_name,
         "vram_gb": vram_gb,
         "gpu_info": gpu_info,
-    }
-
-
-def get_warmup_status() -> dict[str, Any]:
-    """GET /api/warmup/status"""
-    import ltx2_server as _mod
-
-    return {
-        "status": _mod.warmup_state["status"],
-        "currentStep": _mod.warmup_state["current_step"],
-        "progress": _mod.warmup_state["progress"],
-        "error": _mod.warmup_state["error"],
     }

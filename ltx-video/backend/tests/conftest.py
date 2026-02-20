@@ -201,14 +201,6 @@ def _reset_state():
         "total_steps": 0,
     }
 
-    # Warmup state
-    ltx2_server.warmup_state = {
-        "status": "pending",
-        "current_step": "",
-        "progress": 0,
-        "error": None,
-    }
-
     # Download state
     ltx2_server.model_download_state = {
         "status": "idle",

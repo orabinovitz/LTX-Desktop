@@ -333,9 +333,6 @@ current_generation = {
 }
 generation_lock = threading.Lock()
 
-warmup_state = {"status": "pending", "current_step": "", "progress": 0, "error": None}
-warmup_lock = threading.Lock()
-
 model_download_state = {
     "status": "idle", "current_file": "", "current_file_progress": 0,
     "total_progress": 0, "downloaded_bytes": 0, "total_bytes": 0,
@@ -690,40 +687,22 @@ def precache_model_files(model_dir):
 
 
 def background_warmup():
-    """Run model loading and warmup in background thread."""
-    global warmup_state
+    """Run model loading in background thread."""
     try:
-        with warmup_lock:
-            warmup_state["status"] = "loading"
-            warmup_state["current_step"] = "Checking models..."
-            warmup_state["progress"] = 10
-
         logger.info("Checking models...")
         models_status = get_models_status()
         models_ready = models_status.get("all_downloaded", False)
 
         if not models_ready:
             logger.warning("Models not downloaded. User needs to download via the app.")
-            with warmup_lock:
-                warmup_state["status"] = "pending"
-                warmup_state["current_step"] = "Models need to be downloaded"
-                warmup_state["progress"] = 0
             return
 
         if not get_settings_snapshot().load_on_startup:
-            with warmup_lock:
-                warmup_state["status"] = "ready"
-                warmup_state["current_step"] = "Ready (models load on first use)"
-                warmup_state["progress"] = 100
             logger.info("=" * 60)
             logger.info("Models downloaded and ready!")
             logger.info("Models will load on first generation (lazy loading)")
             logger.info("=" * 60)
             return
-
-        with warmup_lock:
-            warmup_state["current_step"] = "Loading video model..."
-            warmup_state["progress"] = 20
 
         logger.info("[1/3] Loading Fast (Distilled) pipeline...")
         if load_pipeline("fast"):
@@ -731,20 +710,12 @@ def background_warmup():
         else:
             logger.warning("[1/3] Fast pipeline failed to load")
 
-        with warmup_lock:
-            warmup_state["status"] = "warming"
-            warmup_state["current_step"] = "Warming up video model..."
-            warmup_state["progress"] = 45
-
         logger.info("[2/3] Warming up Fast pipeline (loading text encoder)...")
         warmup_pipeline("fast")
         logger.info("[2/3] Fast pipeline warmed up!")
 
         flux_exists = FLUX_MODELS_DIR.exists() and any(FLUX_MODELS_DIR.iterdir()) if FLUX_MODELS_DIR.exists() else False
         if flux_exists:
-            with warmup_lock:
-                warmup_state["current_step"] = "Loading image model to CPU..."
-                warmup_state["progress"] = 60
             logger.info("[3/3] Preloading Flux Klein 4B pipeline to CPU RAM (background)...")
             try:
                 load_flux_pipeline(to_gpu=False)
@@ -754,11 +725,6 @@ def background_warmup():
                 logger.warning("[3/3] Image model will load from disk on first use instead")
         else:
             logger.info("[3/3] Image model not downloaded — skipping preload")
-
-        with warmup_lock:
-            warmup_state["status"] = "ready"
-            warmup_state["current_step"] = "Ready!"
-            warmup_state["progress"] = 100
 
         logger.info("=" * 60)
         logger.info("Video model loaded and warmed up on GPU!")
@@ -771,9 +737,6 @@ def background_warmup():
         logger.error(f"Background warmup failed: {e}")
         import traceback
         traceback.print_exc()
-        with warmup_lock:
-            warmup_state["status"] = "error"
-            warmup_state["error"] = str(e)
 
 
 if __name__ == "__main__":

@@ -24,13 +24,6 @@ class GenerationState(TypedDict):
     total_steps: int
 
 
-class WarmupState(TypedDict):
-    status: str  # "pending" | "loading" | "warming" | "ready" | "error"
-    current_step: str
-    progress: int
-    error: str | None
-
-
 class ModelDownloadState(TypedDict):
     status: str  # "idle" | "downloading" | "complete" | "error"
     current_file: str
@@ -73,13 +66,6 @@ class GpuInfoResponse(BaseModel):
     gpu_name: str | None
     vram_gb: int | None
     gpu_info: dict[str, Any]
-
-
-class WarmupStatusResponse(BaseModel):
-    status: str
-    currentStep: str
-    progress: int
-    error: str | None
 
 
 class GenerationProgressResponse(BaseModel):

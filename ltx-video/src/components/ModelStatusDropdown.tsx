@@ -32,18 +32,11 @@ interface ModelDownloadProgress {
   speedMbps: number
 }
 
-interface WarmupStatus {
-  status: 'idle' | 'pending' | 'loading' | 'warming' | 'ready' | 'error'
-  progress: number
-  currentStep: string | null
-}
-
 interface ModelStatusDropdownProps {
-  warmupStatus: WarmupStatus
   className?: string
 }
 
-export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatusDropdownProps) {
+export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [modelsStatus, setModelsStatus] = useState<ModelsStatus | null>(null)
   const [downloadProgress, setDownloadProgress] = useState<ModelDownloadProgress | null>(null)
@@ -98,16 +91,9 @@ export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatu
   }, [isOpen])
 
   const isDownloading = downloadProgress?.status === 'downloading'
-  const isPending = warmupStatus.status === 'pending' || !modelsStatus?.all_downloaded
-  const isWarming = warmupStatus.status === 'warming' || warmupStatus.status === 'loading'
-  const isLoading = isWarming || isDownloading
-  const isReady = warmupStatus.status === 'ready' && modelsStatus?.all_downloaded
-  const hasError = warmupStatus.status === 'error' || downloadProgress?.status === 'error'
-
-  // Calculate overall progress
-  const overallProgress = isDownloading 
-    ? downloadProgress?.totalProgress || 0
-    : warmupStatus.progress
+  const isPending = !modelsStatus?.all_downloaded
+  const isReady = modelsStatus?.all_downloaded === true
+  const hasError = downloadProgress?.status === 'error'
 
   // Format bytes to human-readable
   const formatBytes = (bytes: number): string => {
@@ -128,13 +114,9 @@ export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatu
   // Get status label
   const getStatusLabel = (): string => {
     if (hasError) return 'Error'
-    if (isDownloading) return `Downloading... ${overallProgress}%`
-    if (warmupStatus.status === 'pending') return 'Models needed'
-    if (isWarming) {
-      return warmupStatus.currentStep || `Loading... ${overallProgress}%`
-    }
+    if (isDownloading) return `Downloading... ${downloadProgress?.totalProgress || 0}%`
     if (isReady) return 'Ready'
-    if (!modelsStatus?.all_downloaded) return 'Models needed'
+    if (isPending) return 'Models needed'
     return 'Checking...'
   }
 
@@ -154,40 +136,40 @@ export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatu
         className={`
           flex items-center gap-2 px-3 py-1.5 rounded-full
           transition-all cursor-pointer
-          ${hasError ? 'bg-red-500/20 hover:bg-red-500/30' : 
-            isReady ? 'bg-green-500/10 hover:bg-green-500/20' : 
+          ${hasError ? 'bg-red-500/20 hover:bg-red-500/30' :
+            isReady ? 'bg-green-500/10 hover:bg-green-500/20' :
             isPending ? 'bg-yellow-500/10 hover:bg-yellow-500/20' :
             'bg-zinc-800 hover:bg-zinc-700'}
         `}
       >
-        {isLoading && (
+        {isDownloading && (
           <Loader2 className="h-3.5 w-3.5 text-violet-400 animate-spin" />
         )}
-        {isReady && !isLoading && (
+        {isReady && !isDownloading && (
           <div className="w-2 h-2 bg-green-500 rounded-full" />
         )}
-        {isPending && !isLoading && !isReady && (
+        {isPending && !isDownloading && !isReady && (
           <Download className="h-3.5 w-3.5 text-yellow-400" />
         )}
         {hasError && (
           <AlertCircle className="h-3.5 w-3.5 text-red-400" />
         )}
-        
+
         <span className={`text-xs font-medium ${
-          hasError ? 'text-red-400' : 
-          isReady ? 'text-green-400' : 
+          hasError ? 'text-red-400' :
+          isReady ? 'text-green-400' :
           isPending ? 'text-yellow-400' :
           'text-zinc-300'
         }`}>
           {getStatusLabel()}
         </span>
-        
-        {isLoading && !isReady && (
+
+        {isDownloading && (
           <span className="text-xs text-violet-400 font-semibold">
-            {overallProgress}%
+            {downloadProgress?.totalProgress || 0}%
           </span>
         )}
-        
+
         <ChevronDown className={`h-3.5 w-3.5 text-zinc-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
@@ -213,15 +195,15 @@ export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatu
                 <span className="text-xs text-violet-300 font-medium">Downloading</span>
                 <span className="text-xs text-violet-400">{downloadProgress.speedMbps.toFixed(1)} MB/s</span>
               </div>
-              
+
               {/* Progress bar */}
               <div className="h-2 bg-zinc-800 rounded-full overflow-hidden mb-2">
-                <div 
+                <div
                   className="h-full bg-gradient-to-r from-violet-500 via-purple-500 to-blue-500 transition-all duration-300"
                   style={{ width: `${downloadProgress.totalProgress}%` }}
                 />
               </div>
-              
+
               <div className="flex items-center justify-between text-xs text-zinc-500">
                 <span className="truncate flex-1 mr-2">{downloadProgress.currentFile}</span>
                 <div className="flex items-center gap-2">
@@ -234,31 +216,9 @@ export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatu
                   </span>
                 </div>
               </div>
-              
+
               <div className="text-xs text-zinc-600 mt-1">
                 {downloadProgress.filesCompleted} / {downloadProgress.totalFiles} files complete
-              </div>
-            </div>
-          )}
-
-          {/* Loading Status (if warming up) */}
-          {isWarming && !isDownloading && (
-            <div className="px-4 py-3 bg-violet-500/5 border-b border-zinc-800">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-violet-300 font-medium">Loading Models</span>
-                <span className="text-xs text-violet-400">{warmupStatus.progress}%</span>
-              </div>
-              
-              {/* Progress bar */}
-              <div className="h-2 bg-zinc-800 rounded-full overflow-hidden mb-2">
-                <div 
-                  className="h-full bg-gradient-to-r from-violet-500 via-purple-500 to-blue-500 transition-all duration-300"
-                  style={{ width: `${warmupStatus.progress}%` }}
-                />
-              </div>
-              
-              <div className="text-xs text-zinc-500">
-                {warmupStatus.currentStep || 'Initializing...'}
               </div>
             </div>
           )}
@@ -266,7 +226,7 @@ export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatu
           {/* Model List */}
           <div className="max-h-64 overflow-y-auto">
             {modelsStatus?.models.map((model, index) => (
-              <div 
+              <div
                 key={model.name}
                 className={`px-4 py-3 flex items-center gap-3 ${
                   index !== modelsStatus.models.length - 1 ? 'border-b border-zinc-800/50' : ''
@@ -277,12 +237,12 @@ export function ModelStatusDropdown({ warmupStatus, className = '' }: ModelStatu
                 ) : (
                   <Download className="h-4 w-4 text-zinc-600 flex-shrink-0" />
                 )}
-                
+
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-white font-medium truncate">{model.name}</div>
                   <div className="text-xs text-zinc-500 truncate">{model.description}</div>
                 </div>
-                
+
                 <div className="text-right flex-shrink-0">
                   <div className={`text-xs ${model.downloaded ? 'text-green-400' : 'text-zinc-600'}`}>
                     {model.downloaded ? 'Ready' : 'Needed'}

@@ -1,27 +1,11 @@
 """Tests verifying JSON key names in responses match the established contract.
 
-camelCase keys: settings, warmup status, download progress, generation progress
+camelCase keys: settings, download progress, generation progress
 snake_case keys: generation paths, image paths
 """
 from unittest.mock import patch, MagicMock
 
 import ltx2_server
-
-
-class TestWarmupStatusCamelCaseKeys:
-    """GET /api/warmup/status — keys must be camelCase."""
-
-    def test_camelcase_keys(self, client):
-        ltx2_server.warmup_state["status"] = "loading"
-        ltx2_server.warmup_state["current_step"] = "Loading model..."
-        ltx2_server.warmup_state["progress"] = 50
-
-        r = client.get("/api/warmup/status")
-        assert r.status_code == 200
-        data = r.json()
-        assert "currentStep" in data
-        assert "current_step" not in data
-        assert data["currentStep"] == "Loading model..."
 
 
 class TestGenerationProgressCamelCaseKeys:

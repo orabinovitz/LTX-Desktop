@@ -1,12 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 
-interface WarmupStatus {
-  status: 'pending' | 'loading' | 'warming' | 'ready' | 'error'
-  currentStep: string
-  progress: number
-  error: string | null
-}
-
 interface BackendStatus {
   connected: boolean
   modelsLoaded: boolean
@@ -15,7 +8,6 @@ interface BackendStatus {
     vram: number
     vramUsed: number
   } | null
-  warmup: WarmupStatus
 }
 
 interface ModelStatus {
@@ -40,53 +32,25 @@ export function useBackend(): UseBackendReturn {
     connected: false,
     modelsLoaded: false,
     gpuInfo: null,
-    warmup: {
-      status: 'pending',
-      currentStep: '',
-      progress: 0,
-      error: null,
-    },
   })
   const [models, setModels] = useState<ModelStatus[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  const checkWarmup = useCallback(async (): Promise<WarmupStatus | null> => {
-    try {
-      const backendUrl = await window.electronAPI.getBackendUrl()
-      const response = await fetch(`${backendUrl}/api/warmup/status`)
-      if (response.ok) {
-        return await response.json()
-      }
-      return null
-    } catch {
-      return null
-    }
-  }, [])
 
   const checkHealth = useCallback(async (): Promise<boolean> => {
     try {
       const backendUrl = await window.electronAPI.getBackendUrl()
       console.log('Checking backend health at:', backendUrl)
       const response = await fetch(`${backendUrl}/health`)
-      
+
       if (response.ok) {
         const data = await response.json()
         console.log('Backend health:', data)
-        
-        // Also check warmup status
-        const warmup = await checkWarmup()
-        
+
         setStatus({
           connected: true,
           modelsLoaded: data.models_loaded,
           gpuInfo: data.gpu_info,
-          warmup: warmup || {
-            status: 'pending',
-            currentStep: '',
-            progress: 0,
-            error: null,
-          },
         })
         return true
       }
@@ -97,13 +61,13 @@ export function useBackend(): UseBackendReturn {
       setStatus(prev => ({ ...prev, connected: false }))
       return false
     }
-  }, [checkWarmup])
+  }, [])
 
   const fetchModels = useCallback(async () => {
     try {
       const backendUrl = await window.electronAPI.getBackendUrl()
       const response = await fetch(`${backendUrl}/api/models`)
-      
+
       if (response.ok) {
         const data = await response.json()
         setModels(data.models)
@@ -116,7 +80,7 @@ export function useBackend(): UseBackendReturn {
   const downloadModel = useCallback(async (modelId: string) => {
     try {
       const backendUrl = await window.electronAPI.getBackendUrl()
-      
+
       // Connect to WebSocket for download progress
       const wsUrl = backendUrl.replace('http://', 'ws://') + `/ws/download/${modelId}`
       const ws = new WebSocket(wsUrl)
@@ -124,14 +88,14 @@ export function useBackend(): UseBackendReturn {
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data)
         if (data.type === 'progress') {
-          setModels(prev => prev.map(m => 
-            m.id === modelId 
+          setModels(prev => prev.map(m =>
+            m.id === modelId
               ? { ...m, downloadProgress: data.progress }
               : m
           ))
         } else if (data.type === 'complete') {
-          setModels(prev => prev.map(m => 
-            m.id === modelId 
+          setModels(prev => prev.map(m =>
+            m.id === modelId
               ? { ...m, downloaded: true, downloadProgress: 100 }
               : m
           ))
@@ -155,12 +119,12 @@ export function useBackend(): UseBackendReturn {
     const init = async () => {
       console.log('Starting backend connection...')
       setIsLoading(true)
-      
+
       // Poll for backend connection (up to 5 minutes for model loading)
       const maxAttempts = 300  // 5 minutes at 1 second intervals
       let attempts = 0
       let connected = false
-      
+
       while (attempts < maxAttempts && !cancelled) {
         try {
           const healthy = await checkHealth()
@@ -188,22 +152,17 @@ export function useBackend(): UseBackendReturn {
         console.log('Setting isLoading to false, connected:', connected)
         setIsLoading(false)
 
-        // Poll frequently during warmup, then slower once ready
+        // Fixed 5s polling interval
         const pollInterval = async () => {
           if (cancelled) return
-          
+
           await checkHealth()
-          
-          // Check warmup status to determine poll frequency
-          const warmupStatus = await checkWarmup()
-          const isWarmingUp = warmupStatus?.status !== 'ready' && warmupStatus?.status !== 'error'
-          const nextInterval = isWarmingUp ? 1000 : 5000
-          
+
           if (!cancelled) {
-            intervalId = setTimeout(pollInterval, nextInterval)
+            intervalId = setTimeout(pollInterval, 5000)
           }
         }
-        intervalId = setTimeout(pollInterval, 1000)
+        intervalId = setTimeout(pollInterval, 5000)
       }
     }
 
@@ -213,7 +172,7 @@ export function useBackend(): UseBackendReturn {
       cancelled = true
       if (intervalId) clearTimeout(intervalId)
     }
-  }, [checkHealth, checkWarmup, fetchModels])
+  }, [checkHealth, fetchModels])
 
   return {
     status,

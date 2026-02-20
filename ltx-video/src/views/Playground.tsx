@@ -89,13 +89,10 @@ export function Playground() {
     reset()
   }
 
-  // Check if models are warmed up and ready
-  const isWarmingUp = status.warmup.status !== 'ready' && status.warmup.status !== 'error'
-  
   // Video mode: prompt required (T2V) or image loaded (I2V, prompt optional)
   // Image mode: prompt required
   const isVideoMode = mode !== 'text-to-image'
-  const canGenerate = status.connected && !isGenerating && !isWarmingUp && (
+  const canGenerate = status.connected && !isGenerating && (
     (isVideoMode && (prompt.trim() || selectedImage)) ||
     (mode === 'text-to-image' && prompt.trim())
   )
@@ -117,13 +114,13 @@ export function Playground() {
           <ModeTabs 
             mode={mode} 
             onModeChange={handleModeChange}
-            disabled={isGenerating || isWarmingUp}
+            disabled={isGenerating}
           />
         </div>
         
         <div className="flex items-center gap-4 pr-20">
           {/* Model Status Dropdown */}
-          <ModelStatusDropdown warmupStatus={status.warmup} />
+          <ModelStatusDropdown />
           
           {/* GPU Info */}
           {status.gpuInfo && (
