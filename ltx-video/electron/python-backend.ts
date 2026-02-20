@@ -1,7 +1,7 @@
-import { spawn, ChildProcess } from 'child_process'
-import path from 'path'
+import { ChildProcess, spawn } from 'child_process'
 import fs from 'fs'
-import { isDev, getCurrentDir, PYTHON_PORT } from './config'
+import path from 'path'
+import { getCurrentDir, isDev, PYTHON_PORT } from './config'
 
 let pythonProcess: ChildProcess | null = null
 
@@ -74,12 +74,15 @@ export async function startPythonBackend(): Promise<void> {
 
     console.log(`Starting Python backend: ${pythonPath} ${mainPy}`)
 
-    pythonProcess = spawn(pythonPath, ['-u', mainPy], {
+    const pythonArgs = isDev ? ['-Xfrozen_modules=off', '-u', mainPy] : ['-u', mainPy]
+
+    pythonProcess = spawn(pythonPath, pythonArgs, {
       cwd: backendPath,
       env: {
         ...process.env,
         PYTHONUNBUFFERED: '1',
         LTX_PORT: String(PYTHON_PORT),
+        PYTORCH_ENABLE_MPS_FALLBACK: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe']
     })
