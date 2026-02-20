@@ -97,10 +97,10 @@ if ($LASTEXITCODE -ne 0) {
 # Step 4: Build with electron-builder
 if ($Unpack) {
     Write-Host "`n[4/4] Building unpacked app (fast mode)..." -ForegroundColor Yellow
-    npx electron-builder --win --dir --config electron-builder.json
+    npx electron-builder --win --dir
 } else {
     Write-Host "`n[4/4] Building installer..." -ForegroundColor Yellow
-    npx electron-builder --win --config electron-builder.json
+    npx electron-builder --win
 }
 
 if ($LASTEXITCODE -ne 0) {

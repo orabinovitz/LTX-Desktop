@@ -83,6 +83,10 @@ export async function startPythonBackend(): Promise<void> {
         PYTHONUNBUFFERED: '1',
         LTX_PORT: String(PYTHON_PORT),
         PYTORCH_ENABLE_MPS_FALLBACK: '1',
+        // Set PYTHONHOME for bundled Python on macOS so it finds its stdlib
+        ...(!isDev && process.platform !== 'win32' ? {
+          PYTHONHOME: path.join(process.resourcesPath, 'python'),
+        } : {}),
       },
       stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -131,7 +135,19 @@ export async function startPythonBackend(): Promise<void> {
 export function stopPythonBackend(): void {
   if (pythonProcess) {
     console.log('Stopping Python backend...')
+    const pid = pythonProcess.pid
     pythonProcess.kill('SIGTERM')
     pythonProcess = null
+    // Force kill after 5 seconds if SIGTERM didn't work (PyTorch/uvicorn threads)
+    if (pid) {
+      setTimeout(() => {
+        try {
+          process.kill(pid, 0) // Check if still alive (throws if dead)
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // Already dead
+        }
+      }, 5000)
+    }
   }
 }

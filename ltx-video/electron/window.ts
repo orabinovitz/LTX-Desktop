@@ -1,15 +1,15 @@
-import { BrowserWindow, nativeImage } from 'electron'
+import { app, BrowserWindow, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { isDev, getCurrentDir } from './config'
 
 let mainWindow: BrowserWindow | null = null
 
-export function createWindow(): void {
+export function createWindow(): BrowserWindow {
   // Get the path to preload script
   const preloadPath = isDev
     ? path.join(getCurrentDir(), 'dist-electron', 'preload.js')
-    : path.join(process.resourcesPath, 'dist-electron', 'preload.js')
+    : path.join(app.getAppPath(), 'dist-electron', 'preload.js')
 
   // App icon — use .ico on Windows, .png elsewhere
   const iconExt = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
@@ -39,7 +39,7 @@ export function createWindow(): void {
     mainWindow.loadURL('http://localhost:5173')
     // DevTools can be opened manually with Ctrl+Shift+I or F12
   } else {
-    mainWindow.loadFile(path.join(process.resourcesPath, 'dist', 'index.html'))
+    mainWindow.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'))
   }
 
   mainWindow.once('ready-to-show', () => {
@@ -49,6 +49,8 @@ export function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+
+  return mainWindow
 }
 
 export function getMainWindow(): BrowserWindow | null {

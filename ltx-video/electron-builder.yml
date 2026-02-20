@@ -10,15 +10,23 @@ files:
   - dist/**/*
   - dist-electron/**/*
   - package.json
+  - "!**/*.map"
+
+asarUnpack:
+  - dist/splash/**
 
 extraResources:
   - from: backend
     to: backend
     filter:
-      - "**/*"
+      - "**/*.py"
+      - pyproject.toml
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
       - "!.venv/**"
-      - "!__pycache__/**"
-      - "!*.pyc"
+      - "!outputs/**"
+      - "!models/**"
+      - "!tests/**"
   - from: python-embed
     to: python
     filter:
@@ -42,14 +50,13 @@ nsis:
   installerHeaderIcon: resources/icon.ico
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: LTX Video
+  shortcutName: LTX Desktop
 
 mac:
   target:
     - target: dmg
       arch:
         - arm64
-        - x64
   icon: resources/icon.png
   category: public.app-category.video
   artifactName: ${productName}-${version}-${arch}.${ext}
@@ -63,15 +70,7 @@ dmg:
       type: link
       path: /Applications
 
-linux:
-  target:
-    - target: AppImage
-      arch:
-        - x64
-  icon: resources/icon.png
-  category: Video
-  artifactName: ${productName}-${version}.${ext}
-
 publish:
-  provider: generic
-  url: https://github.com/Lightricks/ltx-video/releases/download/
+  provider: github
+  owner: Lightricks
+  repo: ltx-video
