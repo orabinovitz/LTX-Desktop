@@ -1,0 +1,91 @@
+import { spawn, spawnSync, ChildProcess, execSync } from 'child_process'
+import path from 'path'
+import fs from 'fs'
+import { isDev, getCurrentDir } from '../config'
+
+let activeExportProcess: ChildProcess | null = null
+
+export function findFfmpegPath(): string | null {
+  const imageioRelPath = path.join('Lib', 'site-packages', 'imageio_ffmpeg', 'binaries')
+  const binDir = isDev
+    ? path.join(getCurrentDir(), 'backend', '.venv', imageioRelPath)
+    : path.join(process.resourcesPath, 'python', imageioRelPath)
+
+  if (fs.existsSync(binDir)) {
+    const bin = fs.readdirSync(binDir).find(f => f.startsWith('ffmpeg') && (f.endsWith('.exe') || !f.includes('.')))
+    if (bin) return path.join(binDir, bin)
+  }
+
+  try { execSync('ffmpeg -version', { stdio: 'ignore' }); return 'ffmpeg' } catch { return null }
+}
+
+/** Check if a video file contains an audio stream using ffprobe/ffmpeg */
+export function fileHasAudio(ffmpegPath: string, filePath: string): boolean {
+  try {
+    const result = spawnSync(ffmpegPath, ['-i', filePath, '-hide_banner'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    })
+    const output = (result.stdout || '') + (result.stderr || '')
+    return output.includes('Audio:')
+  } catch {
+    return false
+  }
+}
+
+export function urlToFilePath(url: string): string {
+  // Convert http://127.0.0.1:PORT/outputs/file.mp4 -> backend/outputs/file.mp4
+  if (url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost')) {
+    const urlObj = new URL(url)
+    const relPath = decodeURIComponent(urlObj.pathname).replace(/^\//, '')
+    return path.join(getCurrentDir(), 'backend', relPath)
+  }
+  // file:///C:/path/to/file.mp4 -> C:\path\to\file.mp4
+  if (url.startsWith('file://')) {
+    return decodeURIComponent(url.replace('file:///', '').replace('file://', ''))
+  }
+  // Already a file path
+  return url
+}
+
+/** Run an ffmpeg command and return a promise. Logs stderr and sets activeExportProcess. */
+export function runFfmpeg(ffmpegPath: string, args: string[]): Promise<{ success: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    console.log(`[ffmpeg] spawn: ${args.join(' ').slice(0, 400)}`)
+    const proc = spawn(ffmpegPath, args, { stdio: ['pipe', 'pipe', 'pipe'] })
+    activeExportProcess = proc
+    let stderrLog = ''
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString()
+      stderrLog += text
+      const lines = text.trim().split('\n')
+      for (const line of lines) {
+        if (line.includes('frame=') || line.includes('Error') || line.includes('error')) {
+          console.log(`[ffmpeg] ${line.trim().slice(0, 200)}`)
+        }
+      }
+    })
+    proc.on('close', (code) => {
+      activeExportProcess = null
+      if (code === 0) {
+        resolve({ success: true })
+      } else {
+        const errLines = stderrLog.split('\n').filter(l => l.trim()).slice(-5).join('\n')
+        console.error(`[ffmpeg] exited ${code}:\n${errLines}`)
+        resolve({ success: false, error: `FFmpeg failed (code ${code}): ${errLines.slice(0, 300)}` })
+      }
+    })
+    proc.on('error', (err) => {
+      activeExportProcess = null
+      resolve({ success: false, error: `Failed to start ffmpeg: ${err.message}` })
+    })
+  })
+}
+
+export function stopExportProcess(): void {
+  if (activeExportProcess) {
+    console.log('Stopping active export process...')
+    activeExportProcess.kill()
+    activeExportProcess = null
+  }
+}
