@@ -56,9 +56,15 @@ export function urlToFilePath(url: string): string {
     const relPath = decodeURIComponent(urlObj.pathname).replace(/^\//, '')
     return path.join(getCurrentDir(), 'backend', relPath)
   }
-  // file:///C:/path/to/file.mp4 -> C:\path\to\file.mp4
+  // file:///Users/path (macOS) -> /Users/path
+  // file:///C:/path (Windows) -> C:/path
   if (url.startsWith('file://')) {
-    return decodeURIComponent(url.replace('file:///', '').replace('file://', ''))
+    let filePath = decodeURIComponent(url.slice(7)) // strip 'file://'
+    // On Windows, strip leading / from /C:/path
+    if (process.platform === 'win32' && /^\/[A-Za-z]:/.test(filePath)) {
+      filePath = filePath.slice(1)
+    }
+    return filePath
   }
   // Already a file path
   return url
