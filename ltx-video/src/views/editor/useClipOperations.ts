@@ -32,9 +32,9 @@ interface UseClipOperationsParams {
 
 export function useClipOperations(params: UseClipOperationsParams) {
   const {
-    clips, setClips, tracks, setTracks, subtitles, setSubtitles,
+    clips, setClips, tracks, setTracks, setSubtitles,
     assets, currentTime, setCurrentTime, currentProjectId,
-    selectedClipIds, setSelectedClipIds, setSelectedSubtitleId,
+    setSelectedClipIds, setSelectedSubtitleId,
     pushUndo, addAsset, addTimeline, updateTimeline,
     setActiveTimeline, setOpenTimelineIds, activeTimeline,
     fileInputRef, setHoveredCutPoint,

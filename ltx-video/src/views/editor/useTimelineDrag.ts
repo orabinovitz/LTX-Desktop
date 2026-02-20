@@ -85,15 +85,15 @@ interface UseTimelineDragParams {
 
 export function useTimelineDrag(params: UseTimelineDragParams) {
   const {
-    activeTool, setActiveTool, lastTrimTool, setLastTrimTool,
+    activeTool,
     pixelsPerSecond, totalDuration,
     clips, setClips, tracks,
     selectedClipIds, setSelectedClipIds,
     currentTime, setCurrentTime, setIsPlaying,
-    snapEnabled, pushUndo, resolveClipSrc, getMaxClipDuration, addClipToTimeline,
-    assets, timelines, activeTimeline, currentProjectId,
+    snapEnabled, pushUndo, getMaxClipDuration, addClipToTimeline,
+    assets, timelines, activeTimeline,
     timelineRef, trackContainerRef,
-    orderedTracks, trackDisplayRow, getTrackHeight, trackTopPx, cutPoints,
+    orderedTracks, trackDisplayRow, getTrackHeight, trackTopPx,
     splitClipAtPlayhead, setSelectedSubtitleId, setSelectedGap,
     audioTrackHeight, videoTrackHeight, subtitleTrackHeight,
   } = params

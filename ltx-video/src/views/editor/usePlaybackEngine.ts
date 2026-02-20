@@ -47,12 +47,12 @@ export interface UsePlaybackEngineParams {
 export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   const {
     isPlaying, setIsPlaying, shuttleSpeed, setShuttleSpeed,
-    currentTime, setCurrentTime, duration, pixelsPerSecond,
+    currentTime, setCurrentTime, pixelsPerSecond,
     clips, tracks, assets, activeClip, crossDissolveState,
     playbackResolution, playingInOut, setPlayingInOut,
     resolveClipSrc,
     videoPoolRef, playbackTimeRef, isPlayingRef, activePoolSrcRef,
-    previewVideoRef, dissolveOutVideoRef, trackContainerRef, rulerScrollRef,
+    previewVideoRef, trackContainerRef, rulerScrollRef,
     centerOnPlayheadRef, clipsRef, tracksRef, assetsRef,
     playheadOverlayRef, playheadRulerRef, lastStateUpdateRef,
     preSeekDoneRef, rafActiveClipIdRef, setPlaybackActiveClipId,

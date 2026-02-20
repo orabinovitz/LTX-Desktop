@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   X, Play, Pause, Upload, Loader2, Film, Sparkles,
   FolderOpen, ChevronDown, RefreshCw, Settings, Download, Check,
@@ -60,7 +60,6 @@ export function ICLoraPanel({
   onClose,
   initialVideoUrl,
   initialVideoPath,
-  initialClipName,
   sourceClipId,
   onResult,
 }: ICLoraPanelProps) {
@@ -92,8 +91,6 @@ export function ICLoraPanel({
   const [models, setModels] = useState<ICLoraModel[]>([])
   const [selectedModel, setSelectedModel] = useState<ICLoraModel | null>(null)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
-  const [modelsDir, setModelsDir] = useState('')
-
   // Download state
   const [downloadingModels, setDownloadingModels] = useState<Record<string, 'downloading' | 'done' | 'error'>>({})
 
@@ -142,7 +139,6 @@ export function ICLoraPanel({
       if (resp.ok) {
         const data = await resp.json()
         setModels(data.models || [])
-        setModelsDir(data.directory || '')
         if (data.models?.length > 0 && !selectedModel) {
           setSelectedModel(data.models[0])
         }

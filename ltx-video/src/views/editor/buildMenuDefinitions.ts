@@ -62,8 +62,6 @@ export interface MenuDepsParams {
 }
 
 export function buildMenuDefinitions(p: MenuDepsParams): MenuDefinition[] {
-  const hasSubtitleTrack = p.tracks.some((t: any) => t.type === 'subtitle')
-
   return [
     // ── File ──
     // Import/export, timeline management, project settings

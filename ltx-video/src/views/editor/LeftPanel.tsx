@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react'
 import {
   FolderPlus, Folder, Upload, ChevronLeft, ChevronDown, ChevronRight, ChevronUp,
   X, RefreshCw, Loader2, Trash2, Music, Layers, Video, Image,
-  Plus, FileUp, Film, LayoutGrid, List, Clock, ArrowUpDown,
+  Plus, FileUp, Film, LayoutGrid, List, ArrowUpDown,
 } from 'lucide-react'
 import type { Asset, TimelineClip, Timeline } from '../../types/project'
 import { VideoThumbnailCard } from './VideoThumbnailCard'

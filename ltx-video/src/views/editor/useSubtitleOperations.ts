@@ -2,16 +2,6 @@ import { useState, useRef } from 'react'
 import type { SubtitleClip, Track, TimelineClip } from '../../types/project'
 import { parseSrt, exportSrt } from '../../lib/srt'
 
-declare global {
-  interface Window {
-    electronAPI?: {
-      showSaveDialog: (opts: { title: string; defaultPath: string; filters: { name: string; extensions: string[] }[] }) => Promise<string | null>
-      saveFile: (path: string, content: string) => void
-      [key: string]: unknown
-    }
-  }
-}
-
 export interface UseSubtitleOperationsParams {
   subtitles: SubtitleClip[]
   setSubtitles: React.Dispatch<React.SetStateAction<SubtitleClip[]>>

@@ -3,8 +3,8 @@ import {
   Clipboard, Copy, Scissors, Trash2, Layers, Type, X, RefreshCw,
   ZoomIn, Film, Eye, FolderOpen, RotateCcw, Volume2, VolumeX,
   FlipHorizontal2, FlipVertical2, Link2, Unlink2,
-  ChevronLeft, ChevronRight, Sparkles, Wand2, Paintbrush,
-  Image, Video, Camera,
+  ChevronLeft, ChevronRight, Sparkles, Paintbrush,
+  Video, Camera,
 } from 'lucide-react'
 import type { Asset, TimelineClip, Track, TextOverlayStyle } from '../../types/project'
 import { TEXT_PRESETS } from '../../types/project'
@@ -96,7 +96,6 @@ export function ClipContextMenu({
   contextClip,
   clipContextMenuRef,
   clips,
-  tracks,
   selectedClipIds,
   setSelectedClipIds,
   currentTime,
@@ -199,12 +198,11 @@ export function ClipContextMenu({
            MULTI-CLIP CONTEXT MENU
            ════════════════════════════════════════════════ */
         <MultiClipMenu
-          clips={clips} tracks={tracks}
+          clips={clips}
           selectedClipIds={selectedClipIds} setSelectedClipIds={setSelectedClipIds}
           hasClipboard={hasClipboard}
           currentProjectId={currentProjectId}
           updateAsset={updateAsset}
-          assets={assets}
           handleCopy={handleCopy} handleCut={handleCut} handlePaste={handlePaste}
           pushUndo={pushUndo} setClips={setClips}
           getMaxClipDuration={getMaxClipDuration}
@@ -224,8 +222,7 @@ export function ClipContextMenu({
             }
             return contextClip
           })()}
-          clips={clips} tracks={tracks}
-          selectedClipIds={selectedClipIds}
+          clips={clips}
           hasClipboard={hasClipboard}
           isRegenerating={isRegenerating} i2vClipId={i2vClipId}
           assets={assets} isRetaking={isRetaking}
@@ -275,7 +272,7 @@ export function ClipContextMenu({
    8. Delete           (always last, red)
    ────────────────────────────────────────────── */
 function SingleClipMenu({
-  contextClip, clips, tracks, selectedClipIds, hasClipboard,
+  contextClip, clips, hasClipboard,
   isRegenerating, i2vClipId, assets, isRetaking, assetGridRef,
   currentProjectId, updateAsset,
   handleCopy, handleCut, handlePaste, pushUndo, setClips,
@@ -289,8 +286,8 @@ function SingleClipMenu({
   close,
 }: {
   contextClip: TimelineClip
-  clips: TimelineClip[]; tracks: Track[]
-  selectedClipIds: Set<string>; hasClipboard: boolean
+  clips: TimelineClip[]
+  hasClipboard: boolean
   isRegenerating: boolean; i2vClipId: string | null
   assets: Asset[]; isRetaking: boolean
   assetGridRef: React.RefObject<HTMLDivElement | null>
@@ -606,16 +603,15 @@ function SingleClipMenu({
    6. Delete           (always last, red)
    ────────────────────────────────────────────── */
 function MultiClipMenu({
-  clips, tracks, selectedClipIds, setSelectedClipIds, hasClipboard,
-  currentProjectId, updateAsset, assets,
+  clips, selectedClipIds, setSelectedClipIds, hasClipboard,
+  currentProjectId, updateAsset,
   handleCopy, handleCut, handlePaste, pushUndo, setClips, getMaxClipDuration, close,
 }: {
-  clips: TimelineClip[]; tracks: Track[]
+  clips: TimelineClip[]
   selectedClipIds: Set<string>; setSelectedClipIds: React.Dispatch<React.SetStateAction<Set<string>>>
   hasClipboard: boolean
   currentProjectId: string | null
   updateAsset: (projectId: string, assetId: string, updates: Partial<Asset>) => void
-  assets: Asset[]
   handleCopy: () => void; handleCut: () => void; handlePaste: () => void
   pushUndo: () => void; setClips: React.Dispatch<React.SetStateAction<TimelineClip[]>>
   getMaxClipDuration: (clip: TimelineClip) => number

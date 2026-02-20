@@ -38,7 +38,6 @@ export function SourceMonitor({
   activePanel,
   setActivePanel,
   sourceSplitPercent,
-  draggingMarker,
   setDraggingMarker,
   sourceVideoRef,
   onInsertEdit,

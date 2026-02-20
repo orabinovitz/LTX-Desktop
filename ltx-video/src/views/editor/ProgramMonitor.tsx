@@ -1,6 +1,6 @@
 import React from 'react'
 import {
-  Layers, Video, Image, ChevronDown,
+  Layers, Video, ChevronDown,
   SkipBack, SkipForward, ChevronLeft, ChevronRight, Pause, Play, Square, Repeat,
   Expand, Shrink,
 } from 'lucide-react'
@@ -100,7 +100,6 @@ export function ProgramMonitor({
   previewContainerRef,
   previewVideoRef,
   previewImageRef,
-  dissolveOutVideoRef,
   previewPanRef,
   currentTime,
   totalDuration,

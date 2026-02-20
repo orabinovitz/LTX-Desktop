@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { 
+import {
   Plus, Trash2,
   ZoomIn, ZoomOut, Maximize2,
-  Scissors, Volume2, VolumeX, Copy, 
+  Volume2, VolumeX, Copy,
   Layers,
-  Gauge, ArrowLeftRight, Upload,
+  Gauge, Upload,
   Magnet, Lock, Unlock, GripVertical, Pencil, Film,
   Palette,
   Eye, EyeOff, ChevronRight, ChevronLeft,
@@ -24,13 +24,13 @@ import { ImportTimelineModal } from '../components/ImportTimelineModal'
 import { ClipWaveform } from '../components/AudioWaveform'
 import { RetakeModal } from '../components/RetakeModal'
 import { ICLoraPanel } from '../components/ICLoraPanel'
-import type { Asset, TimelineClip, Track, SubtitleClip, EffectType } from '../types/project'
-import { EFFECT_DEFINITIONS, TEXT_PRESETS, DEFAULT_TRACKS, DEFAULT_COLOR_CORRECTION } from '../types/project'
+import type { TimelineClip, Track, SubtitleClip, EffectType } from '../types/project'
+import { EFFECT_DEFINITIONS, DEFAULT_TRACKS } from '../types/project'
 import {
   type ToolType, PRIMARY_TOOLS, TRIM_TOOLS,
   AUTOSAVE_DELAY, CUT_POINT_TOLERANCE, DEFAULT_DISSOLVE_DURATION,
   type EditorLayout, DEFAULT_LAYOUT, LAYOUT_LIMITS,
-  getShortcutLabel, resolveOverlaps, loadLayout, saveLayout, clampVal,
+  getShortcutLabel, loadLayout, saveLayout, clampVal,
   migrateClip, migrateTracks, getClipEffectStyles,
   formatTime, parseTime, getColorLabel,
   type LayoutPreset, loadLayoutPresets, saveLayoutPresets,
@@ -410,7 +410,7 @@ export function VideoEditor() {
 
   // Undo/redo/clipboard (extracted hook)
   const {
-    undoStackRef, redoStackRef, skipHistoryRef, clipboardRef,
+    undoStackRef, redoStackRef, clipboardRef,
     pushUndo, pushAssetUndo, handleUndo, handleRedo,
     handleCopy, handlePaste, handleCut,
   } = useUndoRedo({
@@ -446,7 +446,7 @@ export function VideoEditor() {
     showSourceMonitor, setShowSourceMonitor,
     activePanel, setActivePanel,
     sourceSplitPercent, setSourceSplitPercent,
-    sourceVideoRef, sourceAnimRef, sourceTimeRef, sourceIsPlayingRef,
+    sourceVideoRef, sourceTimeRef, sourceIsPlayingRef,
     loadSourceAsset,
     handleInsertEdit,
     handleOverwriteEdit,
@@ -468,7 +468,7 @@ export function VideoEditor() {
 
   // Clip/track operations (extracted hook)
   const {
-    addClipToTimeline, handleImportFile, getMediaDuration,
+    addClipToTimeline, handleImportFile,
     updateClip, addEffectToClip, removeEffectFromClip, updateEffectOnClip,
     duplicateClip, splitClipAtPlayhead, removeClip,
     addCrossDissolve, removeCrossDissolve,
@@ -961,7 +961,7 @@ export function VideoEditor() {
     gapShotType, setGapShotType, gapCameraAngle, setGapCameraAngle,
     gapApplyAudioToTrack, setGapApplyAudioToTrack,
     regenerateSuggestion,
-    generatingGap, isRegenerating: isGapRegenerating, regenProgress: gapRegenProgress,
+    generatingGap, regenProgress: gapRegenProgress,
     cancelGapGeneration,
     timelineGaps, deleteGap, handleGapGenerate,
   } = useGapGeneration({
@@ -976,21 +976,14 @@ export function VideoEditor() {
 
   // Timeline drag/resize/drop handlers (extracted hook)
   const {
-    draggingClip, setDraggingClip,
-    resizingClip, setResizingClip,
-    slipSlideClip, setSlipSlideClip,
+    draggingClip,
+    resizingClip,
+    slipSlideClip,
     lassoRect, setLassoRect,
-    isScrubbing,
-    scrubFromEvent,
     handleRulerMouseDown,
     expandWithLinkedClips,
     handleClipMouseDown,
-    handleMouseMove,
-    handleMouseUp,
-    handleResizeMove,
     handleResizeStart,
-    handleSlipSlideMove,
-    handleSlipSlideUp,
     handleTrackDrop,
     lassoOriginRef,
 
@@ -1039,7 +1032,7 @@ export function VideoEditor() {
   const {
     regeneratingAssetId,
     retakeClipId, setRetakeClipId,
-    isRetaking, setIsRetaking,
+    isRetaking,
     retakeStatus, setRetakeStatus,
     showICLoraPanel, setShowICLoraPanel,
     icLoraSourceClipId, setIcLoraSourceClipId,
@@ -1151,7 +1144,7 @@ export function VideoEditor() {
   
 
   // Playback engine (extracted hook)
-  const { audioElementsRef } = usePlaybackEngine({
+  usePlaybackEngine({
     isPlaying, setIsPlaying, shuttleSpeed, setShuttleSpeed,
     currentTime, setCurrentTime, duration: totalDuration, pixelsPerSecond,
     clips, tracks, assets, activeClip, crossDissolveState,

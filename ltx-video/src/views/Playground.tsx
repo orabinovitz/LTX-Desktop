@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { Sparkles, Trash2, Square, ImageIcon, ArrowLeft } from 'lucide-react'
 import { ImageUploader } from '../components/ImageUploader'
 import { VideoPlayer } from '../components/VideoPlayer'
@@ -173,12 +173,6 @@ export function Playground() {
                     <p className="text-red-400/80">
                       To generate videos, you need to set up text encoding in Settings.
                     </p>
-                    <button
-                      onClick={() => setIsSettingsOpen(true)}
-                      className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs font-medium transition-colors"
-                    >
-                      Open Settings
-                    </button>
                   </div>
                 ) : generationError.includes('TEXT_ENCODER_NOT_DOWNLOADED') ? (
                   <div className="space-y-2">
@@ -186,12 +180,6 @@ export function Playground() {
                     <p className="text-red-400/80">
                       The local text encoder needs to be downloaded (~8 GB).
                     </p>
-                    <button
-                      onClick={() => setIsSettingsOpen(true)}
-                      className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs font-medium transition-colors"
-                    >
-                      Download in Settings
-                    </button>
                   </div>
                 ) : (
                   <span className="text-red-400">{generationError}</span>

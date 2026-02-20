@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { Search, ChevronRight } from 'lucide-react'
+import { Search } from 'lucide-react'
 
 // --- Types ---
 

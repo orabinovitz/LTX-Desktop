@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { 
   Plus, Trash2, Download, Image, Video, X,
-  Heart, Pencil, Film, Volume2, VolumeX, Sparkles,
-  Music, Zap, Move3D, Clock, Monitor, ChevronUp, ChevronDown, Scissors, AudioLines,
+  Heart, Film, Volume2, VolumeX, Sparkles,
+  Music, Zap, Move3D, Clock, Monitor, ChevronUp, Scissors, AudioLines,
   Paintbrush, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
