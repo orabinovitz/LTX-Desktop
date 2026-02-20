@@ -71,12 +71,15 @@ def get_health() -> dict[str, Any]:
 
 def get_gpu_info() -> dict[str, Any]:
     """GET /api/gpu-info"""
+    import os
     import ltx2_server as _mod
 
     import torch
 
     gpu_info = _mod.get_gpu_info()
     cuda_available = torch.cuda.is_available()
+    mps_available = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+    gpu_available = cuda_available or mps_available
     gpu_name: str | None = None
     vram_gb: int | None = None
 
@@ -86,9 +89,17 @@ def get_gpu_info() -> dict[str, Any]:
             vram_gb = torch.cuda.get_device_properties(0).total_memory // (1024**3)
         except Exception as e:
             print(f"Error getting detailed GPU info: {e}")
+    elif mps_available:
+        gpu_name = "Apple Silicon (MPS)"
+        try:
+            vram_gb = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') // (1024**3)
+        except Exception:
+            pass
 
     return {
         "cuda_available": cuda_available,
+        "mps_available": mps_available,
+        "gpu_available": gpu_available,
         "gpu_name": gpu_name,
         "vram_gb": vram_gb,
         "gpu_info": gpu_info,

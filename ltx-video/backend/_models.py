@@ -63,6 +63,8 @@ class HealthResponse(BaseModel):
 
 class GpuInfoResponse(BaseModel):
     cuda_available: bool
+    mps_available: bool = False
+    gpu_available: bool = False
     gpu_name: str | None
     vram_gb: int | None
     gpu_info: dict[str, Any]
