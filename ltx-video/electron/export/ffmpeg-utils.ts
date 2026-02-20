@@ -6,12 +6,28 @@ import { isDev, getCurrentDir } from '../config'
 let activeExportProcess: ChildProcess | null = null
 
 export function findFfmpegPath(): string | null {
-  const imageioRelPath = path.join('Lib', 'site-packages', 'imageio_ffmpeg', 'binaries')
-  const binDir = isDev
-    ? path.join(getCurrentDir(), 'backend', '.venv', imageioRelPath)
-    : path.join(process.resourcesPath, 'python', imageioRelPath)
+  let binDir: string | null = null
 
-  if (fs.existsSync(binDir)) {
+  if (process.platform === 'win32') {
+    const imageioRelPath = path.join('Lib', 'site-packages', 'imageio_ffmpeg', 'binaries')
+    binDir = isDev
+      ? path.join(getCurrentDir(), 'backend', '.venv', imageioRelPath)
+      : path.join(process.resourcesPath, 'python', imageioRelPath)
+  } else {
+    // macOS/Linux: find lib/python3.X/site-packages dynamically
+    const venvBase = isDev
+      ? path.join(getCurrentDir(), 'backend', '.venv')
+      : path.join(process.resourcesPath, 'python')
+    const libDir = path.join(venvBase, 'lib')
+    if (fs.existsSync(libDir)) {
+      const pythonDir = fs.readdirSync(libDir).find(e => e.startsWith('python3'))
+      if (pythonDir) {
+        binDir = path.join(libDir, pythonDir, 'site-packages', 'imageio_ffmpeg', 'binaries')
+      }
+    }
+  }
+
+  if (binDir && fs.existsSync(binDir)) {
     const bin = fs.readdirSync(binDir).find(f => f.startsWith('ffmpeg') && (f.endsWith('.exe') || !f.includes('.')))
     if (bin) return path.join(binDir, bin)
   }

@@ -14,7 +14,7 @@ export async function checkGPU(): Promise<{ available: boolean; name?: string; v
     if (response.ok) {
       const data = await response.json()
       return {
-        available: data.cuda_available ?? false,
+        available: data.gpu_available ?? data.cuda_available ?? false,
         name: data.gpu_name,
         vram: data.vram_gb
       }
@@ -26,7 +26,7 @@ export async function checkGPU(): Promise<{ available: boolean; name?: string; v
   // Fallback: try direct Python check
   try {
     const pythonPath = getPythonPath()
-    const result = execSync(`"${pythonPath}" -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else ''); print(torch.cuda.get_device_properties(0).total_memory // (1024**3) if torch.cuda.is_available() else 0)"`, {
+    const result = execSync(`"${pythonPath}" -c "import torch; cuda=torch.cuda.is_available(); mps=hasattr(torch.backends,'mps') and torch.backends.mps.is_available(); print(cuda or mps); print(torch.cuda.get_device_name(0) if cuda else ('Apple Silicon (MPS)' if mps else '')); print(torch.cuda.get_device_properties(0).total_memory // (1024**3) if cuda else 0)"`, {
       encoding: 'utf-8',
       timeout: 30000,
       windowsHide: true

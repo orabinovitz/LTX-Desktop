@@ -32,8 +32,8 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
-  stopPythonBackend()
   if (process.platform !== 'darwin') {
+    stopPythonBackend()
     app.quit()
   }
 })
