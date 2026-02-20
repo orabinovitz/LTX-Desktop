@@ -10,8 +10,8 @@
   "scripts": {
     "dev": "vite",
     "dev:debug": "DEBUG=1 vite",
-    "build": "tsc && vite build && electron-builder",
-    "build:frontend": "tsc && vite build",
+    "build": "vite build && electron-builder",
+    "build:frontend": "vite build",
     "build:mac": "bash scripts/build-installer.sh --platform mac",
     "build:mac:skip-python": "bash scripts/build-installer.sh --platform mac --skip-python",
     "build:win": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1",
