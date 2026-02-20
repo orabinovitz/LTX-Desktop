@@ -53,7 +53,7 @@ def load_flux_pipeline_impl(to_gpu: bool = True) -> Flux2KleinPipeline | None:
         start = time.time()
 
         if to_gpu:
-            torch.cuda.empty_cache()
+            _mod.empty_device_cache()
             gc.collect()
 
         if _mod.FLUX_MODELS_DIR.exists() and any(_mod.FLUX_MODELS_DIR.iterdir()):
@@ -71,7 +71,7 @@ def load_flux_pipeline_impl(to_gpu: bool = True) -> Flux2KleinPipeline | None:
         )
 
         if to_gpu:
-            _mod.flux_pipeline.to("cuda")
+            _mod.flux_pipeline.to(_mod.DEVICE)
             logger.info(f"FLUX.2 Klein 4B Pipeline loaded to GPU in {time.time() - start:.1f}s")
         else:
             logger.info(f"FLUX.2 Klein 4B Pipeline preloaded to CPU RAM in {time.time() - start:.1f}s")
@@ -87,8 +87,6 @@ def load_flux_pipeline_impl(to_gpu: bool = True) -> Flux2KleinPipeline | None:
 
 def get_flux_pipeline_impl() -> Flux2KleinPipeline | None:
     """Get or load the Flux pipeline, ensuring it's on GPU."""
-    import torch
-
     import ltx2_server as _mod
 
     if _mod.flux_pipeline is None:
@@ -100,7 +98,7 @@ def get_flux_pipeline_impl() -> Flux2KleinPipeline | None:
             _mod.unload_pipeline("pro")
         if _mod.pro_native_pipeline is not None:
             _mod.unload_pipeline("pro-native")
-        torch.cuda.empty_cache()
+        _mod.empty_device_cache()
         gc.collect()
         _mod.load_flux_pipeline(to_gpu=True)
         _mod.flux_on_gpu = True
@@ -115,9 +113,9 @@ def get_flux_pipeline_impl() -> Flux2KleinPipeline | None:
             _mod.unload_pipeline("pro")
         if _mod.pro_native_pipeline is not None:
             _mod.unload_pipeline("pro-native")
-        torch.cuda.empty_cache()
+        _mod.empty_device_cache()
         gc.collect()
-        _mod.flux_pipeline.to("cuda")
+        _mod.flux_pipeline.to(_mod.DEVICE)
         _mod.flux_on_gpu = True
         logger.info(f"Flux pipeline moved to GPU in {time.time() - start:.1f}s")
 

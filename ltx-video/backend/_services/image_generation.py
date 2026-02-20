@@ -53,7 +53,7 @@ def generate_image_impl(
                 raise RuntimeError("Generation was cancelled")
 
             current_seed = seed + i
-            generator = torch.Generator(device="cuda").manual_seed(current_seed)
+            generator = torch.Generator(device=_mod.DEVICE).manual_seed(current_seed)
 
             progress = 15 + int((i / num_images) * 80)
             _mod.update_generation_progress("inference", progress, i, num_images)
@@ -125,7 +125,7 @@ def edit_image_impl(
         if seed is None:
             seed = int(time.time()) % 2147483647
 
-        generator = torch.Generator(device="cuda").manual_seed(seed)
+        generator = torch.Generator(device=_mod.DEVICE).manual_seed(seed)
 
         if _mod.current_generation["cancelled"]:
             raise RuntimeError("Generation was cancelled")

@@ -137,7 +137,7 @@ def patch_model_ledger_class_impl() -> None:
                 logger.info("Moving cached text encoder from CPU to GPU...")
                 start = time.time()
                 _mod.cached_text_encoder.to(_mod.DEVICE)
-                torch.cuda.synchronize()
+                _mod.sync_device()
                 logger.info(f"Text encoder ready in {time.time() - start:.1f}s (vs 23s from disk)")
                 return _mod.cached_text_encoder
 

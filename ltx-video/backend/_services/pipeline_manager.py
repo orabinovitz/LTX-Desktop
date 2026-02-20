@@ -31,6 +31,10 @@ def compile_pipeline_transformer(pipeline: VideoPipeline, model_type: ModelType)
     import ltx2_server as _mod
     import torch
 
+    if _mod.DEVICE.type == "mps":
+        logger.info(f"Skipping torch.compile() for {model_type} - not supported on MPS")
+        return
+
     if not _mod.get_settings_snapshot().use_torch_compile:
         logger.info(f"torch.compile() disabled in settings, skipping for {model_type}")
         return
@@ -112,7 +116,7 @@ def load_pipeline_impl(model_type: ModelType = "fast") -> VideoPipeline | None:
                 spatial_upsampler_path=str(_mod.UPSAMPLER_PATH),
                 loras=[],
                 device=_mod.DEVICE,
-                quantization=QuantizationPolicy.fp8_cast(),
+                quantization=QuantizationPolicy.fp8_cast() if _mod._use_fp8 else None,
             )
             compile_pipeline_transformer(_mod.distilled_pipeline, "fast")
             logger.info(f"Distilled Pipeline loaded in {time.time() - start:.1f}s")
@@ -125,7 +129,7 @@ def load_pipeline_impl(model_type: ModelType = "fast") -> VideoPipeline | None:
                 checkpoint_path=str(_mod.CHECKPOINT_PATH),
                 gemma_root=gemma_root,
                 device=_mod.DEVICE,
-                fp8transformer=True,  # translated to QuantizationPolicy inside the class
+                fp8transformer=_mod._use_fp8,  # translated to QuantizationPolicy inside the class
             )
             compile_pipeline_transformer(_mod.distilled_native_pipeline, "fast-native")
             logger.info(f"Fast Native Pipeline loaded in {time.time() - start:.1f}s")
@@ -151,7 +155,7 @@ def load_pipeline_impl(model_type: ModelType = "fast") -> VideoPipeline | None:
                 ],
                 loras=[],
                 device=_mod.DEVICE,
-                quantization=QuantizationPolicy.fp8_cast(),
+                quantization=QuantizationPolicy.fp8_cast() if _mod._use_fp8 else None,
             )
             compile_pipeline_transformer(_mod.pro_pipeline, "pro")
             logger.info(f"Pro Pipeline loaded in {time.time() - start:.1f}s")
@@ -169,7 +173,7 @@ def load_pipeline_impl(model_type: ModelType = "fast") -> VideoPipeline | None:
                 gemma_root=gemma_root,
                 loras=[],
                 device=_mod.DEVICE,
-                quantization=QuantizationPolicy.fp8_cast(),
+                quantization=QuantizationPolicy.fp8_cast() if _mod._use_fp8 else None,
             )
             compile_pipeline_transformer(_mod.pro_native_pipeline, "pro-native")
             logger.info(f"Pro Native Pipeline loaded in {time.time() - start:.1f}s")
@@ -195,34 +199,33 @@ def load_pipeline_impl(model_type: ModelType = "fast") -> VideoPipeline | None:
 def unload_pipeline_impl(model_type: str) -> None:
     """Unload a pipeline to free VRAM."""
     import ltx2_server as _mod
-    import torch
 
     if model_type == "fast" and _mod.distilled_pipeline is not None:
         logger.info("Unloading Fast pipeline to free VRAM...")
         del _mod.distilled_pipeline
         _mod.distilled_pipeline = None
-        torch.cuda.empty_cache()
+        _mod.empty_device_cache()
         gc.collect()
         logger.info("Fast pipeline unloaded")
     elif model_type == "fast-native" and _mod.distilled_native_pipeline is not None:
         logger.info("Unloading Fast Native pipeline to free VRAM...")
         del _mod.distilled_native_pipeline
         _mod.distilled_native_pipeline = None
-        torch.cuda.empty_cache()
+        _mod.empty_device_cache()
         gc.collect()
         logger.info("Fast Native pipeline unloaded")
     elif model_type == "pro" and _mod.pro_pipeline is not None:
         logger.info("Unloading Pro pipeline to free VRAM...")
         del _mod.pro_pipeline
         _mod.pro_pipeline = None
-        torch.cuda.empty_cache()
+        _mod.empty_device_cache()
         gc.collect()
         logger.info("Pro pipeline unloaded")
     elif model_type == "pro-native" and _mod.pro_native_pipeline is not None:
         logger.info("Unloading Pro Native pipeline to free VRAM...")
         del _mod.pro_native_pipeline
         _mod.pro_native_pipeline = None
-        torch.cuda.empty_cache()
+        _mod.empty_device_cache()
         gc.collect()
         logger.info("Pro Native pipeline unloaded")
     elif model_type == "flux" and _mod.flux_pipeline is not None:
@@ -230,7 +233,7 @@ def unload_pipeline_impl(model_type: str) -> None:
         del _mod.flux_pipeline
         _mod.flux_pipeline = None
         _mod.flux_on_gpu = False
-        torch.cuda.empty_cache()
+        _mod.empty_device_cache()
         gc.collect()
         logger.info("Flux pipeline unloaded")
     elif model_type == "ic-lora" and _mod.ic_lora_pipeline is not None:
@@ -238,7 +241,7 @@ def unload_pipeline_impl(model_type: str) -> None:
         del _mod.ic_lora_pipeline
         _mod.ic_lora_pipeline = None
         _mod.ic_lora_pipeline_path = None
-        torch.cuda.empty_cache()
+        _mod.empty_device_cache()
         gc.collect()
         logger.info("IC-LoRA pipeline unloaded")
 
@@ -255,13 +258,12 @@ def get_pipeline_impl(model_type: Literal["pro-native"], skip_warmup: bool = ...
 def get_pipeline_impl(model_type: ModelType = "fast", skip_warmup: bool = False) -> VideoPipeline | None:
     """Get or load the appropriate pipeline."""
     import ltx2_server as _mod
-    import torch
 
     if _mod.flux_pipeline is not None and _mod.flux_on_gpu:
         logger.info("Moving Flux pipeline to CPU to free VRAM for video generation...")
         _mod.flux_pipeline.to("cpu")
         _mod.flux_on_gpu = False
-        torch.cuda.empty_cache()
+        _mod.empty_device_cache()
         gc.collect()
         logger.info("Flux pipeline moved to CPU (preserved in RAM)")
 
@@ -397,7 +399,6 @@ def warmup_pipeline_impl(model_type: ModelType) -> None:
 def load_ic_lora_pipeline_impl(lora_path: str) -> ICLoraPipeline:
     """Load the IC-LoRA pipeline with a specific LoRA file."""
     import ltx2_server as _mod
-    import torch
 
     lora_path_str = str(lora_path)
 
@@ -409,7 +410,7 @@ def load_ic_lora_pipeline_impl(lora_path: str) -> ICLoraPipeline:
         del _mod.ic_lora_pipeline
         _mod.ic_lora_pipeline = None
         _mod.ic_lora_pipeline_path = None
-        torch.cuda.empty_cache()
+        _mod.empty_device_cache()
         gc.collect()
 
     _mod.unload_pipeline("fast")
@@ -448,7 +449,7 @@ def load_ic_lora_pipeline_impl(lora_path: str) -> ICLoraPipeline:
             gemma_root=gemma_root,
             loras=[lora_entry],
             device=_mod.DEVICE,
-            quantization=QuantizationPolicy.fp8_cast(),
+            quantization=QuantizationPolicy.fp8_cast() if _mod._use_fp8 else None,
         )
 
         _mod.ic_lora_pipeline_path = lora_path_str
