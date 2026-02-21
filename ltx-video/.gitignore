@@ -65,6 +65,7 @@ backend/models/
 # Generated outputs (videos and images)
 backend/outputs/*.mp4
 backend/outputs/*.png
+backend/generated/
 
 # Build artifacts
 release/
