@@ -73,8 +73,8 @@ function AssetCard({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={onPlay}
-      draggable
-      onDragStart={(e) => onDragStart(e, asset)}
+      draggable={asset.type === 'image'}
+      onDragStart={(e) => asset.type === 'image' && onDragStart(e, asset)}
     >
       {asset.type === 'video' ? (
         <video 
@@ -172,14 +172,6 @@ function AssetCard({
         )}
       </div>
       
-      {/* Drag indicator */}
-      <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-opacity ${
-        isHovered ? 'opacity-0' : 'opacity-0'
-      } group-active:opacity-100`}>
-        <div className="p-3 rounded-full bg-violet-500/80 backdrop-blur-sm">
-          <Move3D className="h-6 w-6 text-white" />
-        </div>
-      </div>
     </div>
   )
 }
