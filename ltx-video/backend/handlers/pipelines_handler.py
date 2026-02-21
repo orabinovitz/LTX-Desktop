@@ -116,7 +116,7 @@ class PipelinesHandler(StateHandlerBase):
             state.pipeline.compile_transformer()
             state.is_compiled = True
         except Exception as exc:
-            logger.warning("Failed to compile transformer: %s", exc)
+            logger.warning("Failed to compile transformer: %s", exc, exc_info=True)
         return state
 
     def _create_video_pipeline(self, model_type: VideoPipelineModelType) -> VideoPipelineState:

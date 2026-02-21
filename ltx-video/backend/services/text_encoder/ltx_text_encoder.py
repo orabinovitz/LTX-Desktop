@@ -85,7 +85,7 @@ class LTXTextEncoder:
             self._model_ledger_patched = True
             logger.info("Installed ModelLedger text encoder patch")
         except Exception as exc:
-            logger.warning("Failed to patch ModelLedger: %s", exc)
+            logger.warning("Failed to patch ModelLedger: %s", exc, exc_info=True)
 
     def _install_encode_text_patch(self, state_getter: Callable[[], StateCarrier]) -> None:
         if self._encode_text_patched:
@@ -141,7 +141,7 @@ class LTXTextEncoder:
             self._encode_text_patched = True
             logger.info("Installed encode_text API embeddings patch")
         except Exception as exc:
-            logger.warning("Failed to patch encode_text: %s", exc)
+            logger.warning("Failed to patch encode_text: %s", exc, exc_info=True)
 
     def get_model_id_from_checkpoint(self, checkpoint_path: str) -> str | None:
         try:
@@ -152,7 +152,7 @@ class LTXTextEncoder:
                 if metadata and "encrypted_wandb_properties" in metadata:
                     return metadata["encrypted_wandb_properties"]
         except Exception as exc:
-            logger.warning("Could not extract model_id from checkpoint: %s", exc)
+            logger.warning("Could not extract model_id from checkpoint: %s", exc, exc_info=True)
         return None
 
     def encode_via_api(self, prompt: str, api_key: str, checkpoint_path: str) -> TextEncodingResult | None:
@@ -196,7 +196,7 @@ class LTXTextEncoder:
             return TextEncodingResult(video_context=video_context, audio_context=audio_context)
 
         except Exception as exc:
-            logger.warning("LTX API encoding failed: %s", exc)
+            logger.warning("LTX API encoding failed: %s", exc, exc_info=True)
             return None
 
 

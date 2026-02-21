@@ -71,7 +71,7 @@ class PromptHandler(StateHandlerBase):
                 timeout=30,
             )
         except HttpTimeoutError:
-            logger.error("Prompt enhancement request to Gemini timed out")
+            logger.exception("Prompt enhancement request to Gemini timed out")
             raise HTTPError(504, "Gemini API request timed out")
         except Exception as e:
             logger.exception("Prompt enhancement error")
@@ -191,7 +191,7 @@ class PromptHandler(StateHandlerBase):
                 timeout=30,
             )
         except HttpTimeoutError:
-            logger.error("Gap prompt suggestion request to Gemini timed out")
+            logger.exception("Gap prompt suggestion request to Gemini timed out")
             raise HTTPError(504, "Gemini API request timed out")
         except Exception as e:
             logger.exception("Gap prompt suggestion error")

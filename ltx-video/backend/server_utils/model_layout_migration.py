@@ -34,4 +34,4 @@ def migrate_legacy_models_layout(app_data_dir: Path) -> None:
         if not any(legacy_root.iterdir()):
             legacy_root.rmdir()
     except Exception:
-        logger.warning("Could not remove legacy models directory: %s", legacy_root)
+        logger.warning("Could not remove legacy models directory: %s", legacy_root, exc_info=True)

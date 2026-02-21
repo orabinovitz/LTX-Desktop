@@ -51,6 +51,7 @@ def create_app(
     @app.exception_handler(HTTPError)
     async def _route_http_error_handler(request: Request, exc: HTTPError) -> JSONResponse:
         level = logging.ERROR if exc.status_code >= 500 else logging.WARNING
+        exc_info = (type(exc), exc, exc.__traceback__) if exc.status_code >= 500 else None
         logger.log(
             level,
             "HTTP error on %s %s: [%s] %s",
@@ -58,6 +59,7 @@ def create_app(
             request.url.path,
             exc.status_code,
             exc.detail,
+            exc_info=exc_info,
         )
         return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
 
