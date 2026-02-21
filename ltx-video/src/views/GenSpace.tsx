@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { 
   Plus, Trash2, Download, Image, Video, X,
   Heart, Film, Volume2, VolumeX, Sparkles,
-  Music, Zap, Move3D, Clock, Monitor, ChevronUp, Scissors, AudioLines,
+  Zap, Move3D, Clock, Monitor, ChevronUp, Scissors, AudioLines,
   Paintbrush, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
@@ -542,16 +542,6 @@ function PromptBar({
                 </>
               }
             />
-            
-            {/* Audio toggle */}
-            <button 
-              onClick={() => onSettingsChange({ ...settings, audio: !settings.audio })}
-              className="flex items-center gap-1 px-2 py-1.5 rounded hover:bg-zinc-800 transition-colors relative"
-            >
-              <Music className="h-3.5 w-3.5" />
-              <span className={settings.audio ? 'text-zinc-300' : 'text-zinc-500'}>{settings.audio ? 'On' : 'Off'}</span>
-              <span className="absolute -top-2 -right-2 text-[8px] bg-blue-500 text-white px-1 rounded leading-tight">BETA</span>
-            </button>
             
             <div className="w-px h-4 bg-zinc-700 mx-0.5" />
             
