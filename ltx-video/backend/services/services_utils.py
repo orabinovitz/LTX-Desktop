@@ -50,6 +50,59 @@ else:
 TensorOrNone: TypeAlias = TensorType | None
 
 
+def get_device_type(device: DeviceLike | object | None) -> str:
+    if device is None:
+        return "cpu"
+
+    device_type = getattr(device, "type", None)
+    if isinstance(device_type, str):
+        return device_type
+
+    if isinstance(device, str):
+        try:
+            return str(torch.device(device).type)
+        except Exception:
+            return device
+
+    return "cpu"
+
+
+def device_supports_fp8(device: DeviceLike | object | None) -> bool:
+    return get_device_type(device) == "cuda"
+
+
+def sync_device(device: DeviceLike | object | None) -> None:
+    device_type = get_device_type(device)
+    if device_type == "cuda":
+        try:
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+        return
+
+    if device_type == "mps" and hasattr(torch, "mps"):
+        try:
+            torch.mps.synchronize()
+        except Exception:
+            pass
+
+
+def empty_device_cache(device: DeviceLike | object | None) -> None:
+    device_type = get_device_type(device)
+    if device_type == "cuda":
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+        return
+
+    if device_type == "mps" and hasattr(torch, "mps"):
+        try:
+            torch.mps.empty_cache()
+        except Exception:
+            pass
+
+
 class LatentStateLike(Protocol):
     latent: torch.Tensor
 

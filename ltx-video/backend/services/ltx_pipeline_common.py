@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from services.services_utils import DeviceLike, LatentStateLike, TensorOrNone, TilingConfigType
+from services.services_utils import DeviceLike, LatentStateLike, TensorOrNone, TilingConfigType, device_supports_fp8, sync_device
 
 
 def default_tiling_config() -> TilingConfigType:
@@ -73,7 +73,7 @@ class DistilledNativePipeline:
             checkpoint_path=checkpoint_path,
             gemma_root_path=gemma_root,
             loras=None,
-            quantization=QuantizationPolicy.fp8_cast() if fp8transformer else None,
+            quantization=QuantizationPolicy.fp8_cast() if fp8transformer and device_supports_fp8(device) else None,
         )
         self.pipeline_components = PipelineComponents(dtype=self.dtype, device=device)
 
@@ -113,10 +113,7 @@ class DistilledNativePipeline:
         context_p = encode_text(text_encoder, prompts=[prompt])[0]
         video_context, audio_context = context_p
 
-        try:
-            torch.cuda.synchronize()
-        except Exception:
-            pass
+        sync_device(self.device)
         del text_encoder
         cleanup_memory()
 
@@ -164,10 +161,7 @@ class DistilledNativePipeline:
             device=self.device,
         )
 
-        try:
-            torch.cuda.synchronize()
-        except Exception:
-            pass
+        sync_device(self.device)
         del transformer
         del video_encoder
         cleanup_memory()

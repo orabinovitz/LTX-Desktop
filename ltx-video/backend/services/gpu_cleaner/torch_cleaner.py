@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import gc
 
-import torch
+from services.services_utils import empty_device_cache
 
 
 class TorchCleaner:
     """Wraps GPU memory cleanup operations."""
 
     def cleanup(self) -> None:
-        try:
-            torch.cuda.empty_cache()
-        except Exception:
-            pass
+        empty_device_cache("cuda")
+        empty_device_cache("mps")
         gc.collect()

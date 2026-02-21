@@ -100,6 +100,16 @@ def test_warmup_marks_pipeline_warm_and_leaves_no_temp_artifact(test_state):
     assert not expected_path.exists()
 
 
+def test_mps_skips_torch_compile(test_state, fake_services):
+    test_state.state.app_settings.use_torch_compile = True
+    test_state.pipelines._device = "mps"  # noqa: SLF001 - explicit platform behavior assertion
+    test_state.pipelines._runtime_device = "mps"  # noqa: SLF001 - explicit platform behavior assertion
+
+    pipeline_state = test_state.pipelines.load_gpu_pipeline("fast")
+    assert fake_services.fast_video_pipeline.compile_calls == 0
+    assert pipeline_state.is_compiled is False
+
+
 def test_startup_warmup_keeps_fast_on_gpu_and_preloads_flux_on_cpu(test_state, fake_services, create_fake_model_files):
     create_fake_model_files(include_flux=True)
     test_state.state.app_settings.load_on_startup = True

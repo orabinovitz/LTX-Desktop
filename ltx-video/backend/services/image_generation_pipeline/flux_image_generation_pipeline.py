@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from services.services_utils import FluxPipelineOutputLike, PILImageType
+from services.services_utils import FluxPipelineOutputLike, PILImageType, get_device_type
 
 
 class FluxImageGenerationPipeline:
@@ -18,9 +18,19 @@ class FluxImageGenerationPipeline:
     def __init__(self, model_path: str, device: str | None = None) -> None:
         from diffusers import Flux2KleinPipeline
 
+        self._device: str | None = None
         self.pipeline = Flux2KleinPipeline.from_pretrained(model_path, torch_dtype=torch.bfloat16)
         if device is not None:
-            self.pipeline.to(device)
+            runtime_device = get_device_type(device)
+            self.pipeline.to(runtime_device)
+            self._device = runtime_device
+
+    def _resolve_generator_device(self) -> str:
+        if self._device is not None:
+            return self._device
+
+        execution_device = getattr(self.pipeline, "_execution_device", None)
+        return get_device_type(execution_device)
 
     @torch.inference_mode()
     def generate(
@@ -32,7 +42,7 @@ class FluxImageGenerationPipeline:
         num_inference_steps: int,
         seed: int,
     ) -> FluxPipelineOutputLike:
-        generator = torch.Generator(device="cuda").manual_seed(seed)
+        generator = torch.Generator(device=self._resolve_generator_device()).manual_seed(seed)
         return self.pipeline(
             prompt=prompt,
             height=height,
@@ -53,7 +63,7 @@ class FluxImageGenerationPipeline:
         num_inference_steps: int,
         seed: int,
     ) -> FluxPipelineOutputLike:
-        generator = torch.Generator(device="cuda").manual_seed(seed)
+        generator = torch.Generator(device=self._resolve_generator_device()).manual_seed(seed)
         return self.pipeline(
             prompt=prompt,
             image=image,
@@ -65,4 +75,6 @@ class FluxImageGenerationPipeline:
         )
 
     def to(self, device: str) -> None:
-        self.pipeline.to(device)
+        runtime_device = get_device_type(device)
+        self.pipeline.to(runtime_device)
+        self._device = runtime_device

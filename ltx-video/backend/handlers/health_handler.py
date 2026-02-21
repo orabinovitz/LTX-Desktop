@@ -92,6 +92,8 @@ class HealthHandler(StateHandlerBase):
     def get_gpu_info(self) -> GpuInfoResponse:
         return GpuInfoResponse(
             cuda_available=self._gpu_info.get_cuda_available(),
+            mps_available=self._gpu_info.get_mps_available(),
+            gpu_available=self._gpu_info.get_gpu_available(),
             gpu_name=self._gpu_info.get_device_name(),
             vram_gb=self._gpu_info.get_vram_total_gb(),
             gpu_info=GpuTelemetry(**self._gpu_info.get_gpu_info()),

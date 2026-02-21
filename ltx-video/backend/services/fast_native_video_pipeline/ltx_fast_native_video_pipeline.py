@@ -13,7 +13,7 @@ from services.ltx_pipeline_common import (
     encode_video_output,
     video_chunks_number,
 )
-from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType
+from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType, device_supports_fp8
 
 
 class LTXFastNativeVideoPipeline(CompileMixin):
@@ -36,7 +36,7 @@ class LTXFastNativeVideoPipeline(CompileMixin):
             checkpoint_path=checkpoint_path,
             gemma_root=gemma_root,
             device=device,
-            fp8transformer=True,
+            fp8transformer=device_supports_fp8(device),
         )
 
     def _run_inference(

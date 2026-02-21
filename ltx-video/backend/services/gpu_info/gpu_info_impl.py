@@ -2,47 +2,116 @@
 
 from __future__ import annotations
 
+import os
+import platform
+import subprocess
+
 import torch
 
 from services.gpu_info.gpu_info import GpuTelemetryPayload
 
 
 class GpuInfoImpl:
-    """Wraps pynvml and torch.cuda queries."""
+    """Wraps CUDA and MPS runtime queries."""
+
+    def _get_macos_chip_name(self) -> str | None:
+        if platform.system() != "Darwin":
+            return None
+
+        try:
+            result = subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            chip = result.stdout.strip()
+            return chip if chip else None
+        except Exception:
+            return None
+
+    def _get_system_ram_mb(self) -> int:
+        try:
+            return int((os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")) // (1024 * 1024))
+        except Exception:
+            return 0
 
     def get_gpu_info(self) -> GpuTelemetryPayload:
-        try:
-            import pynvml
+        if self.get_cuda_available():
+            try:
+                import pynvml
 
-            pynvml.nvmlInit()
-            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-            raw_name = pynvml.nvmlDeviceGetName(handle)
-            name = raw_name.decode("utf-8", errors="replace") if isinstance(raw_name, bytes) else str(raw_name)
-            memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            pynvml.nvmlShutdown()
+                pynvml.nvmlInit()
+                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                raw_name = pynvml.nvmlDeviceGetName(handle)
+                name = raw_name.decode("utf-8", errors="replace") if isinstance(raw_name, bytes) else str(raw_name)
+                memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                pynvml.nvmlShutdown()
+                return {
+                    "name": name,
+                    "vram": memory.total // (1024 * 1024),
+                    "vramUsed": memory.used // (1024 * 1024),
+                }
+            except Exception:
+                device_name = self.get_device_name() or "Unknown"
+                total_vram_gb = self.get_vram_total_gb() or 0
+                return {
+                    "name": device_name,
+                    "vram": total_vram_gb * 1024,
+                    "vramUsed": 0,
+                }
+
+        if self.get_mps_available():
+            chip = self._get_macos_chip_name()
+            name = f"{chip} (MPS)" if chip else "Apple Silicon (MPS)"
             return {
                 "name": name,
-                "vram": memory.total // (1024 * 1024),
-                "vramUsed": memory.used // (1024 * 1024),
+                "vram": self._get_system_ram_mb(),
+                "vramUsed": 0,
             }
-        except Exception:
-            return {"name": "Unknown", "vram": 0, "vramUsed": 0}
+
+        return {"name": "Unknown", "vram": 0, "vramUsed": 0}
 
     def get_cuda_available(self) -> bool:
-        return bool(torch.cuda.is_available())
+        try:
+            return bool(torch.cuda.is_available())
+        except Exception:
+            return False
+
+    def get_mps_available(self) -> bool:
+        try:
+            return bool(hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
+        except Exception:
+            return False
+
+    def get_gpu_available(self) -> bool:
+        return self.get_cuda_available() or self.get_mps_available()
 
     def get_device_name(self) -> str | None:
-        if not torch.cuda.is_available():
-            return None
-        try:
-            return str(torch.cuda.get_device_name(0))
-        except Exception:
-            return None
+        if self.get_cuda_available():
+            try:
+                return str(torch.cuda.get_device_name(0))
+            except Exception:
+                return None
+
+        if self.get_mps_available():
+            chip = self._get_macos_chip_name()
+            return f"{chip} (MPS)" if chip else "Apple Silicon (MPS)"
+
+        return None
 
     def get_vram_total_gb(self) -> int | None:
-        if not torch.cuda.is_available():
-            return None
-        try:
-            return int(torch.cuda.get_device_properties(0).total_memory // (1024**3))
-        except Exception:
-            return None
+        if self.get_cuda_available():
+            try:
+                return int(torch.cuda.get_device_properties(0).total_memory // (1024**3))
+            except Exception:
+                return None
+
+        if self.get_mps_available():
+            try:
+                return int((os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")) // (1024**3))
+            except Exception:
+                return None
+
+        return None

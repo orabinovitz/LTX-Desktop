@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 
 from services.ltx_pipeline_common import default_tiling_config, encode_video_output, video_chunks_number
-from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType
+from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType, device_supports_fp8
 
 
 class LTXIcLoraPipeline:
@@ -45,7 +45,7 @@ class LTXIcLoraPipeline:
             gemma_root=gemma_root,
             loras=[lora_entry],
             device=device,
-            quantization=QuantizationPolicy.fp8_cast(),
+            quantization=QuantizationPolicy.fp8_cast() if device_supports_fp8(device) else None,
         )
 
     def _run_inference(

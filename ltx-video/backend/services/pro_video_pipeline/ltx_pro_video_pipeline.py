@@ -13,7 +13,7 @@ from services.ltx_pipeline_common import (
     encode_video_output,
     video_chunks_number,
 )
-from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType
+from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType, device_supports_fp8
 
 
 class LTXProVideoPipeline(CompileMixin):
@@ -57,7 +57,7 @@ class LTXProVideoPipeline(CompileMixin):
             ],
             loras=[],
             device=device,
-            quantization=QuantizationPolicy.fp8_cast(),
+            quantization=QuantizationPolicy.fp8_cast() if device_supports_fp8(device) else None,
         )
 
     def _run_inference(

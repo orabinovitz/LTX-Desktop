@@ -7,7 +7,7 @@ import os
 import torch
 
 from services.ltx_pipeline_common import CompileMixin, default_guiders, encode_video_output, video_chunks_number
-from services.services_utils import DeviceLike, TensorOrNone
+from services.services_utils import DeviceLike, TensorOrNone, device_supports_fp8
 
 
 class LTXProNativeVideoPipeline(CompileMixin):
@@ -34,7 +34,7 @@ class LTXProNativeVideoPipeline(CompileMixin):
             gemma_root=gemma_root,
             loras=[],
             device=device,
-            quantization=QuantizationPolicy.fp8_cast(),
+            quantization=QuantizationPolicy.fp8_cast() if device_supports_fp8(device) else None,
         )
 
     def _run_inference(

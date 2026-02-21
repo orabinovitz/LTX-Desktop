@@ -7,7 +7,7 @@ import os
 import torch
 
 from services.ltx_pipeline_common import CompileMixin, default_tiling_config, encode_video_output, video_chunks_number
-from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType
+from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType, device_supports_fp8
 
 
 class LTXFastVideoPipeline(CompileMixin):
@@ -37,7 +37,7 @@ class LTXFastVideoPipeline(CompileMixin):
             spatial_upsampler_path=upsampler_path,
             loras=[],
             device=device,
-            quantization=QuantizationPolicy.fp8_cast(),
+            quantization=QuantizationPolicy.fp8_cast() if device_supports_fp8(device) else None,
         )
 
     def _run_inference(

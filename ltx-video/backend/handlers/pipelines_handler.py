@@ -20,6 +20,7 @@ from services.interfaces import (
     ProVideoPipeline,
     VideoPipelineModelType,
 )
+from services.services_utils import get_device_type
 from state.app_state_types import (
     AppState,
     CpuSlot,
@@ -67,6 +68,7 @@ class PipelinesHandler(StateHandlerBase):
         self._config = config
         self._outputs_dir = outputs_dir
         self._device = device
+        self._runtime_device = get_device_type(device)
 
     def _ensure_no_running_generation(self) -> None:
         match self.state.gpu_slot:
@@ -105,6 +107,9 @@ class PipelinesHandler(StateHandlerBase):
         if not self.state.app_settings.use_torch_compile:
             return state
         if state.is_compiled:
+            return state
+        if self._runtime_device == "mps":
+            logger.info("Skipping torch.compile() for %s - not supported on MPS", state.pipeline.pipeline_kind)
             return state
 
         try:
@@ -219,9 +224,9 @@ class PipelinesHandler(StateHandlerBase):
                     local_dir=str(self._config.download_local_dir("flux")),
                     allow_patterns=list(flux_spec.snapshot_allow_patterns) if flux_spec.snapshot_allow_patterns is not None else None,
                 )
-            flux_service = self._image_generation_pipeline_class.create(str(flux_path), "cuda")
+            flux_service = self._image_generation_pipeline_class.create(str(flux_path), self._runtime_device)
         else:
-            flux_service.to("cuda")
+            flux_service.to(self._runtime_device)
 
         self._gpu_cleaner.cleanup()
 

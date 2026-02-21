@@ -1,5 +1,15 @@
 """FastAPI composition root for the LTX backend server."""
 import os
+
+if os.environ.get("DEBUG") == "1":
+    try:
+        import debugpy
+
+        if not debugpy.is_client_connected():
+            debugpy.listen(("127.0.0.1", 5678))
+    except (ImportError, RuntimeError):
+        pass
+
 import logging
 from pathlib import Path
 import threading
@@ -101,7 +111,17 @@ if USE_SAGE_ATTENTION:
 # ============================================================
 
 PORT = 8000
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def _get_device() -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+DEVICE = _get_device()
 DTYPE = torch.bfloat16
 
 def _resolve_app_data_dir() -> Path:

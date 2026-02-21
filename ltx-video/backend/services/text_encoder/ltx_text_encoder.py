@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 import torch
 
 from services.http_client.http_client_impl import HTTPClientImpl
-from services.services_utils import DeviceLike, PromptInput, TensorOrNone
+from services.services_utils import DeviceLike, PromptInput, TensorOrNone, sync_device
 from state.app_state_types import CachedTextEncoder, TextEncodingResult
 
 if TYPE_CHECKING:
@@ -62,10 +62,7 @@ class LTXTextEncoder:
                 if te_state.cached_encoder is not None:
                     try:
                         te_state.cached_encoder.to(self.device)
-                        try:
-                            torch.cuda.synchronize()
-                        except Exception:
-                            pass
+                        sync_device(self.device)
                     except Exception:
                         pass
                     return te_state.cached_encoder
