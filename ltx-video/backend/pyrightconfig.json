@@ -6,7 +6,6 @@
   "include": [
     "ltx2_server.py",
     "api_types.py",
-    "_fastapi_app.py",
     "_routes",
     "_services"
   ],

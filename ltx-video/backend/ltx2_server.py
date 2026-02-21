@@ -1,6 +1,7 @@
 """FastAPI composition root for the LTX backend server."""
 import os
 import sys
+from typing import Any, cast
 
 if os.environ.get("DEBUG") == "1":
     try:
@@ -84,7 +85,7 @@ _sageattention_runtime_fallback_logged = False
 
 if use_sage_attention:
     try:
-        from sageattention import sageattn
+        from sageattention import sageattn  # type: ignore[reportMissingImports]
         import torch.nn.functional as F
 
         _original_sdpa = F.scaled_dot_product_attention
@@ -97,12 +98,12 @@ if use_sage_attention:
             dropout_p: float = 0.0,
             is_causal: bool = False,
             scale: float | None = None,
-            **kwargs: object,
+            **kwargs: Any,
         ) -> torch.Tensor:
             global _sageattention_runtime_fallback_logged
             try:
                 if query.dim() == 4 and attn_mask is None and dropout_p == 0.0:
-                    return sageattn(query, key, value, is_causal=is_causal, tensor_layout="HND")
+                    return cast(torch.Tensor, sageattn(query, key, value, is_causal=is_causal, tensor_layout="HND"))  # type: ignore[reportUnnecessaryCast]
                 else:
                     return _original_sdpa(query, key, value, attn_mask=attn_mask,
                                          dropout_p=dropout_p, is_causal=is_causal, scale=scale, **kwargs)
