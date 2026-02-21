@@ -112,13 +112,10 @@ def make_partial_model(model: type[SettingsModelT]) -> type[SettingsPatchModel]:
         partial_annotation = _wrap_optional(_to_partial_annotation(field_info.annotation))
         fields[field_name] = (partial_annotation, Field(default=None))
 
-    partial_model = cast(
-        type[SettingsPatchModel],
-        create_model(
-            f"{model.__name__}Patch",
-            __base__=SettingsPatchModel,
-            **cast(Any, fields),
-        ),
+    partial_model = create_model(
+        f"{model.__name__}Patch",
+        __base__=SettingsPatchModel,
+        **cast(Any, fields),
     )
 
     _PARTIAL_MODEL_CACHE[model] = partial_model

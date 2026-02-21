@@ -7,9 +7,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
-from typing import cast
-
-from api_types import JsonObject, RetakeRequest, RetakeResponse
+from api_types import RetakeRequest, RetakeResponse
 from _routes._errors import HTTPError
 from handlers.base import StateHandlerBase
 from services.interfaces import HTTPClient
@@ -107,7 +105,7 @@ class RetakeHandler(StateHandlerBase):
                         return RetakeResponse(status="complete", video_path=str(output))
                     raise HTTPError(500, f"Failed to download retake video: {dl_resp.status_code}")
 
-                return RetakeResponse(status="complete", result=cast(JsonObject, result))
+                return RetakeResponse(status="complete", result=result)
             except json.JSONDecodeError:
                 raise HTTPError(500, f"Unexpected response format: {retake_resp.text[:200]}")
 

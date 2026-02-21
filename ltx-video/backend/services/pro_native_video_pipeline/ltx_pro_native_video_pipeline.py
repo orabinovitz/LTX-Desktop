@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from typing import Final
 
 import torch
 
@@ -11,7 +12,7 @@ from services.services_utils import DeviceLike, TensorOrNone, device_supports_fp
 
 
 class LTXProNativeVideoPipeline(CompileMixin):
-    pipeline_kind = "pro-native"
+    pipeline_kind: Final = "pro-native"
 
     @staticmethod
     def create(

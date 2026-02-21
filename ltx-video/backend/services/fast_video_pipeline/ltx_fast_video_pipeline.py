@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from typing import Final
 
 import torch
 
@@ -11,7 +12,7 @@ from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType, 
 
 
 class LTXFastVideoPipeline(CompileMixin):
-    pipeline_kind = "fast"
+    pipeline_kind: Final = "fast"
 
     @staticmethod
     def create(

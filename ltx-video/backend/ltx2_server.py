@@ -29,11 +29,11 @@ from runtime_config.prompt_texts import DEFAULT_I2V_SYSTEM_PROMPT, DEFAULT_T2V_S
 import platform
 if platform.system() == "Windows":
     _log_app_data = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-    LOG_DIR = _log_app_data / "LTX-desktop" / "logs"
+    log_dir = _log_app_data / "LTX-desktop" / "logs"
 else:
-    LOG_DIR = Path.home() / ".ltx-video-studio" / "logs"
+    log_dir = Path.home() / ".ltx-video-studio" / "logs"
 
-LOG_FILE = LOG_DIR / "backend.log"
+log_file = log_dir / "backend.log"
 
 log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
@@ -44,9 +44,9 @@ console_handler.setFormatter(log_formatter)
 from logging.handlers import RotatingFileHandler
 handlers: list[logging.Handler] = [console_handler]
 try:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
     file_handler = RotatingFileHandler(
-        LOG_FILE,
+        log_file,
         maxBytes=5 * 1024 * 1024,
         backupCount=3,
         encoding="utf-8",
@@ -55,13 +55,13 @@ try:
     file_handler.setFormatter(log_formatter)
     handlers.append(file_handler)
 except Exception as exc:
-    print(f"Primary log file setup failed at {LOG_FILE}: {exc}", file=sys.stderr)
+    print(f"Primary log file setup failed at {log_file}: {exc}", file=sys.stderr)
     fallback_log_dir = Path(tempfile.gettempdir()) / "ltx-video-studio" / "logs"
     try:
         fallback_log_dir.mkdir(parents=True, exist_ok=True)
-        LOG_FILE = fallback_log_dir / "backend.log"
+        log_file = fallback_log_dir / "backend.log"
         file_handler = RotatingFileHandler(
-            LOG_FILE,
+            log_file,
             maxBytes=5 * 1024 * 1024,
             backupCount=3,
             encoding="utf-8",
@@ -74,22 +74,31 @@ except Exception as exc:
 
 logging.basicConfig(level=logging.INFO, handlers=handlers)
 logger = logging.getLogger(__name__)
-logger.info(f"Log file: {LOG_FILE}")
+logger.info(f"Log file: {log_file}")
 
 # ============================================================
 # SageAttention Integration
 # ============================================================
-USE_SAGE_ATTENTION = os.environ.get("USE_SAGE_ATTENTION", "1") == "1"
+use_sage_attention = os.environ.get("USE_SAGE_ATTENTION", "1") == "1"
 _sageattention_runtime_fallback_logged = False
 
-if USE_SAGE_ATTENTION:
+if use_sage_attention:
     try:
         from sageattention import sageattn
         import torch.nn.functional as F
 
         _original_sdpa = F.scaled_dot_product_attention
 
-        def patched_sdpa(query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None, **kwargs):
+        def patched_sdpa(
+            query: torch.Tensor,
+            key: torch.Tensor,
+            value: torch.Tensor,
+            attn_mask: torch.Tensor | None = None,
+            dropout_p: float = 0.0,
+            is_causal: bool = False,
+            scale: float | None = None,
+            **kwargs: object,
+        ) -> torch.Tensor:
             global _sageattention_runtime_fallback_logged
             try:
                 if query.dim() == 4 and attn_mask is None and dropout_p == 0.0:
@@ -108,10 +117,10 @@ if USE_SAGE_ATTENTION:
         logger.info("SageAttention enabled - attention operations will be faster")
     except ImportError:
         logger.warning("SageAttention not installed - using default attention")
-        USE_SAGE_ATTENTION = False
+        use_sage_attention = False
     except Exception:
         logger.warning("Failed to enable SageAttention", exc_info=True)
-        USE_SAGE_ATTENTION = False
+        use_sage_attention = False
 
 # ============================================================
 # Constants & Paths
@@ -210,7 +219,7 @@ runtime_config = RuntimeConfig(
     ic_lora_dir=IC_LORA_DIR,
     settings_file=SETTINGS_FILE,
     ltx_api_base_url=LTX_API_BASE_URL,
-    use_sage_attention=USE_SAGE_ATTENTION,
+    use_sage_attention=use_sage_attention,
     camera_motion_prompts=CAMERA_MOTION_PROMPTS,
     default_negative_prompt=DEFAULT_NEGATIVE_PROMPT,
 )

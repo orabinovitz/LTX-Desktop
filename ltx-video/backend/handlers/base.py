@@ -11,6 +11,7 @@ from state.app_state_types import AppState
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
+_S = TypeVar("_S", bound="StateHandlerBase")
 
 
 class StateHandlerBase:
@@ -24,13 +25,17 @@ class StateHandlerBase:
     def state(self) -> AppState:
         return self._state
 
+    @property
+    def lock(self) -> RLock:
+        return self._lock
+
 
 def with_state_lock(
-    method: Callable[Concatenate[StateHandlerBase, _P], _R],
-) -> Callable[Concatenate[StateHandlerBase, _P], _R]:
+    method: Callable[Concatenate[_S, _P], _R],
+) -> Callable[Concatenate[_S, _P], _R]:
     @wraps(method)
-    def wrapped(self: StateHandlerBase, *args: _P.args, **kwargs: _P.kwargs) -> _R:
-        with self._lock:
+    def wrapped(self: _S, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with self.lock:
             return method(self, *args, **kwargs)
 
     return wrapped

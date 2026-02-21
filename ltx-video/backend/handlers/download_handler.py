@@ -6,7 +6,7 @@ import json
 import logging
 from pathlib import Path
 from threading import RLock
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from api_types import DownloadProgressResponse
 from handlers.base import StateHandlerBase, with_state_lock
@@ -44,7 +44,7 @@ class DownloadHandler(StateHandlerBase):
     @with_state_lock
     def start_download(self, files: dict[ModelFileType, tuple[str, int]]) -> None:
         self.state.downloading_session = {
-            cast(ModelFileType, file_key): FileDownloadRunning(
+            file_key: FileDownloadRunning(
                 target_path=target,
                 progress=0.0,
                 downloaded_bytes=0,
@@ -72,7 +72,7 @@ class DownloadHandler(StateHandlerBase):
                 return
 
     @with_state_lock
-    def complete_file(self, file_key: str) -> None:
+    def complete_file(self, file_key: ModelFileType) -> None:
         match self.state.downloading_session:
             case dict() as files:
                 files[file_key] = FileDownloadCompleted()

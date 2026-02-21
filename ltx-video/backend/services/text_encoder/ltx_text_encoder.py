@@ -6,7 +6,7 @@ import io
 import logging
 import pickle
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol, cast
 
 import torch
@@ -108,7 +108,7 @@ class LTXTextEncoder:
                 if te_state is not None and te_state.api_embeddings is not None:
                     video_context = te_state.api_embeddings.video_context
                     audio_context = te_state.api_embeddings.audio_context
-                    num_prompts = len(prompts) if isinstance(prompts, Sequence) and not isinstance(prompts, str) else 1
+                    num_prompts = len(prompts) if not isinstance(prompts, str) else 1
                     out: list[tuple[torch.Tensor, TensorOrNone]] = []
                     for i in range(num_prompts):
                         if i == 0:
