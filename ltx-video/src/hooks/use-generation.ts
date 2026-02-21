@@ -28,6 +28,38 @@ interface UseGenerationReturn extends GenerationState {
   reset: () => void
 }
 
+const IMAGE_SHORT_SIDE_BY_RESOLUTION: Record<string, number> = {
+  '1080p': 1080,
+  '1440p': 1440,
+  '2048p': 2048,
+}
+
+const IMAGE_ASPECT_RATIO_VALUE: Record<string, number> = {
+  '1:1': 1,
+  '16:9': 16 / 9,
+  '9:16': 9 / 16,
+  '4:3': 4 / 3,
+  '3:4': 3 / 4,
+  '21:9': 21 / 9,
+}
+
+function getImageDimensions(settings: GenerationSettings): { width: number; height: number } {
+  const shortSide = IMAGE_SHORT_SIDE_BY_RESOLUTION[settings.imageResolution]
+  if (!shortSide) {
+    throw new Error(`Unsupported image resolution mapping: ${settings.imageResolution}`)
+  }
+
+  const ratio = IMAGE_ASPECT_RATIO_VALUE[settings.imageAspectRatio]
+  if (!ratio) {
+    throw new Error(`Unsupported image aspect ratio mapping: ${settings.imageAspectRatio}`)
+  }
+
+  if (ratio >= 1) {
+    return { width: Math.round(shortSide * ratio), height: shortSide }
+  }
+  return { width: shortSide, height: Math.round(shortSide / ratio) }
+}
+
 // Map phase to user-friendly message
 function getPhaseMessage(phase: string, _currentStep: number, totalSteps: number): string {
   switch (phase) {
@@ -127,7 +159,7 @@ export function useGeneration(): UseGenerationReturn {
         prompt: finalPrompt,
         model: settings.model,
         duration: String(settings.duration),
-        resolution: settings.resolution,
+        resolution: settings.videoResolution,
         fps: String(settings.fps),
         audio: String(settings.audio),
         cameraMotion: settings.cameraMotion,
@@ -281,16 +313,7 @@ export function useGeneration(): UseGenerationReturn {
       // Skip prompt enhancement for T2I - use original prompt directly
       const finalPrompt = prompt
 
-      // Aspect ratio to dimensions mapping for images (base size ~1024px on short side)
-      const aspectRatioMap: Record<string, { width: number; height: number }> = {
-        '1:1': { width: 1024, height: 1024 },
-        '16:9': { width: 1280, height: 720 },
-        '9:16': { width: 720, height: 1280 },
-        '4:3': { width: 1024, height: 768 },
-        '3:4': { width: 768, height: 1024 },
-        '21:9': { width: 1344, height: 576 },
-      }
-      const dims = aspectRatioMap[settings.imageAspectRatio || '16:9'] || { width: 1280, height: 720 }
+      const dims = getImageDimensions(settings)
       const numSteps = settings.imageSteps || 4
 
       // Poll for progress
@@ -421,15 +444,7 @@ export function useGeneration(): UseGenerationReturn {
     try {
       const backendUrl = await window.electronAPI.getBackendUrl()
 
-      // Aspect ratio to dimensions mapping
-      const aspectRatioMap: Record<string, { width: number; height: number }> = {
-        '1:1': { width: 1024, height: 1024 },
-        '16:9': { width: 1280, height: 720 },
-        '9:16': { width: 720, height: 1280 },
-        '4:3': { width: 1024, height: 768 },
-        '3:4': { width: 768, height: 1024 },
-      }
-      const dims = aspectRatioMap[settings.imageAspectRatio || '16:9'] || { width: 1280, height: 720 }
+      const dims = getImageDimensions(settings)
       const numSteps = settings.imageSteps || 4
 
       // Poll for progress

@@ -4,11 +4,12 @@ import type { GenerationMode } from './ModeTabs'
 export interface GenerationSettings {
   model: 'fast' | 'pro'
   duration: number
-  resolution: string
+  videoResolution: string
   fps: number
   audio: boolean
   cameraMotion: string
   // Image-specific settings
+  imageResolution: string
   imageAspectRatio: string
   imageSteps: number
   variations?: number  // Number of image variations to generate
@@ -109,8 +110,8 @@ export function SettingsPanel({ settings, onSettingsChange, disabled, mode = 'te
 
         <Select
           label="Resolution"
-          value={settings.resolution}
-          onChange={(e) => handleChange('resolution', e.target.value)}
+          value={settings.videoResolution}
+          onChange={(e) => handleChange('videoResolution', e.target.value)}
           disabled={disabled}
         >
           <option value="1080p">1080p</option>

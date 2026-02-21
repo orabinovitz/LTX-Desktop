@@ -317,7 +317,7 @@ function PromptBar({
   settings: {
     model: string
     duration: number
-    resolution: string
+    videoResolution: string
     aspectRatio: string
     imageResolution: string
     variations: number
@@ -550,8 +550,8 @@ function PromptBar({
             {/* Resolution dropdown */}
             <SettingsDropdown
               title="RESOLUTION"
-              value={settings.resolution}
-              onChange={(v) => onSettingsChange({ ...settings, resolution: v })}
+              value={settings.videoResolution}
+              onChange={(v) => onSettingsChange({ ...settings, videoResolution: v })}
               options={[
                 { value: '540p', label: '540p' },
                 { value: '720p', label: '720p' },
@@ -560,7 +560,7 @@ function PromptBar({
               trigger={
                 <>
                   <Monitor className="h-3.5 w-3.5" />
-                  <span>{settings.resolution.replace('p', '')}</span>
+                  <span>{settings.videoResolution.replace('p', '')}</span>
                 </>
               }
             />
@@ -691,7 +691,7 @@ export function GenSpace() {
   const [settings, setSettings] = useState({
     model: 'fast',
     duration: 5,
-    resolution: '540p',
+    videoResolution: '540p',
     aspectRatio: '16:9',
     imageResolution: '1080p',
     variations: 1,
@@ -743,14 +743,14 @@ export function GenSpace() {
             path: finalPath,
             url: finalUrl,
             prompt: lastPrompt,
-            resolution: settings.resolution,
+            resolution: settings.videoResolution,
             duration: settings.duration,
             generationParams: {
               mode: genMode as 'text-to-video' | 'image-to-video',
               prompt: lastPrompt,
               model: settings.model,
               duration: settings.duration,
-              resolution: settings.resolution,
+              resolution: settings.videoResolution,
               fps: 24,
               audio: settings.audio || false,
               cameraMotion: 'none',
@@ -870,10 +870,11 @@ export function GenSpace() {
           {
             model: 'fast' as 'fast' | 'pro',
             duration: 5,
-            resolution: settings.resolution,
+            videoResolution: settings.videoResolution,
             fps: 24,
             audio: false,
             cameraMotion: 'none',
+            imageResolution: settings.imageResolution,
             imageAspectRatio: settings.aspectRatio,
             imageSteps: 4,
           }
@@ -885,10 +886,11 @@ export function GenSpace() {
           {
             model: 'fast' as 'fast' | 'pro',
             duration: 5,
-            resolution: settings.resolution,
+            videoResolution: settings.videoResolution,
             fps: 24,
             audio: false,
             cameraMotion: 'none',
+            imageResolution: settings.imageResolution,
             imageAspectRatio: settings.aspectRatio,
             imageSteps: 4,
             variations: settings.variations,
@@ -906,10 +908,11 @@ export function GenSpace() {
         {
           model: settings.model as 'fast' | 'pro',
           duration: settings.duration,
-          resolution: settings.resolution,
+          videoResolution: settings.videoResolution,
           fps: 24,
           audio: settings.audio || false,
           cameraMotion: 'none',
+          imageResolution: settings.imageResolution,
           imageAspectRatio: settings.aspectRatio,
           imageSteps: 4,
         }

@@ -17,11 +17,12 @@ import { fileUrlToPath } from '../lib/url-to-path'
 const DEFAULT_SETTINGS: GenerationSettings = {
   model: 'fast',
   duration: 5,
-  resolution: '540p',
+  videoResolution: '540p',
   fps: 24,
   audio: true,
   cameraMotion: 'none',
   // Image settings
+  imageResolution: '1080p',
   imageAspectRatio: '16:9',
   imageSteps: 4,
 }
@@ -244,7 +245,7 @@ export function Playground() {
             <VideoPlayer
               videoUrl={videoUrl}
               videoPath={videoPath}
-              videoResolution={settings.resolution}
+              videoResolution={settings.videoResolution}
               isGenerating={isGenerating}
               progress={progress}
               statusMessage={statusMessage}
