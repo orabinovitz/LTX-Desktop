@@ -3,12 +3,6 @@
   "typeCheckingMode": "strict",
   "venvPath": ".",
   "venv": ".venv",
-  "include": [
-    "ltx2_server.py",
-    "api_types.py",
-    "_routes",
-    "_services"
-  ],
   "exclude": [
     "tests",
     ".venv",
