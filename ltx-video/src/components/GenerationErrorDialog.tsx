@@ -20,6 +20,12 @@ function getHumanMessage(error: string): string {
   if (lower.includes('fetch') || lower.includes('network') || lower.includes('econnrefused')) {
     return 'Could not connect to the generation server. Make sure the backend is running.'
   }
+  if (lower.includes('input image') || lower.includes('canvas') || lower.includes('cors')) {
+    return 'Failed to prepare the input image. The file may be corrupted or inaccessible.'
+  }
+  if (lower.includes('could not auto-generate') || lower.includes('send to genspace')) {
+    return error
+  }
   return 'Something went wrong during generation. Please try again.'
 }
 

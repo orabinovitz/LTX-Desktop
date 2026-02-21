@@ -23,6 +23,7 @@ export interface UseGapGenerationParams {
   regenProgress: number
   regenCancel: () => void
   regenReset: () => void
+  regenError: string | null
   assetSavePath: string | undefined | null
 }
 
@@ -45,6 +46,7 @@ export function useGapGeneration({
   regenProgress,
   regenCancel,
   regenReset,
+  regenError,
   assetSavePath,
 }: UseGapGenerationParams) {
   // Gap selection and generation
@@ -81,6 +83,7 @@ export function useGapGeneration({
   // Gap context-aware prompt suggestion (via Gemini)
   const [gapSuggesting, setGapSuggesting] = useState(false)
   const [gapSuggestion, setGapSuggestion] = useState<string | null>(null)
+  const [gapSuggestionError, setGapSuggestionError] = useState(false)
   const gapSuggestionAbortRef = useRef<AbortController | null>(null)
   // Frames extracted from neighboring clips for the gap animation header
   const [gapBeforeFrame, setGapBeforeFrame] = useState<string | null>(null)
@@ -218,18 +221,18 @@ export function useGapGeneration({
       // Generation ended with no result (cancelled or failed) - clean up
       if (!isRegenerating && generatingGap) {
         setGeneratingGap(null)
-        regenReset()
+        if (!regenError) regenReset()
       }
       return
     }
-    
+
     const gap = generatingGap
     const gapDuration = gap.endTime - gap.startTime
     const type = isImageResult ? 'image' : 'video'
-    
+
     ;(async () => {
       const { path: finalPath, url: finalUrl } = await copyToAssetFolder(origPath || origUrl, origUrl, assetSavePath)
-      
+
       const asset = addAsset(currentProjectId, {
         type: type as 'image' | 'video',
         path: finalPath,
@@ -342,7 +345,7 @@ export function useGapGeneration({
       regenReset()
     })()
     
-  }, [regenVideoUrl, regenImageUrl, isRegenerating, generatingGap])
+  }, [regenVideoUrl, regenImageUrl, isRegenerating, generatingGap, regenError])
 
   // --- Gap context-aware prompt suggestion via Gemini ---
   // Use refs so the async function always reads the latest values without re-creating
@@ -370,6 +373,7 @@ export function useGapGeneration({
     try {
       setGapSuggesting(true)
       setGapSuggestion(null)
+      setGapSuggestionError(false)
       
       const { extractFrameAsBase64, extractImageAsBase64 } = await import('../../lib/thumbnails')
       
@@ -494,6 +498,7 @@ export function useGapGeneration({
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return
       console.warn('Gap prompt suggestion failed:', err)
+      setGapSuggestionError(true)
     } finally {
       if (!abortController.signal.aborted) {
         setGapSuggesting(false)
@@ -570,6 +575,7 @@ export function useGapGeneration({
     gapImageInputRef,
     gapSuggesting,
     gapSuggestion,
+    gapSuggestionError,
     gapBeforeFrame,
     gapAfterFrame,
     gapShotType,

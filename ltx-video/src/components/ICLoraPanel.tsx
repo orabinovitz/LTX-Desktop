@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   X, Play, Pause, Upload, Loader2, Film, Sparkles,
-  FolderOpen, ChevronDown, RefreshCw, Settings, Download, Check,
+  FolderOpen, ChevronDown, RefreshCw, Settings, Download, Check, AlertCircle,
 } from 'lucide-react'
 
 interface ICLoraModel {
@@ -111,6 +111,7 @@ export function ICLoraPanel({
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false)
   const [generationStatus, setGenerationStatus] = useState('')
+  const [generationError, setGenerationError] = useState<string | null>(null)
   const [outputVideoUrl, setOutputVideoUrl] = useState<string | null>(null)
   const [outputVideoPath, setOutputVideoPath] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
@@ -295,6 +296,7 @@ export function ICLoraPanel({
 
     setIsGenerating(true)
     setGenerationStatus('Loading IC-LoRA pipeline...')
+    setGenerationError(null)
     setOutputVideoUrl(null)
     setOutputVideoPath(null)
 
@@ -327,10 +329,13 @@ export function ICLoraPanel({
         setOutputVideoPath(data.video_path)
         setGenerationStatus('Generation complete!')
       } else {
-        setGenerationStatus(`Error: ${data.error || 'Unknown error'}`)
+        const errorMsg = data.error || 'Unknown error'
+        setGenerationStatus(`Error: ${errorMsg}`)
+        setGenerationError(errorMsg)
       }
     } catch (e) {
       setGenerationStatus(`Error: ${(e as Error).message}`)
+      setGenerationError((e as Error).message)
     } finally {
       setIsGenerating(false)
     }
@@ -506,6 +511,18 @@ export function ICLoraPanel({
                   <span className="text-xs text-violet-300">{generationStatus}</span>
                 </div>
               )}
+              {generationError && !isGenerating && !outputVideoUrl && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-10 gap-2 p-4">
+                  <AlertCircle className="h-6 w-6 text-red-400" />
+                  <span className="text-xs text-red-400 text-center">{generationError}</span>
+                  <button
+                    onClick={() => setGenerationError(null)}
+                    className="mt-1 text-xs text-zinc-400 hover:text-zinc-200 underline"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
               {outputVideoUrl ? (
                 <video
                   ref={outputVideoRef}
@@ -513,7 +530,7 @@ export function ICLoraPanel({
                   className="max-w-full max-h-full object-contain"
                   controls
                 />
-              ) : !isGenerating ? (
+              ) : !isGenerating && !generationError ? (
                 <div className="text-center p-4">
                   <p className="text-zinc-600 text-xs">Output will appear here after generation</p>
                 </div>

@@ -683,6 +683,7 @@ export function GenSpace() {
   const [mode, setMode] = useState<'image' | 'video'>('video')
   const [prompt, setPrompt] = useState('')
   const [inputImage, setInputImage] = useState<string | null>(null)
+  const [localError, setLocalError] = useState<string | null>(null)
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [showFavorites, setShowFavorites] = useState(false)
   const [gallerySize, setGallerySize] = useState<GallerySize>('medium')
@@ -859,6 +860,7 @@ export function GenSpace() {
           }
         } catch (e) {
           console.error('Failed to convert input image for editing:', e)
+          setLocalError(e instanceof Error ? e.message : 'Failed to prepare the input image.')
           return
         }
         
@@ -1211,8 +1213,11 @@ export function GenSpace() {
         </div>
       )}
 
-      {error && (
-        <GenerationErrorDialog error={error} onDismiss={reset} />
+      {(error || localError) && (
+        <GenerationErrorDialog
+          error={(error || localError)!}
+          onDismiss={() => { if (error) reset(); if (localError) setLocalError(null) }}
+        />
       )}
     </div>
   )

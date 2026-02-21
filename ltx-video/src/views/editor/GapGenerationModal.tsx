@@ -79,6 +79,7 @@ interface GapGenerationModalProps {
   gapApplyAudioToTrack: boolean
   setGapApplyAudioToTrack: (v: boolean) => void
   regenerateSuggestion: () => void
+  gapSuggestionError?: boolean
 }
 
 function Dropdown({ label, value, onChange, options }: {
@@ -133,6 +134,7 @@ export function GapGenerationModal({
   gapApplyAudioToTrack,
   setGapApplyAudioToTrack,
   regenerateSuggestion,
+  gapSuggestionError,
 }: GapGenerationModalProps) {
   if (!selectedGap) return null
 
@@ -350,6 +352,9 @@ export function GapGenerationModal({
                     </button>
                   )}
                 </div>
+                {gapSuggestionError && !gapSuggesting && !gapSuggestion && (
+                  <p className="text-xs text-zinc-500 mt-1">Could not suggest a prompt. Type your own or try again.</p>
+                )}
               </div>
 
               {/* Shot type & camera angle — only for image editing (T2I with input image) */}

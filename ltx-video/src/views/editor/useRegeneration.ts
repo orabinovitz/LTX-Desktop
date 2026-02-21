@@ -25,6 +25,7 @@ export interface UseRegenerationParams {
   regenStatusMessage: string
   regenCancel: () => void
   regenReset: () => void
+  regenError: string | null
   assetSavePath: string | undefined | null
 }
 
@@ -37,6 +38,7 @@ export function useRegeneration(params: UseRegenerationParams) {
     regenVideoUrl, regenVideoPath, regenImageUrl,
     isRegenerating, regenProgress, regenStatusMessage,
     regenCancel, regenReset,
+    regenError,
     assetSavePath,
   } = params
 
@@ -52,6 +54,10 @@ export function useRegeneration(params: UseRegenerationParams) {
   // IC-LoRA panel state
   const [showICLoraPanel, setShowICLoraPanel] = useState(false)
   const [icLoraSourceClipId, setIcLoraSourceClipId] = useState<string | null>(null)
+
+  // Error state for imported assets that can't auto-generate a prompt
+  const [regenerationPreError, setRegenerationPreError] = useState<string | null>(null)
+  const dismissRegenerationPreError = useCallback(() => setRegenerationPreError(null), [])
 
   // Image-to-Video generation from an image clip on the timeline
   const [i2vClipId, setI2vClipId] = useState<string | null>(null)
@@ -149,6 +155,13 @@ export function useRegeneration(params: UseRegenerationParams) {
 
   }, [regenVideoUrl, isRegenerating])
 
+  // Clean up I2V state when generation fails
+  useEffect(() => {
+    if (!i2vClipId || isRegenerating || !regenError) return
+    setI2vClipId(null)
+    setI2vPrompt('')
+  }, [regenError, i2vClipId, isRegenerating])
+
   const handleRegenerate = useCallback(async (assetId: string, clipId?: string) => {
     if (!currentProjectId || isRegenerating) return
     const asset = assets.find(a => a.id === assetId)
@@ -223,6 +236,7 @@ export function useRegeneration(params: UseRegenerationParams) {
         if (clipId) {
           setClips(prev => prev.map(c => c.id === clipId ? { ...c, isRegenerating: false } : c))
         }
+        setRegenerationPreError('Could not auto-generate a prompt for this clip. Try using "Send to GenSpace" instead.')
         return
       }
     }
@@ -327,6 +341,19 @@ export function useRegeneration(params: UseRegenerationParams) {
       })()
     }
   }, [regenImageUrl, regeneratingAssetId, currentProjectId, isRegenerating])
+
+  // Clean up regeneration state when generation fails (let the error dialog handle regenReset)
+  useEffect(() => {
+    if (!regeneratingAssetId || isRegenerating || !regenError) return
+    if (regeneratingClipId) {
+      setClips(prev => prev.map(c =>
+        c.id === regeneratingClipId ? { ...c, isRegenerating: false } : c
+      ))
+    }
+    setRegeneratingAssetId(null)
+    setRegeneratingClipId(null)
+    // Do NOT call regenReset() — let the error dialog handle it
+  }, [regenError, regeneratingAssetId, isRegenerating])
 
   // Retake: regenerate a section of a video clip via LTX Cloud API
   const handleRetakeSubmit = useCallback(async (params: {
@@ -515,6 +542,8 @@ export function useRegeneration(params: UseRegenerationParams) {
     i2vClipId, setI2vClipId,
     i2vPrompt, setI2vPrompt,
     i2vSettings, setI2vSettings,
+    // Pre-generation error (e.g. imported asset can't auto-generate prompt)
+    regenerationPreError, dismissRegenerationPreError,
     // Passthrough from generation hook
     isRegenerating, regenProgress, regenStatusMessage,
     // Actions

@@ -64,6 +64,7 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
   const [installPath, setInstallPath] = useState('')
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null)
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
   const [installMessage, setInstallMessage] = useState(INSTALL_MESSAGES[0])
   const [availableSpace, setAvailableSpace] = useState('...')
   const [videoPath, setVideoPath] = useState('/splash/splash.mp4')
@@ -175,7 +176,9 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
           const progress = await response.json()
           setDownloadProgress(progress)
 
-          if (progress.status === 'complete') {
+          if (progress.status === 'error') {
+            setDownloadError(progress.error || 'Download failed.')
+          } else if (progress.status === 'complete') {
             setTimeout(() => setCurrentStep(4), 600)
           }
         }
@@ -215,7 +218,13 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
       })
     } catch (e) {
       console.error('Download start error:', e)
+      setDownloadError(e instanceof Error ? e.message : 'Failed to start model download.')
     }
+  }
+
+  const retryInstallation = () => {
+    setDownloadError(null)
+    startInstallation()
   }
 
   // Handle next button
@@ -624,6 +633,56 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
                 padding: '16px 24px',
                 borderTop: '1px solid #2a2a2a'
               }}>
+              {downloadError ? (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: '100%',
+                  gap: 10,
+                }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  <span style={{ color: '#f87171', fontSize: 13, textAlign: 'center', maxWidth: 400 }}>{downloadError}</span>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      onClick={() => { setDownloadError(null); setCurrentStep(2) }}
+                      style={{
+                        padding: '6px 20px',
+                        borderRadius: 9999,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        background: 'transparent',
+                        border: '1px solid #444',
+                        color: '#ffffff',
+                      }}
+                    >
+                      Back
+                    </button>
+                    <button
+                      onClick={retryInstallation}
+                      style={{
+                        padding: '6px 20px',
+                        borderRadius: 9999,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        background: 'linear-gradient(125deg, #A98BD9, #6D28D9)',
+                        border: 'none',
+                        color: '#ffffff',
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              ) : (
+              <>
                 {/* Header row with status and percentage */}
                 <div style={{
                   display: 'flex',
@@ -701,6 +760,8 @@ export function FirstRunSetup({ onComplete }: FirstRunSetupProps) {
                     File {downloadProgress.filesCompleted + 1} of {downloadProgress.totalFiles}
                   </div>
                 )}
+              </>
+              )}
               </div>
             </div>
           )}

@@ -55,6 +55,7 @@ import { useContextMenuEffects } from './editor/useContextMenuEffects'
 import { buildMenuDefinitions } from './editor/buildMenuDefinitions'
 import { usePlaybackEngine } from './editor/usePlaybackEngine'
 import { GapGenerationModal } from './editor/GapGenerationModal'
+import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
 import { I2vGenerationModal } from './editor/I2vGenerationModal'
 import { SubtitleTrackStyleEditor } from './editor/SubtitleTrackStyleEditor'
 
@@ -88,6 +89,7 @@ export function VideoEditor() {
     videoUrl: regenVideoUrl,
     videoPath: regenVideoPath,
     imageUrl: regenImageUrl,
+    error: regenError,
     cancel: regenCancel,
     reset: regenReset,
   } = useGeneration()
@@ -957,7 +959,7 @@ export function VideoEditor() {
     selectedGap, setSelectedGap, gapGenerateMode, setGapGenerateMode, gapGenerateModeRef,
     gapPrompt, setGapPrompt, gapSettings, setGapSettings,
     gapImageFile, setGapImageFile, gapImageInputRef,
-    gapSuggesting, gapSuggestion, gapBeforeFrame, gapAfterFrame,
+    gapSuggesting, gapSuggestion, gapSuggestionError, gapBeforeFrame, gapAfterFrame,
     gapShotType, setGapShotType, gapCameraAngle, setGapCameraAngle,
     gapApplyAudioToTrack, setGapApplyAudioToTrack,
     regenerateSuggestion,
@@ -969,7 +971,7 @@ export function VideoEditor() {
     addAsset, resolveClipSrc,
     regenGenerate, regenGenerateImage, regenEditImage,
     regenVideoUrl, regenVideoPath, regenImageUrl,
-    isRegenerating, regenProgress, regenCancel, regenReset,
+    isRegenerating, regenProgress, regenCancel, regenReset, regenError,
     assetSavePath: currentProject?.assetSavePath,
   })
   deleteGapRef.current = deleteGap
@@ -1044,6 +1046,7 @@ export function VideoEditor() {
     handleRetakeSubmit,
     handleICLoraResult,
     handleClipTakeChange, handleDeleteTake,
+    regenerationPreError, dismissRegenerationPreError,
   } = useRegeneration({
     clips, setClips, assets, currentProjectId,
     addAsset, updateAsset, addTakeToAsset, deleteTakeFromAsset,
@@ -1051,7 +1054,7 @@ export function VideoEditor() {
     regenGenerate, regenGenerateImage,
     regenVideoUrl, regenVideoPath, regenImageUrl,
     isRegenerating, regenProgress, regenStatusMessage,
-    regenCancel, regenReset,
+    regenCancel, regenReset, regenError,
     assetSavePath: currentProject?.assetSavePath,
   })
   
@@ -4372,9 +4375,10 @@ export function VideoEditor() {
           gapApplyAudioToTrack={gapApplyAudioToTrack}
           setGapApplyAudioToTrack={setGapApplyAudioToTrack}
           regenerateSuggestion={regenerateSuggestion}
+          gapSuggestionError={gapSuggestionError}
         />
       )}
-      
+
       <I2vGenerationModal
         i2vClipId={i2vClipId}
         setI2vClipId={setI2vClipId}
@@ -4398,6 +4402,16 @@ export function VideoEditor() {
           tracks={tracks}
           setTracks={setTracks}
           setSubtitles={setSubtitles}
+        />
+      )}
+
+      {(regenError || regenerationPreError) && (
+        <GenerationErrorDialog
+          error={(regenError || regenerationPreError)!}
+          onDismiss={() => {
+            if (regenError) regenReset()
+            if (regenerationPreError) dismissRegenerationPreError()
+          }}
         />
       )}
     </div>
