@@ -72,8 +72,7 @@ class ImageGenerationHandler(StateHandlerBase):
             if "cancelled" in str(e).lower():
                 logger.info("Image generation cancelled by user")
                 return GenerateImageResponse(status="cancelled")
-            logger.exception("Image generation failed")
-            raise HTTPError(500, str(e))
+            raise HTTPError(500, str(e)) from e
 
     def edit(self, form: MultipartForm) -> GenerateImageResponse:
         if self._generation.is_generation_running():
@@ -132,8 +131,7 @@ class ImageGenerationHandler(StateHandlerBase):
             if "cancelled" in str(e).lower():
                 logger.info("Image edit cancelled by user")
                 return GenerateImageResponse(status="cancelled")
-            logger.exception("Image edit failed")
-            raise HTTPError(500, str(e))
+            raise HTTPError(500, str(e)) from e
 
     def generate_image(
         self,

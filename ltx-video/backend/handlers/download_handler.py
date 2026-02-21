@@ -84,6 +84,9 @@ class DownloadHandler(StateHandlerBase):
         logger.error("Model download failed: %s", error)
         self.state.downloading_session = DownloadError(error=error)
 
+    def _on_background_download_error(self, exc: Exception) -> None:
+        self.fail_download(str(exc))
+
     @with_state_lock
     def get_download_progress(self) -> DownloadProgressResponse:
         status = "idle"
@@ -178,41 +181,42 @@ class DownloadHandler(StateHandlerBase):
 
         self.start_download(files_to_download)
 
-        try:
-            for file_key, (target_name, expected_size) in files_to_download.items():
-                spec = self._config.spec_for(file_key)
-                logger.info("Downloading %s from %s", target_name, spec.repo_id)
+        for file_key, (target_name, expected_size) in files_to_download.items():
+            spec = self._config.spec_for(file_key)
+            logger.info("Downloading %s from %s", target_name, spec.repo_id)
 
-                if spec.is_folder:
-                    allow_patterns = list(spec.snapshot_allow_patterns) if spec.snapshot_allow_patterns is not None else None
-                    self._model_downloader.download_snapshot(
-                        repo_id=spec.repo_id,
-                        local_dir=str(self._config.download_local_dir(file_key)),
-                        allow_patterns=allow_patterns,
-                    )
-                    if file_key == "text_encoder":
-                        self._rename_text_encoder_files(self._config.model_path("text_encoder"))
-                else:
-                    self._model_downloader.download_file(
-                        repo_id=spec.repo_id,
-                        filename=spec.name,
-                        local_dir=str(self._config.download_local_dir(file_key)),
-                    )
+            if spec.is_folder:
+                allow_patterns = list(spec.snapshot_allow_patterns) if spec.snapshot_allow_patterns is not None else None
+                self._model_downloader.download_snapshot(
+                    repo_id=spec.repo_id,
+                    local_dir=str(self._config.download_local_dir(file_key)),
+                    allow_patterns=allow_patterns,
+                )
+                if file_key == "text_encoder":
+                    self._rename_text_encoder_files(self._config.model_path("text_encoder"))
+            else:
+                self._model_downloader.download_file(
+                    repo_id=spec.repo_id,
+                    filename=spec.name,
+                    local_dir=str(self._config.download_local_dir(file_key)),
+                )
 
-                self.update_file_progress(file_key, expected_size, expected_size, 0)
-                self.complete_file(file_key)
+            self.update_file_progress(file_key, expected_size, expected_size, 0)
+            self.complete_file(file_key)
 
-            self._models_handler.refresh_available_files()
-        except Exception as exc:
-            logger.exception("Model download worker failed")
-            self.fail_download(str(exc))
+        self._models_handler.refresh_available_files()
 
     def start_model_download(self, skip_text_encoder: bool = False) -> bool:
         with self._lock:
             if self.state.is_downloading:
                 return False
 
-        self._task_runner.run_background(lambda: self._download_models_worker(skip_text_encoder), daemon=True)
+        self._task_runner.run_background(
+            lambda: self._download_models_worker(skip_text_encoder),
+            task_name="model-download",
+            on_error=self._on_background_download_error,
+            daemon=True,
+        )
         return True
 
     def start_text_encoder_download(self) -> bool:
@@ -221,26 +225,27 @@ class DownloadHandler(StateHandlerBase):
                 return False
 
         def worker() -> None:
-            try:
-                text_spec = self._config.spec_for("text_encoder")
-                self.start_download({"text_encoder": (text_spec.name, text_spec.expected_size_bytes)})
-                self._model_downloader.download_snapshot(
-                    repo_id=text_spec.repo_id,
-                    local_dir=str(self._config.download_local_dir("text_encoder")),
-                    allow_patterns=list(text_spec.snapshot_allow_patterns) if text_spec.snapshot_allow_patterns is not None else None,
-                )
-                self._rename_text_encoder_files(self._config.model_path("text_encoder"))
-                self.update_file_progress(
-                    "text_encoder",
-                    text_spec.expected_size_bytes,
-                    text_spec.expected_size_bytes,
-                    0,
-                )
-                self.complete_file("text_encoder")
-                self._models_handler.refresh_available_files()
-            except Exception as exc:
-                logger.exception("Text encoder download worker failed")
-                self.fail_download(str(exc))
+            text_spec = self._config.spec_for("text_encoder")
+            self.start_download({"text_encoder": (text_spec.name, text_spec.expected_size_bytes)})
+            self._model_downloader.download_snapshot(
+                repo_id=text_spec.repo_id,
+                local_dir=str(self._config.download_local_dir("text_encoder")),
+                allow_patterns=list(text_spec.snapshot_allow_patterns) if text_spec.snapshot_allow_patterns is not None else None,
+            )
+            self._rename_text_encoder_files(self._config.model_path("text_encoder"))
+            self.update_file_progress(
+                "text_encoder",
+                text_spec.expected_size_bytes,
+                text_spec.expected_size_bytes,
+                0,
+            )
+            self.complete_file("text_encoder")
+            self._models_handler.refresh_available_files()
 
-        self._task_runner.run_background(worker, daemon=True)
+        self._task_runner.run_background(
+            worker,
+            task_name="text-encoder-download",
+            on_error=self._on_background_download_error,
+            daemon=True,
+        )
         return True

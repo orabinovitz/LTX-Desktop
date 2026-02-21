@@ -64,8 +64,7 @@ class IcLoraHandler(StateHandlerBase):
             logger.warning("IC-LoRA download request rejected for model '%s': %s", req.model, exc)
             raise HTTPError(400, str(exc))
         except Exception as exc:
-            logger.exception("IC-LoRA download failed for model '%s'", req.model)
-            raise HTTPError(500, f"Download failed: {exc}")
+            raise HTTPError(500, f"Download failed: {exc}") from exc
 
     def extract_conditioning(self, req: IcLoraExtractRequest) -> IcLoraExtractResponse:
         video_file = Path(req.video_path)
@@ -187,10 +186,9 @@ class IcLoraHandler(StateHandlerBase):
             self._generation.fail_generation("IC-LoRA generation failed")
             raise
         except Exception as exc:
-            logger.exception("IC-LoRA generation failed")
             self._generation.fail_generation(str(exc))
             if "cancelled" in str(exc).lower():
                 return IcLoraGenerateResponse(status="cancelled")
-            raise HTTPError(500, f"Generation error: {exc}")
+            raise HTTPError(500, f"Generation error: {exc}") from exc
         finally:
             self._text.clear_api_embeddings()

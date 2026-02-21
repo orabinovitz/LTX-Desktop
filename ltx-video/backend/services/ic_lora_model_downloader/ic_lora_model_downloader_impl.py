@@ -98,7 +98,7 @@ class IcLoraModelDownloaderImpl:
                 "already_existed": False,
             }
         except Exception:
-            logger.exception("Failed to download IC-LoRA model '%s' from %s", model_name, url)
+            logger.error("Failed to download IC-LoRA model '%s' from %s", model_name, url)
             if tmp_path.exists():
                 try:
                     tmp_path.unlink()

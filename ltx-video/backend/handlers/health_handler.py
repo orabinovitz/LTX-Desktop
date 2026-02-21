@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from threading import RLock
 from typing import TYPE_CHECKING
 
@@ -10,13 +9,12 @@ from api_types import GpuInfoResponse, GpuTelemetry, HealthResponse, ModelStatus
 from handlers.base import StateHandlerBase, with_state_lock
 from handlers.models_handler import ModelsHandler
 from handlers.pipelines_handler import PipelinesHandler
+from logging_policy import log_background_exception
 from services.interfaces import GpuInfo
 from state.app_state_types import AppState, GpuSlot, StartupError, StartupLoading, StartupPending, StartupReady, VideoPipelineState, VideoPipelineWarmth
 
 if TYPE_CHECKING:
     from runtime_config.runtime_config import RuntimeConfig
-
-logger = logging.getLogger(__name__)
 
 
 class HealthHandler(StateHandlerBase):
@@ -148,5 +146,5 @@ class HealthHandler(StateHandlerBase):
 
             self.set_startup_ready()
         except Exception as exc:
-            logger.exception("Background warmup failed")
+            log_background_exception("health-default-warmup", exc)
             self.set_startup_error(str(exc))

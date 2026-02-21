@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request
@@ -18,12 +17,11 @@ from _routes.models import router as models_router
 from _routes.prompt import router as prompt_router
 from _routes.retake import router as retake_router
 from _routes.settings import router as settings_router
+from logging_policy import log_http_error, log_unhandled_exception
 from state import init_state_service
 
 if TYPE_CHECKING:
     from app_handler import AppHandler
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_ALLOWED_ORIGINS: list[str] = [
     "http://localhost:5173",
@@ -50,22 +48,12 @@ def create_app(
 
     @app.exception_handler(HTTPError)
     async def _route_http_error_handler(request: Request, exc: HTTPError) -> JSONResponse:
-        level = logging.ERROR if exc.status_code >= 500 else logging.WARNING
-        exc_info = (type(exc), exc, exc.__traceback__) if exc.status_code >= 500 else None
-        logger.log(
-            level,
-            "HTTP error on %s %s: [%s] %s",
-            request.method,
-            request.url.path,
-            exc.status_code,
-            exc.detail,
-            exc_info=exc_info,
-        )
+        log_http_error(request, exc)
         return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
 
     @app.exception_handler(Exception)
     async def _route_generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+        log_unhandled_exception(request, exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
     app.include_router(health_router)

@@ -7,5 +7,12 @@ from typing import Protocol
 
 
 class TaskRunner(Protocol):
-    def run_background(self, target: Callable[[], None], *, daemon: bool = True) -> None:
+    def run_background(
+        self,
+        target: Callable[[], None],
+        *,
+        task_name: str,
+        on_error: Callable[[Exception], None] | None = None,
+        daemon: bool = True,
+    ) -> None:
         ...

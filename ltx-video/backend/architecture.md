@@ -183,6 +183,51 @@ Each service should have:
 - To avoid heavy import dependencies, structural wrappers use a `*Like` suffix (e.g. `HttpResponseLike`,
   `DeviceLike`, `VideoCaptureLike`).
 
+## Exception Handling and Logging Policy
+
+The backend uses a **boundary-owned traceback policy** to avoid duplicate stack traces and fragile per-handler
+decisions.
+
+### Request path policy
+
+- `app_factory.py` owns request exception logging via centralized helpers in `logging_policy.py`.
+- `HTTPError` with status `4xx` is logged as message-only (no traceback).
+- `HTTPError` with status `5xx` is logged with full traceback.
+- Unhandled `Exception` is logged with full traceback.
+- Handlers should not call `logger.exception(...)` and then rethrow to the request boundary.
+
+### Background task policy
+
+- `ThreadingRunner` owns uncaught background exception logging via `logging_policy.log_background_exception(...)`.
+- Background callers should pass `on_error` callbacks for state transitions and avoid duplicate traceback logging.
+
+### Wrapping rules
+
+- When converting one exception into another for propagation, use exception chaining:
+  - `raise HTTPError(500, "...") from exc`
+- This preserves causal stacks while keeping traceback emission centralized.
+
+### Reference patterns
+
+Request handler pattern:
+
+```py
+try:
+    do_work()
+except Exception as exc:
+    raise HTTPError(500, "Operation failed") from exc
+```
+
+Background task pattern:
+
+```py
+task_runner.run_background(
+    target=worker,
+    task_name="model-download",
+    on_error=lambda exc: set_error_state(str(exc)),
+)
+```
+
 ## Testing strategy: integration-first, mock-free
 
 The backend aims for maximal coverage via **integration-style tests** in `tests/`:
@@ -224,3 +269,4 @@ Primary entities:
    - Keep lock scope small around heavy work.
 4. If you need a new heavy side effect, add a new service in `services/` and inject it via `ServiceBundle`.
 5. Add an integration-style test in `tests/` using a fake service implementation (no mocking/patching).
+6. Does this change follow boundary-owned traceback logging policy?

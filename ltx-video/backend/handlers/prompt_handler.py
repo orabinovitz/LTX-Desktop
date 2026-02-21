@@ -70,12 +70,10 @@ class PromptHandler(StateHandlerBase):
                 json_payload=gemini_payload,
                 timeout=30,
             )
-        except HttpTimeoutError:
-            logger.exception("Prompt enhancement request to Gemini timed out")
-            raise HTTPError(504, "Gemini API request timed out")
-        except Exception as e:
-            logger.exception("Prompt enhancement error")
-            raise HTTPError(500, str(e))
+        except HttpTimeoutError as exc:
+            raise HTTPError(504, "Gemini API request timed out") from exc
+        except Exception as exc:
+            raise HTTPError(500, str(exc)) from exc
 
         if response.status_code != 200:
             logger.error("Gemini API error: %s - %s", response.status_code, response.text)
@@ -85,9 +83,8 @@ class PromptHandler(StateHandlerBase):
         try:
             enhanced_prompt = result["candidates"][0]["content"]["parts"][0]["text"]
             return EnhancePromptResponse(status="success", enhanced_prompt=enhanced_prompt, original_prompt=prompt)
-        except (KeyError, IndexError):
-            logger.exception("Failed to parse Gemini response")
-            raise HTTPError(500, "GEMINI_PARSE_ERROR")
+        except (KeyError, IndexError) as exc:
+            raise HTTPError(500, "GEMINI_PARSE_ERROR") from exc
 
     def suggest_gap(self, req: SuggestGapPromptRequest) -> SuggestGapPromptResponse:
         before_frame = req.beforeFrame
@@ -190,12 +187,10 @@ class PromptHandler(StateHandlerBase):
                 json_payload=gemini_payload,
                 timeout=30,
             )
-        except HttpTimeoutError:
-            logger.exception("Gap prompt suggestion request to Gemini timed out")
-            raise HTTPError(504, "Gemini API request timed out")
-        except Exception as e:
-            logger.exception("Gap prompt suggestion error")
-            raise HTTPError(500, str(e))
+        except HttpTimeoutError as exc:
+            raise HTTPError(504, "Gemini API request timed out") from exc
+        except Exception as exc:
+            raise HTTPError(500, str(exc)) from exc
 
         if response.status_code != 200:
             logger.error("Gemini gap suggestion error: %s - %s", response.status_code, response.text)
@@ -205,6 +200,5 @@ class PromptHandler(StateHandlerBase):
         try:
             suggested_prompt = result["candidates"][0]["content"]["parts"][0]["text"].strip()
             return SuggestGapPromptResponse(status="success", suggested_prompt=suggested_prompt)
-        except (KeyError, IndexError):
-            logger.exception("Failed to parse Gemini gap suggestion")
-            raise HTTPError(500, "GEMINI_PARSE_ERROR")
+        except (KeyError, IndexError) as exc:
+            raise HTTPError(500, "GEMINI_PARSE_ERROR") from exc

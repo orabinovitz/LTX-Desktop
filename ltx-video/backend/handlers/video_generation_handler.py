@@ -147,8 +147,7 @@ class VideoGenerationHandler(StateHandlerBase):
                 logger.info("Generation cancelled by user")
                 return GenerateVideoResponse(status="cancelled")
 
-            logger.exception("Video generation failed")
-            raise HTTPError(500, str(e))
+            raise HTTPError(500, str(e)) from e
 
     def generate_video(
         self,

@@ -88,10 +88,25 @@ class FakeHTTPClient:
 class FakeTaskRunner:
     def __init__(self) -> None:
         self.jobs_run = 0
+        self.last_task_name: str | None = None
+        self.errors: list[Exception] = []
 
-    def run_background(self, target, *, daemon: bool = True) -> None:  # noqa: ARG002
+    def run_background(
+        self,
+        target,
+        *,
+        task_name: str,
+        on_error=None,
+        daemon: bool = True,
+    ) -> None:  # noqa: ARG002
         self.jobs_run += 1
-        target()
+        self.last_task_name = task_name
+        try:
+            target()
+        except Exception as exc:
+            self.errors.append(exc)
+            if on_error is not None:
+                on_error(exc)
 
 
 class FakeModelDownloader:
