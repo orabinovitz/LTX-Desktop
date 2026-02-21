@@ -166,25 +166,10 @@ class VideoGenerationHandler(StateHandlerBase):
         if self._generation.is_generation_cancelled():
             raise RuntimeError("Generation was cancelled")
 
-        settings = self.state.app_settings.model_copy(deep=True)
-        if not settings.use_local_text_encoder and not settings.ltx_api_key:
-            raise RuntimeError(
-                "TEXT_ENCODING_NOT_CONFIGURED: To generate videos, you need to configure text encoding. "
-                "Either enter an LTX API Key in Settings, or enable the Local Text Encoder."
-            )
-
-        if settings.use_local_text_encoder:
-            text_encoder_path = self._config.model_path("text_encoder")
-            if not text_encoder_path.exists() or not any(text_encoder_path.iterdir()):
-                raise RuntimeError(
-                    "TEXT_ENCODER_NOT_DOWNLOADED: Local text encoder is enabled but not downloaded. "
-                    "Please download it from Settings (~8 GB), or switch to using the LTX API."
-                )
-
         if not self._config.model_path("checkpoint").exists():
             raise RuntimeError("Models not downloaded. Please download the AI models first using the Model Status menu.")
 
-        total_steps = 8 if model_type in ("fast", "fast-native") else settings.pro_model.steps
+        total_steps = 8 if model_type in ("fast", "fast-native") else self.state.app_settings.pro_model.steps
 
         self._generation.update_progress("loading_model", 5, 0, total_steps)
         pipeline_state = self._pipelines.load_gpu_pipeline(model_type, should_warm=False)
@@ -203,13 +188,7 @@ class VideoGenerationHandler(StateHandlerBase):
         output_path = self._outputs_dir / f"ltx2_video_{timestamp}_{uuid.uuid4().hex[:8]}.mp4"
 
         try:
-            gemma_root = self._text.resolve_gemma_root()
-            embeddings = self._text.prepare_api_embeddings(enhanced_prompt)
-            if settings.ltx_api_key and not settings.use_local_text_encoder and embeddings is None and gemma_root is None:
-                raise RuntimeError(
-                    "LTX API text encoding failed and local text encoder is not available. "
-                    "Please download the text encoder from Settings or check your API key."
-                )
+            self._text.prepare_text_encoding(enhanced_prompt)
 
             self._generation.update_progress("inference", 15, 0, total_steps)
 

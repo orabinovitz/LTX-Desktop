@@ -108,6 +108,11 @@ class TestIcLoraGenerate:
         lora_path.parent.mkdir(parents=True, exist_ok=True)
         lora_path.write_bytes(b"\x00" * 100)
 
+        te_dir = test_state.config.model_path("text_encoder")
+        te_dir.mkdir(parents=True, exist_ok=True)
+        (te_dir / "model.safetensors").write_bytes(b"\x00" * 100)
+        test_state.state.app_settings.use_local_text_encoder = True
+
         capture = FakeCapture(frames=["f1", "f2"], fps=24, width=64, height=64)
         test_state.video_processor.register_video(str(video_path), capture)
 

@@ -116,8 +116,7 @@ class IcLoraHandler(StateHandlerBase):
             self._generation.start_generation(generation_id)
             self._generation.update_progress("loading_model", 5, 0, 1)
 
-            if self.state.app_settings.ltx_api_key:
-                self._text.prepare_api_embeddings(req.prompt)
+            self._text.prepare_text_encoding(req.prompt)
 
             cap = self._video_processor.open_video(str(video_path))
             info = self._video_processor.get_video_info(cap)
@@ -180,19 +179,18 @@ class IcLoraHandler(StateHandlerBase):
             except Exception:
                 logger.warning("Could not remove temporary control video: %s", control_video_path, exc_info=True)
 
-            self._text.clear_api_embeddings()
             self._generation.update_progress("complete", 100, 1, 1)
             self._generation.complete_generation(str(output_path))
             return IcLoraGenerateResponse(status="complete", video_path=str(output_path))
 
         except HTTPError:
             self._generation.fail_generation("IC-LoRA generation failed")
-            self._text.clear_api_embeddings()
             raise
         except Exception as exc:
             logger.exception("IC-LoRA generation failed")
             self._generation.fail_generation(str(exc))
-            self._text.clear_api_embeddings()
             if "cancelled" in str(exc).lower():
                 return IcLoraGenerateResponse(status="cancelled")
             raise HTTPError(500, f"Generation error: {exc}")
+        finally:
+            self._text.clear_api_embeddings()
