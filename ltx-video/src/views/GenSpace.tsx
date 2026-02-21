@@ -8,6 +8,7 @@ import {
 import { useProjects } from '../contexts/ProjectContext'
 import { useGeneration } from '../hooks/use-generation'
 import type { Asset } from '../types/project'
+import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
 import { copyToAssetFolder } from '../lib/asset-copy'
 import { fileUrlToPath } from '../lib/url-to-path'
 
@@ -707,6 +708,8 @@ export function GenSpace() {
     videoUrl,
     videoPath,
     imageUrls,
+    error,
+    reset,
   } = useGeneration()
   
   // Handle incoming frame from the Video Editor for editing
@@ -1203,6 +1206,10 @@ export function GenSpace() {
             </div>
           </div>
         </div>
+      )}
+
+      {error && (
+        <GenerationErrorDialog error={error} onDismiss={reset} />
       )}
     </div>
   )
