@@ -61,8 +61,10 @@ class IcLoraHandler(StateHandlerBase):
             payload = self._ic_lora_model_downloader.download_model(req.model, self._ic_lora_dir)
             return IcLoraDownloadResponse(**payload)
         except ValueError as exc:
+            logger.warning("IC-LoRA download request rejected for model '%s': %s", req.model, exc)
             raise HTTPError(400, str(exc))
         except Exception as exc:
+            logger.exception("IC-LoRA download failed for model '%s'", req.model)
             raise HTTPError(500, f"Download failed: {exc}")
 
     def extract_conditioning(self, req: IcLoraExtractRequest) -> IcLoraExtractResponse:
@@ -176,7 +178,7 @@ class IcLoraHandler(StateHandlerBase):
             try:
                 Path(control_video_path).unlink()
             except Exception:
-                pass
+                logger.warning("Could not remove temporary control video: %s", control_video_path, exc_info=True)
 
             self._text.clear_api_embeddings()
             self._generation.update_progress("complete", 100, 1, 1)
@@ -188,6 +190,7 @@ class IcLoraHandler(StateHandlerBase):
             self._text.clear_api_embeddings()
             raise
         except Exception as exc:
+            logger.exception("IC-LoRA generation failed")
             self._generation.fail_generation(str(exc))
             self._text.clear_api_embeddings()
             if "cancelled" in str(exc).lower():

@@ -148,5 +148,5 @@ class HealthHandler(StateHandlerBase):
 
             self.set_startup_ready()
         except Exception as exc:
-            logger.error("Background warmup failed: %s", exc)
+            logger.exception("Background warmup failed")
             self.set_startup_error(str(exc))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import subprocess
@@ -9,6 +10,8 @@ import subprocess
 import torch
 
 from services.gpu_info.gpu_info import GpuTelemetryPayload
+
+logger = logging.getLogger(__name__)
 
 
 class GpuInfoImpl:
@@ -29,12 +32,14 @@ class GpuInfoImpl:
             chip = result.stdout.strip()
             return chip if chip else None
         except Exception:
+            logger.warning("Failed to read macOS chip name", exc_info=True)
             return None
 
     def _get_system_ram_mb(self) -> int:
         try:
             return int((os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")) // (1024 * 1024))
         except Exception:
+            logger.warning("Failed to query system RAM", exc_info=True)
             return 0
 
     def get_gpu_info(self) -> GpuTelemetryPayload:
@@ -54,6 +59,7 @@ class GpuInfoImpl:
                     "vramUsed": memory.used // (1024 * 1024),
                 }
             except Exception:
+                logger.warning("Failed to query NVML GPU memory/name; falling back to torch metadata", exc_info=True)
                 device_name = self.get_device_name() or "Unknown"
                 total_vram_gb = self.get_vram_total_gb() or 0
                 return {
@@ -77,12 +83,14 @@ class GpuInfoImpl:
         try:
             return bool(torch.cuda.is_available())
         except Exception:
+            logger.warning("Failed to query CUDA availability", exc_info=True)
             return False
 
     def get_mps_available(self) -> bool:
         try:
             return bool(hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
         except Exception:
+            logger.warning("Failed to query MPS availability", exc_info=True)
             return False
 
     def get_gpu_available(self) -> bool:
@@ -93,6 +101,7 @@ class GpuInfoImpl:
             try:
                 return str(torch.cuda.get_device_name(0))
             except Exception:
+                logger.warning("Failed to query CUDA device name", exc_info=True)
                 return None
 
         if self.get_mps_available():
@@ -106,12 +115,14 @@ class GpuInfoImpl:
             try:
                 return int(torch.cuda.get_device_properties(0).total_memory // (1024**3))
             except Exception:
+                logger.warning("Failed to query CUDA total VRAM", exc_info=True)
                 return None
 
         if self.get_mps_available():
             try:
                 return int((os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")) // (1024**3))
             except Exception:
+                logger.warning("Failed to query MPS total memory", exc_info=True)
                 return None
 
         return None

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import urllib.request
 from pathlib import Path
 
 from services.ic_lora_model_downloader.ic_lora_model_downloader import IcLoraDownloadPayload, IcLoraModelPayload
+
+logger = logging.getLogger(__name__)
 
 
 OFFICIAL_MODELS = {
@@ -47,7 +50,7 @@ class IcLoraModelDownloaderImpl:
                 with safe_open(str(file_path), framework="pt") as sf:
                     metadata = sf.metadata() or {}
             except Exception:
-                pass
+                logger.warning("Failed to read metadata for IC-LoRA model: %s", file_path, exc_info=True)
 
             models.append(
                 {
@@ -95,9 +98,10 @@ class IcLoraModelDownloaderImpl:
                 "already_existed": False,
             }
         except Exception:
+            logger.exception("Failed to download IC-LoRA model '%s' from %s", model_name, url)
             if tmp_path.exists():
                 try:
                     tmp_path.unlink()
                 except Exception:
-                    pass
+                    logger.warning("Could not remove temporary IC-LoRA file: %s", tmp_path, exc_info=True)
             raise

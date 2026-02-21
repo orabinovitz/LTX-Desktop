@@ -81,6 +81,7 @@ class DownloadHandler(StateHandlerBase):
 
     @with_state_lock
     def fail_download(self, error: str) -> None:
+        logger.error("Model download failed: %s", error)
         self.state.downloading_session = DownloadError(error=error)
 
     @with_state_lock
@@ -203,6 +204,7 @@ class DownloadHandler(StateHandlerBase):
 
             self._models_handler.refresh_available_files()
         except Exception as exc:
+            logger.exception("Model download worker failed")
             self.fail_download(str(exc))
 
     def start_model_download(self, skip_text_encoder: bool = False) -> bool:
@@ -237,6 +239,7 @@ class DownloadHandler(StateHandlerBase):
                 self.complete_file("text_encoder")
                 self._models_handler.refresh_available_files()
             except Exception as exc:
+                logger.exception("Text encoder download worker failed")
                 self.fail_download(str(exc))
 
         self._task_runner.run_background(worker, daemon=True)

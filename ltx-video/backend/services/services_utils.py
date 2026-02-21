@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, BinaryIO, Protocol, TypeAlias, cast
+
+_bootstrap_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import torch
@@ -11,6 +14,7 @@ else:
     try:
         import torch as _torch
     except Exception:
+        _bootstrap_logger.warning("Failed to import torch; using stubbed protocol types", exc_info=True)
         class _TorchStub:
             class Tensor:  # pragma: no cover - structural fallback for type aliases
                 pass
@@ -49,6 +53,8 @@ else:
 
 TensorOrNone: TypeAlias = TensorType | None
 
+logger = logging.getLogger(__name__)
+
 
 def get_device_type(device: DeviceLike | object | None) -> str:
     if device is None:
@@ -62,6 +68,7 @@ def get_device_type(device: DeviceLike | object | None) -> str:
         try:
             return str(torch.device(device).type)
         except Exception:
+            logger.warning("Could not parse device string '%s', using it as-is", device, exc_info=True)
             return device
 
     return "cpu"
@@ -77,14 +84,14 @@ def sync_device(device: DeviceLike | object | None) -> None:
         try:
             torch.cuda.synchronize()
         except Exception:
-            pass
+            logger.warning("torch.cuda.synchronize() failed", exc_info=True)
         return
 
     if device_type == "mps" and hasattr(torch, "mps"):
         try:
             torch.mps.synchronize()
         except Exception:
-            pass
+            logger.warning("torch.mps.synchronize() failed", exc_info=True)
 
 
 def empty_device_cache(device: DeviceLike | object | None) -> None:
@@ -93,14 +100,14 @@ def empty_device_cache(device: DeviceLike | object | None) -> None:
         try:
             torch.cuda.empty_cache()
         except Exception:
-            pass
+            logger.warning("torch.cuda.empty_cache() failed", exc_info=True)
         return
 
     if device_type == "mps" and hasattr(torch, "mps"):
         try:
             torch.mps.empty_cache()
         except Exception:
-            pass
+            logger.warning("torch.mps.empty_cache() failed", exc_info=True)
 
 
 class LatentStateLike(Protocol):

@@ -49,12 +49,21 @@ def create_app(
     )
 
     @app.exception_handler(HTTPError)
-    async def _route_http_error_handler(_request: Request, exc: HTTPError) -> JSONResponse:
+    async def _route_http_error_handler(request: Request, exc: HTTPError) -> JSONResponse:
+        level = logging.ERROR if exc.status_code >= 500 else logging.WARNING
+        logger.log(
+            level,
+            "HTTP error on %s %s: [%s] %s",
+            request.method,
+            request.url.path,
+            exc.status_code,
+            exc.detail,
+        )
         return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
 
     @app.exception_handler(Exception)
-    async def _route_generic_error_handler(_request: Request, exc: Exception) -> JSONResponse:
-        logger.error("Unhandled error: %s", exc)
+    async def _route_generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        logger.exception("Unhandled error on %s %s", request.method, request.url.path)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
     app.include_router(health_router)

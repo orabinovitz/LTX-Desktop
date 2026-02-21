@@ -64,7 +64,7 @@ class LTXTextEncoder:
                         te_state.cached_encoder.to(self.device)
                         sync_device(self.device)
                     except Exception:
-                        pass
+                        logger.warning("Failed to move cached text encoder to %s", self.device, exc_info=True)
                     return te_state.cached_encoder
 
                 te_state.cached_encoder = cast(CachedTextEncoder, original_text_encoder(this))
@@ -77,7 +77,7 @@ class LTXTextEncoder:
                     try:
                         te_state.cached_encoder.to("cpu")
                     except Exception:
-                        pass
+                        logger.warning("Failed to move cached text encoder to CPU", exc_info=True)
                 original_cleanup_memory()
 
             ModelLedger.text_encoder = patched_text_encoder
@@ -136,7 +136,7 @@ class LTXTextEncoder:
                     module = __import__(module_name, fromlist=["encode_text"])
                     module.encode_text = patched_encode_text
                 except Exception:
-                    pass
+                    logger.warning("Failed to patch encode_text for module %s", module_name, exc_info=True)
 
             self._encode_text_patched = True
             logger.info("Installed encode_text API embeddings patch")

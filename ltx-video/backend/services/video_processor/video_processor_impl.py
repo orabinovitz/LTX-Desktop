@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 
 from services.video_processor.video_processor import VideoInfoPayload
 from services.services_utils import FrameArray, VideoCaptureLike, VideoWriterLike
+
+logger = logging.getLogger(__name__)
 
 
 class VideoProcessorImpl:
@@ -69,4 +72,4 @@ class VideoProcessorImpl:
         try:
             cap_or_writer.release()
         except Exception:
-            pass
+            logger.warning("Failed to release video resource", exc_info=True)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from api_types import CancelResponse, GenerationProgressResponse
 from handlers.base import StateHandlerBase, with_state_lock
 from state.app_state_types import (
@@ -13,6 +15,8 @@ from state.app_state_types import (
     GenerationState,
     GpuSlot,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class GenerationHandler(StateHandlerBase):
@@ -79,8 +83,10 @@ class GenerationHandler(StateHandlerBase):
             case GpuSlot(generation=GenerationCancelled(id=_)):
                 return
             case GpuSlot(generation=GenerationRunning(id=generation_id)) as gpu_slot:
+                logger.error("Generation %s failed: %s", generation_id, error)
                 gpu_slot.generation = GenerationError(id=generation_id, error=error)
             case _:
+                logger.error("Generation failed without active running job: %s", error)
                 return
 
     @with_state_lock

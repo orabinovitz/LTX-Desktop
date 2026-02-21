@@ -35,7 +35,7 @@ class SettingsHandler(StateHandlerBase):
                 self.state.app_settings = loaded
                 return loaded
             except Exception as exc:
-                logger.warning("Could not load settings: %s", exc)
+                logger.warning("Could not load settings: %s", exc, exc_info=True)
 
         self.state.app_settings = default_settings.model_copy(deep=True)
         return self.state.app_settings
@@ -46,7 +46,7 @@ class SettingsHandler(StateHandlerBase):
             with open(self._settings_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
         except Exception as exc:
-            logger.warning("Could not save settings: %s", exc)
+            logger.warning("Could not save settings: %s", exc, exc_info=True)
 
     @with_state_lock
     def get_settings_snapshot(self) -> AppSettings:

@@ -27,6 +27,7 @@ def migrate_legacy_models_layout(app_data_dir: Path) -> None:
             source.rename(target)
         except OSError:
             # Cross-device or platform-specific rename failures should not block startup.
+            logger.warning("Rename failed for legacy model path %s -> %s, falling back to move()", source, target, exc_info=True)
             shutil.move(str(source), str(target))
 
     try:

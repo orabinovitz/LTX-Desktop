@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 
 import requests
 
 from services.http_client.http_client import HttpTimeoutError
 from services.services_utils import JSONValue, RequestData
+
+logger = logging.getLogger(__name__)
 
 
 class HTTPClientImpl:
@@ -24,6 +27,7 @@ class HTTPClientImpl:
         try:
             return requests.post(url, headers=headers, json=json_payload, data=data, timeout=timeout)
         except requests.exceptions.Timeout as exc:
+            logger.error("HTTP POST timed out: %s", url, exc_info=True)
             raise HttpTimeoutError(str(exc)) from exc
 
     def get(
@@ -35,6 +39,7 @@ class HTTPClientImpl:
         try:
             return requests.get(url, headers=headers, timeout=timeout)
         except requests.exceptions.Timeout as exc:
+            logger.error("HTTP GET timed out: %s", url, exc_info=True)
             raise HttpTimeoutError(str(exc)) from exc
 
     def put(
@@ -47,4 +52,5 @@ class HTTPClientImpl:
         try:
             return requests.put(url, data=data, headers=headers, timeout=timeout)
         except requests.exceptions.Timeout as exc:
+            logger.error("HTTP PUT timed out: %s", url, exc_info=True)
             raise HttpTimeoutError(str(exc)) from exc

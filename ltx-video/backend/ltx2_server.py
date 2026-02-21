@@ -1,5 +1,6 @@
 """FastAPI composition root for the LTX backend server."""
 import os
+import sys
 
 if os.environ.get("DEBUG") == "1":
     try:
@@ -7,8 +8,8 @@ if os.environ.get("DEBUG") == "1":
 
         if not debugpy.is_client_connected():
             debugpy.listen(("127.0.0.1", 5678))
-    except (ImportError, RuntimeError):
-        pass
+    except (ImportError, RuntimeError) as exc:
+        print(f"Debugpy setup failed: {exc}", file=sys.stderr)
 
 import logging
 from pathlib import Path
@@ -53,7 +54,8 @@ try:
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(log_formatter)
     handlers.append(file_handler)
-except Exception:
+except Exception as exc:
+    print(f"Primary log file setup failed at {LOG_FILE}: {exc}", file=sys.stderr)
     fallback_log_dir = Path(tempfile.gettempdir()) / "ltx-video-studio" / "logs"
     try:
         fallback_log_dir.mkdir(parents=True, exist_ok=True)
@@ -67,8 +69,8 @@ except Exception:
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(log_formatter)
         handlers.append(file_handler)
-    except Exception:
-        pass
+    except Exception as fallback_exc:
+        print(f"Fallback log file setup failed at {fallback_log_dir}: {fallback_exc}", file=sys.stderr)
 
 logging.basicConfig(level=logging.INFO, handlers=handlers)
 logger = logging.getLogger(__name__)
@@ -78,6 +80,7 @@ logger.info(f"Log file: {LOG_FILE}")
 # SageAttention Integration
 # ============================================================
 USE_SAGE_ATTENTION = os.environ.get("USE_SAGE_ATTENTION", "1") == "1"
+_sageattention_runtime_fallback_logged = False
 
 if USE_SAGE_ATTENTION:
     try:
@@ -87,6 +90,7 @@ if USE_SAGE_ATTENTION:
         _original_sdpa = F.scaled_dot_product_attention
 
         def patched_sdpa(query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None, **kwargs):
+            global _sageattention_runtime_fallback_logged
             try:
                 if query.dim() == 4 and attn_mask is None and dropout_p == 0.0:
                     return sageattn(query, key, value, is_causal=is_causal, tensor_layout="HND")
@@ -94,6 +98,9 @@ if USE_SAGE_ATTENTION:
                     return _original_sdpa(query, key, value, attn_mask=attn_mask,
                                          dropout_p=dropout_p, is_causal=is_causal, scale=scale, **kwargs)
             except Exception:
+                if not _sageattention_runtime_fallback_logged:
+                    logger.warning("SageAttention failed during runtime; falling back to default attention", exc_info=True)
+                    _sageattention_runtime_fallback_logged = True
                 return _original_sdpa(query, key, value, attn_mask=attn_mask,
                                      dropout_p=dropout_p, is_causal=is_causal, scale=scale, **kwargs)
 
@@ -102,8 +109,8 @@ if USE_SAGE_ATTENTION:
     except ImportError:
         logger.warning("SageAttention not installed - using default attention")
         USE_SAGE_ATTENTION = False
-    except Exception as e:
-        logger.warning(f"Failed to enable SageAttention: {e}")
+    except Exception:
+        logger.warning("Failed to enable SageAttention", exc_info=True)
         USE_SAGE_ATTENTION = False
 
 # ============================================================
@@ -138,6 +145,7 @@ def _resolve_app_data_dir() -> Path:
         candidate.mkdir(parents=True, exist_ok=True)
         return candidate
     except Exception:
+        logger.warning("Could not create app data directory at %s, using temp dir fallback", candidate, exc_info=True)
         fallback = Path(tempfile.gettempdir()) / "ltx-video-studio"
         fallback.mkdir(parents=True, exist_ok=True)
         return fallback
@@ -224,7 +232,7 @@ def precache_model_files(model_dir: Path) -> int:
                         pass
                 total_bytes += size
             except Exception:
-                pass
+                logger.warning("Failed to precache model file: %s", f, exc_info=True)
     return total_bytes
 
 

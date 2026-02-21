@@ -71,9 +71,10 @@ class PromptHandler(StateHandlerBase):
                 timeout=30,
             )
         except HttpTimeoutError:
+            logger.error("Prompt enhancement request to Gemini timed out")
             raise HTTPError(504, "Gemini API request timed out")
         except Exception as e:
-            logger.error("Prompt enhancement error: %s", e)
+            logger.exception("Prompt enhancement error")
             raise HTTPError(500, str(e))
 
         if response.status_code != 200:
@@ -84,8 +85,8 @@ class PromptHandler(StateHandlerBase):
         try:
             enhanced_prompt = result["candidates"][0]["content"]["parts"][0]["text"]
             return EnhancePromptResponse(status="success", enhanced_prompt=enhanced_prompt, original_prompt=prompt)
-        except (KeyError, IndexError) as e:
-            logger.error("Failed to parse Gemini response: %s", e)
+        except (KeyError, IndexError):
+            logger.exception("Failed to parse Gemini response")
             raise HTTPError(500, "GEMINI_PARSE_ERROR")
 
     def suggest_gap(self, req: SuggestGapPromptRequest) -> SuggestGapPromptResponse:
@@ -190,9 +191,10 @@ class PromptHandler(StateHandlerBase):
                 timeout=30,
             )
         except HttpTimeoutError:
+            logger.error("Gap prompt suggestion request to Gemini timed out")
             raise HTTPError(504, "Gemini API request timed out")
         except Exception as e:
-            logger.error("Gap prompt suggestion error: %s", e)
+            logger.exception("Gap prompt suggestion error")
             raise HTTPError(500, str(e))
 
         if response.status_code != 200:
@@ -203,6 +205,6 @@ class PromptHandler(StateHandlerBase):
         try:
             suggested_prompt = result["candidates"][0]["content"]["parts"][0]["text"].strip()
             return SuggestGapPromptResponse(status="success", suggested_prompt=suggested_prompt)
-        except (KeyError, IndexError) as e:
-            logger.error("Failed to parse Gemini gap suggestion: %s", e)
+        except (KeyError, IndexError):
+            logger.exception("Failed to parse Gemini gap suggestion")
             raise HTTPError(500, "GEMINI_PARSE_ERROR")
