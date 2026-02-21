@@ -322,206 +322,209 @@ export function RetakeModal({
           </button>
         </div>
 
-        {/* Video Preview */}
-        <div className="relative bg-black flex-shrink-0">
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            className="w-full max-h-[320px] object-contain"
-            onClick={togglePlay}
-            onEnded={() => setIsPlaying(false)}
-          />
-          {/* Play/Mute overlay */}
-          <div className="absolute bottom-2 left-2 flex items-center gap-1.5">
+        {/* Scrollable content area */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {/* Video Preview */}
+          <div className="relative bg-black flex-shrink-0">
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              className="w-full max-h-[320px] object-contain"
+              onClick={togglePlay}
+              onEnded={() => setIsPlaying(false)}
+            />
+            {/* Play/Mute overlay */}
+            <div className="absolute bottom-2 left-2 flex items-center gap-1.5">
+              <button
+                onClick={toggleMute}
+                className="p-1.5 rounded bg-black/60 hover:bg-black/80 text-white/80 hover:text-white transition-colors"
+              >
+                {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Playback bar */}
+          <div className="flex items-center justify-center gap-3 px-5 py-2 bg-zinc-900 border-b border-zinc-800">
             <button
-              onClick={toggleMute}
-              className="p-1.5 rounded bg-black/60 hover:bg-black/80 text-white/80 hover:text-white transition-colors"
+              onClick={togglePlay}
+              className="p-1 rounded hover:bg-zinc-800 text-white transition-colors"
             >
-              {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+              {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </button>
-          </div>
-        </div>
-
-        {/* Playback bar */}
-        <div className="flex items-center justify-center gap-3 px-5 py-2 bg-zinc-900 border-b border-zinc-800">
-          <button
-            onClick={togglePlay}
-            className="p-1 rounded hover:bg-zinc-800 text-white transition-colors"
-          >
-            {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-          </button>
-          <span className="text-xs font-mono text-zinc-400">
-            {formatTimecode(currentTime)} / {formatTimecode(videoDuration)}
-          </span>
-        </div>
-
-        {/* Section selector instructions */}
-        <div className="px-5 pt-3 pb-1">
-          <p className="text-xs font-semibold text-white">Select the video part to regenerate</p>
-          <p className="text-[10px] text-zinc-500 mt-0.5">
-            Then tap continue and describe what should happen in the prompt panel
-          </p>
-        </div>
-
-        {/* Filmstrip section selector */}
-        <div className="px-5 pb-3">
-          {/* Playhead notch sits above the filmstrip */}
-          <div className="relative h-3 mb-0">
-            <div
-              className="absolute pointer-events-none z-10"
-              style={{ left: `${playheadFrac * 100}%`, transform: 'translateX(-50%)' }}
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10">
-                <polygon points="0,0 10,0 5,8" fill="#fff" />
-              </svg>
-            </div>
-          </div>
-          <div
-            ref={filmstripRef}
-            className="relative h-14 rounded-md overflow-hidden cursor-pointer select-none"
-            onClick={handleFilmstripClick}
-          >
-            {/* Thumbnail strip background */}
-            <div className="absolute inset-0 flex">
-              {thumbnails.length > 0 ? (
-                thumbnails.map((thumb, i) => (
-                  <img
-                    key={i}
-                    src={thumb}
-                    alt=""
-                    className="h-full flex-1 object-cover"
-                    style={{ minWidth: 0 }}
-                    draggable={false}
-                  />
-                ))
-              ) : (
-                <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
-                  <Loader2 className="h-4 w-4 text-zinc-600 animate-spin" />
-                </div>
-              )}
-            </div>
-
-            {/* Dimmed regions outside selection */}
-            <div
-              className="absolute top-0 bottom-0 left-0 bg-black/75 pointer-events-none"
-              style={{ width: `${selStartFrac * 100}%` }}
-            />
-            <div
-              className="absolute top-0 bottom-0 right-0 bg-black/75 pointer-events-none"
-              style={{ width: `${(1 - selEndFrac) * 100}%` }}
-            />
-
-            {/* Solid white overlay on the selected range */}
-            <div
-              className="absolute top-0 bottom-0 bg-white pointer-events-none"
-              style={{
-                left: `${selStartFrac * 100}%`,
-                width: `${(selEndFrac - selStartFrac) * 100}%`,
-              }}
-            />
-
-            {/* Draggable range area (grab the middle to slide the whole selection) */}
-            <div
-              className={`absolute top-0 bottom-0 z-[12] ${draggingHandle === 'range' ? 'cursor-grabbing' : 'cursor-grab'}`}
-              style={{
-                left: `calc(${selStartFrac * 100}% + 14px)`,
-                width: `calc(${(selEndFrac - selStartFrac) * 100}% - 28px)`,
-              }}
-              onMouseDown={(e) => handleFilmstripMouseDown(e, 'range')}
-            />
-
-            {/* Selection border (blue frame) */}
-            <div
-              className="absolute top-0 bottom-0 border-2 border-blue-500 pointer-events-none"
-              style={{
-                left: `${selStartFrac * 100}%`,
-                width: `${(selEndFrac - selStartFrac) * 100}%`,
-              }}
-            />
-
-            {/* Start handle — wide hit area */}
-            <div
-              className="absolute top-0 bottom-0 cursor-ew-resize z-20 group"
-              style={{ left: `calc(${selStartFrac * 100}% - 6px)`, width: '20px' }}
-              onMouseDown={(e) => handleFilmstripMouseDown(e, 'start')}
-            >
-              <div className="absolute top-0 bottom-0 bg-blue-500 group-hover:bg-blue-400 transition-colors"
-                style={{ left: '5px', width: '4px', borderRadius: '2px 0 0 2px' }}
-              />
-              <div className="absolute top-0 bg-blue-500 group-hover:bg-blue-400 transition-colors" style={{ left: '5px', width: '10px', height: '3px', borderRadius: '2px 0 0 0' }} />
-              <div className="absolute bottom-0 bg-blue-500 group-hover:bg-blue-400 transition-colors" style={{ left: '5px', width: '10px', height: '3px', borderRadius: '0 0 0 2px' }} />
-            </div>
-
-            {/* End handle — wide hit area */}
-            <div
-              className="absolute top-0 bottom-0 cursor-ew-resize z-20 group"
-              style={{ left: `calc(${selEndFrac * 100}% - 14px)`, width: '20px' }}
-              onMouseDown={(e) => handleFilmstripMouseDown(e, 'end')}
-            >
-              <div className="absolute top-0 bottom-0 bg-blue-500 group-hover:bg-blue-400 transition-colors"
-                style={{ right: '5px', width: '4px', borderRadius: '0 2px 2px 0' }}
-              />
-              <div className="absolute top-0 bg-blue-500 group-hover:bg-blue-400 transition-colors" style={{ right: '5px', width: '10px', height: '3px', borderRadius: '0 2px 0 0' }} />
-              <div className="absolute bottom-0 bg-blue-500 group-hover:bg-blue-400 transition-colors" style={{ right: '5px', width: '10px', height: '3px', borderRadius: '0 0 2px 0' }} />
-            </div>
-
-            {/* Playhead line */}
-            <div
-              className="absolute top-0 bottom-0 w-0.5 bg-zinc-800 pointer-events-none z-[15]"
-              style={{ left: `${playheadFrac * 100}%` }}
-            />
-
-            {/* Timecode label at center of selection */}
-            <div
-              className="absolute top-1/2 pointer-events-none z-10"
-              style={{
-                left: `${((selStartFrac + selEndFrac) / 2) * 100}%`,
-                transform: 'translate(-50%, -50%)',
-              }}
-            >
-              <span className="text-[11px] font-mono text-zinc-700 bg-white/90 rounded px-2 py-0.5 font-semibold shadow">
-                {formatTimecode(selDuration)}
-              </span>
-            </div>
+            <span className="text-xs font-mono text-zinc-400">
+              {formatTimecode(currentTime)} / {formatTimecode(videoDuration)}
+            </span>
           </div>
 
-          {/* Selection time labels */}
-          <div className="flex justify-between mt-1.5">
-            <span className="text-[10px] font-mono text-blue-400">{formatTimecode(selStart)}</span>
-            <span className="text-[10px] font-mono text-zinc-500">Duration: {formatTimecode(selDuration)}</span>
-            <span className="text-[10px] font-mono text-blue-400">{formatTimecode(selEnd)}</span>
+          {/* Section selector instructions */}
+          <div className="px-5 pt-3 pb-1">
+            <p className="text-xs font-semibold text-white">Select the video part to regenerate</p>
+            <p className="text-[10px] text-zinc-500 mt-0.5">
+              Then tap continue and describe what should happen in the prompt panel
+            </p>
           </div>
-        </div>
 
-        {/* Prompt */}
-        <div className="px-5 pb-3 space-y-3 border-t border-zinc-800 pt-3">
-          {/* Prompt input */}
-          <div>
-            <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
-              Prompt <span className="text-zinc-600">(optional)</span>
-            </label>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              disabled={isProcessing}
-              placeholder="Describe what should happen in the selected section..."
-              className="w-full h-16 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-600 resize-none focus:outline-none focus:border-violet-500 transition-colors disabled:opacity-50"
-            />
-          </div>
-        </div>
-
-        {/* Processing status */}
-        {isProcessing && (
+          {/* Filmstrip section selector */}
           <div className="px-5 pb-3">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-600/10 border border-violet-500/20">
-              <Loader2 className="h-3.5 w-3.5 text-violet-400 animate-spin flex-shrink-0" />
-              <span className="text-xs text-violet-300">{processingStatus || 'Processing retake...'}</span>
+            {/* Playhead notch sits above the filmstrip */}
+            <div className="relative h-3 mb-0">
+              <div
+                className="absolute pointer-events-none z-10"
+                style={{ left: `${playheadFrac * 100}%`, transform: 'translateX(-50%)' }}
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10">
+                  <polygon points="0,0 10,0 5,8" fill="#fff" />
+                </svg>
+              </div>
+            </div>
+            <div
+              ref={filmstripRef}
+              className="relative h-14 rounded-md overflow-hidden cursor-pointer select-none"
+              onClick={handleFilmstripClick}
+            >
+              {/* Thumbnail strip background */}
+              <div className="absolute inset-0 flex">
+                {thumbnails.length > 0 ? (
+                  thumbnails.map((thumb, i) => (
+                    <img
+                      key={i}
+                      src={thumb}
+                      alt=""
+                      className="h-full flex-1 object-cover"
+                      style={{ minWidth: 0 }}
+                      draggable={false}
+                    />
+                  ))
+                ) : (
+                  <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+                    <Loader2 className="h-4 w-4 text-zinc-600 animate-spin" />
+                  </div>
+                )}
+              </div>
+
+              {/* Dimmed regions outside selection */}
+              <div
+                className="absolute top-0 bottom-0 left-0 bg-black/75 pointer-events-none"
+                style={{ width: `${selStartFrac * 100}%` }}
+              />
+              <div
+                className="absolute top-0 bottom-0 right-0 bg-black/75 pointer-events-none"
+                style={{ width: `${(1 - selEndFrac) * 100}%` }}
+              />
+
+              {/* Solid white overlay on the selected range */}
+              <div
+                className="absolute top-0 bottom-0 bg-white pointer-events-none"
+                style={{
+                  left: `${selStartFrac * 100}%`,
+                  width: `${(selEndFrac - selStartFrac) * 100}%`,
+                }}
+              />
+
+              {/* Draggable range area (grab the middle to slide the whole selection) */}
+              <div
+                className={`absolute top-0 bottom-0 z-[12] ${draggingHandle === 'range' ? 'cursor-grabbing' : 'cursor-grab'}`}
+                style={{
+                  left: `calc(${selStartFrac * 100}% + 14px)`,
+                  width: `calc(${(selEndFrac - selStartFrac) * 100}% - 28px)`,
+                }}
+                onMouseDown={(e) => handleFilmstripMouseDown(e, 'range')}
+              />
+
+              {/* Selection border (blue frame) */}
+              <div
+                className="absolute top-0 bottom-0 border-2 border-blue-500 pointer-events-none"
+                style={{
+                  left: `${selStartFrac * 100}%`,
+                  width: `${(selEndFrac - selStartFrac) * 100}%`,
+                }}
+              />
+
+              {/* Start handle — wide hit area */}
+              <div
+                className="absolute top-0 bottom-0 cursor-ew-resize z-20 group"
+                style={{ left: `calc(${selStartFrac * 100}% - 6px)`, width: '20px' }}
+                onMouseDown={(e) => handleFilmstripMouseDown(e, 'start')}
+              >
+                <div className="absolute top-0 bottom-0 bg-blue-500 group-hover:bg-blue-400 transition-colors"
+                  style={{ left: '5px', width: '4px', borderRadius: '2px 0 0 2px' }}
+                />
+                <div className="absolute top-0 bg-blue-500 group-hover:bg-blue-400 transition-colors" style={{ left: '5px', width: '10px', height: '3px', borderRadius: '2px 0 0 0' }} />
+                <div className="absolute bottom-0 bg-blue-500 group-hover:bg-blue-400 transition-colors" style={{ left: '5px', width: '10px', height: '3px', borderRadius: '0 0 0 2px' }} />
+              </div>
+
+              {/* End handle — wide hit area */}
+              <div
+                className="absolute top-0 bottom-0 cursor-ew-resize z-20 group"
+                style={{ left: `calc(${selEndFrac * 100}% - 14px)`, width: '20px' }}
+                onMouseDown={(e) => handleFilmstripMouseDown(e, 'end')}
+              >
+                <div className="absolute top-0 bottom-0 bg-blue-500 group-hover:bg-blue-400 transition-colors"
+                  style={{ right: '5px', width: '4px', borderRadius: '0 2px 2px 0' }}
+                />
+                <div className="absolute top-0 bg-blue-500 group-hover:bg-blue-400 transition-colors" style={{ right: '5px', width: '10px', height: '3px', borderRadius: '0 2px 0 0' }} />
+                <div className="absolute bottom-0 bg-blue-500 group-hover:bg-blue-400 transition-colors" style={{ right: '5px', width: '10px', height: '3px', borderRadius: '0 0 2px 0' }} />
+              </div>
+
+              {/* Playhead line */}
+              <div
+                className="absolute top-0 bottom-0 w-0.5 bg-zinc-800 pointer-events-none z-[15]"
+                style={{ left: `${playheadFrac * 100}%` }}
+              />
+
+              {/* Timecode label at center of selection */}
+              <div
+                className="absolute top-1/2 pointer-events-none z-10"
+                style={{
+                  left: `${((selStartFrac + selEndFrac) / 2) * 100}%`,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              >
+                <span className="text-[11px] font-mono text-zinc-700 bg-white/90 rounded px-2 py-0.5 font-semibold shadow">
+                  {formatTimecode(selDuration)}
+                </span>
+              </div>
+            </div>
+
+            {/* Selection time labels */}
+            <div className="flex justify-between mt-1.5">
+              <span className="text-[10px] font-mono text-blue-400">{formatTimecode(selStart)}</span>
+              <span className="text-[10px] font-mono text-zinc-500">Duration: {formatTimecode(selDuration)}</span>
+              <span className="text-[10px] font-mono text-blue-400">{formatTimecode(selEnd)}</span>
             </div>
           </div>
-        )}
+
+          {/* Prompt */}
+          <div className="px-5 pb-3 space-y-3 border-t border-zinc-800 pt-3">
+            {/* Prompt input */}
+            <div>
+              <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
+                Prompt <span className="text-zinc-600">(optional)</span>
+              </label>
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                disabled={isProcessing}
+                placeholder="Describe what should happen in the selected section..."
+                className="w-full h-16 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-600 resize-none focus:outline-none focus:border-violet-500 transition-colors disabled:opacity-50"
+              />
+            </div>
+          </div>
+
+          {/* Processing status */}
+          {isProcessing && (
+            <div className="px-5 pb-3">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-600/10 border border-violet-500/20">
+                <Loader2 className="h-3.5 w-3.5 text-violet-400 animate-spin flex-shrink-0" />
+                <span className="text-xs text-violet-300">{processingStatus || 'Processing retake...'}</span>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Footer buttons */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-zinc-800">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-zinc-800 flex-shrink-0">
           <button
             onClick={onClose}
             disabled={isProcessing}
