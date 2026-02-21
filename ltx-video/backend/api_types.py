@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, TypeAlias, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -37,6 +37,9 @@ class ModelDownloadState(TypedDict):
     speed_mbps: int
 
 
+JsonObject: TypeAlias = dict[str, object]
+
+
 # ============================================================
 # Response Models
 # ============================================================
@@ -49,6 +52,12 @@ class ModelStatusItem(BaseModel):
     downloaded: bool
 
 
+class GpuTelemetry(BaseModel):
+    name: str
+    vram: int
+    vramUsed: int
+
+
 class HealthResponse(BaseModel):
     status: str
     models_loaded: bool
@@ -56,7 +65,7 @@ class HealthResponse(BaseModel):
     fast_loaded: bool
     pro_loaded: bool
     pro_native_loaded: bool
-    gpu_info: dict[str, Any]
+    gpu_info: GpuTelemetry
     sage_attention: bool
     models_status: list[ModelStatusItem]
 
@@ -67,7 +76,7 @@ class GpuInfoResponse(BaseModel):
     gpu_available: bool = False
     gpu_name: str | None
     vram_gb: int | None
-    gpu_info: dict[str, Any]
+    gpu_info: GpuTelemetry
 
 
 class GenerationProgressResponse(BaseModel):
@@ -103,7 +112,7 @@ class TextEncoderStatus(BaseModel):
 
 
 class ModelsStatusResponse(BaseModel):
-    models: list[dict[str, Any]]
+    models: list[ModelFileStatus]
     all_downloaded: bool
     total_size: int
     downloaded_size: int
@@ -111,7 +120,7 @@ class ModelsStatusResponse(BaseModel):
     downloaded_size_gb: float
     models_path: str
     has_api_key: bool
-    text_encoder_status: dict[str, Any]
+    text_encoder_status: TextEncoderStatus
     use_local_text_encoder: bool
 
 
@@ -136,7 +145,7 @@ class IcLoraModel(BaseModel):
 
 
 class IcLoraListResponse(BaseModel):
-    models: list[dict[str, Any]]
+    models: list[IcLoraModel]
     directory: str
 
 
@@ -171,7 +180,7 @@ class CancelResponse(BaseModel):
 class RetakeResponse(BaseModel):
     status: str
     video_path: str | None = None
-    result: dict[str, Any] | None = None
+    result: JsonObject | None = None
 
 
 class IcLoraExtractResponse(BaseModel):

@@ -1,0 +1,39 @@
+"""Runtime configuration model."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+
+from runtime_config.model_download_specs import ModelFileDownloadSpec
+from state.app_state_types import ModelFileType
+
+
+@dataclass
+class RuntimeConfig:
+    device: str | object
+    models_dir: Path
+    model_download_specs: Mapping[ModelFileType, ModelFileDownloadSpec]
+    required_model_types: frozenset[ModelFileType]
+    outputs_dir: Path
+    ic_lora_dir: Path
+    settings_file: Path
+    ltx_api_base_url: str
+    use_sage_attention: bool
+    camera_motion_prompts: dict[str, str]
+    default_negative_prompt: str
+
+    def spec_for(self, model_type: ModelFileType) -> ModelFileDownloadSpec:
+        return self.model_download_specs[model_type]
+
+    def model_path(self, model_type: ModelFileType) -> Path:
+        return self.models_dir / self.spec_for(model_type).relative_path
+
+    def download_local_dir(self, model_type: ModelFileType) -> Path:
+        spec = self.spec_for(model_type)
+        if not spec.is_folder:
+            return self.model_path(model_type).parent
+        if spec.snapshot_allow_patterns is None:
+            return self.model_path(model_type)
+        return self.models_dir

@@ -1,0 +1,642 @@
+"""Test doubles for backend side-effect services."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, ClassVar
+
+from PIL import Image
+from services.interfaces import IcLoraDownloadPayload, IcLoraModelPayload, VideoInfoPayload
+from tests.fakes.fake_gpu_info import FakeGpuInfo
+
+
+@dataclass
+class FakeResponse:
+    status_code: int = 200
+    text: str = ""
+    headers: dict[str, str] = field(default_factory=dict)
+    content: bytes = b""
+    json_payload: Any = field(default_factory=dict)
+
+    def json(self) -> Any:
+        return self.json_payload
+
+
+@dataclass
+class HttpCall:
+    method: str
+    url: str
+    headers: dict[str, str] | None
+    json_payload: dict[str, Any] | None
+    data: Any
+    timeout: int
+
+
+class FakeHTTPClient:
+    def __init__(self) -> None:
+        self.calls: list[HttpCall] = []
+        self._queues: dict[str, list[FakeResponse | Exception]] = {
+            "post": [],
+            "get": [],
+            "put": [],
+        }
+
+    def queue(self, method: str, *items: FakeResponse | Exception) -> None:
+        self._queues[method].extend(items)
+
+    def _dequeue(self, method: str) -> FakeResponse:
+        queue = self._queues[method]
+        if not queue:
+            raise RuntimeError(f"No queued {method.upper()} response")
+        item = queue.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    def post(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        json_payload: dict[str, Any] | None = None,
+        data: Any = None,
+        timeout: int = 30,
+    ) -> FakeResponse:
+        self.calls.append(HttpCall("post", url, headers, json_payload, data, timeout))
+        return self._dequeue("post")
+
+    def get(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> FakeResponse:
+        self.calls.append(HttpCall("get", url, headers, None, None, timeout))
+        return self._dequeue("get")
+
+    def put(
+        self,
+        url: str,
+        data: Any = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 300,
+    ) -> FakeResponse:
+        self.calls.append(HttpCall("put", url, headers, None, data, timeout))
+        return self._dequeue("put")
+
+
+class FakeTaskRunner:
+    def __init__(self) -> None:
+        self.jobs_run = 0
+
+    def run_background(self, target, *, daemon: bool = True) -> None:  # noqa: ARG002
+        self.jobs_run += 1
+        target()
+
+
+class FakeModelDownloader:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.fail_next: Exception | None = None
+
+    def _raise_if_needed(self) -> None:
+        if self.fail_next is None:
+            return
+        error = self.fail_next
+        self.fail_next = None
+        raise error
+
+    def download_file(self, repo_id: str, filename: str, local_dir: str) -> Path:
+        self._raise_if_needed()
+        self.calls.append({"kind": "file", "repo_id": repo_id, "filename": filename, "local_dir": local_dir})
+
+        destination = Path(local_dir) / filename
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"\x00" * 1024)
+        return destination
+
+    def download_snapshot(self, repo_id: str, local_dir: str, allow_patterns: list[str] | None = None) -> Path:
+        self._raise_if_needed()
+        self.calls.append(
+            {
+                "kind": "snapshot",
+                "repo_id": repo_id,
+                "local_dir": local_dir,
+                "allow_patterns": allow_patterns,
+            }
+        )
+
+        root = Path(local_dir)
+        root.mkdir(parents=True, exist_ok=True)
+
+        if allow_patterns and any(pattern.startswith("text_encoder/") for pattern in allow_patterns):
+            text_encoder = root / "text_encoder"
+            text_encoder.mkdir(parents=True, exist_ok=True)
+            (text_encoder / "diffusion_pytorch_model.safetensors").write_bytes(b"\x00" * 1024)
+        else:
+            (root / "model.safetensors").write_bytes(b"\x00" * 1024)
+
+        return root
+
+
+class FakeGpuCleaner:
+    def __init__(self) -> None:
+        self.cleanup_calls = 0
+
+    def cleanup(self) -> None:
+        self.cleanup_calls += 1
+
+
+class FakeCapture:
+    def __init__(
+        self,
+        frames: list[Any] | None = None,
+        *,
+        fps: float = 24,
+        width: int = 64,
+        height: int = 64,
+        opened: bool = True,
+    ) -> None:
+        self.frames = list(frames) if frames is not None else ["frame-0", "frame-1", "frame-2"]
+        self.fps = fps
+        self.width = width
+        self.height = height
+        self.opened = opened
+        self.position = 0
+        self.released = False
+
+    def isOpened(self) -> bool:  # noqa: N802
+        return self.opened
+
+    def release(self) -> None:
+        self.released = True
+
+
+class FakeWriter:
+    def __init__(self, path: str) -> None:
+        self.path = Path(path)
+        self.frames: list[Any] = []
+        self.released = False
+
+    def write(self, frame: Any) -> None:
+        self.frames.append(frame)
+
+    def release(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_bytes(b"writer-output")
+        self.released = True
+
+
+class FakeVideoProcessor:
+    def __init__(self) -> None:
+        self.videos: dict[str, FakeCapture] = {}
+        self.writers: list[FakeWriter] = []
+
+    def register_video(self, path: str, capture: FakeCapture) -> None:
+        self.videos[path] = capture
+
+    def open_video(self, path: str) -> FakeCapture:
+        return self.videos.setdefault(path, FakeCapture())
+
+    def get_video_info(self, cap: FakeCapture) -> VideoInfoPayload:
+        return {
+            "fps": cap.fps,
+            "frame_count": len(cap.frames),
+            "width": cap.width,
+            "height": cap.height,
+        }
+
+    def read_frame(self, cap: FakeCapture, frame_idx: int | None = None) -> Any | None:
+        if frame_idx is not None:
+            cap.position = frame_idx
+        if cap.position >= len(cap.frames):
+            return None
+        frame = cap.frames[cap.position]
+        cap.position += 1
+        return frame
+
+    def apply_canny(self, frame: Any) -> Any:
+        return f"canny:{frame}"
+
+    def apply_depth(self, frame: Any) -> Any:
+        return f"depth:{frame}"
+
+    def encode_frame_jpeg(self, frame: Any, quality: int = 85) -> bytes:  # noqa: ARG002
+        return f"jpeg:{frame}".encode("utf-8")
+
+    def create_writer(self, path: str, fourcc: str, fps: float, size: tuple[int, int]) -> FakeWriter:  # noqa: ARG002
+        writer = FakeWriter(path)
+        self.writers.append(writer)
+        return writer
+
+    def release(self, cap_or_writer: FakeCapture | FakeWriter) -> None:
+        cap_or_writer.release()
+
+
+class _FakeVideoPipelineBase:
+    pipeline_kind: str
+
+    def __init__(self) -> None:
+        self.generate_calls: list[dict[str, Any]] = []
+        self.warmup_calls: list[dict[str, Any]] = []
+        self.compile_calls = 0
+        self.raise_on_generate: Exception | None = None
+
+    def _record_generate(self, payload: dict[str, Any]) -> None:
+        self.generate_calls.append(payload)
+        if self.raise_on_generate is not None:
+            raise self.raise_on_generate
+
+        output_path = Path(payload["output_path"])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"fake-video")
+
+    def warmup(self, output_path: str) -> None:
+        self.warmup_calls.append({"output_path": output_path})
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"warmup")
+        path.unlink(missing_ok=True)
+
+    def compile_transformer(self) -> None:
+        self.compile_calls += 1
+
+
+class FakeFastVideoPipeline(_FakeVideoPipelineBase):
+    pipeline_kind = "fast"
+    _singleton: ClassVar["FakeFastVideoPipeline | None"] = None
+
+    @classmethod
+    def bind_singleton(cls, pipeline: "FakeFastVideoPipeline") -> None:
+        cls._singleton = pipeline
+
+    @staticmethod
+    def create(
+        checkpoint_path: str,
+        gemma_root: str | None,
+        upsampler_path: str,
+        device: str | object,
+    ) -> "FakeFastVideoPipeline":
+        del checkpoint_path, gemma_root, upsampler_path, device
+        pipeline = FakeFastVideoPipeline._singleton
+        if pipeline is None:
+            raise RuntimeError("FakeFastVideoPipeline singleton is not bound")
+        return pipeline
+
+    def generate(
+        self,
+        prompt: str,
+        seed: int,
+        height: int,
+        width: int,
+        num_frames: int,
+        frame_rate: float,
+        images: list[tuple[str, int, float]],
+        output_path: str,
+    ) -> None:
+        self._record_generate(
+            {
+                "prompt": prompt,
+                "seed": seed,
+                "height": height,
+                "width": width,
+                "num_frames": num_frames,
+                "frame_rate": frame_rate,
+                "images": images,
+                "output_path": output_path,
+            }
+        )
+
+
+class FakeFastNativeVideoPipeline(_FakeVideoPipelineBase):
+    pipeline_kind = "fast-native"
+    _singleton: ClassVar["FakeFastNativeVideoPipeline | None"] = None
+
+    @classmethod
+    def bind_singleton(cls, pipeline: "FakeFastNativeVideoPipeline") -> None:
+        cls._singleton = pipeline
+
+    @staticmethod
+    def create(
+        checkpoint_path: str,
+        gemma_root: str | None,
+        device: str | object,
+    ) -> "FakeFastNativeVideoPipeline":
+        del checkpoint_path, gemma_root, device
+        pipeline = FakeFastNativeVideoPipeline._singleton
+        if pipeline is None:
+            raise RuntimeError("FakeFastNativeVideoPipeline singleton is not bound")
+        return pipeline
+
+    def generate(
+        self,
+        prompt: str,
+        seed: int,
+        height: int,
+        width: int,
+        num_frames: int,
+        frame_rate: float,
+        images: list[tuple[str, int, float]],
+        output_path: str,
+    ) -> None:
+        self._record_generate(
+            {
+                "prompt": prompt,
+                "seed": seed,
+                "height": height,
+                "width": width,
+                "num_frames": num_frames,
+                "frame_rate": frame_rate,
+                "images": images,
+                "output_path": output_path,
+            }
+        )
+
+
+class FakeProVideoPipeline(_FakeVideoPipelineBase):
+    pipeline_kind = "pro"
+    _singleton: ClassVar["FakeProVideoPipeline | None"] = None
+
+    @classmethod
+    def bind_singleton(cls, pipeline: "FakeProVideoPipeline") -> None:
+        cls._singleton = pipeline
+
+    @staticmethod
+    def create(
+        checkpoint_path: str,
+        gemma_root: str | None,
+        upsampler_path: str,
+        distilled_lora_path: str,
+        device: str | object,
+    ) -> "FakeProVideoPipeline":
+        del checkpoint_path, gemma_root, upsampler_path, distilled_lora_path, device
+        pipeline = FakeProVideoPipeline._singleton
+        if pipeline is None:
+            raise RuntimeError("FakeProVideoPipeline singleton is not bound")
+        return pipeline
+
+    def generate(
+        self,
+        prompt: str,
+        negative_prompt: str,
+        seed: int,
+        height: int,
+        width: int,
+        num_frames: int,
+        frame_rate: float,
+        num_inference_steps: int,
+        images: list[tuple[str, int, float]],
+        output_path: str,
+    ) -> None:
+        self._record_generate(
+            {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "seed": seed,
+                "height": height,
+                "width": width,
+                "num_frames": num_frames,
+                "frame_rate": frame_rate,
+                "num_inference_steps": num_inference_steps,
+                "images": images,
+                "output_path": output_path,
+            }
+        )
+
+
+class FakeProNativeVideoPipeline(_FakeVideoPipelineBase):
+    pipeline_kind = "pro-native"
+    _singleton: ClassVar["FakeProNativeVideoPipeline | None"] = None
+
+    @classmethod
+    def bind_singleton(cls, pipeline: "FakeProNativeVideoPipeline") -> None:
+        cls._singleton = pipeline
+
+    @staticmethod
+    def create(
+        checkpoint_path: str,
+        gemma_root: str | None,
+        device: str | object,
+    ) -> "FakeProNativeVideoPipeline":
+        del checkpoint_path, gemma_root, device
+        pipeline = FakeProNativeVideoPipeline._singleton
+        if pipeline is None:
+            raise RuntimeError("FakeProNativeVideoPipeline singleton is not bound")
+        return pipeline
+
+    def generate(
+        self,
+        prompt: str,
+        negative_prompt: str,
+        seed: int,
+        height: int,
+        width: int,
+        num_frames: int,
+        frame_rate: float,
+        num_inference_steps: int,
+        images: list[tuple[str, int, float]],
+        output_path: str,
+    ) -> None:
+        self._record_generate(
+            {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "seed": seed,
+                "height": height,
+                "width": width,
+                "num_frames": num_frames,
+                "frame_rate": frame_rate,
+                "num_inference_steps": num_inference_steps,
+                "images": images,
+                "output_path": output_path,
+            }
+        )
+
+
+class FakeFluxOutput:
+    def __init__(self, color: str = "red") -> None:
+        self.images = [Image.new("RGB", (32, 32), color)]
+
+
+class FakeImageGenerationPipeline:
+    _singleton: ClassVar["FakeImageGenerationPipeline | None"] = None
+
+    @classmethod
+    def bind_singleton(cls, pipeline: "FakeImageGenerationPipeline") -> None:
+        cls._singleton = pipeline
+
+    @staticmethod
+    def create(
+        model_path: str,
+        device: str | None = None,
+    ) -> "FakeImageGenerationPipeline":
+        del model_path
+        pipeline = FakeImageGenerationPipeline._singleton
+        if pipeline is None:
+            raise RuntimeError("FakeImageGenerationPipeline singleton is not bound")
+        if device is not None:
+            pipeline.to(device)
+        return pipeline
+
+    def __init__(self) -> None:
+        self.device: str | None = None
+        self.generate_calls: list[dict[str, Any]] = []
+        self.generate_edit_calls: list[dict[str, Any]] = []
+        self.raise_on_generate: Exception | None = None
+        self.raise_on_generate_edit: Exception | None = None
+
+    def generate(self, **kwargs: Any) -> FakeFluxOutput:
+        self.generate_calls.append(kwargs)
+        if self.raise_on_generate is not None:
+            raise self.raise_on_generate
+        return FakeFluxOutput(color="blue")
+
+    def generate_edit(self, **kwargs: Any) -> FakeFluxOutput:
+        self.generate_edit_calls.append(kwargs)
+        if self.raise_on_generate_edit is not None:
+            raise self.raise_on_generate_edit
+        return FakeFluxOutput(color="green")
+
+    def to(self, device: str) -> None:
+        self.device = device
+
+
+class FakeIcLoraPipeline:
+    _singleton: ClassVar["FakeIcLoraPipeline | None"] = None
+
+    @classmethod
+    def bind_singleton(cls, pipeline: "FakeIcLoraPipeline") -> None:
+        cls._singleton = pipeline
+
+    @staticmethod
+    def create(
+        checkpoint_path: str,
+        gemma_root: str | None,
+        upsampler_path: str,
+        lora_path: str,
+        device: str | object,
+    ) -> "FakeIcLoraPipeline":
+        del checkpoint_path, gemma_root, upsampler_path, lora_path, device
+        pipeline = FakeIcLoraPipeline._singleton
+        if pipeline is None:
+            raise RuntimeError("FakeIcLoraPipeline singleton is not bound")
+        return pipeline
+
+    def __init__(self) -> None:
+        self.generate_calls: list[dict[str, Any]] = []
+        self.raise_on_generate: Exception | None = None
+
+    def generate(self, **kwargs: Any) -> None:
+        self.generate_calls.append(kwargs)
+        if self.raise_on_generate is not None:
+            raise self.raise_on_generate
+
+        output_path = Path(kwargs["output_path"])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"fake-ic-lora-video")
+
+
+class FakeIcLoraModelDownloader:
+    _MODEL_FILES = {
+        "canny": "ltx-2-19b-ic-lora-canny-control.safetensors",
+        "depth": "ltx-2-19b-ic-lora-depth-control.safetensors",
+        "pose": "ltx-2-19b-ic-lora-pose-control.safetensors",
+        "detailer": "ltx-2-19b-ic-lora-detailer.safetensors",
+    }
+
+    def __init__(self) -> None:
+        self.download_calls: list[str] = []
+        self.fail_next: Exception | None = None
+
+    def list_models(self, directory: Path) -> list[IcLoraModelPayload]:
+        if not directory.exists():
+            return []
+
+        models: list[IcLoraModelPayload] = []
+        for file_path in sorted(directory.iterdir()):
+            if file_path.suffix != ".safetensors" or not file_path.is_file():
+                continue
+            models.append(
+                {
+                    "name": file_path.stem,
+                    "path": str(file_path),
+                    "conditioning_type": "unknown",
+                    "reference_downscale_factor": 1,
+                }
+            )
+        return models
+
+    def download_model(self, model_name: str, directory: Path) -> IcLoraDownloadPayload:
+        self.download_calls.append(model_name)
+        if self.fail_next is not None:
+            error = self.fail_next
+            self.fail_next = None
+            raise error
+
+        filename = self._MODEL_FILES.get(model_name)
+        if filename is None:
+            raise ValueError(f"Unknown model: {model_name}. Must be one of: {list(self._MODEL_FILES)}")
+
+        destination = directory / filename
+        if destination.exists() and destination.stat().st_size > 1_000_000:
+            return {
+                "status": "complete",
+                "path": str(destination),
+                "already_existed": True,
+            }
+
+        directory.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"\x00" * 2_000_000)
+        return {
+            "status": "complete",
+            "path": str(destination),
+            "already_existed": False,
+        }
+
+
+class FakeTextEncoder:
+    def __init__(self) -> None:
+        self.install_calls = 0
+        self.encode_calls: list[dict[str, Any]] = []
+        self.encode_responses: list[Any] = []
+
+    def install_patches(self, state_getter) -> None:  # noqa: ARG002
+        self.install_calls += 1
+
+    def encode_via_api(self, prompt: str, api_key: str, checkpoint_path: str) -> Any | None:
+        self.encode_calls.append(
+            {
+                "prompt": prompt,
+                "api_key": api_key,
+                "checkpoint_path": checkpoint_path,
+            }
+        )
+        if self.encode_responses:
+            return self.encode_responses.pop(0)
+        return None
+
+
+@dataclass
+class FakeServices:
+    http: FakeHTTPClient = field(default_factory=FakeHTTPClient)
+    gpu_cleaner: FakeGpuCleaner = field(default_factory=FakeGpuCleaner)
+    model_downloader: FakeModelDownloader = field(default_factory=FakeModelDownloader)
+    gpu_info: FakeGpuInfo = field(default_factory=FakeGpuInfo)
+    video_processor: FakeVideoProcessor = field(default_factory=FakeVideoProcessor)
+    text_encoder: FakeTextEncoder = field(default_factory=FakeTextEncoder)
+    task_runner: FakeTaskRunner = field(default_factory=FakeTaskRunner)
+    fast_video_pipeline: FakeFastVideoPipeline = field(default_factory=FakeFastVideoPipeline)
+    fast_native_video_pipeline: FakeFastNativeVideoPipeline = field(default_factory=FakeFastNativeVideoPipeline)
+    pro_video_pipeline: FakeProVideoPipeline = field(default_factory=FakeProVideoPipeline)
+    pro_native_video_pipeline: FakeProNativeVideoPipeline = field(default_factory=FakeProNativeVideoPipeline)
+    image_generation_pipeline: FakeImageGenerationPipeline = field(default_factory=FakeImageGenerationPipeline)
+    ic_lora_pipeline: FakeIcLoraPipeline = field(default_factory=FakeIcLoraPipeline)
+    ic_lora_model_downloader: FakeIcLoraModelDownloader = field(default_factory=FakeIcLoraModelDownloader)
+
+    def __post_init__(self) -> None:
+        FakeFastVideoPipeline.bind_singleton(self.fast_video_pipeline)
+        FakeFastNativeVideoPipeline.bind_singleton(self.fast_native_video_pipeline)
+        FakeProVideoPipeline.bind_singleton(self.pro_video_pipeline)
+        FakeProNativeVideoPipeline.bind_singleton(self.pro_native_video_pipeline)
+        FakeImageGenerationPipeline.bind_singleton(self.image_generation_pipeline)
+        FakeIcLoraPipeline.bind_singleton(self.ic_lora_pipeline)

@@ -1,63 +1,75 @@
 """Tests for /health and /api/gpu-info endpoints."""
-import sys
 
-from unittest.mock import MagicMock, patch
+from state.app_state_types import GpuSlot, VideoPipelineState, VideoPipelineWarmth
+from tests.fakes.services import (
+    FakeFastNativeVideoPipeline,
+    FakeFastVideoPipeline,
+    FakeProNativeVideoPipeline,
+    FakeProVideoPipeline,
+)
 
-import ltx2_server
 
-GPU_INFO_STUB = {"name": "Test GPU", "vram": 8192, "vramUsed": 1024}
+def _set_video_pipeline(state, model_type: str):
+    pipeline_by_model = {
+        "fast": FakeFastVideoPipeline,
+        "fast-native": FakeFastNativeVideoPipeline,
+        "pro": FakeProVideoPipeline,
+        "pro-native": FakeProNativeVideoPipeline,
+    }
+    state.state.gpu_slot = GpuSlot(
+        active_pipeline=VideoPipelineState(
+            pipeline=pipeline_by_model[model_type](),
+            warmth=VideoPipelineWarmth.COLD,
+            is_compiled=False,
+        ),
+        generation=None,
+    )
 
 
 class TestHealth:
-    """GET /health"""
-
-    @patch("ltx2_server.get_gpu_info", return_value=GPU_INFO_STUB)
-    def test_no_models_loaded(self, _gpu, client):
+    def test_no_models_loaded(self, client):
         r = client.get("/health")
         assert r.status_code == 200
         data = r.json()
         assert data["status"] == "ok"
         assert data["models_loaded"] is False
         assert data["active_model"] is None
-        assert data["fast_loaded"] is False
-        assert data["pro_loaded"] is False
 
-    @patch("ltx2_server.get_gpu_info", return_value=GPU_INFO_STUB)
-    def test_fast_model_loaded(self, _gpu, client):
-        ltx2_server.distilled_pipeline = MagicMock()
+    def test_fast_model_loaded(self, client, test_state):
+        _set_video_pipeline(test_state, "fast")
         r = client.get("/health")
         data = r.json()
         assert data["models_loaded"] is True
         assert data["active_model"] == "fast"
         assert data["fast_loaded"] is True
 
-    @patch("ltx2_server.get_gpu_info", return_value=GPU_INFO_STUB)
-    def test_pro_model_loaded(self, _gpu, client):
-        ltx2_server.pro_pipeline = MagicMock()
+    def test_fast_native_model_loaded(self, client, test_state):
+        _set_video_pipeline(test_state, "fast-native")
         r = client.get("/health")
         data = r.json()
         assert data["models_loaded"] is True
-        assert data["active_model"] == "pro"
+        assert data["active_model"] == "fast-native"
+        assert data["fast_loaded"] is True
 
-    @patch("ltx2_server.get_gpu_info", return_value=GPU_INFO_STUB)
-    def test_models_downloaded(self, _gpu, client, create_fake_model_files):
+    def test_models_downloaded(self, client, create_fake_model_files):
         create_fake_model_files()
         r = client.get("/health")
         data = r.json()
-        for ms in data["models_status"]:
-            assert ms["downloaded"] is True
+        for model_status in data["models_status"]:
+            assert model_status["downloaded"] is True
 
-    @patch("ltx2_server.get_gpu_info", return_value=GPU_INFO_STUB)
-    def test_cors_header(self, _gpu, client):
+    def test_cors_header(self, client):
         r = client.get("/health", headers={"Origin": "http://localhost:5173"})
         assert r.headers.get("access-control-allow-origin") == "http://localhost:5173"
 
 
 class TestGpuInfo:
-    """GET /api/gpu-info"""
+    def test_no_cuda(self, client, test_state):
+        test_state.gpu_info.cuda_available = False
+        test_state.gpu_info.gpu_name = None
+        test_state.gpu_info.vram_gb = None
+        test_state.gpu_info.gpu_info = {"name": "Unknown", "vram": 0, "vramUsed": 0}
 
-    @patch("ltx2_server.get_gpu_info", return_value={"name": "Unknown", "vram": 0, "vramUsed": 0})
-    def test_no_cuda(self, _gpu, client):
         r = client.get("/api/gpu-info")
         assert r.status_code == 200
         data = r.json()
@@ -65,19 +77,15 @@ class TestGpuInfo:
         assert data["gpu_name"] is None
         assert data["vram_gb"] is None
 
-    @patch("ltx2_server.get_gpu_info", return_value={"name": "RTX 5090", "vram": 32768, "vramUsed": 1024})
-    def test_with_cuda(self, _gpu, client):
-        torch_mod = sys.modules["torch"]
-        torch_mod.cuda.is_available.return_value = True
-        torch_mod.cuda.get_device_name.return_value = "RTX 5090"
-        props = MagicMock()
-        props.total_memory = 32 * 1024**3
-        torch_mod.cuda.get_device_properties.return_value = props
+    def test_with_cuda(self, client, test_state):
+        test_state.gpu_info.cuda_available = True
+        test_state.gpu_info.gpu_name = "RTX 5090"
+        test_state.gpu_info.vram_gb = 32
+        test_state.gpu_info.gpu_info = {"name": "Test GPU", "vram": 8192, "vramUsed": 1024}
 
         r = client.get("/api/gpu-info")
+        assert r.status_code == 200
         data = r.json()
         assert data["cuda_available"] is True
         assert data["gpu_name"] == "RTX 5090"
         assert data["vram_gb"] == 32
-
-

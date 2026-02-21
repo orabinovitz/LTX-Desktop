@@ -1,292 +1,155 @@
-"""
-Test infrastructure for ltx2_server integration tests.
+"""Test infrastructure for backend integration-style endpoint tests."""
 
-Installs GPU/ML module stubs before importing the server module,
-redirects file paths to temp directories, and provides TestClient fixtures.
-"""
-import sys
-import os
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock
+from __future__ import annotations
+
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 
-# ============================================================
-# 1. Pre-import stubs — must run before ltx2_server is imported
-# ============================================================
+from state.app_settings import AppSettings
+from app_factory import create_app
+from state import RuntimeConfig, build_initial_state, set_state_service_for_tests
+from app_handler import ServiceBundle
+from runtime_config.model_download_specs import DEFAULT_MODEL_DOWNLOAD_SPECS, DEFAULT_REQUIRED_MODEL_TYPES
+from tests.fakes.services import FakeServices
 
-os.environ["USE_SAGE_ATTENTION"] = "0"
-
-
-def _make_torch_stub():
-    """Create a torch stub that satisfies import-time usage."""
-    torch = MagicMock()
-    torch.cuda.is_available.return_value = False
-    torch.device.return_value = MagicMock()
-    torch.bfloat16 = MagicMock()
-    torch.float16 = MagicMock()
-    torch.float32 = MagicMock()
-    # @torch.inference_mode() must work as a pass-through decorator
-    torch.inference_mode.return_value = lambda fn: fn
-    return torch
-
-
-_torch_stub = _make_torch_stub()
-
-_STUB_MODULES = {
-    # PyTorch
-    "torch": _torch_stub,
-    "torch.nn": MagicMock(),
-    "torch.nn.functional": MagicMock(),
-    # GPU probing
-    "pynvml": MagicMock(),
-    # HuggingFace
-    "huggingface_hub": MagicMock(),
-    # SageAttention (skipped via env, stub as safety net)
-    "sageattention": MagicMock(),
-    # ltx_core tree
-    "ltx_core": MagicMock(),
-    "ltx_core.model": MagicMock(),
-    "ltx_core.model.audio_vae": MagicMock(),
-    "ltx_core.model.video_vae": MagicMock(),
-    "ltx_core.components": MagicMock(),
-    "ltx_core.components.diffusion_steps": MagicMock(),
-    "ltx_core.components.noisers": MagicMock(),
-    "ltx_core.types": MagicMock(),
-    "ltx_core.text_encoders": MagicMock(),
-    "ltx_core.text_encoders.gemma": MagicMock(),
-    "ltx_core.loader": MagicMock(),
-    "ltx_core.loader.primitives": MagicMock(),
-    "ltx_core.loader.sd_ops": MagicMock(),
-    "ltx_core.quantization": MagicMock(),
-    # ltx_pipelines tree
-    "ltx_pipelines": MagicMock(),
-    "ltx_pipelines.distilled": MagicMock(),
-    "ltx_pipelines.ti2vid_two_stages": MagicMock(),
-    "ltx_pipelines.ti2vid_one_stage": MagicMock(),
-    "ltx_pipelines.ic_lora": MagicMock(),
-    "ltx_pipelines.utils": MagicMock(),
-    "ltx_pipelines.utils.helpers": MagicMock(),
-    "ltx_pipelines.utils.types": MagicMock(),
-    "ltx_pipelines.utils.constants": MagicMock(),
-    "ltx_pipelines.utils.media_io": MagicMock(),
-    "ltx_pipelines.utils.model_ledger": MagicMock(),
-    # diffusers
-    "diffusers": MagicMock(),
-    # media / IO
-    "safetensors": MagicMock(),
-    "safetensors.torch": MagicMock(),
-    "cv2": MagicMock(),
-    "imageio_ffmpeg": MagicMock(),
-    "av": MagicMock(),
+CAMERA_MOTION_PROMPTS = {
+    "none": "",
+    "static": ", static camera, locked off shot, no camera movement",
+    "focus_shift": ", focus shift, rack focus, changing focal point",
+    "dolly_in": ", dolly in, camera pushing forward, smooth forward movement",
+    "dolly_out": ", dolly out, camera pulling back, smooth backward movement",
+    "dolly_left": ", dolly left, camera tracking left, lateral movement",
+    "dolly_right": ", dolly right, camera tracking right, lateral movement",
+    "jib_up": ", jib up, camera rising up, upward crane movement",
+    "jib_down": ", jib down, camera lowering down, downward crane movement",
 }
 
-for _name, _stub in _STUB_MODULES.items():
-    sys.modules.setdefault(_name, _stub)
+DEFAULT_NEGATIVE_PROMPT = (
+    "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, "
+    "excessive noise, grainy texture"
+)
 
-# Make safetensors.safe_open always raise so the handler falls through
-# to the except block and sets conditioning_type = "unknown".
-sys.modules["safetensors"].safe_open.side_effect = Exception("stub")
-
-# Now import the server module (stubs are in place)
-import ltx2_server  # noqa: E402
-
-# Suppress noisy server logging during tests
-import logging  # noqa: E402
-
-logging.getLogger("ltx2_server").setLevel(logging.CRITICAL)
-logging.getLogger("__main__").setLevel(logging.CRITICAL)
+DEFAULT_APP_SETTINGS = AppSettings(
+    t2v_system_prompt="Default t2v system prompt",
+    i2v_system_prompt="Default i2v system prompt",
+)
 
 
-# ============================================================
-# 2. Path redirection — session-scoped
-# ============================================================
+@pytest.fixture
+def fake_services() -> FakeServices:
+    return FakeServices()
 
-@pytest.fixture(scope="session", autouse=True)
-def _redirect_paths():
-    """Redirect all module-level paths to a temporary directory."""
-    with tempfile.TemporaryDirectory(prefix="ltx_test_") as tmpdir:
-        tmp = Path(tmpdir)
-
-        models_dir = tmp / "models" / "ltx-2"
-        flux_dir = tmp / "models" / "FLUX.2-klein-4B"
-        outputs_dir = tmp / "outputs"
-        ic_lora_dir = models_dir / "ic-loras"
-        log_dir = tmp / "logs"
-        settings_dir = tmp
-
-        for d in [models_dir, flux_dir, outputs_dir, ic_lora_dir, log_dir, settings_dir]:
-            d.mkdir(parents=True, exist_ok=True)
-
-        ltx2_server.APP_DATA_DIR = tmp
-        ltx2_server.LOG_DIR = log_dir
-        ltx2_server.LOG_FILE = log_dir / "backend.log"
-        ltx2_server.MODELS_DIR = models_dir
-        ltx2_server.FLUX_MODELS_DIR = flux_dir
-        ltx2_server.OUTPUTS_DIR = outputs_dir
-        ltx2_server.IC_LORA_DIR = ic_lora_dir
-        ltx2_server.SETTINGS_DIR = settings_dir
-        ltx2_server.SETTINGS_FILE = settings_dir / "settings.json"
-        ltx2_server.CHECKPOINT_PATH = models_dir / "ltx-2-19b-distilled-fp8.safetensors"
-        ltx2_server.UPSAMPLER_PATH = models_dir / "ltx-2-spatial-upscaler-x2-1.0.safetensors"
-        ltx2_server.GEMMA_PATH = models_dir
-        ltx2_server.DISTILLED_LORA_PATH = models_dir / "ltx-2-19b-distilled-lora-384.safetensors"
-
-        yield tmp
-
-
-# ============================================================
-# 3. Default settings factory
-# ============================================================
-
-def _default_settings():
-    return ltx2_server.DEFAULT_APP_SETTINGS.model_copy(deep=True)
-
-
-# ============================================================
-# 4. State reset — function-scoped, autouse
-# ============================================================
 
 @pytest.fixture(autouse=True)
-def _reset_state():
-    """Reset all module-level global state between tests."""
-    # Clean temp directories so files from one test don't leak to the next
-    import shutil
+def test_state(tmp_path: Path, fake_services: FakeServices):
+    """Provide a fresh AppHandler per test and register it in DI."""
+    app_data = tmp_path / "app_data"
+    models_dir = app_data / "models"
+    outputs_dir = tmp_path / "outputs"
+    ic_lora_dir = models_dir / "ic-loras"
 
-    for d in [ltx2_server.IC_LORA_DIR, ltx2_server.OUTPUTS_DIR]:
-        if d.exists():
-            shutil.rmtree(d)
-            d.mkdir(parents=True, exist_ok=True)
+    for directory in (models_dir, outputs_dir, ic_lora_dir, app_data):
+        directory.mkdir(parents=True, exist_ok=True)
 
-    # Remove model placeholder files (but keep the dirs)
-    for p in [
-        ltx2_server.CHECKPOINT_PATH,
-        ltx2_server.UPSAMPLER_PATH,
-        ltx2_server.DISTILLED_LORA_PATH,
-    ]:
-        if p.exists():
-            p.unlink()
+    config = RuntimeConfig(
+        device="cpu",
+        models_dir=models_dir,
+        model_download_specs=DEFAULT_MODEL_DOWNLOAD_SPECS,
+        required_model_types=DEFAULT_REQUIRED_MODEL_TYPES,
+        outputs_dir=outputs_dir,
+        ic_lora_dir=ic_lora_dir,
+        settings_file=app_data / "settings.json",
+        ltx_api_base_url="https://api.ltx.video",
+        use_sage_attention=False,
+        camera_motion_prompts=CAMERA_MOTION_PROMPTS,
+        default_negative_prompt=DEFAULT_NEGATIVE_PROMPT,
+    )
 
-    # Clean text_encoder dir
-    te_dir = ltx2_server.GEMMA_PATH / "text_encoder"
-    if te_dir.exists():
-        shutil.rmtree(te_dir)
+    bundle = ServiceBundle(
+        http=fake_services.http,
+        gpu_cleaner=fake_services.gpu_cleaner,
+        model_downloader=fake_services.model_downloader,
+        gpu_info=fake_services.gpu_info,
+        video_processor=fake_services.video_processor,
+        text_encoder=fake_services.text_encoder,
+        task_runner=fake_services.task_runner,
+        fast_video_pipeline_class=type(fake_services.fast_video_pipeline),
+        fast_native_video_pipeline_class=type(fake_services.fast_native_video_pipeline),
+        pro_video_pipeline_class=type(fake_services.pro_video_pipeline),
+        pro_native_video_pipeline_class=type(fake_services.pro_native_video_pipeline),
+        image_generation_pipeline_class=type(fake_services.image_generation_pipeline),
+        ic_lora_pipeline_class=type(fake_services.ic_lora_pipeline),
+        ic_lora_model_downloader=fake_services.ic_lora_model_downloader,
+    )
 
-    # Clean Flux dir
-    if ltx2_server.FLUX_MODELS_DIR.exists():
-        shutil.rmtree(ltx2_server.FLUX_MODELS_DIR)
-        ltx2_server.FLUX_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    handler = build_initial_state(
+        config,
+        DEFAULT_APP_SETTINGS.model_copy(deep=True),
+        service_bundle=bundle,
+    )
+    set_state_service_for_tests(handler)
+    yield handler
 
-    # Pipeline globals
-    ltx2_server.distilled_pipeline = None
-    ltx2_server.distilled_native_pipeline = None
-    ltx2_server.pro_pipeline = None
-    ltx2_server.pro_native_pipeline = None
-    ltx2_server.flux_pipeline = None
-    ltx2_server.ic_lora_pipeline = None
-    ltx2_server.ic_lora_pipeline_path = None
-
-    # Generation state
-    ltx2_server.current_generation = {
-        "id": None,
-        "cancelled": False,
-        "result": None,
-        "error": None,
-        "status": "idle",
-        "phase": "",
-        "progress": 0,
-        "current_step": 0,
-        "total_steps": 0,
-    }
-
-    # Download state
-    ltx2_server.model_download_state = {
-        "status": "idle",
-        "current_file": "",
-        "current_file_progress": 0,
-        "total_progress": 0,
-        "downloaded_bytes": 0,
-        "total_bytes": 0,
-        "files_completed": 0,
-        "total_files": 0,
-        "error": None,
-        "speed_mbps": 0,
-    }
-
-    # Settings
-    ltx2_server.app_settings = _default_settings()
-
-    # Caches & flags
-    ltx2_server._prompt_embeddings_cache = {}
-    ltx2_server._api_embeddings = None
-    ltx2_server._cached_model_id = None
-    ltx2_server.cached_text_encoder = None
-    ltx2_server._model_ledger_patched = False
-    ltx2_server._encode_text_patched = False
-    ltx2_server.compiled_models = {"fast": False, "pro": False}
-
-    # Reset torch mock
-    _torch_stub.cuda.is_available.return_value = False
-
-    yield
-
-
-# ============================================================
-# 5. TestClient fixture
-# ============================================================
 
 @pytest.fixture
-def client():
-    """Provide a Starlette TestClient wrapping the FastAPI app."""
+def client(test_state):
     from starlette.testclient import TestClient
 
-    with TestClient(ltx2_server.app) as c:
-        yield c
+    app = create_app(handler=test_state)
+    with TestClient(app) as test_client:
+        yield test_client
 
-
-# ============================================================
-# 6. Helper fixtures
-# ============================================================
 
 @pytest.fixture
-def create_fake_model_files():
-    """Create small placeholder files at model paths."""
-    def _create():
-        for p in [
-            ltx2_server.CHECKPOINT_PATH,
-            ltx2_server.UPSAMPLER_PATH,
-            ltx2_server.DISTILLED_LORA_PATH,
-        ]:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_bytes(b"\x00" * 1024)
+def default_app_settings() -> AppSettings:
+    return DEFAULT_APP_SETTINGS.model_copy(deep=True)
 
-        te_dir = ltx2_server.GEMMA_PATH / "text_encoder"
+
+@pytest.fixture
+def create_fake_model_files(test_state):
+    def _create(include_flux: bool = False):
+        for path in (
+            test_state.config.model_path("checkpoint"),
+            test_state.config.model_path("upsampler"),
+            test_state.config.model_path("distilled_lora"),
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"\x00" * 1024)
+
+        te_dir = test_state.config.model_path("text_encoder")
         te_dir.mkdir(parents=True, exist_ok=True)
         (te_dir / "model.safetensors").write_bytes(b"\x00" * 1024)
+
+        if include_flux:
+            flux_dir = test_state.config.model_path("flux")
+            flux_dir.mkdir(parents=True, exist_ok=True)
+            (flux_dir / "model.safetensors").write_bytes(b"\x00" * 1024)
+
     return _create
 
 
 @pytest.fixture
-def create_fake_ic_lora_files():
-    """Create fake .safetensors files in IC_LORA_DIR."""
-    def _create(names):
+def create_fake_ic_lora_files(test_state):
+    def _create(names: list[str]):
         for name in names:
-            path = ltx2_server.IC_LORA_DIR / f"{name}.safetensors"
+            path = test_state.config.ic_lora_dir / f"{name}.safetensors"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"\x00" * 1024)
+
     return _create
 
 
 @pytest.fixture
 def make_test_image():
-    """Create a real PIL Image in a BytesIO buffer for multipart tests."""
-    def _make(w=64, h=64, color="red"):
+    def _make(w: int = 64, h: int = 64, color: str = "red"):
         from PIL import Image
+
         img = Image.new("RGB", (w, h), color)
         buf = BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
         return buf
+
     return _make

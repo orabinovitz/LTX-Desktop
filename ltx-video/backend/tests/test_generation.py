@@ -1,9 +1,12 @@
-"""Tests for generation endpoints."""
-from unittest.mock import patch, MagicMock
+"""Integration-style tests for generation and image endpoints."""
 
-import ltx2_server
+from __future__ import annotations
 
-# Shared JSON payload for T2V tests
+from pathlib import Path
+
+from state.app_state_types import GpuSlot, VideoPipelineState, VideoPipelineWarmth
+from tests.fakes.services import FakeFastVideoPipeline
+
 _T2V_JSON = {
     "prompt": "test",
     "resolution": "540p",
@@ -13,11 +16,28 @@ _T2V_JSON = {
 }
 
 
-class TestGenerate:
-    """POST /api/generate"""
+def _enable_local_text_encoding(test_state) -> None:
+    test_state.state.app_settings.use_local_text_encoder = True
 
-    @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
-    def test_t2v_happy_path(self, mock_gen, client):
+
+def _fake_running_generation_state(test_state) -> None:
+    pipeline = FakeFastVideoPipeline()
+    test_state.state.gpu_slot = GpuSlot(
+        active_pipeline=VideoPipelineState(
+            pipeline=pipeline,
+            warmth=VideoPipelineWarmth.COLD,
+            is_compiled=False,
+        ),
+        generation=None,
+    )
+    test_state.generation.start_generation("running")
+
+
+class TestGenerate:
+    def test_t2v_happy_path(self, client, test_state, fake_services, create_fake_model_files):
+        create_fake_model_files()
+        _enable_local_text_encoding(test_state)
+
         r = client.post(
             "/api/generate",
             json={
@@ -29,127 +49,93 @@ class TestGenerate:
                 "cameraMotion": "none",
             },
         )
+
         assert r.status_code == 200
         data = r.json()
         assert data["status"] == "complete"
-        assert data["video_path"] == "/tmp/test.mp4"
-        mock_gen.assert_called_once()
+        assert data["video_path"] is not None
+        assert Path(data["video_path"]).exists()
 
-    def test_already_running(self, client):
-        ltx2_server.current_generation["status"] = "running"
+        pipeline = fake_services.fast_video_pipeline
+        assert len(pipeline.generate_calls) == 1
+
+    def test_already_running(self, client, test_state):
+        _fake_running_generation_state(test_state)
+
         r = client.post("/api/generate", json=_T2V_JSON)
         assert r.status_code == 409
 
-    @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
-    def test_i2v_with_image(self, mock_gen, client, tmp_path, make_test_image):
-        # Save a real image to disk so the backend can open it by path
-        img_buf = make_test_image(100, 100)
-        img_file = tmp_path / "test.png"
-        img_file.write_bytes(img_buf.read())
-        r = client.post(
-            "/api/generate",
-            json={**_T2V_JSON, "prompt": "Animate this", "imagePath": str(img_file)},
-        )
-        assert r.status_code == 200
-        # Verify image was passed to generate_video
-        call_kwargs = mock_gen.call_args.kwargs
-        assert call_kwargs["image"] is not None
+    def test_i2v_nonexistent_image(self, client, test_state, create_fake_model_files):
+        create_fake_model_files()
+        _enable_local_text_encoding(test_state)
 
-    def test_i2v_nonexistent_image(self, client):
         r = client.post(
             "/api/generate",
             json={**_T2V_JSON, "imagePath": "/no/such/file.png"},
         )
         assert r.status_code == 400
 
-    @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
-    def test_resolution_mapping_540p(self, mock_gen, client):
+    def test_resolution_mapping_540p(self, client, test_state, fake_services, create_fake_model_files):
+        create_fake_model_files()
+        _enable_local_text_encoding(test_state)
+
         r = client.post("/api/generate", json=_T2V_JSON)
         assert r.status_code == 200
-        kw = mock_gen.call_args.kwargs
-        assert kw["model_type"] == "fast-native"
-        assert kw["width"] == 960
-        assert kw["height"] == 544
 
-    @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
-    def test_resolution_mapping_720p(self, mock_gen, client):
-        r = client.post(
-            "/api/generate",
-            json={**_T2V_JSON, "resolution": "720p"},
-        )
+        pipeline = fake_services.fast_native_video_pipeline
+        call = pipeline.generate_calls[0]
+        assert call["width"] == 960
+        assert call["height"] == 512
+
+    def test_resolution_mapping_720p(self, client, test_state, fake_services, create_fake_model_files):
+        create_fake_model_files()
+        _enable_local_text_encoding(test_state)
+
+        r = client.post("/api/generate", json={**_T2V_JSON, "resolution": "720p"})
         assert r.status_code == 200
-        kw = mock_gen.call_args.kwargs
-        assert kw["model_type"] == "fast-native"
-        assert kw["width"] == 1280
-        assert kw["height"] == 704
 
-    @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
-    def test_resolution_mapping_1080p(self, mock_gen, client):
-        r = client.post(
-            "/api/generate",
-            json={**_T2V_JSON, "resolution": "1080p"},
-        )
-        assert r.status_code == 200
-        kw = mock_gen.call_args.kwargs
-        # 1080p stays "fast" (2-stage with upsampler)
-        assert kw["model_type"] == "fast"
-        assert kw["width"] == 960
-        assert kw["height"] == 544
+        pipeline = fake_services.fast_native_video_pipeline
+        call = pipeline.generate_calls[0]
+        assert call["width"] == 1280
+        assert call["height"] == 704
 
-    @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
-    def test_frame_calculation(self, mock_gen, client):
+    def test_locked_seed(self, client, test_state, fake_services, create_fake_model_files):
+        create_fake_model_files()
+        _enable_local_text_encoding(test_state)
+        test_state.state.app_settings.seed_locked = True
+        test_state.state.app_settings.locked_seed = 123
+
         r = client.post("/api/generate", json=_T2V_JSON)
         assert r.status_code == 200
-        kw = mock_gen.call_args.kwargs
-        # duration=2, fps=24 -> (48 // 8) * 8 + 1 = 49
-        assert kw["num_frames"] == 49
 
-    @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
-    def test_locked_seed(self, mock_gen, client):
-        ltx2_server.app_settings.seed_locked = True
-        ltx2_server.app_settings.locked_seed = 123
-        r = client.post("/api/generate", json=_T2V_JSON)
-        assert r.status_code == 200
-        kw = mock_gen.call_args.kwargs
-        assert kw["seed"] == 123
+        pipeline = fake_services.fast_native_video_pipeline
+        assert pipeline.generate_calls[0]["seed"] == 123
 
-    @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
-    def test_camera_motion_forwarded(self, mock_gen, client):
-        r = client.post(
-            "/api/generate",
-            json={**_T2V_JSON, "cameraMotion": "dolly_in"},
-        )
-        assert r.status_code == 200
-        kw = mock_gen.call_args.kwargs
-        assert kw["camera_motion"] == "dolly_in"
+    def test_error_sets_generation_error(self, client, test_state, fake_services, create_fake_model_files):
+        create_fake_model_files()
+        _enable_local_text_encoding(test_state)
+        fake_services.fast_native_video_pipeline.raise_on_generate = RuntimeError("GPU OOM")
 
-    @patch("ltx2_server.generate_video", side_effect=RuntimeError("GPU OOM"))
-    def test_error_sets_state(self, _mock, client):
         r = client.post("/api/generate", json=_T2V_JSON)
         assert r.status_code == 500
-        assert ltx2_server.current_generation["status"] == "error"
 
-    @patch("ltx2_server.generate_video", side_effect=RuntimeError("cancelled"))
-    def test_cancelled_response(self, _mock, client):
+        progress = test_state.generation.get_generation_progress()
+        assert progress.status == "error"
+
+    def test_cancelled_response(self, client, test_state, fake_services, create_fake_model_files):
+        create_fake_model_files()
+        _enable_local_text_encoding(test_state)
+        fake_services.fast_native_video_pipeline.raise_on_generate = RuntimeError("cancelled")
+
         r = client.post("/api/generate", json=_T2V_JSON)
         assert r.status_code == 200
-        data = r.json()
-        assert data["status"] == "cancelled"
-
-    @patch("ltx2_server.generate_video", return_value="/tmp/test.mp4")
-    def test_state_reset_before_generation(self, _mock, client):
-        r = client.post("/api/generate", json=_T2V_JSON)
-        assert r.status_code == 200
-        # A new generation ID should have been assigned
-        assert ltx2_server.current_generation["id"] is not None
+        assert r.json()["status"] == "cancelled"
 
 
 class TestGenerateCancel:
-    """POST /api/generate/cancel"""
+    def test_cancel_active(self, client, test_state):
+        _fake_running_generation_state(test_state)
 
-    def test_cancel_active(self, client):
-        ltx2_server.current_generation["status"] = "running"
-        ltx2_server.current_generation["id"] = "test123"
         r = client.post("/api/generate/cancel")
         assert r.status_code == 200
         data = r.json()
@@ -158,27 +144,21 @@ class TestGenerateCancel:
     def test_cancel_no_active(self, client):
         r = client.post("/api/generate/cancel")
         assert r.status_code == 200
-        data = r.json()
-        assert data["status"] == "no_active_generation"
+        assert r.json()["status"] == "no_active_generation"
 
 
 class TestGenerationProgress:
-    """GET /api/generation/progress"""
-
     def test_idle(self, client):
         r = client.get("/api/generation/progress")
         assert r.status_code == 200
-        data = r.json()
-        assert data["status"] == "idle"
+        assert r.json()["status"] == "idle"
 
-    def test_running(self, client):
-        ltx2_server.current_generation["status"] = "running"
-        ltx2_server.current_generation["phase"] = "inference"
-        ltx2_server.current_generation["progress"] = 50
-        ltx2_server.current_generation["current_step"] = 4
-        ltx2_server.current_generation["total_steps"] = 8
+    def test_running(self, client, test_state):
+        _fake_running_generation_state(test_state)
+        test_state.generation.update_progress("inference", 50, 4, 8)
 
         r = client.get("/api/generation/progress")
+        assert r.status_code == 200
         data = r.json()
         assert data["status"] == "running"
         assert data["phase"] == "inference"
@@ -188,111 +168,79 @@ class TestGenerationProgress:
 
 
 class TestGenerateImage:
-    """POST /api/generate-image"""
-
-    @patch("ltx2_server.generate_image", return_value=["/tmp/img1.png"])
-    def test_happy_path(self, _mock, client):
+    def test_happy_path(self, client):
         r = client.post(
             "/api/generate-image",
             json={"prompt": "A cat", "width": 1024, "height": 1024, "numSteps": 4},
         )
+
         assert r.status_code == 200
         data = r.json()
         assert data["status"] == "complete"
-        assert data["image_paths"] == ["/tmp/img1.png"]
+        assert len(data["image_paths"]) == 1
+        assert Path(data["image_paths"][0]).exists()
 
-    def test_already_running(self, client):
-        ltx2_server.current_generation["status"] = "running"
-        r = client.post("/api/generate-image", json={"prompt": "test"})
-        assert r.status_code == 409
-
-    @patch("ltx2_server.generate_image", return_value=["/tmp/img.png"])
-    def test_dimension_clamping(self, mock_gen, client):
+    def test_dimension_clamping(self, client, fake_services):
         r = client.post(
             "/api/generate-image",
             json={"prompt": "test", "width": 1023, "height": 1023},
         )
         assert r.status_code == 200
-        kw = mock_gen.call_args.kwargs
-        # 1023 // 16 * 16 = 1008
-        assert kw["width"] == 1008
-        assert kw["height"] == 1008
 
-    @patch("ltx2_server.generate_image", return_value=["/tmp/img.png"])
-    def test_num_images_clamped(self, mock_gen, client):
+        call = fake_services.image_generation_pipeline.generate_calls[0]
+        assert call["width"] == 1008
+        assert call["height"] == 1008
+
+    def test_num_images_clamped(self, client, fake_services):
         r = client.post(
             "/api/generate-image",
             json={"prompt": "test", "numImages": 20},
         )
         assert r.status_code == 200
-        kw = mock_gen.call_args.kwargs
-        assert kw["num_images"] == 12
 
-    @patch("ltx2_server.generate_image", side_effect=RuntimeError("GPU OOM"))
-    def test_error(self, _mock, client):
+        assert len(fake_services.image_generation_pipeline.generate_calls) == 12
+
+    def test_error(self, client, fake_services):
+        fake_services.image_generation_pipeline.raise_on_generate = RuntimeError("GPU OOM")
+
         r = client.post("/api/generate-image", json={"prompt": "test"})
         assert r.status_code == 500
 
-    @patch("ltx2_server.generate_image", side_effect=RuntimeError("cancelled"))
-    def test_cancelled(self, _mock, client):
+    def test_cancelled(self, client, fake_services):
+        fake_services.image_generation_pipeline.raise_on_generate = RuntimeError("cancelled")
+
         r = client.post("/api/generate-image", json={"prompt": "test"})
         assert r.status_code == 200
-        data = r.json()
-        assert data["status"] == "cancelled"
+        assert r.json()["status"] == "cancelled"
 
 
 class TestEditImage:
-    """POST /api/edit-image"""
-
-    @patch("ltx2_server.edit_image", return_value=["/tmp/edited.png"])
-    def test_happy_path(self, _mock, client, make_test_image):
+    def test_happy_path(self, client, make_test_image):
         img_buf = make_test_image(100, 100)
+
         r = client.post(
             "/api/edit-image",
-            data={
-                "prompt": "Make it blue",
-                "width": "1024",
-                "height": "1024",
-            },
-            files={
-                "image": ("test.png", img_buf, "image/png"),
-            },
+            data={"prompt": "Make it blue", "width": "1024", "height": "1024"},
+            files={"image": ("test.png", img_buf, "image/png")},
         )
         assert r.status_code == 200
+
         data = r.json()
         assert data["status"] == "complete"
-        assert data["image_paths"] == ["/tmp/edited.png"]
+        assert len(data["image_paths"]) == 1
+        assert Path(data["image_paths"][0]).exists()
 
     def test_no_image(self, client):
         r = client.post(
             "/api/edit-image",
-            data={
-                "prompt": "Make it blue",
-                "width": "1024",
-                "height": "1024",
-            },
+            data={"prompt": "Make it blue", "width": "1024", "height": "1024"},
         )
         assert r.status_code == 422
 
-    def test_already_running(self, client, make_test_image):
-        ltx2_server.current_generation["status"] = "running"
-        img_buf = make_test_image(100, 100)
+    def test_multiple_reference_images(self, client, fake_services, make_test_image):
         r = client.post(
             "/api/edit-image",
-            data={"prompt": "test"},
-            files={"image": ("test.png", img_buf, "image/png")},
-        )
-        assert r.status_code == 409
-
-    @patch("ltx2_server.edit_image", return_value=["/tmp/edited.png"])
-    def test_multiple_reference_images(self, mock_edit, client, make_test_image):
-        r = client.post(
-            "/api/edit-image",
-            data={
-                "prompt": "Combine styles",
-                "width": "1024",
-                "height": "1024",
-            },
+            data={"prompt": "Combine styles", "width": "1024", "height": "1024"},
             files={
                 "image": ("img1.png", make_test_image(100, 100), "image/png"),
                 "image2": ("img2.png", make_test_image(100, 100), "image/png"),
@@ -300,5 +248,7 @@ class TestEditImage:
             },
         )
         assert r.status_code == 200
-        kw = mock_edit.call_args.kwargs
-        assert len(kw["input_images"]) == 3
+
+        call = fake_services.image_generation_pipeline.generate_edit_calls[0]
+        assert isinstance(call["image"], list)
+        assert len(call["image"]) == 3

@@ -5,7 +5,7 @@
   "venv": ".venv",
   "include": [
     "ltx2_server.py",
-    "_models.py",
+    "api_types.py",
     "_fastapi_app.py",
     "_routes",
     "_services"
