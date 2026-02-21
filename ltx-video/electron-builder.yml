@@ -1,6 +1,6 @@
 appId: com.lightricks.ltx-desktop
 productName: LTX Desktop
-copyright: Copyright © 2024 Lightricks
+copyright: Copyright © 2026 Lightricks
 
 directories:
   output: release
@@ -73,4 +73,4 @@ dmg:
 publish:
   provider: github
   owner: Lightricks
-  repo: ltx-video
+  repo: ltx-desktop
