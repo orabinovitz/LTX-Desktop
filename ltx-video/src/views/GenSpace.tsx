@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { 
   Plus, Trash2, Download, Image, Video, X,
   Heart, Film, Volume2, VolumeX, Sparkles,
-  Zap, Move3D, Clock, Monitor, ChevronUp, Scissors, AudioLines,
+  Zap, Clock, Monitor, ChevronUp, Scissors, AudioLines,
   Paintbrush, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
@@ -320,7 +320,6 @@ function PromptBar({
     aspectRatio: string
     imageResolution: string
     variations: number
-    motion?: string
     audio?: boolean
   }
   onSettingsChange: (settings: any) => void
@@ -524,24 +523,6 @@ function PromptBar({
               }
             />
             
-            {/* Motion dropdown */}
-            <SettingsDropdown
-              title="MOTION"
-              value={settings.motion || 'normal'}
-              onChange={(v) => onSettingsChange({ ...settings, motion: v })}
-              options={[
-                { value: 'low', label: 'Low' },
-                { value: 'normal', label: 'Normal' },
-                { value: 'high', label: 'High' },
-                { value: 'extreme', label: 'Extreme' },
-              ]}
-              trigger={
-                <>
-                  <Move3D className="h-3.5 w-3.5" />
-                  <span>{(settings.motion || 'normal').charAt(0).toUpperCase() + (settings.motion || 'normal').slice(1)}</span>
-                </>
-              }
-            />
             
             <div className="w-px h-4 bg-zinc-700 mx-0.5" />
             
@@ -713,7 +694,6 @@ export function GenSpace() {
     aspectRatio: '16:9',
     imageResolution: '1080p',
     variations: 1,
-    motion: 'normal',
     audio: true,
   })
   
