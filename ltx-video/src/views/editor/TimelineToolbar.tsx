@@ -1,5 +1,5 @@
 import React from 'react'
-import { Plus, Gauge, Download, Maximize2, Sparkles, FileUp, FileDown, ZoomOut, ZoomIn } from 'lucide-react'
+import { Plus, Gauge, Download, Maximize2, FileUp, FileDown, ZoomOut, ZoomIn } from 'lucide-react' // IC-LORA HIDDEN: removed Sparkles
 import { Button } from '../../components/ui/button'
 import type { TimelineClip, Track, SubtitleClip } from '../../types/project'
 
@@ -26,7 +26,7 @@ interface TimelineToolbarProps {
 export function TimelineToolbar({
   selectedClip, updateClip, getMaxClipDuration,
   setShowExportModal, handleResetLayout,
-  setIcLoraSourceClipId, setShowICLoraPanel,
+  setIcLoraSourceClipId: _setIcLoraSourceClipId, setShowICLoraPanel: _setShowICLoraPanel, // IC-LORA HIDDEN
   tracks, subtitleFileInputRef, handleImportSrt, handleExportSrt, subtitles,
   zoom, setZoom, getMinZoom, centerOnPlayheadRef, handleFitToView,
 }: TimelineToolbarProps) {
@@ -91,8 +91,9 @@ export function TimelineToolbar({
         Layout
       </Button>
       
+      {/* IC-LORA HIDDEN - IC-LoRA toolbar button hidden because IC-LoRA is broken on server
       <div className="w-px h-4 bg-zinc-700" />
-      
+
       <Button
         variant="outline"
         size="sm"
@@ -106,6 +107,7 @@ export function TimelineToolbar({
         <Sparkles className="h-3 w-3 mr-1" />
         IC-LoRA
       </Button>
+      */}
       
       
       {/* Subtitle import/export */}

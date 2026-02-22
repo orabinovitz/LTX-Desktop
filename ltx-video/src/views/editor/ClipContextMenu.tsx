@@ -3,7 +3,7 @@ import {
   Clipboard, Copy, Scissors, Trash2, Layers, Type, X, RefreshCw,
   ZoomIn, Film, Eye, FolderOpen, RotateCcw, Volume2, VolumeX,
   FlipHorizontal2, FlipVertical2, Link2, Unlink2,
-  ChevronLeft, ChevronRight, Sparkles, Paintbrush,
+  ChevronLeft, ChevronRight, Paintbrush, // IC-LORA HIDDEN: removed Sparkles
   Video, Camera,
 } from 'lucide-react'
 import type { Asset, TimelineClip, Track, TextOverlayStyle } from '../../types/project'
@@ -131,8 +131,8 @@ export function ClipContextMenu({
   setI2vClipId,
   setI2vPrompt,
   setRetakeClipId,
-  setIcLoraSourceClipId,
-  setShowICLoraPanel,
+  setIcLoraSourceClipId, // IC-LORA HIDDEN: still passed to SingleClipMenu
+  setShowICLoraPanel, // IC-LORA HIDDEN: still passed to SingleClipMenu
   onCaptureFrameForEdit,
   onCaptureFrameForVideo,
 }: ClipContextMenuProps) {
@@ -281,7 +281,7 @@ function SingleClipMenu({
   duplicateClip, splitClipAtPlayhead, removeClip, updateClip,
   getLiveAsset, getMaxClipDuration,
   setAssetFilter, setSelectedBin, setTakesViewAssetId, setSelectedAssetIds,
-  setI2vClipId, setI2vPrompt, setRetakeClipId,   setIcLoraSourceClipId, setShowICLoraPanel,
+  setI2vClipId, setI2vPrompt, setRetakeClipId,   setIcLoraSourceClipId: _setIcLoraSourceClipId, setShowICLoraPanel: _setShowICLoraPanel, // IC-LORA HIDDEN
   onCaptureFrameForEdit, onCaptureFrameForVideo,
   close,
 }: {
@@ -524,8 +524,10 @@ function SingleClipMenu({
             <>
               <MenuItem icon={Film} iconClass="text-blue-400" label="Retake Section"
                 disabled={isRetaking} onClick={() => { setRetakeClipId(contextClip.id); close() }} />
+              {/* IC-LORA HIDDEN - IC-LoRA context menu item hidden because IC-LoRA is broken on server
               <MenuItem icon={Sparkles} iconClass="text-amber-400" label="IC-LoRA / Style Transfer"
                 onClick={() => { setIcLoraSourceClipId(contextClip.id); setShowICLoraPanel(true); close() }} />
+              */}
             </>
           )}
           {(isVideo || isImage) && (
