@@ -21,8 +21,8 @@ export default {
           DEFAULT: 'rgb(var(--surface) / <alpha-value>)',
           raised:  'rgb(var(--surface-raised) / <alpha-value>)',
         },
-        // ── Override blue → #2B61FF scale ──
-        // All blue-* classes use this scale; change --accent in index.css to retheme
+        // ── Override blue palette → #2B61FF brand scale ──
+        // All blue-* classes use this scale; update these values to retheme
         blue: {
           50:  '#eef3ff',
           100: '#e0e9ff',

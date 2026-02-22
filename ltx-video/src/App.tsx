@@ -118,9 +118,32 @@ function AppContent() {
     return <FirstRunSetup onComplete={() => setIsFirstRun(false)} />
   }
 
-  // DEV ONLY (Mac - no Python backend): skip backend checks
-  // if (backendLoading) { ... }
-  // if (backendError && !status.connected) { ... }
+  // Show loading screen while connecting to backend
+  if (backendLoading) {
+    return (
+      <div className="h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 text-primary animate-spin mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-foreground mb-2">Starting LTX Desktop...</h2>
+          <p className="text-muted-foreground">Initializing the inference engine</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error screen if backend failed
+  if (backendError && !status.connected) {
+    return (
+      <div className="h-screen bg-background flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-foreground mb-2">Connection Failed</h2>
+          <p className="text-muted-foreground mb-4">{backendError}</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
+        </div>
+      </div>
+    )
+  }
 
   // Check if settings/logs buttons should show (not on home/loading screens)
   const showGlobalControls = currentView !== 'home' && status.connected
