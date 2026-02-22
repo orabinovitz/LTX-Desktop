@@ -164,7 +164,7 @@ export function ProgramMonitor({
 
   return (
     <div
-        className={`flex flex-col ${showSourceMonitor ? '' : 'flex-1'} min-w-0 min-h-0 ${showSourceMonitor && activePanel === 'timeline' ? 'ring-2 ring-violet-500 ring-inset' : ''}`}
+        className={`flex flex-col ${showSourceMonitor ? '' : 'flex-1'} min-w-0 min-h-0 ${showSourceMonitor && activePanel === 'timeline' ? 'ring-2 ring-blue-500 ring-inset' : ''}`}
         style={showSourceMonitor ? { width: `${100 - sourceSplitPercent}%` } : undefined}
         onMouseDown={() => setActivePanel('timeline')}
       >
@@ -705,7 +705,7 @@ export function ProgramMonitor({
                       }}
                       title={`Mask: ${m.shape} — drag to reposition`}
                     >
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-[8px] text-violet-400 whitespace-nowrap bg-black/60 px-1 rounded pointer-events-none">
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-[8px] text-blue-400 whitespace-nowrap bg-black/60 px-1 rounded pointer-events-none">
                         {fx.type} mask
                       </div>
                     </div>
@@ -873,11 +873,11 @@ export function ProgramMonitor({
                     onClick={() => { setPreviewZoom(opt.value); setPreviewZoomOpen(false) }}
                     className={`w-full text-left px-3 py-1.5 text-[11px] flex items-center gap-2 transition-colors ${
                       previewZoom === opt.value
-                        ? 'text-violet-300 bg-violet-600/20'
+                        ? 'text-blue-300 bg-blue-600/20'
                         : 'text-zinc-300 hover:bg-zinc-800'
                     }`}
                   >
-                    {previewZoom === opt.value && <span className="text-violet-400">&#10003;</span>}
+                    {previewZoom === opt.value && <span className="text-blue-400">&#10003;</span>}
                     <span className={previewZoom === opt.value ? '' : 'ml-5'}>{opt.label}</span>
                   </button>
                 ))}
@@ -909,7 +909,7 @@ export function ProgramMonitor({
             <Button
               variant="ghost" size="icon"
               onClick={() => { setShuttleSpeed(-1); setIsPlaying(true) }}
-              className={`h-6 w-6 ${isPlaying && shuttleSpeed < 0 ? 'text-violet-400' : 'text-zinc-500'}`}
+              className={`h-6 w-6 ${isPlaying && shuttleSpeed < 0 ? 'text-blue-400' : 'text-zinc-500'}`}
               title="Play reverse"
             >
               <Play className="h-3 w-3 mr-0.5 rotate-180" />
@@ -986,15 +986,15 @@ export function ProgramMonitor({
                     onClick={() => { setPlaybackResolution(opt.value); setPlaybackResOpen(false) }}
                     className={`w-full text-left px-3 py-1.5 text-[11px] flex flex-col gap-0 transition-colors ${
                       playbackResolution === opt.value
-                        ? 'text-violet-300 bg-violet-600/20'
+                        ? 'text-blue-300 bg-blue-600/20'
                         : 'text-zinc-300 hover:bg-zinc-800'
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      {playbackResolution === opt.value && <span className="text-violet-400">&#10003;</span>}
+                      {playbackResolution === opt.value && <span className="text-blue-400">&#10003;</span>}
                       <span className={playbackResolution === opt.value ? '' : 'ml-5'}>{opt.label}</span>
                     </div>
-                    <span className={`text-[10px] ${playbackResolution === opt.value ? 'text-violet-400/60' : 'text-zinc-500'} ml-5`}>{opt.desc}</span>
+                    <span className={`text-[10px] ${playbackResolution === opt.value ? 'text-blue-400/60' : 'text-zinc-500'} ml-5`}>{opt.desc}</span>
                   </button>
                 ))}
               </div>

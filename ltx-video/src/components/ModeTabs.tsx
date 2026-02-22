@@ -29,7 +29,7 @@ export function ModeTabs({ mode, onModeChange, disabled }: ModeTabsProps) {
           className={cn(
             'px-4 py-1.5 text-sm font-medium transition-all',
             activeTab === tab.id
-              ? 'text-violet-400'
+              ? 'text-blue-400'
               : 'text-zinc-500 hover:text-zinc-300',
             disabled && 'opacity-50 cursor-not-allowed',
             index > 0 && 'ml-1'

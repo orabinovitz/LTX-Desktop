@@ -160,7 +160,7 @@ export function TimelineToolbar({
           step={5}
           value={Math.round(zoom * 100)}
           onChange={(e) => { centerOnPlayheadRef.current = true; setZoom(Math.max(getMinZoom(), +(parseInt(e.target.value) / 100).toFixed(2))) }}
-          className="w-28 h-1 accent-violet-500 cursor-pointer"
+          className="w-28 h-1 accent-blue-500 cursor-pointer"
           title={`Zoom: ${Math.round(zoom * 100)}%`}
         />
         <button

@@ -73,7 +73,7 @@ export function SourceMonitor({
 
   return (
     <div
-      className={`flex flex-col ${activePanel === 'source' ? 'ring-2 ring-violet-500 ring-inset' : 'border-r border-zinc-800'}`}
+      className={`flex flex-col ${activePanel === 'source' ? 'ring-2 ring-blue-500 ring-inset' : 'border-r border-zinc-800'}`}
       style={{ width: `${sourceSplitPercent}%` }}
       onMouseDown={() => setActivePanel('source')}
     >
@@ -279,7 +279,7 @@ export function SourceMonitor({
                 setSourceReversePlaying(true)
               }
             }}
-            className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${sourceReversePlaying ? 'text-violet-400' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
+            className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${sourceReversePlaying ? 'text-blue-400' : 'text-zinc-500 hover:text-white hover:bg-zinc-800'}`}
             title="Play reverse"
           >
             <Play className="h-3 w-3 mr-0.5 rotate-180" />

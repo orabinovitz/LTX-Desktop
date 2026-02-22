@@ -388,7 +388,7 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
                       onClick={() => setShowingUpscaled(false)}
                       className={`px-3 py-1 text-xs font-medium transition-colors ${
                         !showingUpscaled 
-                          ? 'bg-violet-600 text-white' 
+                          ? 'bg-blue-600 text-white' 
                           : 'text-zinc-400 hover:text-white'
                       }`}
                     >
@@ -398,7 +398,7 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
                       onClick={() => setShowingUpscaled(true)}
                       className={`px-3 py-1 text-xs font-medium transition-colors ${
                         showingUpscaled 
-                          ? 'bg-violet-600 text-white' 
+                          ? 'bg-blue-600 text-white' 
                           : 'text-zinc-400 hover:text-white'
                       }`}
                     >
@@ -451,7 +451,7 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
               >
                 {/* Progress fill */}
                 <div 
-                  className="h-full bg-violet-500 rounded-full relative"
+                  className="h-full bg-blue-500 rounded-full relative"
                   style={{ width: `${progressPercent}%` }}
                 >
                   {/* Playhead dot - always visible */}
@@ -499,7 +499,7 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
                     size="icon"
                     variant="ghost"
                     onClick={toggleLoop}
-                    className={`h-8 w-8 hover:bg-zinc-800 ${isLooping ? 'text-violet-400' : 'text-zinc-500'}`}
+                    className={`h-8 w-8 hover:bg-zinc-800 ${isLooping ? 'text-blue-400' : 'text-zinc-500'}`}
                     title={isLooping ? 'Loop: On' : 'Loop: Off'}
                   >
                     <RotateCcw className="h-4 w-4" />

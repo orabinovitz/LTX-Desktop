@@ -95,7 +95,7 @@ function Dropdown({ label, value, onChange, options }: {
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full appearance-none bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-violet-500/50 cursor-pointer pr-7"
+          className="w-full appearance-none bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500/50 cursor-pointer pr-7"
         >
           {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
@@ -179,10 +179,10 @@ export function GapGenerationModal({
             <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800">
               <div className="flex items-center gap-3">
                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                  isVideoMode ? 'bg-violet-600/20' : 'bg-emerald-600/20'
+                  isVideoMode ? 'bg-blue-600/20' : 'bg-emerald-600/20'
                 }`}>
                   {isVideoMode
-                    ? <Video className="h-3.5 w-3.5 text-violet-400" />
+                    ? <Video className="h-3.5 w-3.5 text-blue-400" />
                     : <Image className="h-3.5 w-3.5 text-emerald-400" />}
                 </div>
                 <div>
@@ -234,7 +234,7 @@ export function GapGenerationModal({
                   {gapImageFile && gapImageUrl ? (
                     <div className="relative w-full h-full group/center">
                       <img src={gapImageUrl} alt="" className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 ring-2 ring-inset ring-violet-500/50 rounded-sm" />
+                      <div className="absolute inset-0 ring-2 ring-inset ring-blue-500/50 rounded-sm" />
                       <button
                         onClick={() => setGapImageFile(null)}
                         className="absolute top-1 right-1 p-0.5 rounded-full bg-black/70 text-white/70 hover:text-red-400 opacity-0 group-hover/center:opacity-100 transition-opacity"
@@ -242,7 +242,7 @@ export function GapGenerationModal({
                         <X className="h-2.5 w-2.5" />
                       </button>
                       <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent py-1 px-2 flex items-center justify-center">
-                        <span className="text-[8px] text-violet-200/90 font-medium">
+                        <span className="text-[8px] text-blue-200/90 font-medium">
                           {isVideoMode ? 'Source frame' : 'Edit reference'}
                         </span>
                       </div>
@@ -253,11 +253,11 @@ export function GapGenerationModal({
                       onClick={() => gapImageInputRef.current?.click()}
                     >
                       <div className="absolute inset-0 bg-zinc-900/90" />
-                      <div className="absolute inset-0 border border-dashed border-zinc-600 group-hover/center:border-violet-500/50 transition-colors" />
+                      <div className="absolute inset-0 border border-dashed border-zinc-600 group-hover/center:border-blue-500/50 transition-colors" />
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-                        <Sparkles className="h-3.5 w-3.5 text-violet-400/30" />
+                        <Sparkles className="h-3.5 w-3.5 text-blue-400/30" />
                         <span className="text-[8px] text-zinc-500 font-medium">AI fills this gap</span>
-                        <span className="text-[7px] text-zinc-600 group-hover/center:text-violet-400/70 transition-colors flex items-center gap-0.5">
+                        <span className="text-[7px] text-zinc-600 group-hover/center:text-blue-400/70 transition-colors flex items-center gap-0.5">
                           <Upload className="h-2 w-2" /> Add image
                         </span>
                       </div>
@@ -315,7 +315,7 @@ export function GapGenerationModal({
                     {!gapSuggesting && (
                       <button
                         onClick={regenerateSuggestion}
-                        className="flex items-center gap-1 text-[10px] text-violet-400/80 hover:text-violet-300 transition-colors px-1.5 py-0.5 rounded hover:bg-violet-900/30"
+                        className="flex items-center gap-1 text-[10px] text-blue-400/80 hover:text-blue-300 transition-colors px-1.5 py-0.5 rounded hover:bg-blue-900/30"
                         title="Re-analyze surrounding clips and generate a new prompt suggestion"
                       >
                         <RefreshCw className="h-3 w-3" />
@@ -337,7 +337,7 @@ export function GapGenerationModal({
                     className={`w-full bg-zinc-800 border rounded-lg p-3 text-sm text-white resize-none focus:outline-none focus:ring-1 placeholder-zinc-600 ${
                       gapSuggesting 
                         ? 'border-amber-600/40 focus:border-amber-500/50 focus:ring-amber-500/30 animate-pulse' 
-                        : 'border-zinc-700 focus:border-violet-500/50 focus:ring-violet-500/30'
+                        : 'border-zinc-700 focus:border-blue-500/50 focus:ring-blue-500/30'
                     }`}
                     rows={3}
                   />
@@ -394,7 +394,7 @@ export function GapGenerationModal({
                     <p className="text-[10px] text-zinc-500 mt-0.5">Place the generated audio as a linked clip on the audio track</p>
                   </div>
                   <div className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
-                    gapApplyAudioToTrack ? 'bg-violet-600' : 'bg-zinc-700'
+                    gapApplyAudioToTrack ? 'bg-blue-600' : 'bg-zinc-700'
                   }`}>
                     <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform pointer-events-none ${
                       gapApplyAudioToTrack ? 'translate-x-4' : 'translate-x-0'
@@ -407,12 +407,12 @@ export function GapGenerationModal({
               {isRegenerating && (
                 <div className="bg-zinc-800 rounded-lg p-3 border border-zinc-700">
                   <div className="flex items-center gap-2 mb-2">
-                    <Loader2 className="h-3.5 w-3.5 text-violet-400 animate-spin" />
+                    <Loader2 className="h-3.5 w-3.5 text-blue-400 animate-spin" />
                     <span className="text-xs text-zinc-300">{regenStatusMessage || 'Generating...'}</span>
                   </div>
                   <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
                     <div 
-                      className="h-full bg-violet-500 rounded-full transition-all duration-300"
+                      className="h-full bg-blue-500 rounded-full transition-all duration-300"
                       style={{ width: `${regenProgress * 100}%` }}
                     />
                   </div>
@@ -448,7 +448,7 @@ export function GapGenerationModal({
                 <button
                   onClick={handleGapGenerate}
                   disabled={isRegenerating || !gapPrompt.trim()}
-                  className="px-4 py-1.5 rounded-lg bg-violet-600 text-white text-xs hover:bg-violet-500 transition-colors font-medium disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-500 transition-colors font-medium disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
                 >
                   {isRegenerating ? (
                     <>
@@ -500,7 +500,7 @@ export function GapGenerationModal({
             <span className="text-[10px] text-zinc-500 px-1">Fill with:</span>
             <button
               onClick={() => setGapGenerateMode('text-to-video')}
-              className="px-3 py-1.5 rounded-lg bg-violet-900/30 border border-violet-700/30 text-violet-400 text-[11px] hover:bg-violet-900/50 transition-colors flex items-center gap-1.5"
+              className="px-3 py-1.5 rounded-lg bg-blue-900/30 border border-blue-700/30 text-blue-400 text-[11px] hover:bg-blue-900/50 transition-colors flex items-center gap-1.5"
             >
               <Video className="h-3 w-3" />
               Video

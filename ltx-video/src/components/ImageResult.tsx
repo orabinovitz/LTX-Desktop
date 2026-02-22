@@ -123,7 +123,7 @@ export function ImageResult({
                 
                 <Button
                   onClick={onCreateVideo}
-                  className="h-10 px-4 bg-violet-600 hover:bg-violet-500 text-white rounded-full flex items-center gap-2"
+                  className="h-10 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center gap-2"
                   title="Create video from this image"
                 >
                   <Video className="h-4 w-4" />

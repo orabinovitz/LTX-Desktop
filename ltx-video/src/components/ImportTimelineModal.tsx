@@ -274,7 +274,7 @@ export function ImportTimelineModal({ isOpen, onClose, onImport }: ImportTimelin
                 <div className="space-y-1.5 text-[11px] text-zinc-500">
                   <p><span className="text-blue-400 font-medium">Premiere Pro:</span> File → Export → Final Cut Pro XML</p>
                   <p><span className="text-orange-400 font-medium">DaVinci Resolve:</span> File → Export Timeline → FCP 7 XML (.xml)</p>
-                  <p><span className="text-purple-400 font-medium">Final Cut Pro:</span> File → Export XML</p>
+                  <p><span className="text-blue-400 font-medium">Final Cut Pro:</span> File → Export XML</p>
                   <p className="text-zinc-600 pt-1 border-t border-zinc-700/50 mt-2">
                     AAF files are binary and cannot be imported directly. Please export as XML instead.
                   </p>
@@ -418,7 +418,7 @@ export function ImportTimelineModal({ isOpen, onClose, onImport }: ImportTimelin
                           className={`flex items-center gap-2 px-3 py-2 text-[11px] ${i % 2 === 0 ? 'bg-zinc-800/30' : 'bg-zinc-900/30'}`}
                         >
                           <TypeIcon className={`h-3.5 w-3.5 flex-shrink-0 ${
-                            ref.type === 'video' ? 'text-blue-400' : ref.type === 'audio' ? 'text-green-400' : 'text-purple-400'
+                            ref.type === 'video' ? 'text-blue-400' : ref.type === 'audio' ? 'text-green-400' : 'text-blue-400'
                           }`} />
                           
                           <div className="flex-1 min-w-0">

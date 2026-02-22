@@ -21,9 +21,9 @@ export default {
           DEFAULT: 'rgb(var(--surface) / <alpha-value>)',
           raised:  'rgb(var(--surface-raised) / <alpha-value>)',
         },
-        // ── Override violet → blue #2B61FF scale ──
-        // All violet-* classes now render in blue; zero component changes needed
-        violet: {
+        // ── Override blue → #2B61FF scale ──
+        // All blue-* classes use this scale; change --accent in index.css to retheme
+        blue: {
           50:  '#eef3ff',
           100: '#e0e9ff',
           200: '#c7d7fe',

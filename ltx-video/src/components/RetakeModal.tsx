@@ -309,7 +309,7 @@ export function RetakeModal({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800">
           <div className="flex items-center gap-2">
-            <Film className="h-4 w-4 text-violet-400" />
+            <Film className="h-4 w-4 text-blue-400" />
             <span className="text-sm font-semibold text-white">Retake</span>
             <span className="text-xs text-zinc-500 truncate max-w-[200px]">{clipName}</span>
           </div>
@@ -507,7 +507,7 @@ export function RetakeModal({
                 onChange={(e) => setPrompt(e.target.value)}
                 disabled={isProcessing}
                 placeholder="Describe what should happen in the selected section..."
-                className="w-full h-16 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-600 resize-none focus:outline-none focus:border-violet-500 transition-colors disabled:opacity-50"
+                className="w-full h-16 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-600 resize-none focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
               />
             </div>
           </div>
@@ -515,9 +515,9 @@ export function RetakeModal({
           {/* Processing status */}
           {isProcessing && (
             <div className="px-5 pb-3">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-600/10 border border-violet-500/20">
-                <Loader2 className="h-3.5 w-3.5 text-violet-400 animate-spin flex-shrink-0" />
-                <span className="text-xs text-violet-300">{processingStatus || 'Processing retake...'}</span>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600/10 border border-blue-500/20">
+                <Loader2 className="h-3.5 w-3.5 text-blue-400 animate-spin flex-shrink-0" />
+                <span className="text-xs text-blue-300">{processingStatus || 'Processing retake...'}</span>
               </div>
             </div>
           )}
@@ -535,7 +535,7 @@ export function RetakeModal({
           <button
             onClick={handleSubmit}
             disabled={isProcessing || selDuration < MIN_DURATION}
-            className="px-5 py-1.5 text-xs font-medium text-white bg-violet-600 hover:bg-violet-500 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            className="px-5 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
           >
             {isProcessing ? (
               <>

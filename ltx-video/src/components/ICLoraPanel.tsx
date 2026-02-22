@@ -359,8 +359,8 @@ export function ICLoraPanel({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-lg bg-violet-600/20 flex items-center justify-center">
-              <Sparkles className="h-4 w-4 text-violet-400" />
+            <div className="w-7 h-7 rounded-lg bg-blue-600/20 flex items-center justify-center">
+              <Sparkles className="h-4 w-4 text-blue-400" />
             </div>
             <div>
               <h2 className="text-sm font-semibold text-white">IC-LoRA / Style Transfer</h2>
@@ -370,7 +370,7 @@ export function ICLoraPanel({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowSettings(!showSettings)}
-              className={`p-1.5 rounded hover:bg-zinc-800 transition-colors ${showSettings ? 'text-violet-400' : 'text-zinc-400 hover:text-white'}`}
+              className={`p-1.5 rounded hover:bg-zinc-800 transition-colors ${showSettings ? 'text-blue-400' : 'text-zinc-400 hover:text-white'}`}
             >
               <Settings className="h-4 w-4" />
             </button>
@@ -415,7 +415,7 @@ export function ICLoraPanel({
                   <p className="text-zinc-500 text-xs">No video selected</p>
                   <button
                     onClick={handleImportVideo}
-                    className="mt-2 px-3 py-1.5 text-[10px] text-violet-400 border border-violet-500/30 rounded-lg hover:bg-violet-600/10 transition-colors"
+                    className="mt-2 px-3 py-1.5 text-[10px] text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-600/10 transition-colors"
                   >
                     Import Video
                   </button>
@@ -434,7 +434,7 @@ export function ICLoraPanel({
                     if (inputVideoRef.current) inputVideoRef.current.currentTime = frac * inputDuration
                   }}
                 >
-                  <div className="h-full bg-violet-500 rounded-full" style={{ width: `${inputDuration > 0 ? (inputTime / inputDuration) * 100 : 0}%` }} />
+                  <div className="h-full bg-blue-500 rounded-full" style={{ width: `${inputDuration > 0 ? (inputTime / inputDuration) * 100 : 0}%` }} />
                 </div>
                 <span className="text-[10px] font-mono text-zinc-500 min-w-[60px] text-right">
                   {inputTime.toFixed(1)}s / {inputDuration.toFixed(1)}s
@@ -454,7 +454,7 @@ export function ICLoraPanel({
                     onClick={() => setConditioningType(ct.value)}
                     className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
                       conditioningType === ct.value
-                        ? 'bg-violet-600/20 text-violet-300 border border-violet-500/30'
+                        ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
                         : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
                     }`}
                   >
@@ -466,7 +466,7 @@ export function ICLoraPanel({
             <div className="flex-1 bg-black flex items-center justify-center min-h-0 relative">
               {isExtracting && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
-                  <Loader2 className="h-5 w-5 text-violet-400 animate-spin" />
+                  <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
                 </div>
               )}
               {conditioningPreview ? (
@@ -498,7 +498,7 @@ export function ICLoraPanel({
               {outputVideoPath && (
                 <button
                   onClick={handleAcceptOutput}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] bg-blue-600 hover:bg-blue-500 text-white transition-colors"
                 >
                   {sourceClipId ? 'Add as Take' : 'Add to Assets'}
                 </button>
@@ -507,8 +507,8 @@ export function ICLoraPanel({
             <div className="flex-1 bg-black flex items-center justify-center min-h-0 relative">
               {isGenerating && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-10 gap-2">
-                  <Loader2 className="h-6 w-6 text-violet-400 animate-spin" />
-                  <span className="text-xs text-violet-300">{generationStatus}</span>
+                  <Loader2 className="h-6 w-6 text-blue-400 animate-spin" />
+                  <span className="text-xs text-blue-300">{generationStatus}</span>
                 </div>
               )}
               {generationError && !isGenerating && !outputVideoUrl && (
@@ -619,7 +619,7 @@ export function ICLoraPanel({
                 onClick={() => setShowModelDropdown(!showModelDropdown)}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 hover:bg-zinc-750 text-xs text-zinc-300 transition-colors min-w-[180px]"
               >
-                <Sparkles className="h-3 w-3 text-violet-400 flex-shrink-0" />
+                <Sparkles className="h-3 w-3 text-blue-400 flex-shrink-0" />
                 <span className="flex-1 text-left truncate">
                   {selectedModel ? selectedModel.name : 'Select LoRA model...'}
                 </span>
@@ -638,7 +638,7 @@ export function ICLoraPanel({
                           key={m.path}
                           onClick={() => { setSelectedModel(m); setShowModelDropdown(false) }}
                           className={`w-full text-left px-3 py-2 text-[11px] hover:bg-zinc-700 transition-colors ${
-                            selectedModel?.path === m.path ? 'bg-violet-600/15 text-violet-300' : 'text-zinc-300'
+                            selectedModel?.path === m.path ? 'bg-blue-600/15 text-blue-300' : 'text-zinc-300'
                           }`}
                         >
                           <div className="font-medium">{m.name}</div>
@@ -693,7 +693,7 @@ export function ICLoraPanel({
                               ) : (
                                 <button
                                   onClick={() => handleDownloadModel(m)}
-                                  className="flex items-center gap-1 text-[10px] text-violet-400 hover:text-violet-300 flex-shrink-0"
+                                  className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 flex-shrink-0"
                                 >
                                   <Download className="h-3 w-3" />
                                   Download
@@ -726,7 +726,7 @@ export function ICLoraPanel({
               <input
                 type="range" min="0" max="2" step="0.05" value={conditioningStrength}
                 onChange={e => setConditioningStrength(Number(e.target.value))}
-                className="w-20 accent-violet-500"
+                className="w-20 accent-blue-500"
               />
               <span className="text-[10px] text-zinc-400 min-w-[28px]">{conditioningStrength.toFixed(2)}</span>
             </div>
@@ -739,7 +739,7 @@ export function ICLoraPanel({
                 onChange={e => setPrompt(e.target.value)}
                 disabled={isGenerating}
                 placeholder="Describe the output style or content..."
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-violet-500 transition-colors disabled:opacity-50"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
               />
             </div>
 
@@ -748,7 +748,7 @@ export function ICLoraPanel({
               <button
                 onClick={handleGenerate}
                 disabled={!inputVideoPath || !selectedModel || isGenerating || !prompt.trim()}
-                className="flex items-center gap-1.5 px-5 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 px-5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isGenerating ? (
                   <>

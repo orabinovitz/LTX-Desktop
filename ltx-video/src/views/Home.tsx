@@ -221,7 +221,7 @@ export function Home() {
         <div className="p-4 border-t border-zinc-800">
           <button
             onClick={() => setIsCreating(true)}
-            className="w-full px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium flex items-center justify-center gap-2 transition-colors"
+            className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium flex items-center justify-center gap-2 transition-colors"
           >
             <Plus className="h-4 w-4" />
             New Project
@@ -255,7 +255,7 @@ export function Home() {
             <h2 className="text-xl font-semibold text-white">Projects</h2>
             <Button 
               onClick={() => setIsCreating(true)}
-              className="bg-violet-600 hover:bg-violet-500"
+              className="bg-blue-600 hover:bg-blue-500"
             >
               <Plus className="h-4 w-4 mr-2" />
               New Project
@@ -269,7 +269,7 @@ export function Home() {
               <p className="text-zinc-500 mb-6">Create your first project to get started</p>
               <Button 
                 onClick={() => setIsCreating(true)}
-                className="bg-violet-600 hover:bg-violet-500"
+                className="bg-blue-600 hover:bg-blue-500"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Create Project
@@ -309,7 +309,7 @@ export function Home() {
               value={newProjectName}
               onChange={(e) => setNewProjectName(e.target.value)}
               placeholder="Project name"
-              className="w-full px-4 py-3 rounded-lg bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-500"
+              className="w-full px-4 py-3 rounded-lg bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 focus:outline-none focus:border-blue-500"
               autoFocus
               onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
             />
@@ -321,7 +321,7 @@ export function Home() {
                   value={newProjectAssetPath || (newProjectName.trim() ? getDefaultAssetPath(newProjectName.trim()) : '')}
                   onChange={(e) => setNewProjectAssetPath(e.target.value)}
                   placeholder={newProjectName.trim() ? getDefaultAssetPath(newProjectName.trim()) : 'Downloads/Ltx Desktop Assets/...'}
-                  className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-violet-500 truncate"
+                  className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-blue-500 truncate"
                 />
                 <Button
                   variant="outline"
@@ -345,7 +345,7 @@ export function Home() {
               <Button
                 onClick={handleCreateProject}
                 disabled={!newProjectName.trim()}
-                className="flex-1 bg-violet-600 hover:bg-violet-500"
+                className="flex-1 bg-blue-600 hover:bg-blue-500"
               >
                 Create
               </Button>
@@ -364,7 +364,7 @@ export function Home() {
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
               placeholder="Project name"
-              className="w-full px-4 py-3 rounded-lg bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-500"
+              className="w-full px-4 py-3 rounded-lg bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 focus:outline-none focus:border-blue-500"
               autoFocus
               onKeyDown={(e) => e.key === 'Enter' && submitRename()}
             />
@@ -379,7 +379,7 @@ export function Home() {
               <Button
                 onClick={submitRename}
                 disabled={!renameValue.trim()}
-                className="flex-1 bg-violet-600 hover:bg-violet-500"
+                className="flex-1 bg-blue-600 hover:bg-blue-500"
               >
                 Save
               </Button>
@@ -402,7 +402,7 @@ export function Home() {
                   value={assetFolderPath}
                   onChange={(e) => setAssetFolderPath(e.target.value)}
                   placeholder="Select a folder..."
-                  className="flex-1 px-3 py-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-violet-500 truncate"
+                  className="flex-1 px-3 py-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-blue-500 truncate"
                   autoFocus
                   onKeyDown={(e) => e.key === 'Enter' && handleSaveAssetFolder()}
                 />
@@ -425,7 +425,7 @@ export function Home() {
                 <Button
                   onClick={handleSaveAssetFolder}
                   disabled={!assetFolderPath.trim()}
-                  className="flex-1 bg-violet-600 hover:bg-violet-500"
+                  className="flex-1 bg-blue-600 hover:bg-blue-500"
                 >
                   Save
                 </Button>

@@ -120,7 +120,7 @@ function AssetCard({
               <>
                 <button
                   onClick={(e) => { e.stopPropagation(); onEditImage?.(asset) }}
-                  className="px-2.5 py-1.5 rounded-lg bg-violet-500/70 backdrop-blur-md text-white hover:bg-violet-400/80 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
+                  className="px-2.5 py-1.5 rounded-lg bg-blue-500/70 backdrop-blur-md text-white hover:bg-blue-400/80 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
                 >
                   <Paintbrush className="h-3 w-3" />
                   Edit
@@ -388,8 +388,8 @@ function PromptBar({
       <div className="flex items-start">
         {/* Input image drop zone */}
         <div
-          className={`relative w-10 h-10 mx-2 mt-2 rounded-md border-2 border-dashed transition-colors flex items-center justify-center flex-shrink-0 cursor-pointer ${
-            isDragOver ? 'border-violet-500 bg-violet-500/10' : 'border-zinc-700 hover:border-zinc-500'
+          className={`relative w-10 h-10 mx-2 rounded-lg border-2 border-dashed transition-colors flex items-center justify-center flex-shrink-0 cursor-pointer ${
+            isDragOver ? 'border-blue-500 bg-blue-500/10' : 'border-zinc-700 hover:border-zinc-500'
           }`}
           onDragOver={(e) => { e.preventDefault(); setIsDragOver(true) }}
           onDragLeave={() => setIsDragOver(false)}

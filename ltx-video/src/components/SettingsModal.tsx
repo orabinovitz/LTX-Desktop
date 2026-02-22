@@ -335,7 +335,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
                   activeTab === tab.id
-                    ? 'text-white border-b-2 border-violet-500 -mb-px'
+                    ? 'text-white border-b-2 border-blue-500 -mb-px'
                     : 'text-zinc-400 hover:text-white'
                 }`}
               >
@@ -353,7 +353,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
               {/* Text Encoding Section */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <svg className="h-4 w-4 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg className="h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3" />
                     <line x1="8" y1="12" x2="16" y2="12" />
                   </svg>
@@ -367,23 +367,23 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                 {/* LTX API Option (Default) */}
                 <div 
                   className={`bg-zinc-800/50 rounded-lg p-4 border-2 transition-colors cursor-pointer ${
-                    !settings.useLocalTextEncoder ? 'border-violet-500' : 'border-transparent hover:border-zinc-600'
+                    !settings.useLocalTextEncoder ? 'border-blue-500' : 'border-transparent hover:border-zinc-600'
                   }`}
                   onClick={() => settings.useLocalTextEncoder && handleToggleLocalEncoder()}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <Zap className="h-4 w-4 text-violet-400" />
+                        <Zap className="h-4 w-4 text-blue-400" />
                         <span className="text-sm font-medium text-white">LTX API</span>
-                        <span className="text-xs px-1.5 py-0.5 bg-violet-500/20 text-violet-400 rounded">Recommended</span>
+                        <span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">Recommended</span>
                       </div>
                       <p className="text-xs text-zinc-400 mt-1">
                         Fast encoding via cloud (~1 second). Requires API key.
                       </p>
                     </div>
                     <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                      !settings.useLocalTextEncoder ? 'border-violet-500 bg-violet-500' : 'border-zinc-600'
+                      !settings.useLocalTextEncoder ? 'border-blue-500 bg-blue-500' : 'border-zinc-600'
                     }`}>
                       {!settings.useLocalTextEncoder && <Check className="h-3 w-3 text-white" />}
                     </div>
@@ -398,7 +398,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                         onChange={handleApiKeyChange}
                         onClick={(e) => e.stopPropagation()}
                         placeholder="Enter your LTX API key..."
-                        className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                        className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                       <div className="flex items-center justify-between mt-2">
                         <div className={`text-xs px-2 py-1 rounded inline-flex items-center gap-1.5 ${
@@ -423,7 +423,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                           target="_blank" 
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="text-xs text-violet-400 hover:text-violet-300 underline"
+                          className="text-xs text-blue-400 hover:text-blue-300 underline"
                         >
                           Get a free key
                         </a>
@@ -443,7 +443,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                             value={settings.promptCacheSize ?? 100}
                             onChange={handlePromptCacheSizeChange}
                             onClick={(e) => e.stopPropagation()}
-                            className="w-16 px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-xs text-white text-center focus:outline-none focus:ring-2 focus:ring-violet-500"
+                            className="w-16 px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-xs text-white text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
                       )}
@@ -454,7 +454,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                 {/* Local Encoder Option */}
                 <div 
                   className={`bg-zinc-800/50 rounded-lg p-4 border-2 transition-colors cursor-pointer ${
-                    settings.useLocalTextEncoder ? 'border-violet-500' : 'border-transparent hover:border-zinc-600'
+                    settings.useLocalTextEncoder ? 'border-blue-500' : 'border-transparent hover:border-zinc-600'
                   }`}
                   onClick={() => !settings.useLocalTextEncoder && handleToggleLocalEncoder()}
                 >
@@ -472,7 +472,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                       </p>
                     </div>
                     <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                      settings.useLocalTextEncoder ? 'border-violet-500 bg-violet-500' : 'border-zinc-600'
+                      settings.useLocalTextEncoder ? 'border-blue-500 bg-blue-500' : 'border-zinc-600'
                     }`}>
                       {settings.useLocalTextEncoder && <Check className="h-3 w-3 text-white" />}
                     </div>
@@ -487,8 +487,8 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                           <span>Downloaded ({textEncoderStatus.size_gb} GB)</span>
                         </div>
                       ) : isDownloading ? (
-                        <div className="flex items-center gap-2 text-xs text-violet-400">
-                          <div className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                        <div className="flex items-center gap-2 text-xs text-blue-400">
+                          <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
                           <span>Downloading text encoder...</span>
                         </div>
                       ) : (
@@ -503,7 +503,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                               e.stopPropagation()
                               handleDownloadTextEncoder()
                             }}
-                            className="w-full bg-violet-600 hover:bg-violet-500 text-white text-xs"
+                            className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs"
                           >
                             <Download className="h-3 w-3 mr-2" />
                             Download Text Encoder
@@ -736,7 +736,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
               {/* Pro Model Settings */}
               <div className="space-y-4 pt-4 border-t border-zinc-800">
                 <div className="flex items-center gap-2">
-                  <svg className="h-4 w-4 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg className="h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                   </svg>
                   <h3 className="text-sm font-semibold text-white">Pro Model (Full)</h3>
@@ -755,7 +755,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                       max="100"
                       value={settings.proModel?.steps ?? 20}
                       onChange={handleProStepsChange}
-                      className="w-20 px-3 py-1.5 bg-zinc-700 border border-zinc-600 rounded-lg text-sm text-white text-center focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="w-20 px-3 py-1.5 bg-zinc-700 border border-zinc-600 rounded-lg text-sm text-white text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   
@@ -768,7 +768,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                     <button
                       onClick={handleProUpscalerToggle}
                       className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        settings.proModel?.useUpscaler !== false ? 'bg-purple-500' : 'bg-zinc-700'
+                        settings.proModel?.useUpscaler !== false ? 'bg-blue-500' : 'bg-zinc-700'
                       }`}
                     >
                       <span
@@ -789,7 +789,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
               {/* Info Box */}
               <div className="bg-zinc-800/30 rounded-lg p-3 mt-4">
                 <p className="text-xs text-zinc-400">
-                  <span className="text-violet-400 font-medium">Tip:</span> Lower steps = faster but lower quality. 
+                  <span className="text-blue-400 font-medium">Tip:</span> Lower steps = faster but lower quality. 
                   Higher steps = better quality but slower.
                 </p>
               </div>
@@ -801,7 +801,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
               {/* Enable/Disable Toggles */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-violet-400" />
+                  <Sparkles className="h-4 w-4 text-blue-400" />
                   <h3 className="text-sm font-semibold text-white">Prompt Enhancer</h3>
                 </div>
                 
@@ -825,7 +825,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                     </div>
                   </div>
                   <div className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
-                    settings.promptEnhancerEnabledT2V ? 'bg-violet-500' : 'bg-zinc-700'
+                    settings.promptEnhancerEnabledT2V ? 'bg-blue-500' : 'bg-zinc-700'
                   }`}>
                     <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform pointer-events-none ${
                       settings.promptEnhancerEnabledT2V ? 'translate-x-5' : 'translate-x-0'
@@ -848,7 +848,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                     </div>
                   </div>
                   <div className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
-                    settings.promptEnhancerEnabledI2V ? 'bg-violet-500' : 'bg-zinc-700'
+                    settings.promptEnhancerEnabledI2V ? 'bg-blue-500' : 'bg-zinc-700'
                   }`}>
                     <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform pointer-events-none ${
                       settings.promptEnhancerEnabledI2V ? 'translate-x-5' : 'translate-x-0'
@@ -870,7 +870,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                     value={settings.geminiApiKey || ''}
                     onChange={handleGeminiApiKeyChange}
                     placeholder="Enter your Gemini API key..."
-                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                   
                   <div className="flex items-center justify-between">
@@ -895,7 +895,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                       href="https://aistudio.google.com/app/apikey" 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="text-xs text-violet-400 hover:text-violet-300 underline"
+                      className="text-xs text-blue-400 hover:text-blue-300 underline"
                     >
                       Get a free key
                     </a>
@@ -908,7 +908,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                 <div className="space-y-3 pt-4 border-t border-zinc-800">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Settings className="h-4 w-4 text-violet-400" />
+                      <Settings className="h-4 w-4 text-blue-400" />
                       <label className="text-sm font-medium text-white">Text-to-Video Prompt</label>
                     </div>
                     <Button
@@ -930,7 +930,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                     value={settings.t2vSystemPrompt || DEFAULT_T2V_SYSTEM_PROMPT}
                     onChange={handleT2vSystemPromptChange}
                     rows={8}
-                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none font-mono"
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none font-mono"
                   />
                   
                   <p className="text-xs text-zinc-600">
@@ -966,7 +966,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSettingsChange }: S
                     value={settings.i2vSystemPrompt || DEFAULT_I2V_SYSTEM_PROMPT}
                     onChange={handleI2vSystemPromptChange}
                     rows={8}
-                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none font-mono"
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none font-mono"
                   />
                   
                   <p className="text-xs text-zinc-600">

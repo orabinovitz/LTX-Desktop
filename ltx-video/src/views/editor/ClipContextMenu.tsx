@@ -356,7 +356,7 @@ function SingleClipMenu({
             }}
             className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
               contextClip.speed === speed
-                ? 'bg-violet-600 text-white'
+                ? 'bg-blue-600 text-white'
                 : 'bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-white'
             }`}
           >
@@ -477,7 +477,7 @@ function SingleClipMenu({
           {contextClip.isRegenerating ? (
             <MenuItem icon={X} iconClass="text-red-400" label="Cancel Regeneration" onClick={() => { handleCancelRegeneration(); close() }} />
           ) : (
-            <MenuItem icon={RefreshCw} iconClass="text-violet-400" label="Regenerate Shot"
+            <MenuItem icon={RefreshCw} iconClass="text-blue-400" label="Regenerate Shot"
               disabled={isRegenerating} onClick={() => { handleRegenerate(contextClip.assetId!, contextClip.id); close() }} />
           )}
 
@@ -522,7 +522,7 @@ function SingleClipMenu({
           )}
           {isVideo && contextClip.assetId && (
             <>
-              <MenuItem icon={Film} iconClass="text-violet-400" label="Retake Section"
+              <MenuItem icon={Film} iconClass="text-blue-400" label="Retake Section"
                 disabled={isRetaking} onClick={() => { setRetakeClipId(contextClip.id); close() }} />
               <MenuItem icon={Sparkles} iconClass="text-amber-400" label="IC-LoRA / Style Transfer"
                 onClick={() => { setIcLoraSourceClipId(contextClip.id); setShowICLoraPanel(true); close() }} />
@@ -540,7 +540,7 @@ function SingleClipMenu({
               <div className="absolute left-full top-0 ml-0.5 min-w-[200px] bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 z-[70] hidden group-hover/capture:block">
                 <MenuItem icon={Paintbrush} iconClass="text-emerald-400" label="Edit Image in Gen Space"
                   onClick={() => { onCaptureFrameForEdit(contextClip); close() }} />
-                <MenuItem icon={Video} iconClass="text-violet-400" label="Generate Video in Gen Space"
+                <MenuItem icon={Video} iconClass="text-blue-400" label="Generate Video in Gen Space"
                   onClick={() => { onCaptureFrameForVideo(contextClip); close() }} />
                 {isImage && (
                   <MenuItem icon={Film} iconClass="text-blue-400" label="Image to Video (I2V)"
