@@ -213,7 +213,7 @@ function SettingsDropdown({
       <button 
         ref={btnRef}
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 px-2 py-1.5 rounded-md hover:bg-zinc-800 transition-colors"
+        className={`flex items-center gap-1 px-2 py-1.5 rounded-md transition-colors ${isOpen ? 'bg-zinc-700 hover:bg-zinc-700' : 'hover:bg-zinc-800'}`}
       >
         {trigger}
       </button>
@@ -226,7 +226,7 @@ function SettingsDropdown({
           <>
             <div className="fixed inset-0 z-[9998]" onMouseDown={() => setIsOpen(false)} />
             <div
-              className="fixed bg-zinc-800 border border-zinc-700 rounded-md py-3 px-4 min-w-[160px] shadow-xl z-[9999]"
+              className="fixed bg-zinc-800 border border-zinc-700 rounded-md p-2 min-w-[160px] shadow-xl z-[9999]"
               style={{ bottom: window.innerHeight - top, left }}
             >
               <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-3">{title}</div>
@@ -236,9 +236,9 @@ function SettingsDropdown({
                     <button
                       onClick={() => { if (!option.disabled) { onChange(option.value); setIsOpen(false) } }}
                       className={`w-full flex items-center justify-between px-2 py-2 rounded-md transition-colors text-left ${
-                        option.disabled 
-                          ? 'cursor-not-allowed' 
-                          : 'hover:bg-zinc-700'
+                        option.disabled
+                          ? 'cursor-not-allowed'
+                          : value === option.value ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-zinc-700'
                       }`}
                     >
                       <span className={`flex items-center gap-2.5 text-sm ${
@@ -1063,7 +1063,7 @@ export function GenSpace() {
                 </button>
 
                 {showSizeMenu && (
-                  <div className="absolute top-full mt-2 right-0 bg-zinc-800 border border-zinc-700 rounded-md py-3 px-4 min-w-[160px] shadow-xl z-50">
+                  <div className="absolute top-full mt-2 right-0 bg-zinc-800 border border-zinc-700 rounded-md p-2 min-w-[160px] shadow-xl z-50">
                     {([
                       { value: 'small' as GallerySize, label: 'Small', icon: GridSmallIcon },
                       { value: 'medium' as GallerySize, label: 'Medium', icon: GridMediumIcon },
@@ -1072,7 +1072,7 @@ export function GenSpace() {
                       <button
                         key={option.value}
                         onClick={() => { setGallerySize(option.value); setShowSizeMenu(false) }}
-                        className="w-full flex items-center justify-between px-2 py-2.5 rounded-md hover:bg-zinc-700 transition-colors text-left"
+                        className={`w-full flex items-center justify-between px-2 py-2.5 rounded-md transition-colors text-left ${gallerySize === option.value ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-zinc-700'}`}
                       >
                         <div className="flex items-center gap-3">
                           <option.icon className={`h-4 w-4 ${gallerySize === option.value ? 'text-white' : 'text-zinc-500'}`} />
