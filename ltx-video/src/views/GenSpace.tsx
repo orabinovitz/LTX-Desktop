@@ -742,7 +742,22 @@ export function GenSpace() {
   }, [genSpaceEditImageUrl, setGenSpaceEditImageUrl, genSpaceEditMode, setGenSpaceEditMode])
 
   // Only show assets that were generated (have generationParams), not imported files
-  const assets = (currentProject?.assets || []).filter(a => a.generationParams)
+  const realAssets = (currentProject?.assets || []).filter(a => a.generationParams)
+  // DEV ONLY: mock assets to preview the grid layout without a backend
+  const mockColors = ['3b82f6','8b5cf6','ec4899','f59e0b','10b981','ef4444','6366f1','14b8a6','f97316']
+  const MOCK_ASSETS: typeof realAssets = mockColors.map((color, i) => ({
+    id: `mock-${i}`,
+    type: 'image' as const,
+    url: `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'><rect width='640' height='360' fill='%23${color}'/><text x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='24' font-family='sans-serif'>Image ${i + 1}</text></svg>`,
+    path: '',
+    prompt: 'A beautiful landscape with mountains and a lake at sunset',
+    resolution: '1080p',
+    generationParams: { mode: 'text-to-image' as any, prompt: '', model: 'fast', duration: 5, resolution: '1080p', fps: 24, audio: false, cameraMotion: 'none', imageAspectRatio: '16:9', imageSteps: 4 },
+    takes: [],
+    activeTakeIndex: 0,
+    createdAt: Date.now(),
+  }))
+  const assets = realAssets.length > 0 ? realAssets : MOCK_ASSETS
   const [lastPrompt, setLastPrompt] = useState('')
   
   const assetSavePath = currentProject?.assetSavePath
@@ -1031,113 +1046,113 @@ export function GenSpace() {
         </div>
       )}
 
-      {/* Floating prompt panel */}
-      <div className="absolute bottom-5 left-[calc(50%-300px)] w-[600px]">
+      {/* Assets area — full width, no background, above the prompt bar */}
+      {(assets.length > 0 || isGenerating) && (
+        <div className="absolute inset-x-0 top-0 bottom-[160px] flex flex-col px-4 pt-4">
+          {/* Top bar */}
+          <div className="flex items-center justify-end pb-2 gap-2">
+            <button
+              onClick={() => setShowFavorites(!showFavorites)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                showFavorites
+                  ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+              }`}
+            >
+              <Heart className={`h-4 w-4 ${showFavorites ? 'fill-current' : ''}`} />
+              Favorites
+              {favoriteCount > 0 && (
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                  showFavorites ? 'bg-red-500/30 text-red-300' : 'bg-zinc-800 text-zinc-500'
+                }`}>
+                  {favoriteCount}
+                </span>
+              )}
+            </button>
 
-        {/* Assets grid — only shown when content exists */}
-        {(assets.length > 0 || isGenerating) && (
-          <div className="mb-3">
-            {/* Top bar */}
-            <div className="flex items-center justify-end px-1 pb-2 gap-2">
+            <div ref={sizeMenuRef} className="relative">
               <button
-                onClick={() => setShowFavorites(!showFavorites)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  showFavorites
-                    ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                onClick={() => setShowSizeMenu(!showSizeMenu)}
+                className={`p-2 rounded-md transition-colors ${
+                  showSizeMenu ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                 }`}
               >
-                <Heart className={`h-4 w-4 ${showFavorites ? 'fill-current' : ''}`} />
-                Favorites
-                {favoriteCount > 0 && (
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                    showFavorites ? 'bg-red-500/30 text-red-300' : 'bg-zinc-800 text-zinc-500'
-                  }`}>
-                    {favoriteCount}
-                  </span>
-                )}
+                {gallerySize === 'small' ? <GridSmallIcon className="h-4 w-4" /> :
+                 gallerySize === 'medium' ? <GridMediumIcon className="h-4 w-4" /> :
+                 <GridLargeIcon className="h-4 w-4" />}
               </button>
 
-              <div ref={sizeMenuRef} className="relative">
-                <button
-                  onClick={() => setShowSizeMenu(!showSizeMenu)}
-                  className={`p-2 rounded-md transition-colors ${
-                    showSizeMenu ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-                  }`}
-                >
-                  {gallerySize === 'small' ? <GridSmallIcon className="h-4 w-4" /> :
-                   gallerySize === 'medium' ? <GridMediumIcon className="h-4 w-4" /> :
-                   <GridLargeIcon className="h-4 w-4" />}
-                </button>
-
-                {showSizeMenu && (
-                  <div className="absolute top-full mt-2 right-0 bg-zinc-800 border border-zinc-700 rounded-md p-2 min-w-[160px] shadow-xl z-50">
-                    {([
-                      { value: 'small' as GallerySize, label: 'Small', icon: GridSmallIcon },
-                      { value: 'medium' as GallerySize, label: 'Medium', icon: GridMediumIcon },
-                      { value: 'large' as GallerySize, label: 'Large', icon: GridLargeIcon },
-                    ]).map(option => (
-                      <button
-                        key={option.value}
-                        onClick={() => { setGallerySize(option.value); setShowSizeMenu(false) }}
-                        className={`w-full flex items-center justify-between px-2 py-2.5 rounded-md transition-colors text-left ${gallerySize === option.value ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-zinc-700'}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <option.icon className={`h-4 w-4 ${gallerySize === option.value ? 'text-white' : 'text-zinc-500'}`} />
-                          <span className={`text-sm ${gallerySize === option.value ? 'text-white font-medium' : 'text-zinc-400'}`}>
-                            {option.label}
-                          </span>
-                        </div>
-                        {gallerySize === option.value && (
-                          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Assets grid */}
-            <div className="overflow-auto h-[528px] bg-zinc-900 border border-zinc-800 rounded-2xl p-4 mb-3">
-              <div className={`grid ${gallerySizeClasses[gallerySize]} gap-4`}>
-                {isGenerating && (
-                  <div className="relative rounded-xl overflow-hidden bg-zinc-800 aspect-video">
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <div className="relative w-16 h-16 mb-3">
-                        <div className="absolute inset-0 rounded-full border-2 border-violet-500/30" />
-                        <div className="absolute inset-0 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
-                        <div className="absolute inset-2 rounded-full bg-zinc-800 flex items-center justify-center">
-                          <Sparkles className="h-6 w-6 text-violet-400" />
-                        </div>
+              {showSizeMenu && (
+                <div className="absolute top-full mt-2 right-0 bg-zinc-800 border border-zinc-700 rounded-md p-2 min-w-[160px] shadow-xl z-50">
+                  {([
+                    { value: 'small' as GallerySize, label: 'Small', icon: GridSmallIcon },
+                    { value: 'medium' as GallerySize, label: 'Medium', icon: GridMediumIcon },
+                    { value: 'large' as GallerySize, label: 'Large', icon: GridLargeIcon },
+                  ]).map(option => (
+                    <button
+                      key={option.value}
+                      onClick={() => { setGallerySize(option.value); setShowSizeMenu(false) }}
+                      className={`w-full flex items-center justify-between px-2 py-2.5 rounded-md transition-colors text-left ${gallerySize === option.value ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-zinc-700'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <option.icon className={`h-4 w-4 ${gallerySize === option.value ? 'text-white' : 'text-zinc-500'}`} />
+                        <span className={`text-sm ${gallerySize === option.value ? 'text-white font-medium' : 'text-zinc-400'}`}>
+                          {option.label}
+                        </span>
                       </div>
-                      <p className="text-sm text-zinc-400">{statusMessage || 'Generating...'}</p>
-                      {progress > 0 && (
-                        <div className="w-32 h-1 bg-zinc-800 rounded-full mt-2 overflow-hidden">
-                          <div className="h-full bg-violet-500 transition-all" style={{ width: `${progress}%` }} />
-                        </div>
+                      {gallerySize === option.value && (
+                        <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
                       )}
-                    </div>
-                  </div>
-                )}
-                {filteredAssets.map(asset => (
-                  <AssetCard
-                    key={asset.id}
-                    asset={asset}
-                    onDelete={() => handleDelete(asset.id)}
-                    onPlay={() => setSelectedAsset(asset)}
-                    onDragStart={handleDragStart}
-                    onCreateVideo={handleCreateVideo}
-                    onEditImage={handleEditImage}
-                    onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
-                  />
-                ))}
-              </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-        )}
+
+          {/* Assets grid — fills remaining space, scrollable */}
+          <div className="overflow-auto flex-1">
+            <div className={`grid ${gallerySizeClasses[gallerySize]} gap-4`}>
+              {isGenerating && (
+                <div className="relative rounded-xl overflow-hidden bg-zinc-800 aspect-video">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <div className="relative w-16 h-16 mb-3">
+                      <div className="absolute inset-0 rounded-full border-2 border-violet-500/30" />
+                      <div className="absolute inset-0 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+                      <div className="absolute inset-2 rounded-full bg-zinc-800 flex items-center justify-center">
+                        <Sparkles className="h-6 w-6 text-violet-400" />
+                      </div>
+                    </div>
+                    <p className="text-sm text-zinc-400">{statusMessage || 'Generating...'}</p>
+                    {progress > 0 && (
+                      <div className="w-32 h-1 bg-zinc-800 rounded-full mt-2 overflow-hidden">
+                        <div className="h-full bg-violet-500 transition-all" style={{ width: `${progress}%` }} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {filteredAssets.map(asset => (
+                <AssetCard
+                  key={asset.id}
+                  asset={asset}
+                  onDelete={() => handleDelete(asset.id)}
+                  onPlay={() => setSelectedAsset(asset)}
+                  onDragStart={handleDragStart}
+                  onCreateVideo={handleCreateVideo}
+                  onEditImage={handleEditImage}
+                  onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating prompt panel — centered 600px */}
+      <div className="absolute bottom-5 left-[calc(50%-300px)] w-[600px]">
 
         {/* Prompt bar */}
         <PromptBar
