@@ -742,22 +742,7 @@ export function GenSpace() {
   }, [genSpaceEditImageUrl, setGenSpaceEditImageUrl, genSpaceEditMode, setGenSpaceEditMode])
 
   // Only show assets that were generated (have generationParams), not imported files
-  const realAssets = (currentProject?.assets || []).filter(a => a.generationParams)
-  // DEV ONLY: mock assets to preview the grid layout without a backend
-  const mockColors = ['3b82f6','8b5cf6','ec4899','f59e0b','10b981','ef4444','6366f1','14b8a6','f97316']
-  const MOCK_ASSETS: typeof realAssets = mockColors.map((color, i) => ({
-    id: `mock-${i}`,
-    type: 'image' as const,
-    url: `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'><rect width='640' height='360' fill='%23${color}'/><text x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='24' font-family='sans-serif'>Image ${i + 1}</text></svg>`,
-    path: '',
-    prompt: 'A beautiful landscape with mountains and a lake at sunset',
-    resolution: '1080p',
-    generationParams: { mode: 'text-to-image' as any, prompt: '', model: 'fast', duration: 5, resolution: '1080p', fps: 24, audio: false, cameraMotion: 'none', imageAspectRatio: '16:9', imageSteps: 4 },
-    takes: [],
-    activeTakeIndex: 0,
-    createdAt: Date.now(),
-  }))
-  const assets = realAssets.length > 0 ? realAssets : MOCK_ASSETS
+  const assets = (currentProject?.assets || []).filter(a => a.generationParams)
   const [lastPrompt, setLastPrompt] = useState('')
   
   const assetSavePath = currentProject?.assetSavePath
