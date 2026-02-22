@@ -5,9 +5,12 @@ import { stopExportProcess } from './export/ffmpeg-utils'
 import { registerAppHandlers } from './ipc/app-handlers'
 import { registerFileHandlers } from './ipc/file-handlers'
 import { registerLogHandlers } from './ipc/log-handlers'
+import { initSessionLog } from './logging-management'
 import { startPythonBackend, stopPythonBackend } from './python-backend'
 import { initAutoUpdater } from './updater'
 import { createWindow, getMainWindow } from './window'
+
+initSessionLog()
 
 registerAppHandlers()
 registerFileHandlers()

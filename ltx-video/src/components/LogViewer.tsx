@@ -56,7 +56,7 @@ export function LogViewer({ isOpen, onClose }: LogViewerProps) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'backend.log'
+    a.download = logPath ? logPath.split(/[/\\]/).pop() || 'backend.log' : 'backend.log'
     a.click()
     URL.revokeObjectURL(url)
   }

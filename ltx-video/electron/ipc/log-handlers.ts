@@ -1,20 +1,11 @@
 import { ipcMain } from 'electron'
-import path from 'path'
 import fs from 'fs'
-import os from 'os'
-
-function getLogDir(): string {
-  if (process.platform === 'win32') {
-    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'LTX-desktop', 'logs')
-  }
-  return path.join(os.homedir(), '.ltx-video-studio', 'logs')
-}
+import { getLogDir, getCurrentLogFilename } from '../logging-management'
 
 export function registerLogHandlers(): void {
   ipcMain.handle('get-logs', async () => {
     try {
-      const logDir = getLogDir()
-      const logPath = path.join(logDir, 'backend.log')
+      const logPath = getCurrentLogFilename()
       if (fs.existsSync(logPath)) {
         const content = fs.readFileSync(logPath, 'utf-8')
         const allLines = content.split('\n')
@@ -29,8 +20,8 @@ export function registerLogHandlers(): void {
   })
 
   ipcMain.handle('get-log-path', async () => {
+    const logPath = getCurrentLogFilename()
     const logDir = getLogDir()
-    const logPath = path.join(logDir, 'backend.log')
     return { logPath, logDir }
   })
 

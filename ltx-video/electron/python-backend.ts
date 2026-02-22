@@ -2,6 +2,7 @@ import { ChildProcess, spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { getCurrentDir, isDev, PYTHON_PORT } from './config'
+import { getCurrentLogFilename } from './logging-management'
 
 let pythonProcess: ChildProcess | null = null
 
@@ -82,6 +83,7 @@ export async function startPythonBackend(): Promise<void> {
         ...process.env,
         PYTHONUNBUFFERED: '1',
         LTX_PORT: String(PYTHON_PORT),
+        LTX_LOG_FILE: getCurrentLogFilename(),
         PYTORCH_ENABLE_MPS_FALLBACK: '1',
         // Set PYTHONHOME for bundled Python on macOS so it finds its stdlib
         ...(!isDev && process.platform !== 'win32' ? {

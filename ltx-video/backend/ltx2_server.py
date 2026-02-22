@@ -14,9 +14,9 @@ if os.environ.get("DEBUG") == "1":
 
 import logging
 from pathlib import Path
-import subprocess
 import threading
 import tempfile
+from datetime import datetime
 
 # Note: expandable_segments is not supported on all platforms
 
@@ -35,7 +35,12 @@ if platform.system() == "Windows":
 else:
     log_dir = Path.home() / ".ltx-video-studio" / "logs"
 
-log_file = log_dir / "backend.log"
+_env_log_file = os.environ.get("LTX_LOG_FILE")
+if _env_log_file:
+    log_file = Path(_env_log_file)
+else:
+    _ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_file = log_dir / f"backend_{_ts}_unknown.log"
 
 log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
@@ -43,31 +48,21 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(log_formatter)
 
-from logging.handlers import RotatingFileHandler
 handlers: list[logging.Handler] = [console_handler]
 try:
-    log_dir.mkdir(parents=True, exist_ok=True)
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=5 * 1024 * 1024,
-        backupCount=3,
-        encoding="utf-8",
-    )
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(log_formatter)
     handlers.append(file_handler)
 except Exception as exc:
     print(f"Primary log file setup failed at {log_file}: {exc}", file=sys.stderr)
     fallback_log_dir = Path(tempfile.gettempdir()) / "ltx-video-studio" / "logs"
+    _ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     try:
         fallback_log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = fallback_log_dir / "backend.log"
-        file_handler = RotatingFileHandler(
-            log_file,
-            maxBytes=5 * 1024 * 1024,
-            backupCount=3,
-            encoding="utf-8",
-        )
+        log_file = fallback_log_dir / f"backend_{_ts}_unknown.log"
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(log_formatter)
         handlers.append(file_handler)
@@ -230,19 +225,6 @@ handler = build_initial_state(runtime_config, DEFAULT_APP_SETTINGS)
 app = create_app(handler=handler, allowed_origins=DEFAULT_ALLOWED_ORIGINS)
 
 
-def log_current_git_commit() -> None:
-    try:
-        git_hash = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            cwd=PROJECT_ROOT,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-        logger.info(f"Git commit: {git_hash}")
-    except Exception:
-        logger.info("Git commit: unknown")
-
-
 def precache_model_files(model_dir: Path) -> int:
     if not model_dir.exists():
         return 0
@@ -270,7 +252,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("LTX_PORT", PORT))
     logger.info("=" * 60)
     logger.info("LTX-2 Video Generation Server (FastAPI + Uvicorn)")
-    log_current_git_commit()
+    logger.info(f"Log file: {log_file}")
     logger.info("=" * 60)
 
     warmup_thread = threading.Thread(target=background_warmup, daemon=True)
