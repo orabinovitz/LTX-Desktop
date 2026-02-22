@@ -28,8 +28,8 @@ export function Project() {
   return (
     <div className="h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
-        <div className="flex items-center gap-4">
+      <header className="flex items-center px-4 py-3 border-b border-zinc-800">
+        <div className="flex-1 flex items-center gap-4">
           {/* Back button and logo */}
           <button 
             onClick={goHome}
@@ -62,8 +62,8 @@ export function Project() {
           ))}
         </div>
         
-        {/* Right spacer for global settings/logs buttons */}
-        <div className="w-20" />
+        {/* Right spacer - equal to left to keep tabs centered */}
+        <div className="flex-1" />
       </header>
       
       {/* Main Content - both views stay mounted to preserve state */}
