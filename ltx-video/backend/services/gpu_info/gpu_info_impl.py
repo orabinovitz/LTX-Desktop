@@ -6,6 +6,7 @@ import logging
 import os
 import platform
 import subprocess
+import sys
 from typing import Protocol, cast
 
 import torch
@@ -42,6 +43,8 @@ class GpuInfoImpl:
 
     def _get_system_ram_mb(self) -> int:
         try:
+            if sys.platform == "win32":
+                return 0
             return int((os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")) // (1024 * 1024))
         except Exception:
             logger.warning("Failed to query system RAM", exc_info=True)
@@ -129,6 +132,8 @@ class GpuInfoImpl:
 
         if self.get_mps_available():
             try:
+                if sys.platform == "win32":
+                    return None
                 return int((os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")) // (1024**3))
             except Exception:
                 logger.warning("Failed to query MPS total memory", exc_info=True)
