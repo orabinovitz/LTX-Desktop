@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, TypeAlias, TypedDict
+from typing import Annotated, Any, TypeAlias, TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
+
+NonEmptyPrompt = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 # ============================================================
@@ -228,7 +230,7 @@ class ErrorResponse(BaseModel):
 
 
 class GenerateVideoRequest(BaseModel):
-    prompt: str = "A beautiful video"
+    prompt: NonEmptyPrompt
     resolution: str = "512p"
     model: str = "fast"
     cameraMotion: str = "none"
@@ -239,7 +241,7 @@ class GenerateVideoRequest(BaseModel):
 
 
 class GenerateImageRequest(BaseModel):
-    prompt: str = "A beautiful image"
+    prompt: NonEmptyPrompt
     width: int = 1024
     height: int = 1024
     numSteps: int = 4
@@ -287,7 +289,7 @@ class IcLoraGenerateRequest(BaseModel):
     video_path: str
     lora_path: str
     conditioning_type: str = "canny"
-    prompt: str = ""
+    prompt: NonEmptyPrompt
     conditioning_strength: float = 1.0
     seed: int = 42
     height: int = 512

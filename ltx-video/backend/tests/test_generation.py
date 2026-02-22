@@ -214,6 +214,32 @@ class TestGenerateImage:
         assert r.json()["status"] == "cancelled"
 
 
+class TestEmptyPromptRejected:
+    def test_empty_prompt_rejected(self, client):
+        r = client.post("/api/generate", json={"prompt": ""})
+        assert r.status_code == 422
+
+    def test_whitespace_prompt_rejected(self, client):
+        r = client.post("/api/generate", json={"prompt": "   "})
+        assert r.status_code == 422
+
+    def test_missing_prompt_rejected(self, client):
+        r = client.post("/api/generate", json={})
+        assert r.status_code == 422
+
+    def test_empty_image_prompt_rejected(self, client):
+        r = client.post("/api/generate-image", json={"prompt": ""})
+        assert r.status_code == 422
+
+    def test_whitespace_image_prompt_rejected(self, client):
+        r = client.post("/api/generate-image", json={"prompt": "   "})
+        assert r.status_code == 422
+
+    def test_missing_image_prompt_rejected(self, client):
+        r = client.post("/api/generate-image", json={})
+        assert r.status_code == 422
+
+
 class TestEditImage:
     def test_happy_path(self, client, make_test_image):
         img_buf = make_test_image(100, 100)

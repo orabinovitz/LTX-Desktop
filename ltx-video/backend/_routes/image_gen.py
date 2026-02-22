@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
+from _routes._errors import HTTPError
 from api_types import GenerateImageRequest, GenerateImageResponse
 from state import get_state_service
 from app_handler import AppHandler
@@ -37,6 +38,9 @@ def route_edit_image(
     image8: UploadFile | None = File(None),
     handler: AppHandler = Depends(get_state_service),
 ) -> GenerateImageResponse:
+    if not prompt.strip():
+        raise HTTPError(400, "Prompt must not be empty")
+
     form: MultipartForm = {}
     form["prompt"] = [prompt.encode()]
     form["width"] = [str(width).encode()]

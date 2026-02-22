@@ -141,7 +141,7 @@ class TestIcLoraGenerate:
 
         r = client.post(
             "/api/ic-lora/generate",
-            json={"video_path": "/nonexistent/video.mp4", "lora_path": str(lora_path)},
+            json={"video_path": "/nonexistent/video.mp4", "lora_path": str(lora_path), "prompt": "test"},
         )
         assert r.status_code == 400
 
@@ -151,9 +151,22 @@ class TestIcLoraGenerate:
 
         r = client.post(
             "/api/ic-lora/generate",
-            json={"video_path": str(video_path), "lora_path": "/nonexistent/lora.safetensors"},
+            json={"video_path": str(video_path), "lora_path": "/nonexistent/lora.safetensors", "prompt": "test"},
         )
         assert r.status_code == 400
+
+    def test_empty_prompt_rejected(self, client, test_state):
+        video_path = test_state.config.outputs_dir / "input.mp4"
+        video_path.write_bytes(b"\x00" * 100)
+        lora_path = test_state.config.ic_lora_dir / "test.safetensors"
+        lora_path.parent.mkdir(parents=True, exist_ok=True)
+        lora_path.write_bytes(b"\x00" * 100)
+
+        r = client.post(
+            "/api/ic-lora/generate",
+            json={"video_path": str(video_path), "lora_path": str(lora_path), "prompt": ""},
+        )
+        assert r.status_code == 422
 
     def test_pipeline_error(self, client, test_state, fake_services):
         video_path = test_state.config.outputs_dir / "input.mp4"

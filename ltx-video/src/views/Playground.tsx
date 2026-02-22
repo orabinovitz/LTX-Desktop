@@ -63,7 +63,7 @@ export function Playground() {
       generateImage(prompt, settings)
     } else {
       // Auto-detect: if image is loaded → I2V, otherwise → T2V
-      if (!prompt.trim() && !selectedImage) return
+      if (!prompt.trim()) return
       const imagePath = selectedImage ? fileUrlToPath(selectedImage) : null
       generate(prompt, imagePath, settings)
     }
@@ -90,12 +90,9 @@ export function Playground() {
     reset()
   }
 
-  // Video mode: prompt required (T2V) or image loaded (I2V, prompt optional)
-  // Image mode: prompt required
   const isVideoMode = mode !== 'text-to-image'
-  const canGenerate = status.connected && !isGenerating && (
-    (isVideoMode && (prompt.trim() || selectedImage)) ||
-    (mode === 'text-to-image' && prompt.trim())
+  const canGenerate = status.connected && !isGenerating && !!prompt.trim() && (
+    isVideoMode || mode === 'text-to-image'
   )
 
   return (

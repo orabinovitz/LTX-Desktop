@@ -292,7 +292,7 @@ export function ICLoraPanel({
 
   // Generate
   const handleGenerate = useCallback(async () => {
-    if (!inputVideoPath || !selectedModel || isGenerating) return
+    if (!inputVideoPath || !selectedModel || isGenerating || !prompt.trim()) return
 
     setIsGenerating(true)
     setGenerationStatus('Loading IC-LoRA pipeline...')
@@ -747,7 +747,7 @@ export function ICLoraPanel({
             <div className="relative group">
               <button
                 onClick={handleGenerate}
-                disabled={!inputVideoPath || !selectedModel || isGenerating}
+                disabled={!inputVideoPath || !selectedModel || isGenerating || !prompt.trim()}
                 className="flex items-center gap-1.5 px-5 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isGenerating ? (
@@ -762,9 +762,9 @@ export function ICLoraPanel({
                   </>
                 )}
               </button>
-              {(!inputVideoPath || !selectedModel) && !isGenerating && (
+              {(!inputVideoPath || !selectedModel || !prompt.trim()) && !isGenerating && (
                 <div className="absolute bottom-full right-0 mb-1.5 px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-[10px] text-zinc-400 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg">
-                  {!inputVideoPath ? 'Import a driving video first' : 'Select a LoRA model first'}
+                  {!inputVideoPath ? 'Import a driving video first' : !selectedModel ? 'Select a LoRA model first' : 'Enter a prompt first'}
                 </div>
               )}
             </div>
