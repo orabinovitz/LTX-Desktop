@@ -14,6 +14,7 @@ if os.environ.get("DEBUG") == "1":
 
 import logging
 from pathlib import Path
+import subprocess
 import threading
 import tempfile
 
@@ -229,6 +230,19 @@ handler = build_initial_state(runtime_config, DEFAULT_APP_SETTINGS)
 app = create_app(handler=handler, allowed_origins=DEFAULT_ALLOWED_ORIGINS)
 
 
+def log_current_git_commit() -> None:
+    try:
+        git_hash = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=PROJECT_ROOT,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        logger.info(f"Git commit: {git_hash}")
+    except Exception:
+        logger.info("Git commit: unknown")
+
+
 def precache_model_files(model_dir: Path) -> int:
     if not model_dir.exists():
         return 0
@@ -256,6 +270,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("LTX_PORT", PORT))
     logger.info("=" * 60)
     logger.info("LTX-2 Video Generation Server (FastAPI + Uvicorn)")
+    log_current_git_commit()
     logger.info("=" * 60)
 
     warmup_thread = threading.Thread(target=background_warmup, daemon=True)
