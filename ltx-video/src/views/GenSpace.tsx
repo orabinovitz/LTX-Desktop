@@ -220,14 +220,14 @@ function SettingsDropdown({
       
       {isOpen && (() => {
         const rect = btnRef.current?.getBoundingClientRect()
-        const menuBottom = rect ? rect.top - 8 : 0
-        const menuRight = rect ? rect.right : 0
+        const top = rect ? rect.top - 8 : 0
+        const left = rect ? rect.left : 0
         return (
           <>
             <div className="fixed inset-0 z-[9998]" onMouseDown={() => setIsOpen(false)} />
             <div
               className="fixed bg-zinc-800 border border-zinc-700 rounded-xl py-3 px-4 min-w-[160px] shadow-xl z-[9999]"
-              style={{ bottom: window.innerHeight - menuBottom, right: window.innerWidth - menuRight }}
+              style={{ bottom: window.innerHeight - top, left }}
             >
               <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-3">{title}</div>
               <div className="space-y-1">
@@ -367,10 +367,10 @@ function PromptBar({
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-visible">
       {/* Top row: Image ref | Prompt | Generate */}
-      <div className="flex items-center">
+      <div className="flex items-start">
         {/* Input image drop zone */}
         <div
-          className={`relative w-10 h-10 mx-2 rounded-lg border-2 border-dashed transition-colors flex items-center justify-center flex-shrink-0 cursor-pointer ${
+          className={`relative w-10 h-10 mx-2 mt-2 rounded-lg border-2 border-dashed transition-colors flex items-center justify-center flex-shrink-0 cursor-pointer ${
             isDragOver ? 'border-violet-500 bg-violet-500/10' : 'border-zinc-700 hover:border-zinc-500'
           }`}
           onDragOver={(e) => { e.preventDefault(); setIsDragOver(true) }}
@@ -402,16 +402,15 @@ function PromptBar({
 
         {/* Prompt input - fills remaining width */}
         <div className="flex-1 min-w-0 py-1">
-          <input
-            type="text"
+          <textarea
             value={prompt}
             onChange={(e) => onPromptChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={mode === 'image' 
+            placeholder={mode === 'image'
               ? (inputImage ? "Change the background to a sunset beach..." : "A close-up of a woman talking on the phone...")
               : "The woman sips from a cup of coffee..."
             }
-            className="w-full bg-transparent text-white text-sm placeholder:text-zinc-500 focus:outline-none px-2 py-2"
+            className="w-full bg-transparent text-white text-sm placeholder:text-zinc-500 focus:outline-none px-2 py-2 resize-none overflow-y-auto h-[70px] leading-5"
           />
         </div>
 
@@ -988,156 +987,154 @@ export function GenSpace() {
   }, [selectedAsset, goToPrev, goToNext])
 
   return (
-    <div className="h-full flex flex-col bg-zinc-950">
-      {/* Top bar with Favorites and Gallery Size */}
-      {(assets.length > 0 || isGenerating) && (
-        <div className="flex items-center justify-end px-6 pt-4 pb-0 gap-2">
-          {/* Favorites filter */}
-          <button
-            onClick={() => setShowFavorites(!showFavorites)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              showFavorites 
-                ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
-                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-            }`}
-          >
-            <Heart className={`h-4 w-4 ${showFavorites ? 'fill-current' : ''}`} />
-            Favorites
-            {favoriteCount > 0 && (
-              <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                showFavorites ? 'bg-red-500/30 text-red-300' : 'bg-zinc-800 text-zinc-500'
-              }`}>
-                {favoriteCount}
-              </span>
-            )}
-          </button>
-          
-          {/* Gallery size */}
-          <div ref={sizeMenuRef} className="relative">
-            <button
-              onClick={() => setShowSizeMenu(!showSizeMenu)}
-              className={`p-2 rounded-lg transition-colors ${
-                showSizeMenu ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-              }`}
-            >
-              {gallerySize === 'small' ? <GridSmallIcon className="h-4 w-4" /> : 
-               gallerySize === 'medium' ? <GridMediumIcon className="h-4 w-4" /> : 
-               <GridLargeIcon className="h-4 w-4" />}
-            </button>
-            
-            {showSizeMenu && (
-              <div className="absolute top-full mt-2 right-0 bg-zinc-800 border border-zinc-700 rounded-xl py-3 px-4 min-w-[160px] shadow-xl z-50">
-                {([
-                  { value: 'small' as GallerySize, label: 'Small', icon: GridSmallIcon },
-                  { value: 'medium' as GallerySize, label: 'Medium', icon: GridMediumIcon },
-                  { value: 'large' as GallerySize, label: 'Large', icon: GridLargeIcon },
-                ]).map(option => (
-                  <button
-                    key={option.value}
-                    onClick={() => { setGallerySize(option.value); setShowSizeMenu(false) }}
-                    className="w-full flex items-center justify-between px-2 py-2.5 rounded-lg hover:bg-zinc-700 transition-colors text-left"
-                  >
-                    <div className="flex items-center gap-3">
-                      <option.icon className={`h-4 w-4 ${gallerySize === option.value ? 'text-white' : 'text-zinc-500'}`} />
-                      <span className={`text-sm ${gallerySize === option.value ? 'text-white font-medium' : 'text-zinc-400'}`}>
-                        {option.label}
-                      </span>
-                    </div>
-                    {gallerySize === option.value && (
-                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
+    <div className="h-full relative bg-zinc-950">
+
+      {/* Empty state */}
+      {assets.length === 0 && !isGenerating && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+          <div className="w-24 h-24 rounded-2xl border-2 border-dashed border-zinc-700 flex items-center justify-center mb-4">
+            <Sparkles className="h-10 w-10 text-zinc-600" />
           </div>
+          <h3 className="text-xl font-semibold text-white mb-2">Start Creating</h3>
+          <p className="text-zinc-500 max-w-md">
+            Use the prompt bar below to generate images and videos.
+            Drag assets into the input box to use them as references.
+          </p>
         </div>
       )}
-      
-      {/* Assets grid */}
-      <div className="flex-1 overflow-auto p-6">
-        {assets.length === 0 && !isGenerating ? (
-          <div className="h-full flex flex-col items-center justify-center text-center">
-            <div className="w-24 h-24 rounded-2xl bg-zinc-900 border-2 border-dashed border-zinc-700 flex items-center justify-center mb-4">
-              <Sparkles className="h-10 w-10 text-zinc-600" />
+
+      {/* No favorites empty state */}
+      {showFavorites && filteredAssets.length === 0 && assets.length > 0 && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+          <Heart className="h-12 w-12 text-zinc-700 mb-4" />
+          <h3 className="text-lg font-semibold text-white mb-2">No favorites yet</h3>
+          <p className="text-zinc-500 text-sm">
+            Click the heart icon on any asset to add it to your favorites.
+          </p>
+        </div>
+      )}
+
+      {/* Floating prompt panel */}
+      <div className="absolute bottom-5 left-[calc(50%-400px)] w-[800px]">
+
+        {/* Assets grid — only shown when content exists */}
+        {(assets.length > 0 || isGenerating) && (
+          <div className="mb-3">
+            {/* Top bar */}
+            <div className="flex items-center justify-end px-1 pb-2 gap-2">
+              <button
+                onClick={() => setShowFavorites(!showFavorites)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  showFavorites
+                    ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                <Heart className={`h-4 w-4 ${showFavorites ? 'fill-current' : ''}`} />
+                Favorites
+                {favoriteCount > 0 && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                    showFavorites ? 'bg-red-500/30 text-red-300' : 'bg-zinc-800 text-zinc-500'
+                  }`}>
+                    {favoriteCount}
+                  </span>
+                )}
+              </button>
+
+              <div ref={sizeMenuRef} className="relative">
+                <button
+                  onClick={() => setShowSizeMenu(!showSizeMenu)}
+                  className={`p-2 rounded-lg transition-colors ${
+                    showSizeMenu ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                  }`}
+                >
+                  {gallerySize === 'small' ? <GridSmallIcon className="h-4 w-4" /> :
+                   gallerySize === 'medium' ? <GridMediumIcon className="h-4 w-4" /> :
+                   <GridLargeIcon className="h-4 w-4" />}
+                </button>
+
+                {showSizeMenu && (
+                  <div className="absolute top-full mt-2 right-0 bg-zinc-800 border border-zinc-700 rounded-xl py-3 px-4 min-w-[160px] shadow-xl z-50">
+                    {([
+                      { value: 'small' as GallerySize, label: 'Small', icon: GridSmallIcon },
+                      { value: 'medium' as GallerySize, label: 'Medium', icon: GridMediumIcon },
+                      { value: 'large' as GallerySize, label: 'Large', icon: GridLargeIcon },
+                    ]).map(option => (
+                      <button
+                        key={option.value}
+                        onClick={() => { setGallerySize(option.value); setShowSizeMenu(false) }}
+                        className="w-full flex items-center justify-between px-2 py-2.5 rounded-lg hover:bg-zinc-700 transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <option.icon className={`h-4 w-4 ${gallerySize === option.value ? 'text-white' : 'text-zinc-500'}`} />
+                          <span className={`text-sm ${gallerySize === option.value ? 'text-white font-medium' : 'text-zinc-400'}`}>
+                            {option.label}
+                          </span>
+                        </div>
+                        {gallerySize === option.value && (
+                          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <h3 className="text-xl font-semibold text-white mb-2">Start Creating</h3>
-            <p className="text-zinc-500 max-w-md">
-              Use the prompt bar below to generate images and videos. 
-              Drag assets into the input box to use them as references.
-            </p>
-          </div>
-        ) : showFavorites && filteredAssets.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center">
-            <Heart className="h-12 w-12 text-zinc-700 mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2">No favorites yet</h3>
-            <p className="text-zinc-500 text-sm">
-              Click the heart icon on any asset to add it to your favorites.
-            </p>
-          </div>
-        ) : (
-          <div className={`grid ${gallerySizeClasses[gallerySize]} gap-4`}>
-            {/* Generating placeholder */}
-            {isGenerating && (
-              <div className="relative rounded-xl overflow-hidden bg-zinc-900 aspect-video">
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <div className="relative w-16 h-16 mb-3">
-                    <div className="absolute inset-0 rounded-full border-2 border-violet-500/30" />
-                    <div 
-                      className="absolute inset-0 rounded-full border-2 border-violet-500 border-t-transparent animate-spin"
-                    />
-                    <div className="absolute inset-2 rounded-full bg-zinc-800 flex items-center justify-center">
-                      <Sparkles className="h-6 w-6 text-violet-400" />
+
+            {/* Assets grid */}
+            <div className="overflow-auto h-[528px] bg-zinc-900 border border-zinc-800 rounded-2xl p-4 mb-3">
+              <div className={`grid ${gallerySizeClasses[gallerySize]} gap-4`}>
+                {isGenerating && (
+                  <div className="relative rounded-xl overflow-hidden bg-zinc-800 aspect-video">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <div className="relative w-16 h-16 mb-3">
+                        <div className="absolute inset-0 rounded-full border-2 border-violet-500/30" />
+                        <div className="absolute inset-0 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+                        <div className="absolute inset-2 rounded-full bg-zinc-800 flex items-center justify-center">
+                          <Sparkles className="h-6 w-6 text-violet-400" />
+                        </div>
+                      </div>
+                      <p className="text-sm text-zinc-400">{statusMessage || 'Generating...'}</p>
+                      {progress > 0 && (
+                        <div className="w-32 h-1 bg-zinc-800 rounded-full mt-2 overflow-hidden">
+                          <div className="h-full bg-violet-500 transition-all" style={{ width: `${progress}%` }} />
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <p className="text-sm text-zinc-400">{statusMessage || 'Generating...'}</p>
-                  {progress > 0 && (
-                    <div className="w-32 h-1 bg-zinc-800 rounded-full mt-2 overflow-hidden">
-                      <div 
-                        className="h-full bg-violet-500 transition-all"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
+                )}
+                {filteredAssets.map(asset => (
+                  <AssetCard
+                    key={asset.id}
+                    asset={asset}
+                    onDelete={() => handleDelete(asset.id)}
+                    onPlay={() => setSelectedAsset(asset)}
+                    onDragStart={handleDragStart}
+                    onCreateVideo={handleCreateVideo}
+                    onEditImage={handleEditImage}
+                    onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
+                  />
+                ))}
               </div>
-            )}
-            
-            {/* Assets */}
-            {filteredAssets.map(asset => (
-              <AssetCard
-                key={asset.id}
-                asset={asset}
-                onDelete={() => handleDelete(asset.id)}
-                onPlay={() => setSelectedAsset(asset)}
-                onDragStart={handleDragStart}
-                onCreateVideo={handleCreateVideo}
-                onEditImage={handleEditImage}
-                onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
-              />
-            ))}
+            </div>
           </div>
         )}
-      </div>
-      
-      {/* Bottom prompt bar */}
-      <div className="border-t border-zinc-800 p-4 bg-zinc-950">
-        <div className="max-w-5xl mx-auto">
-          <PromptBar
-            mode={mode}
-            onModeChange={setMode}
-            prompt={prompt}
-            onPromptChange={setPrompt}
-            onGenerate={handleGenerate}
-            isGenerating={isGenerating}
-            inputImage={inputImage}
-            onInputImageChange={setInputImage}
-            settings={settings}
-            onSettingsChange={setSettings}
-          />
-        </div>
+
+        {/* Prompt bar */}
+        <PromptBar
+          mode={mode}
+          onModeChange={setMode}
+          prompt={prompt}
+          onPromptChange={setPrompt}
+          onGenerate={handleGenerate}
+          isGenerating={isGenerating}
+          inputImage={inputImage}
+          onInputImageChange={setInputImage}
+          settings={settings}
+          onSettingsChange={setSettings}
+        />
       </div>
       
       {/* Asset preview modal */}
