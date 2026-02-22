@@ -2,6 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────
+   THEME — edit this block to retheme the app
+   Values are RGB channels: R G B
+   ───────────────────────────────────────── */
+:root {
+  /* Accent color (used for buttons, progress, highlights) */
+  --accent: 43 97 255;        /* #2B61FF */
+  --accent-dark: 26 80 224;   /* #1A50E0 — darker shade for hover states */
+
+  /* Surface colors */
+  --bg: 9 9 11;               /* zinc-950 — main app background */
+  --surface: 24 24 27;        /* zinc-900 — panels, cards */
+  --surface-raised: 39 39 42; /* zinc-800 — inputs, hover states */
+  --border-color: 63 63 70;   /* zinc-700 — dividers, borders */
+
+  /* Text */
+  --text: 255 255 255;
+  --text-muted: 161 161 170;  /* zinc-400 */
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -36,6 +56,6 @@ body {
 
 /* Drag and drop styling */
 .dropzone-active {
-  border-color: #6366f1 !important;
-  background-color: rgba(99, 102, 241, 0.1) !important;
+  border-color: rgb(var(--accent)) !important;
+  background-color: rgb(var(--accent) / 0.1) !important;
 }
