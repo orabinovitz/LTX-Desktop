@@ -246,6 +246,21 @@ def background_warmup() -> None:
     handler.health.default_warmup()
 
 
+def log_hardware_info() -> None:
+    """Log runtime hardware and environment details."""
+    from services.gpu_info.gpu_info_impl import GpuInfoImpl
+
+    gpu = GpuInfoImpl()
+    gpu_info = gpu.get_gpu_info()
+    vram_gb = gpu_info["vram"] // 1024 if gpu_info["vram"] else 0
+
+    logger.info(f"Platform: {platform.system()} ({platform.machine()})")
+    logger.info(f"Device: {DEVICE}  |  Dtype: {DTYPE}")
+    logger.info(f"GPU: {gpu_info['name']}  |  VRAM: {vram_gb} GB")
+    logger.info(f"SageAttention: {'enabled' if use_sage_attention else 'disabled'}")
+    logger.info(f"Python: {sys.version.split()[0]}  |  Torch: {torch.__version__}")
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -253,6 +268,7 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("LTX-2 Video Generation Server (FastAPI + Uvicorn)")
     logger.info(f"Log file: {log_file}")
+    log_hardware_info()
     logger.info("=" * 60)
 
     warmup_thread = threading.Thread(target=background_warmup, daemon=True)
