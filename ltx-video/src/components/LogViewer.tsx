@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, FolderOpen, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
+import { X, FolderOpen, RefreshCw, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import { Button } from './ui/button'
 
 interface LogViewerProps {
@@ -50,6 +50,17 @@ export function LogViewer({ isOpen, onClose }: LogViewerProps) {
     }
   }
 
+  const handleDownload = () => {
+    const content = logs.join('\n')
+    const blob = new Blob([content], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'backend.log'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   if (!isOpen) return null
 
   return (
@@ -64,6 +75,16 @@ export function LogViewer({ isOpen, onClose }: LogViewerProps) {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDownload}
+              disabled={logs.length === 0}
+              className="text-zinc-400 hover:text-white"
+              title="Download logs"
+            >
+              <Download className="h-4 w-4" />
+            </Button>
             <Button
               variant="ghost"
               size="sm"
