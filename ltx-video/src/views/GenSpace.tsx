@@ -213,7 +213,7 @@ function SettingsDropdown({
       <button 
         ref={btnRef}
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 px-2 py-1.5 rounded hover:bg-zinc-800 transition-colors"
+        className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors"
       >
         {trigger}
       </button>
@@ -452,7 +452,7 @@ function PromptBar({
         {mode === 'image' ? (
           <>
             {/* Model indicator */}
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-zinc-800/50">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-zinc-800/50">
               <LightricksIcon className="h-3.5 w-3.5" />
               <span className="text-zinc-300 font-medium">FLUX Klein</span>
             </div>
