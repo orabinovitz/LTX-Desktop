@@ -292,6 +292,23 @@ function LightricksIcon({ className }: { className?: string }) {
   )
 }
 
+function KlingIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path fillRule="evenodd" clipRule="evenodd" d="M7.49286 23.2291C6.38085 21.7781 6.38385 18.966 7.41186 15.77L2.85482 13.14C2.61861 13.0071 2.41799 12.8192 2.27 12.5922C2.12201 12.3651 2.03103 12.1057 2.00481 11.836C1.9875 11.6253 2.01476 11.4134 2.08481 11.214C2.35878 10.4314 2.70599 9.67634 3.12182 8.95896C6.59785 2.9389 14.0379 0.72888 19.741 4.02091C20.201 4.28691 20.561 4.69092 20.822 5.20492C21.607 6.74994 21.507 9.30096 20.588 12.159L25.145 14.79C25.484 14.986 25.741 15.282 25.881 15.622C26.0266 15.9697 26.0387 16.3589 25.915 16.715C25.6413 17.4977 25.294 18.2528 24.878 18.97C21.402 24.9901 13.9619 27.2001 8.25887 23.9081C7.96097 23.7345 7.70058 23.5043 7.49286 23.2291ZM18.589 16.614C16.5159 20.2051 12.7809 21.9301 10.2459 20.4661C8.97887 19.7351 8.25187 18.344 8.10087 16.688C8.00587 15.653 8.13687 14.515 8.50087 13.368C8.71787 12.684 9.01787 11.998 9.40288 11.329L9.41088 11.315C11.4839 7.72494 15.2189 5.99993 17.754 7.46294C18.387 7.82895 18.884 8.35795 19.244 9.00296C20.23 10.775 20.166 13.418 18.959 15.917C18.848 16.147 18.727 16.374 18.597 16.6L18.589 16.614Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+function FluxIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M19.113 12.2515H16.5605L14.008 8.63382L6.04545 19.9068H8.60348L14.0079 12.2518L16.5605 12.2515L11.156 19.9068H13.721L19.113 12.2515V15.8693L16.2716 19.9073V22.0063H2L14.008 5L19.113 12.2515Z" fill="currentColor"/>
+      <path d="M26 22.0064L21.9704 22.0063V19.9151L19.113 15.8693V12.2515L26 22.0064Z" fill="currentColor"/>
+    </svg>
+  )
+}
+
 // Square icon for aspect ratio
 function AspectIcon({ className }: { className?: string }) {
   return (
@@ -453,7 +470,7 @@ function PromptBar({
           <>
             {/* Model indicator */}
             <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-800/50">
-              <LightricksIcon className="h-3.5 w-3.5" />
+              <FluxIcon className="h-3.5 w-3.5" />
               <span className="text-zinc-300 font-medium">FLUX Klein</span>
             </div>
             
