@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol
+
+if TYPE_CHECKING:
+    import torch
 
 
 class ProNativeVideoPipeline(Protocol):
-    pipeline_kind: Literal["pro-native"]
+    pipeline_kind: ClassVar[Literal["pro-native"]]
 
     @staticmethod
     def create(
         checkpoint_path: str,
         gemma_root: str | None,
-        device: str | object,
+        device: torch.device,
     ) -> "ProNativeVideoPipeline":
         ...
 

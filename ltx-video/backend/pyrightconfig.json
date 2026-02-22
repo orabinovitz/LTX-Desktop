@@ -1,6 +1,7 @@
 {
   "pythonVersion": "3.12",
   "typeCheckingMode": "strict",
+  "stubPath": "typings",
   "venvPath": ".",
   "venv": ".venv",
   "exclude": [

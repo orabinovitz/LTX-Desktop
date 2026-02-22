@@ -13,12 +13,23 @@ class HttpTimeoutError(Exception):
 
 
 class HttpResponseLike(Protocol):
-    status_code: int
-    text: str
-    headers: Mapping[str, str]
-    content: bytes
+    @property
+    def status_code(self) -> int:
+        ...
 
-    def json(self) -> dict[str, object]:
+    @property
+    def text(self) -> str:
+        ...
+
+    @property
+    def headers(self) -> Mapping[str, str]:
+        ...
+
+    @property
+    def content(self) -> bytes:
+        ...
+
+    def json(self) -> object:
         ...
 
 

@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import os
-from typing import Final
+from typing import Final, cast
 
 import torch
 
 from services.ltx_pipeline_common import (
-    CompileMixin,
     default_guiders,
     default_tiling_config,
     encode_video_output,
     video_chunks_number,
 )
-from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType, device_supports_fp8
+from services.services_utils import TensorOrNone, TilingConfigType, device_supports_fp8
 
 
-class LTXProVideoPipeline(CompileMixin):
+class LTXProVideoPipeline:
     pipeline_kind: Final = "pro"
 
     @staticmethod
@@ -26,7 +26,7 @@ class LTXProVideoPipeline(CompileMixin):
         gemma_root: str | None,
         upsampler_path: str,
         distilled_lora_path: str,
-        device: str | object,
+        device: torch.device,
     ) -> "LTXProVideoPipeline":
         return LTXProVideoPipeline(
             checkpoint_path=checkpoint_path,
@@ -42,7 +42,7 @@ class LTXProVideoPipeline(CompileMixin):
         gemma_root: str | None,
         upsampler_path: str,
         distilled_lora_path: str,
-        device: DeviceLike,
+        device: torch.device,
     ) -> None:
         from ltx_core.loader.primitives import LoraPathStrengthAndSDOps
         from ltx_core.loader.sd_ops import LTXV_LORA_COMFY_RENAMING_MAP
@@ -51,13 +51,13 @@ class LTXProVideoPipeline(CompileMixin):
 
         self.pipeline = TI2VidTwoStagesPipeline(
             checkpoint_path=checkpoint_path,
-            gemma_root=gemma_root,
+            gemma_root=cast(str, gemma_root),
             spatial_upsampler_path=upsampler_path,
             distilled_lora=[
                 LoraPathStrengthAndSDOps(distilled_lora_path, 1.0, LTXV_LORA_COMFY_RENAMING_MAP),
             ],
             loras=[],
-            device=device,
+            device=cast(str, device),
             quantization=QuantizationPolicy.fp8_cast() if device_supports_fp8(device) else None,
         )
 
@@ -73,7 +73,7 @@ class LTXProVideoPipeline(CompileMixin):
         num_inference_steps: int,
         images: list[tuple[str, int, float]],
         tiling_config: TilingConfigType,
-    ) -> tuple[torch.Tensor, TensorOrNone]:
+    ) -> tuple[torch.Tensor | Iterator[torch.Tensor], TensorOrNone]:
         video_guider_params, audio_guider_params = default_guiders()
         return self.pipeline(
             prompt=prompt,
@@ -145,4 +145,16 @@ class LTXProVideoPipeline(CompileMixin):
                 os.unlink(output_path)
 
     def compile_transformer(self) -> None:
-        self._compile_transformer()
+        stage_1_transformer = self.pipeline.stage_1_model_ledger.transformer()
+        compiled_stage_1_transformer = cast(
+            torch.nn.Module,
+            torch.compile(stage_1_transformer, mode="reduce-overhead", fullgraph=False),  # type: ignore[reportUnknownMemberType]
+        )
+        setattr(self.pipeline.stage_1_model_ledger, "transformer", lambda: compiled_stage_1_transformer)
+
+        stage_2_transformer = self.pipeline.stage_2_model_ledger.transformer()
+        compiled_stage_2_transformer = cast(
+            torch.nn.Module,
+            torch.compile(stage_2_transformer, mode="reduce-overhead", fullgraph=False),  # type: ignore[reportUnknownMemberType]
+        )
+        setattr(self.pipeline.stage_2_model_ledger, "transformer", lambda: compiled_stage_2_transformer)

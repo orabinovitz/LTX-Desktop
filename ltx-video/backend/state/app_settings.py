@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypeVar, cast, get_args
+from typing import Any, TypeGuard, TypeVar, cast, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
@@ -97,7 +97,7 @@ def _wrap_optional(annotation: Any) -> Any:
 
 
 def _to_partial_annotation(annotation: Any) -> Any:
-    if isinstance(annotation, type) and issubclass(annotation, SettingsBaseModel):
+    if _is_settings_model_annotation(annotation):
         return make_partial_model(annotation)
     return annotation
 
@@ -122,7 +122,10 @@ def make_partial_model(model: type[SettingsModelT]) -> type[SettingsPatchModel]:
     return partial_model
 
 
+def _is_settings_model_annotation(annotation: object) -> TypeGuard[type[SettingsBaseModel]]:
+    return isinstance(annotation, type) and issubclass(annotation, SettingsBaseModel)
+
+
 AppSettingsPatch = make_partial_model(AppSettings)
 SettingsResponse = AppSettings
 UpdateSettingsRequest = AppSettingsPatch
-

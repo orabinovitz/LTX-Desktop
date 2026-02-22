@@ -148,12 +148,10 @@ class IcLoraHandler(StateHandlerBase):
             self._video_processor.release(cap)
             self._video_processor.release(writer)
 
-            images: list[tuple[str, int, float]] = []
-            for img in req.images:
-                if isinstance(img, dict):
-                    images.append((img.get("path", ""), int(img.get("frame", 0)), float(img.get("strength", 1.0))))
-                elif isinstance(img, (list, tuple)) and len(img) >= 2:
-                    images.append((str(img[0]), int(img[1]), float(img[2]) if len(img) > 2 else 1.0))
+            images: list[tuple[str, int, float]] = [
+                (img.path, int(img.frame), float(img.strength))
+                for img in req.images
+            ]
 
             self._generation.update_progress("inference", 15, 0, 1)
 

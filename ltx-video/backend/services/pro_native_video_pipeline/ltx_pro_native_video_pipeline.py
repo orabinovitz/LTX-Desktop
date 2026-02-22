@@ -2,23 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import os
-from typing import Final
+from typing import Final, cast
 
 import torch
 
-from services.ltx_pipeline_common import CompileMixin, default_guiders, encode_video_output, video_chunks_number
-from services.services_utils import DeviceLike, TensorOrNone, device_supports_fp8
+from services.ltx_pipeline_common import default_guiders, encode_video_output, video_chunks_number
+from services.services_utils import TensorOrNone, device_supports_fp8
 
 
-class LTXProNativeVideoPipeline(CompileMixin):
+class LTXProNativeVideoPipeline:
     pipeline_kind: Final = "pro-native"
 
     @staticmethod
     def create(
         checkpoint_path: str,
         gemma_root: str | None,
-        device: str | object,
+        device: torch.device,
     ) -> "LTXProNativeVideoPipeline":
         return LTXProNativeVideoPipeline(
             checkpoint_path=checkpoint_path,
@@ -26,13 +27,13 @@ class LTXProNativeVideoPipeline(CompileMixin):
             device=device,
         )
 
-    def __init__(self, checkpoint_path: str, gemma_root: str | None, device: DeviceLike) -> None:
+    def __init__(self, checkpoint_path: str, gemma_root: str | None, device: torch.device) -> None:
         from ltx_core.quantization import QuantizationPolicy
         from ltx_pipelines.ti2vid_one_stage import TI2VidOneStagePipeline
 
         self.pipeline = TI2VidOneStagePipeline(
             checkpoint_path=checkpoint_path,
-            gemma_root=gemma_root,
+            gemma_root=cast(str, gemma_root),
             loras=[],
             device=device,
             quantization=QuantizationPolicy.fp8_cast() if device_supports_fp8(device) else None,
@@ -49,7 +50,7 @@ class LTXProNativeVideoPipeline(CompileMixin):
         frame_rate: float,
         num_inference_steps: int,
         images: list[tuple[str, int, float]],
-    ) -> tuple[torch.Tensor, TensorOrNone]:
+    ) -> tuple[torch.Tensor | Iterator[torch.Tensor], TensorOrNone]:
         video_guider_params, audio_guider_params = default_guiders()
         return self.pipeline(
             prompt=prompt,
@@ -113,4 +114,10 @@ class LTXProNativeVideoPipeline(CompileMixin):
                 os.unlink(output_path)
 
     def compile_transformer(self) -> None:
-        self._compile_transformer()
+        transformer = self.pipeline.model_ledger.transformer()
+
+        compiled = cast(
+            torch.nn.Module,
+            torch.compile(transformer, mode="reduce-overhead", fullgraph=False),  # type: ignore[reportUnknownMemberType]
+        )
+        setattr(self.pipeline.model_ledger, "transformer", lambda: compiled)

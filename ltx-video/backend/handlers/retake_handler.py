@@ -7,11 +7,50 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from threading import RLock
+from typing import cast
+
 from api_types import RetakeRequest, RetakeResponse
 from _routes._errors import HTTPError
 from handlers.base import StateHandlerBase
-from services.interfaces import HTTPClient
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from services.interfaces import HTTPClient, JSONValue
 from state.app_state_types import AppState
+
+
+class _UploadResponsePayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    upload_url: str
+    storage_uri: str
+    required_headers: dict[str, str] = Field(default_factory=dict)
+
+
+class _RetakeNestedPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    video_url: str | None = None
+
+
+class _RetakeResponsePayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    video_url: str | None = None
+    output_video: str | None = None
+    result: _RetakeNestedPayload | None = None
+
+    def extract_video_url(self) -> str | None:
+        return self.video_url or self.output_video or (self.result.video_url if self.result is not None else None)
+
+
+def _parse_upload_response(payload: object) -> _UploadResponsePayload:
+    try:
+        return _UploadResponsePayload.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPError(500, "Unexpected upload response format") from exc
+
+
+def _parse_retake_response(payload: object) -> _RetakeResponsePayload:
+    try:
+        return _RetakeResponsePayload.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPError(500, "Unexpected response format") from exc
 
 
 class RetakeHandler(StateHandlerBase):
@@ -49,10 +88,10 @@ class RetakeHandler(StateHandlerBase):
             err = upload_resp.text[:500]
             raise HTTPError(upload_resp.status_code, f"Failed to get upload URL: {err}")
 
-        upload_info = upload_resp.json()
-        upload_url = upload_info["upload_url"]
-        storage_uri = upload_info["storage_uri"]
-        required_headers = upload_info.get("required_headers", {})
+        upload_info = _parse_upload_response(upload_resp.json())
+        upload_url = upload_info.upload_url
+        storage_uri = upload_info.storage_uri
+        required_headers = upload_info.required_headers
 
         with open(video_file, "rb") as f:
             put_resp = self._http.put(
@@ -65,7 +104,7 @@ class RetakeHandler(StateHandlerBase):
             err = put_resp.text[:500]
             raise HTTPError(500, f"Video upload failed: {err}")
 
-        payload: dict[str, float | str] = {
+        payload: dict[str, JSONValue] = {
             "video_uri": storage_uri,
             "start_time": float(start_time),
             "duration": float(duration),
@@ -94,8 +133,8 @@ class RetakeHandler(StateHandlerBase):
                 return RetakeResponse(status="complete", video_path=str(output))
 
             try:
-                result = retake_resp.json()
-                video_url = result.get("video_url") or result.get("output_video") or result.get("result", {}).get("video_url")
+                result_payload = _parse_retake_response(retake_resp.json())
+                video_url = result_payload.extract_video_url()
                 if video_url:
                     dl_resp = self._http.get(video_url, timeout=120)
                     if dl_resp.status_code == 200:
@@ -105,7 +144,8 @@ class RetakeHandler(StateHandlerBase):
                         return RetakeResponse(status="complete", video_path=str(output))
                     raise HTTPError(500, f"Failed to download retake video: {dl_resp.status_code}")
 
-                return RetakeResponse(status="complete", result=result)
+                response_payload = cast(dict[str, object], result_payload.model_dump(mode="python"))
+                return RetakeResponse(status="complete", result=response_payload)
             except json.JSONDecodeError:
                 raise HTTPError(500, f"Unexpected response format: {retake_resp.text[:200]}")
 

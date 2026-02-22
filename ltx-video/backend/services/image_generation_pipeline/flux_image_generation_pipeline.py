@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
+from diffusers.pipelines.flux2.pipeline_flux2_klein import Flux2KleinPipeline
 
 from services.services_utils import FluxPipelineOutputLike, PILImageType, get_device_type
 
@@ -16,13 +19,14 @@ class FluxImageGenerationPipeline:
         return FluxImageGenerationPipeline(model_path=model_path, device=device)
 
     def __init__(self, model_path: str, device: str | None = None) -> None:
-        from diffusers import Flux2KleinPipeline
-
         self._device: str | None = None
-        self.pipeline = Flux2KleinPipeline.from_pretrained(model_path, torch_dtype=torch.bfloat16)
+        self.pipeline = Flux2KleinPipeline.from_pretrained(  # type: ignore[reportUnknownMemberType]
+            model_path,
+            torch_dtype=torch.bfloat16,
+        )
         if device is not None:
             runtime_device = get_device_type(device)
-            self.pipeline.to(runtime_device)
+            self.pipeline.to(runtime_device)  # type: ignore[reportUnknownMemberType]
             self._device = runtime_device
 
     def _resolve_generator_device(self) -> str:
@@ -43,7 +47,7 @@ class FluxImageGenerationPipeline:
         seed: int,
     ) -> FluxPipelineOutputLike:
         generator = torch.Generator(device=self._resolve_generator_device()).manual_seed(seed)
-        return self.pipeline(
+        output = self.pipeline(  # type: ignore[reportUnknownMemberType]
             prompt=prompt,
             height=height,
             width=width,
@@ -51,6 +55,10 @@ class FluxImageGenerationPipeline:
             num_inference_steps=num_inference_steps,
             generator=generator,
         )
+        output_obj = cast(object, output)
+        if not hasattr(output_obj, "images"):
+            raise RuntimeError("Unexpected Flux pipeline output format")
+        return cast(FluxPipelineOutputLike, output_obj)
 
     @torch.inference_mode()
     def generate_edit(
@@ -64,7 +72,7 @@ class FluxImageGenerationPipeline:
         seed: int,
     ) -> FluxPipelineOutputLike:
         generator = torch.Generator(device=self._resolve_generator_device()).manual_seed(seed)
-        return self.pipeline(
+        output = self.pipeline(  # type: ignore[reportUnknownMemberType]
             prompt=prompt,
             image=image,
             height=height,
@@ -73,8 +81,12 @@ class FluxImageGenerationPipeline:
             num_inference_steps=num_inference_steps,
             generator=generator,
         )
+        output_obj = cast(object, output)
+        if not hasattr(output_obj, "images"):
+            raise RuntimeError("Unexpected Flux pipeline output format")
+        return cast(FluxPipelineOutputLike, output_obj)
 
     def to(self, device: str) -> None:
         runtime_device = get_device_type(device)
-        self.pipeline.to(runtime_device)
+        self.pipeline.to(runtime_device)  # type: ignore[reportUnknownMemberType]
         self._device = runtime_device

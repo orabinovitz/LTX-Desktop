@@ -13,10 +13,35 @@ from api_types import (
 )
 from _routes._errors import HTTPError
 from handlers.base import StateHandlerBase
-from services.interfaces import HTTPClient, HttpTimeoutError
+from pydantic import BaseModel, Field, ValidationError
+from services.interfaces import HTTPClient, HttpTimeoutError, JSONValue
 from state.app_state_types import AppState
 
 logger = logging.getLogger(__name__)
+
+
+class _GeminiPart(BaseModel):
+    text: str
+
+
+class _GeminiContent(BaseModel):
+    parts: list[_GeminiPart] = Field(min_length=1)
+
+
+class _GeminiCandidate(BaseModel):
+    content: _GeminiContent
+
+
+class _GeminiResponsePayload(BaseModel):
+    candidates: list[_GeminiCandidate] = Field(min_length=1)
+
+
+def _extract_gemini_text(payload: object) -> str:
+    try:
+        parsed = _GeminiResponsePayload.model_validate(payload)
+    except ValidationError:
+        raise HTTPError(500, "GEMINI_PARSE_ERROR")
+    return parsed.candidates[0].content.parts[0].text
 
 
 class PromptHandler(StateHandlerBase):
@@ -57,10 +82,13 @@ class PromptHandler(StateHandlerBase):
             "https://generativelanguage.googleapis.com/v1beta/models/"
             f"gemini-2.0-flash:generateContent?key={settings.gemini_api_key}"
         )
-        gemini_payload = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "systemInstruction": {"parts": [{"text": system_prompt}]},
-            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024},
+        contents: list[JSONValue] = [{"role": "user", "parts": [{"text": prompt}]}]
+        system_instruction: dict[str, JSONValue] = {"parts": [{"text": system_prompt}]}
+        generation_config: dict[str, JSONValue] = {"temperature": 0.7, "maxOutputTokens": 1024}
+        gemini_payload: dict[str, JSONValue] = {
+            "contents": contents,
+            "systemInstruction": system_instruction,
+            "generationConfig": generation_config,
         }
 
         try:
@@ -79,12 +107,8 @@ class PromptHandler(StateHandlerBase):
             logger.error("Gemini API error: %s - %s", response.status_code, response.text)
             raise HTTPError(response.status_code, f"Gemini API error: {response.text}")
 
-        result = response.json()
-        try:
-            enhanced_prompt = result["candidates"][0]["content"]["parts"][0]["text"]
-            return EnhancePromptResponse(status="success", enhanced_prompt=enhanced_prompt, original_prompt=prompt)
-        except (KeyError, IndexError) as exc:
-            raise HTTPError(500, "GEMINI_PARSE_ERROR") from exc
+        enhanced_prompt = _extract_gemini_text(response.json())
+        return EnhancePromptResponse(status="success", enhanced_prompt=enhanced_prompt, original_prompt=prompt)
 
     def suggest_gap(self, req: SuggestGapPromptRequest) -> SuggestGapPromptResponse:
         before_frame = req.beforeFrame
@@ -158,7 +182,7 @@ class PromptHandler(StateHandlerBase):
             context_text += f"Generation mode: {mode_label}\n"
             context_text += "\nPlease suggest a detailed prompt for generating " + ("an image" if is_image_gen else "a video clip") + " to fill this gap."
 
-        user_parts: list[dict[str, object]] = [{"text": context_text}]
+        user_parts: list[JSONValue] = [{"text": context_text}]
 
         if input_image:
             user_parts.append({"text": "INPUT IMAGE to edit (this is the image the user wants to modify to fit the gap):"})
@@ -174,10 +198,13 @@ class PromptHandler(StateHandlerBase):
             "https://generativelanguage.googleapis.com/v1beta/models/"
             f"gemini-2.0-flash:generateContent?key={gemini_api_key}"
         )
-        gemini_payload = {
-            "contents": [{"role": "user", "parts": user_parts}],
-            "systemInstruction": {"parts": [{"text": system_text}]},
-            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 512},
+        contents: list[JSONValue] = [{"role": "user", "parts": user_parts}]
+        system_instruction: dict[str, JSONValue] = {"parts": [{"text": system_text}]}
+        generation_config: dict[str, JSONValue] = {"temperature": 0.7, "maxOutputTokens": 512}
+        gemini_payload: dict[str, JSONValue] = {
+            "contents": contents,
+            "systemInstruction": system_instruction,
+            "generationConfig": generation_config,
         }
 
         try:
@@ -196,9 +223,5 @@ class PromptHandler(StateHandlerBase):
             logger.error("Gemini gap suggestion error: %s - %s", response.status_code, response.text)
             raise HTTPError(response.status_code, f"Gemini API error: {response.text}")
 
-        result = response.json()
-        try:
-            suggested_prompt = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-            return SuggestGapPromptResponse(status="success", suggested_prompt=suggested_prompt)
-        except (KeyError, IndexError) as exc:
-            raise HTTPError(500, "GEMINI_PARSE_ERROR") from exc
+        suggested_prompt = _extract_gemini_text(response.json()).strip()
+        return SuggestGapPromptResponse(status="success", suggested_prompt=suggested_prompt)

@@ -181,7 +181,7 @@ Each service should have:
 - Report/DTO-like shapes commonly use a `*Payload` suffix (often `TypedDict`) to make “this is a data payload” obvious
   (e.g. `GpuTelemetryPayload`, `VideoInfoPayload`).
 - To avoid heavy import dependencies, structural wrappers use a `*Like` suffix (e.g. `HttpResponseLike`,
-  `DeviceLike`, `VideoCaptureLike`).
+  `VideoCaptureLike`).
 
 ## Exception Handling and Logging Policy
 

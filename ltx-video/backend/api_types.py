@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, TypeAlias, TypedDict
+from typing import TypeAlias, TypedDict
+from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints
 
@@ -285,6 +286,16 @@ class IcLoraExtractRequest(BaseModel):
     frame_time: float = 0
 
 
+class IcLoraImageInput(BaseModel):
+    path: str
+    frame: int = 0
+    strength: float = 1.0
+
+
+def _default_ic_lora_images() -> list[IcLoraImageInput]:
+    return []
+
+
 class IcLoraGenerateRequest(BaseModel):
     video_path: str
     lora_path: str
@@ -299,4 +310,4 @@ class IcLoraGenerateRequest(BaseModel):
     num_inference_steps: int = 30
     cfg_guidance_scale: float = 1.0
     negative_prompt: str = ""
-    images: list[Any] = Field(default_factory=list)
+    images: list[IcLoraImageInput] = Field(default_factory=_default_ic_lora_images)

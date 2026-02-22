@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any, cast
+
 import torch
 
-from services.services_utils import DeviceLike, LatentStateLike, TensorOrNone, TilingConfigType, device_supports_fp8, sync_device
+from services.services_utils import TensorOrNone, TilingConfigType, device_supports_fp8, sync_device
+
+if TYPE_CHECKING:
+    from ltx_core.components.guiders import MultiModalGuiderParams
+    from ltx_core.types import LatentState
 
 
 def default_tiling_config() -> TilingConfigType:
@@ -13,7 +20,7 @@ def default_tiling_config() -> TilingConfigType:
     return TilingConfig.default()
 
 
-def default_guiders() -> tuple[object, object]:
+def default_guiders() -> tuple[MultiModalGuiderParams, MultiModalGuiderParams]:
     from ltx_core.components.guiders import MultiModalGuiderParams
 
     return MultiModalGuiderParams(cfg_scale=3.0), MultiModalGuiderParams(cfg_scale=3.0)
@@ -26,7 +33,7 @@ def video_chunks_number(num_frames: int, tiling_config: TilingConfigType | None)
 
 
 def encode_video_output(
-    video: torch.Tensor,
+    video: torch.Tensor | Iterator[torch.Tensor],
     audio: TensorOrNone,
     fps: int,
     output_path: str,
@@ -52,7 +59,7 @@ class DistilledNativePipeline:
         self,
         checkpoint_path: str,
         gemma_root: str | None,
-        device: DeviceLike | None = None,
+        device: torch.device | None = None,
         fp8transformer: bool = False,
     ) -> None:
         from ltx_pipelines.utils import ModelLedger
@@ -88,7 +95,7 @@ class DistilledNativePipeline:
         frame_rate: float,
         images: list[tuple[str, int, float]],
         tiling_config: TilingConfigType | None = None,
-    ) -> tuple[torch.Tensor, TensorOrNone]:
+    ) -> tuple[torch.Tensor | Iterator[torch.Tensor], TensorOrNone]:
         from ltx_core.components.diffusion_steps import EulerDiffusionStep
         from ltx_core.components.noisers import GaussianNoiser
         from ltx_core.model.audio_vae import decode_audio as vae_decode_audio
@@ -123,10 +130,10 @@ class DistilledNativePipeline:
 
         def denoising_loop(
             sigmas: torch.Tensor,
-            video_state: LatentStateLike,
-            audio_state: LatentStateLike | None,
+            video_state: LatentState,
+            audio_state: LatentState,
             stepper: EulerDiffusionStep,
-        ) -> tuple[LatentStateLike, LatentStateLike | None]:
+        ) -> tuple[LatentState, LatentState]:
             return euler_denoising_loop(
                 sigmas=sigmas,
                 video_state=video_state,
@@ -155,7 +162,7 @@ class DistilledNativePipeline:
             noiser=noiser,
             sigmas=sigmas,
             stepper=stepper,
-            denoising_loop_fn=denoising_loop,
+            denoising_loop_fn=cast(Any, denoising_loop),
             components=self.pipeline_components,
             dtype=dtype,
             device=self.device,
@@ -173,17 +180,3 @@ class DistilledNativePipeline:
             self.model_ledger.vocoder(),
         )
         return decoded_video, decoded_audio
-
-
-class CompileMixin:
-    def _compile_transformer(self) -> None:
-        transformer = self.pipeline.model_ledger.transformer()
-        if transformer is None:
-            return
-
-        compiled = torch.compile(transformer, mode="reduce-overhead", fullgraph=False)
-
-        def compiled_transformer_method() -> torch.nn.Module:
-            return compiled
-
-        self.pipeline.model_ledger.transformer = compiled_transformer_method

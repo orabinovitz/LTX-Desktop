@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol
+
+if TYPE_CHECKING:
+    import torch
 
 
 class FastVideoPipeline(Protocol):
-    pipeline_kind: Literal["fast"]
+    pipeline_kind: ClassVar[Literal["fast"]]
 
     @staticmethod
     def create(
         checkpoint_path: str,
         gemma_root: str | None,
         upsampler_path: str,
-        device: str | object,
+        device: torch.device,
     ) -> "FastVideoPipeline":
         ...
 

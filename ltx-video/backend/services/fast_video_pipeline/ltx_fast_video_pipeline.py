@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import os
-from typing import Final
+from typing import Final, cast
 
 import torch
 
-from services.ltx_pipeline_common import CompileMixin, default_tiling_config, encode_video_output, video_chunks_number
-from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType, device_supports_fp8
+from services.ltx_pipeline_common import default_tiling_config, encode_video_output, video_chunks_number
+from services.services_utils import TensorOrNone, TilingConfigType, device_supports_fp8
 
 
-class LTXFastVideoPipeline(CompileMixin):
+class LTXFastVideoPipeline:
     pipeline_kind: Final = "fast"
 
     @staticmethod
@@ -19,7 +20,7 @@ class LTXFastVideoPipeline(CompileMixin):
         checkpoint_path: str,
         gemma_root: str | None,
         upsampler_path: str,
-        device: str | object,
+        device: torch.device,
     ) -> "LTXFastVideoPipeline":
         return LTXFastVideoPipeline(
             checkpoint_path=checkpoint_path,
@@ -28,13 +29,13 @@ class LTXFastVideoPipeline(CompileMixin):
             device=device,
         )
 
-    def __init__(self, checkpoint_path: str, gemma_root: str | None, upsampler_path: str, device: DeviceLike) -> None:
+    def __init__(self, checkpoint_path: str, gemma_root: str | None, upsampler_path: str, device: torch.device) -> None:
         from ltx_core.quantization import QuantizationPolicy
         from ltx_pipelines.distilled import DistilledPipeline
 
         self.pipeline = DistilledPipeline(
             checkpoint_path=checkpoint_path,
-            gemma_root=gemma_root,
+            gemma_root=cast(str, gemma_root),
             spatial_upsampler_path=upsampler_path,
             loras=[],
             device=device,
@@ -51,7 +52,7 @@ class LTXFastVideoPipeline(CompileMixin):
         frame_rate: float,
         images: list[tuple[str, int, float]],
         tiling_config: TilingConfigType,
-    ) -> tuple[torch.Tensor, TensorOrNone]:
+    ) -> tuple[torch.Tensor | Iterator[torch.Tensor], TensorOrNone]:
         return self.pipeline(
             prompt=prompt,
             seed=seed,
@@ -112,4 +113,10 @@ class LTXFastVideoPipeline(CompileMixin):
                 os.unlink(output_path)
 
     def compile_transformer(self) -> None:
-        self._compile_transformer()
+        transformer = self.pipeline.model_ledger.transformer()
+
+        compiled = cast(
+            torch.nn.Module,
+            torch.compile(transformer, mode="reduce-overhead", fullgraph=False),  # type: ignore[reportUnknownMemberType]
+        )
+        setattr(self.pipeline.model_ledger, "transformer", lambda: compiled)

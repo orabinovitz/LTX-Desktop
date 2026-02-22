@@ -6,13 +6,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+import torch
+
 from runtime_config.model_download_specs import ModelFileDownloadSpec
 from state.app_state_types import ModelFileType
 
 
 @dataclass
 class RuntimeConfig:
-    device: str | object
+    device: torch.device
     models_dir: Path
     model_download_specs: Mapping[ModelFileType, ModelFileDownloadSpec]
     required_model_types: frozenset[ModelFileType]

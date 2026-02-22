@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from typing import cast
+
 import torch
 
 from services.ltx_pipeline_common import default_tiling_config, encode_video_output, video_chunks_number
-from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType, device_supports_fp8
+from services.services_utils import TensorOrNone, TilingConfigType, device_supports_fp8
 
 
 class LTXIcLoraPipeline:
@@ -15,7 +18,7 @@ class LTXIcLoraPipeline:
         gemma_root: str | None,
         upsampler_path: str,
         lora_path: str,
-        device: str | object,
+        device: torch.device,
     ) -> "LTXIcLoraPipeline":
         return LTXIcLoraPipeline(
             checkpoint_path=checkpoint_path,
@@ -31,7 +34,7 @@ class LTXIcLoraPipeline:
         gemma_root: str | None,
         upsampler_path: str,
         lora_path: str,
-        device: DeviceLike,
+        device: torch.device,
     ) -> None:
         from ltx_core.loader.primitives import LoraPathStrengthAndSDOps
         from ltx_core.loader.sd_ops import LTXV_LORA_COMFY_RENAMING_MAP
@@ -42,7 +45,7 @@ class LTXIcLoraPipeline:
         self.pipeline = ICLoraPipeline(
             checkpoint_path=checkpoint_path,
             spatial_upsampler_path=upsampler_path,
-            gemma_root=gemma_root,
+            gemma_root=cast(str, gemma_root),
             loras=[lora_entry],
             device=device,
             quantization=QuantizationPolicy.fp8_cast() if device_supports_fp8(device) else None,
@@ -59,7 +62,7 @@ class LTXIcLoraPipeline:
         images: list[tuple[str, int, float]],
         video_conditioning: list[tuple[str, float]],
         tiling_config: TilingConfigType,
-    ) -> tuple[torch.Tensor, TensorOrNone] | torch.Tensor:
+    ) -> tuple[torch.Tensor | Iterator[torch.Tensor], TensorOrNone]:
         return self.pipeline(
             prompt=prompt,
             seed=seed,
@@ -71,20 +74,6 @@ class LTXIcLoraPipeline:
             video_conditioning=video_conditioning,
             tiling_config=tiling_config,
         )
-
-    @staticmethod
-    def _normalize_generation_result(
-        generation_result: tuple[torch.Tensor, TensorOrNone] | torch.Tensor,
-    ) -> tuple[torch.Tensor, TensorOrNone]:
-        if isinstance(generation_result, tuple):
-            if len(generation_result) == 2:
-                video, audio = generation_result
-                return video, audio
-            if len(generation_result) == 1:
-                return generation_result[0], None
-            raise RuntimeError("Unexpected IC-LoRA pipeline result shape")
-
-        return generation_result, None
 
     @torch.inference_mode()
     def generate(
@@ -100,7 +89,7 @@ class LTXIcLoraPipeline:
         output_path: str,
     ) -> None:
         tiling_config = default_tiling_config()
-        generation_result = self._run_inference(
+        video, audio = self._run_inference(
             prompt=prompt,
             seed=seed,
             height=height,
@@ -111,7 +100,5 @@ class LTXIcLoraPipeline:
             video_conditioning=video_conditioning,
             tiling_config=tiling_config,
         )
-
-        video, audio = self._normalize_generation_result(generation_result)
         chunks = video_chunks_number(num_frames, tiling_config)
         encode_video_output(video=video, audio=audio, fps=int(frame_rate), output_path=output_path, video_chunks_number_value=chunks)

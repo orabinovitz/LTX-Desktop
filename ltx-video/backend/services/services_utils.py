@@ -4,27 +4,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, BinaryIO, Protocol, TypeAlias, cast
+from typing import TYPE_CHECKING, BinaryIO, Protocol, TypeAlias
 
-_bootstrap_logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    import torch
-else:
-    try:
-        import torch as _torch
-    except Exception:
-        _bootstrap_logger.warning("Failed to import torch; using stubbed protocol types", exc_info=True)
-        class _TorchStub:
-            class Tensor:  # pragma: no cover - structural fallback for type aliases
-                pass
-
-            class device:  # pragma: no cover - structural fallback for type aliases
-                pass
-
-        _torch = cast(Any, _TorchStub())
-
-    torch = _torch
+import torch
 from PIL.Image import Image as PILImage
 
 if TYPE_CHECKING:
@@ -40,7 +22,6 @@ RequestFieldValue: TypeAlias = str | bytes | int | float | bool | None
 RequestData: TypeAlias = bytes | str | Mapping[str, RequestFieldValue] | BinaryIO | None
 PromptInput: TypeAlias = str | Sequence[str]
 
-DeviceLike: TypeAlias = str | torch.device
 TensorType: TypeAlias = torch.Tensor
 PILImageType: TypeAlias = PILImage
 
@@ -56,7 +37,7 @@ TensorOrNone: TypeAlias = TensorType | None
 logger = logging.getLogger(__name__)
 
 
-def get_device_type(device: DeviceLike | object | None) -> str:
+def get_device_type(device: str | torch.device | object | None) -> str:
     if device is None:
         return "cpu"
 
@@ -74,11 +55,11 @@ def get_device_type(device: DeviceLike | object | None) -> str:
     return "cpu"
 
 
-def device_supports_fp8(device: DeviceLike | object | None) -> bool:
+def device_supports_fp8(device: str | torch.device | object | None) -> bool:
     return get_device_type(device) == "cuda"
 
 
-def sync_device(device: DeviceLike | object | None) -> None:
+def sync_device(device: str | torch.device | object | None) -> None:
     device_type = get_device_type(device)
     if device_type == "cuda":
         try:
@@ -94,7 +75,7 @@ def sync_device(device: DeviceLike | object | None) -> None:
             logger.warning("torch.mps.synchronize() failed", exc_info=True)
 
 
-def empty_device_cache(device: DeviceLike | object | None) -> None:
+def empty_device_cache(device: str | torch.device | object | None) -> None:
     device_type = get_device_type(device)
     if device_type == "cuda":
         try:

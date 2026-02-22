@@ -2,29 +2,29 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import os
-from typing import Final
+from typing import Final, cast
 
 import torch
 
 from services.ltx_pipeline_common import (
-    CompileMixin,
     DistilledNativePipeline,
     default_tiling_config,
     encode_video_output,
     video_chunks_number,
 )
-from services.services_utils import DeviceLike, TensorOrNone, TilingConfigType, device_supports_fp8
+from services.services_utils import TensorOrNone, TilingConfigType, device_supports_fp8
 
 
-class LTXFastNativeVideoPipeline(CompileMixin):
+class LTXFastNativeVideoPipeline:
     pipeline_kind: Final = "fast-native"
 
     @staticmethod
     def create(
         checkpoint_path: str,
         gemma_root: str | None,
-        device: str | object,
+        device: torch.device,
     ) -> "LTXFastNativeVideoPipeline":
         return LTXFastNativeVideoPipeline(
             checkpoint_path=checkpoint_path,
@@ -32,7 +32,7 @@ class LTXFastNativeVideoPipeline(CompileMixin):
             device=device,
         )
 
-    def __init__(self, checkpoint_path: str, gemma_root: str | None, device: DeviceLike) -> None:
+    def __init__(self, checkpoint_path: str, gemma_root: str | None, device: torch.device) -> None:
         self.pipeline = DistilledNativePipeline(
             checkpoint_path=checkpoint_path,
             gemma_root=gemma_root,
@@ -50,7 +50,7 @@ class LTXFastNativeVideoPipeline(CompileMixin):
         frame_rate: float,
         images: list[tuple[str, int, float]],
         tiling_config: TilingConfigType,
-    ) -> tuple[torch.Tensor, TensorOrNone]:
+    ) -> tuple[torch.Tensor | Iterator[torch.Tensor], TensorOrNone]:
         return self.pipeline(
             prompt=prompt,
             seed=seed,
@@ -111,4 +111,10 @@ class LTXFastNativeVideoPipeline(CompileMixin):
                 os.unlink(output_path)
 
     def compile_transformer(self) -> None:
-        self._compile_transformer()
+        transformer = self.pipeline.model_ledger.transformer()
+
+        compiled = cast(
+            torch.nn.Module,
+            torch.compile(transformer, mode="reduce-overhead", fullgraph=False),  # type: ignore[reportUnknownMemberType]
+        )
+        setattr(self.pipeline.model_ledger, "transformer", lambda: compiled)

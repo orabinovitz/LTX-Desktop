@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 if TYPE_CHECKING:
     from state.app_settings import AppSettings
-    from services.services_utils import DeviceLike
     from services.interfaces import (
         FastNativeVideoPipeline,
         FastVideoPipeline,
@@ -74,14 +73,18 @@ class TextEncodingResult:
 
 
 class CachedTextEncoder(Protocol):
-    def to(self, device: DeviceLike) -> "CachedTextEncoder":
+    def to(self, device: torch.device) -> "CachedTextEncoder":
         ...
+
+
+def _new_prompt_cache() -> dict[str, TextEncodingResult]:
+    return {}
 
 
 @dataclass
 class TextEncoderState:
     service: TextEncoder
-    prompt_cache: dict[str, TextEncodingResult] = field(default_factory=dict)
+    prompt_cache: dict[str, TextEncodingResult] = field(default_factory=_new_prompt_cache)
     api_embeddings: TextEncodingResult | None = None
     cached_encoder: CachedTextEncoder | None = None
 

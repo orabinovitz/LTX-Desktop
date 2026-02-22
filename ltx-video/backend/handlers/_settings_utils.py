@@ -2,35 +2,66 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import TypeAlias, TypeGuard, cast
+
+from services.services_utils import JSONValue
+
+JSONObject: TypeAlias = dict[str, JSONValue]
 
 
-def deep_merge_dicts(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
-    merged = base.copy()
+def _is_json_value(value: object) -> TypeGuard[JSONValue]:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return True
+    if isinstance(value, list):
+        typed_items = cast(list[object], value)
+        return all(_is_json_value(item) for item in typed_items)
+    if isinstance(value, dict):
+        typed_mapping = cast(dict[object, object], value)
+        return all(isinstance(key, str) and _is_json_value(item) for key, item in typed_mapping.items())
+    return False
+
+
+def _is_json_object(value: object) -> TypeGuard[JSONObject]:
+    if not isinstance(value, dict):
+        return False
+    typed_mapping = cast(dict[object, object], value)
+    return all(isinstance(key, str) and _is_json_value(item) for key, item in typed_mapping.items())
+
+
+def ensure_json_object(payload: object) -> JSONObject:
+    if not _is_json_object(payload):
+        raise ValueError("Settings payload must be a JSON object")
+    return payload
+
+
+def deep_merge_dicts(base: Mapping[str, JSONValue], patch: Mapping[str, JSONValue]) -> JSONObject:
+    merged: JSONObject = dict(base)
     for key, value in patch.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = deep_merge_dicts(merged[key], value)
+        base_value = merged.get(key)
+        if _is_json_object(value) and _is_json_object(base_value):
+            merged[key] = deep_merge_dicts(base_value, value)
         else:
             merged[key] = value
     return merged
 
 
-def strip_none_values(payload: dict[str, Any]) -> dict[str, Any]:
-    cleaned: dict[str, Any] = {}
+def strip_none_values(payload: Mapping[str, JSONValue]) -> JSONObject:
+    cleaned: JSONObject = {}
     for key, value in payload.items():
         if value is None:
             continue
-        if isinstance(value, dict):
+        if _is_json_object(value):
             cleaned[key] = strip_none_values(value)
         else:
             cleaned[key] = value
     return cleaned
 
 
-def collect_changed_paths(before: Any, after: Any, prefix: str = "") -> set[str]:
-    if isinstance(before, dict) and isinstance(after, dict):
+def collect_changed_paths(before: JSONValue, after: JSONValue, prefix: str = "") -> set[str]:
+    if _is_json_object(before) and _is_json_object(after):
         paths: set[str] = set()
-        for key in set(before) | set(after):
+        for key in set(before.keys()) | set(after.keys()):
             next_prefix = f"{prefix}.{key}" if prefix else key
             if key not in before or key not in after:
                 paths.add(next_prefix)
@@ -43,8 +74,8 @@ def collect_changed_paths(before: Any, after: Any, prefix: str = "") -> set[str]
     return set()
 
 
-def migrate_legacy_settings(raw: dict[str, Any]) -> dict[str, Any]:
-    migrated = raw.copy()
+def migrate_legacy_settings(raw: Mapping[str, JSONValue]) -> JSONObject:
+    migrated: JSONObject = dict(raw)
     if (
         "prompt_enhancer_enabled" in migrated
         and "prompt_enhancer_enabled_t2v" not in migrated
@@ -55,4 +86,3 @@ def migrate_legacy_settings(raw: dict[str, Any]) -> dict[str, Any]:
 
     migrated.pop("prompt_enhancer_enabled", None)
     return migrated
-

@@ -47,21 +47,26 @@ def create_app(
         allow_headers=["*"],
     )
 
-    @app.exception_handler(RequestValidationError)
-    async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-        first = exc.errors()[0] if exc.errors() else {}
-        detail = first.get("msg", "Validation error")
-        return JSONResponse(status_code=422, content={"error": detail})
+    async def _route_http_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        if isinstance(exc, HTTPError):
+            log_http_error(request, exc)
+            return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
-    @app.exception_handler(HTTPError)
-    async def _route_http_error_handler(request: Request, exc: HTTPError) -> JSONResponse:
-        log_http_error(request, exc)
-        return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
+    async def _validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        if isinstance(exc, RequestValidationError):
+            first = exc.errors()[0] if exc.errors() else {}
+            detail = first.get("msg", "Validation error")
+            return JSONResponse(status_code=422, content={"error": detail})
+        return JSONResponse(status_code=422, content={"error": str(exc)})
 
-    @app.exception_handler(Exception)
     async def _route_generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
         log_unhandled_exception(request, exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
+
+    app.add_exception_handler(RequestValidationError, _validation_error_handler)
+    app.add_exception_handler(HTTPError, _route_http_error_handler)
+    app.add_exception_handler(Exception, _route_generic_error_handler)
 
     app.include_router(health_router)
     app.include_router(generation_router)

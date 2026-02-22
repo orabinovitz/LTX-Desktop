@@ -8,7 +8,13 @@ from pathlib import Path
 from threading import RLock
 
 from state.app_settings import AppSettings, UpdateSettingsRequest
-from handlers._settings_utils import collect_changed_paths, deep_merge_dicts, migrate_legacy_settings, strip_none_values
+from handlers._settings_utils import (
+    collect_changed_paths,
+    deep_merge_dicts,
+    ensure_json_object,
+    migrate_legacy_settings,
+    strip_none_values,
+)
 from handlers.base import StateHandlerBase, with_state_lock
 from state.app_state_types import AppState
 
@@ -26,10 +32,11 @@ class SettingsHandler(StateHandlerBase):
             try:
                 with open(self._settings_file, "r", encoding="utf-8") as f:
                     payload = json.load(f)
-                if not isinstance(payload, dict):
-                    raise ValueError("Settings payload must be a JSON object")
-                migrated = migrate_legacy_settings(payload)
-                merged = deep_merge_dicts(default_settings.model_dump(by_alias=False), migrated)
+                migrated = migrate_legacy_settings(ensure_json_object(payload))
+                merged = deep_merge_dicts(
+                    ensure_json_object(default_settings.model_dump(by_alias=False)),
+                    migrated,
+                )
                 loaded = AppSettings.model_validate(merged)
                 logger.info("Settings loaded from %s", self._settings_file)
                 self.state.app_settings = loaded
@@ -54,17 +61,17 @@ class SettingsHandler(StateHandlerBase):
 
     @with_state_lock
     def update_settings(self, patch: UpdateSettingsRequest) -> tuple[AppSettings, AppSettings, set[str]]:
-        patch_payload = strip_none_values(patch.model_dump(by_alias=False, exclude_unset=True))
+        patch_payload = strip_none_values(ensure_json_object(patch.model_dump(by_alias=False, exclude_unset=True)))
 
         before = self.state.app_settings.model_copy(deep=True)
-        before_payload = before.model_dump(by_alias=False)
+        before_payload = ensure_json_object(before.model_dump(by_alias=False))
 
         if patch_payload:
             merged_payload = deep_merge_dicts(before_payload, patch_payload)
             self.state.app_settings = AppSettings.model_validate(merged_payload)
 
         after = self.state.app_settings.model_copy(deep=True)
-        after_payload = after.model_dump(by_alias=False)
+        after_payload = ensure_json_object(after.model_dump(by_alias=False))
 
         if "prompt_cache_size" in patch_payload and self.state.text_encoder is not None:
             self._trim_prompt_cache()

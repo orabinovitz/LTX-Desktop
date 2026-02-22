@@ -7,6 +7,8 @@ from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING
 
+import torch
+
 from handlers.base import StateHandlerBase
 from handlers.text_handler import TextHandler
 from services.interfaces import (
@@ -53,7 +55,7 @@ class PipelinesHandler(StateHandlerBase):
         ic_lora_pipeline_class: type[IcLoraPipeline],
         config: RuntimeConfig,
         outputs_dir: Path,
-        device: str | object,
+        device: torch.device,
     ) -> None:
         super().__init__(state, lock)
         self._text_handler = text_handler
@@ -101,7 +103,7 @@ class PipelinesHandler(StateHandlerBase):
         te = self.state.text_encoder
         if te is None:
             return
-        te.service.install_patches(lambda: self)
+        te.service.install_patches(lambda: self.state)
 
     def _compile_if_enabled(self, state: VideoPipelineState) -> VideoPipelineState:
         if not self.state.app_settings.use_torch_compile:

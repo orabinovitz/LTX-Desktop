@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol
+
+if TYPE_CHECKING:
+    import torch
 
 
 class ProVideoPipeline(Protocol):
-    pipeline_kind: Literal["pro"]
+    pipeline_kind: ClassVar[Literal["pro"]]
 
     @staticmethod
     def create(
@@ -14,7 +17,7 @@ class ProVideoPipeline(Protocol):
         gemma_root: str | None,
         upsampler_path: str,
         distilled_lora_path: str,
-        device: str | object,
+        device: torch.device,
     ) -> "ProVideoPipeline":
         ...
 

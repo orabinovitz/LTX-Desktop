@@ -7,12 +7,12 @@ import logging
 import pickle
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 
-from services.http_client.http_client_impl import HTTPClientImpl
-from services.services_utils import DeviceLike, PromptInput, TensorOrNone, sync_device
+from services.http_client.http_client import HTTPClient
+from services.services_utils import PromptInput, TensorOrNone, sync_device
 from state.app_state_types import CachedTextEncoder, TextEncodingResult
 
 if TYPE_CHECKING:
@@ -21,25 +21,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class StateCarrier(Protocol):
-    state: "AppState"
-
-
 class LTXTextEncoder:
     """Stateless text encoding operations with idempotent monkey-patching."""
 
-    def __init__(self, device: DeviceLike, http: HTTPClientImpl, ltx_api_base_url: str) -> None:
+    def __init__(self, device: torch.device, http: HTTPClient, ltx_api_base_url: str) -> None:
         self.device = device
         self.http = http
         self.ltx_api_base_url = ltx_api_base_url
         self._model_ledger_patched = False
         self._encode_text_patched = False
 
-    def install_patches(self, state_getter: Callable[[], StateCarrier]) -> None:
+    def install_patches(self, state_getter: Callable[[], AppState]) -> None:
         self._install_model_ledger_patch(state_getter)
         self._install_encode_text_patch(state_getter)
 
-    def _install_model_ledger_patch(self, state_getter: Callable[[], StateCarrier]) -> None:
+    def _install_model_ledger_patch(self, state_getter: Callable[[], AppState]) -> None:
         if self._model_ledger_patched:
             return
 
@@ -50,11 +46,11 @@ class LTXTextEncoder:
             original_text_encoder = ModelLedger.text_encoder
             original_cleanup_memory = ltx_utils.cleanup_memory
 
-            def patched_text_encoder(this: object) -> CachedTextEncoder | DummyTextEncoder:
+            def patched_text_encoder(self_model_ledger: ModelLedger) -> object:
                 state = state_getter()
-                te_state = state.state.text_encoder
+                te_state = state.text_encoder
                 if te_state is None:
-                    return cast(CachedTextEncoder, original_text_encoder(this))
+                    return original_text_encoder(self_model_ledger)
 
                 if te_state.api_embeddings is not None:
                     return DummyTextEncoder()
@@ -67,27 +63,27 @@ class LTXTextEncoder:
                         logger.warning("Failed to move cached text encoder to %s", self.device, exc_info=True)
                     return te_state.cached_encoder
 
-                te_state.cached_encoder = cast(CachedTextEncoder, original_text_encoder(this))
+                te_state.cached_encoder = cast(CachedTextEncoder, original_text_encoder(self_model_ledger))
                 return te_state.cached_encoder
 
             def patched_cleanup_memory() -> None:
                 state = state_getter()
-                te_state = state.state.text_encoder
+                te_state = state.text_encoder
                 if te_state is not None and te_state.cached_encoder is not None:
                     try:
-                        te_state.cached_encoder.to("cpu")
+                        te_state.cached_encoder.to(torch.device("cpu"))
                     except Exception:
                         logger.warning("Failed to move cached text encoder to CPU", exc_info=True)
                 original_cleanup_memory()
 
-            ModelLedger.text_encoder = patched_text_encoder
-            ltx_utils.cleanup_memory = patched_cleanup_memory
+            setattr(ModelLedger, "text_encoder", patched_text_encoder)
+            setattr(ltx_utils, "cleanup_memory", patched_cleanup_memory)
             self._model_ledger_patched = True
             logger.info("Installed ModelLedger text encoder patch")
         except Exception as exc:
             logger.warning("Failed to patch ModelLedger: %s", exc, exc_info=True)
 
-    def _install_encode_text_patch(self, state_getter: Callable[[], StateCarrier]) -> None:
+    def _install_encode_text_patch(self, state_getter: Callable[[], AppState]) -> None:
         if self._encode_text_patched:
             return
 
@@ -98,13 +94,13 @@ class LTXTextEncoder:
             original_encode_text = text_enc_module.encode_text
 
             def patched_encode_text(
-                text_encoder: CachedTextEncoder | DummyTextEncoder,
+                text_encoder: object,
                 prompts: PromptInput,
                 *args: object,
                 **kwargs: object,
             ) -> list[tuple[torch.Tensor, TensorOrNone]]:
                 state = state_getter()
-                te_state = state.state.text_encoder
+                te_state = state.text_encoder
                 if te_state is not None and te_state.api_embeddings is not None:
                     video_context = te_state.api_embeddings.video_context
                     audio_context = te_state.api_embeddings.audio_context
@@ -119,13 +115,14 @@ class LTXTextEncoder:
                             out.append((zero_video, zero_audio))
                     return out
 
+                prompt_list = [prompts] if isinstance(prompts, str) else list(prompts)
                 return cast(
                     list[tuple[torch.Tensor, TensorOrNone]],
-                    original_encode_text(text_encoder, prompts, *args, **kwargs),
+                    original_encode_text(cast(Any, text_encoder), prompt_list, *args, **kwargs),
                 )
 
-            text_enc_module.encode_text = patched_encode_text
-            distilled_module.encode_text = patched_encode_text
+            setattr(text_enc_module, "encode_text", patched_encode_text)
+            setattr(distilled_module, "encode_text", patched_encode_text)
 
             for module_name in (
                 "ltx_pipelines.ti2vid_one_stage",
@@ -134,7 +131,7 @@ class LTXTextEncoder:
             ):
                 try:
                     module = __import__(module_name, fromlist=["encode_text"])
-                    module.encode_text = patched_encode_text
+                    setattr(module, "encode_text", patched_encode_text)
                 except Exception:
                     logger.warning("Failed to patch encode_text for module %s", module_name, exc_info=True)
 

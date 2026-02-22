@@ -5,10 +5,10 @@ from typing import Any, cast
 
 if os.environ.get("DEBUG") == "1":
     try:
-        import debugpy
+        import debugpy  # type: ignore[reportMissingImports]
 
-        if not debugpy.is_client_connected():
-            debugpy.listen(("127.0.0.1", 5678))
+        if not bool(debugpy.is_client_connected()):  # type: ignore[reportUnknownMemberType]
+            debugpy.listen(("127.0.0.1", 5678))  # type: ignore[reportUnknownMemberType]
     except (ImportError, RuntimeError) as exc:
         print(f"Debugpy setup failed: {exc}", file=sys.stderr)
 

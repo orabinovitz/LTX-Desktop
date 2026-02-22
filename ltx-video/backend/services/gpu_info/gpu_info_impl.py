@@ -6,12 +6,17 @@ import logging
 import os
 import platform
 import subprocess
+from typing import Protocol, cast
 
 import torch
 
 from services.gpu_info.gpu_info import GpuTelemetryPayload
 
 logger = logging.getLogger(__name__)
+
+
+class _CudaDeviceProperties(Protocol):
+    total_memory: int
 
 
 class GpuInfoImpl:
@@ -45,7 +50,7 @@ class GpuInfoImpl:
     def get_gpu_info(self) -> GpuTelemetryPayload:
         if self.get_cuda_available():
             try:
-                import pynvml
+                import pynvml  # type: ignore[reportMissingModuleSource]
 
                 pynvml.nvmlInit()
                 handle = pynvml.nvmlDeviceGetHandleByIndex(0)
@@ -113,7 +118,11 @@ class GpuInfoImpl:
     def get_vram_total_gb(self) -> int | None:
         if self.get_cuda_available():
             try:
-                return int(torch.cuda.get_device_properties(0).total_memory // (1024**3))
+                properties = cast(
+                    _CudaDeviceProperties,
+                    torch.cuda.get_device_properties(0),  # type: ignore[reportUnknownMemberType]
+                )
+                return int(properties.total_memory // (1024**3))
             except Exception:
                 logger.warning("Failed to query CUDA total VRAM", exc_info=True)
                 return None
