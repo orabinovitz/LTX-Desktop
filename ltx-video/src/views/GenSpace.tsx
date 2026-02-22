@@ -226,7 +226,7 @@ function SettingsDropdown({
           <>
             <div className="fixed inset-0 z-[9998]" onMouseDown={() => setIsOpen(false)} />
             <div
-              className="fixed bg-zinc-800 border border-zinc-700 rounded-xl py-3 px-4 min-w-[160px] shadow-xl z-[9999]"
+              className="fixed bg-zinc-800 border border-zinc-700 rounded-lg py-3 px-4 min-w-[160px] shadow-xl z-[9999]"
               style={{ bottom: window.innerHeight - top, left }}
             >
               <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-3">{title}</div>
@@ -426,7 +426,7 @@ function PromptBar({
       </div>
       
       {/* Bottom row: Mode selector + Settings */}
-      <div className="flex items-center gap-0.5 px-3 py-1.5 border-t border-zinc-800/60 text-xs text-zinc-400">
+      <div className="flex items-center gap-0.5 px-1.5 py-1.5 border-t border-zinc-800/60 text-xs text-zinc-400">
         {/* Mode dropdown */}
         <SettingsDropdown
           title="MODE"
@@ -1063,7 +1063,7 @@ export function GenSpace() {
                 </button>
 
                 {showSizeMenu && (
-                  <div className="absolute top-full mt-2 right-0 bg-zinc-800 border border-zinc-700 rounded-xl py-3 px-4 min-w-[160px] shadow-xl z-50">
+                  <div className="absolute top-full mt-2 right-0 bg-zinc-800 border border-zinc-700 rounded-lg py-3 px-4 min-w-[160px] shadow-xl z-50">
                     {([
                       { value: 'small' as GallerySize, label: 'Small', icon: GridSmallIcon },
                       { value: 'medium' as GallerySize, label: 'Medium', icon: GridMediumIcon },
