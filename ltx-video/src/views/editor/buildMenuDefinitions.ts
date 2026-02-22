@@ -193,7 +193,8 @@ export function buildMenuDefinitions(p: MenuDepsParams): MenuDefinition[] {
       label: 'View',
       items: [
         { id: 'clip-viewer', label: p.showSourceMonitor ? 'Hide Clip Viewer' : 'Show Clip Viewer', action: () => p.setShowSourceMonitor(!p.showSourceMonitor) },
-        { id: 'effects-browser', label: p.showEffectsBrowser ? 'Hide Effects Browser' : 'Show Effects Browser', action: () => p.setShowEffectsBrowser(!p.showEffectsBrowser) },
+        // EFFECTS HIDDEN - effects-browser menu item hidden because effects are not applied during export
+        // { id: 'effects-browser', label: p.showEffectsBrowser ? 'Hide Effects Browser' : 'Show Effects Browser', action: () => p.setShowEffectsBrowser(!p.showEffectsBrowser) },
         { id: 'properties-panel', label: p.showPropertiesPanel ? 'Hide Properties Panel' : 'Show Properties Panel', action: () => p.setShowPropertiesPanel(!p.showPropertiesPanel) },
         { id: 'ic-lora-panel', label: p.showICLoraPanel ? 'Hide IC-LoRA Panel' : 'Show IC-LoRA Panel', action: () => p.setShowICLoraPanel(!p.showICLoraPanel) },
         { id: 'sep-1', label: '', separator: true },

@@ -11,7 +11,7 @@ import {
   Music,
   X, RefreshCw, Loader2,
   MessageSquare, FileUp, FileDown,
-  Sparkles, Link2, Search, Type,
+  Sparkles, Link2, Type, // EFFECTS HIDDEN: removed Search
   CircleDot, Circle, RotateCcw, Save, LayoutGrid, PanelRight, Folder
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
@@ -24,14 +24,14 @@ import { ImportTimelineModal } from '../components/ImportTimelineModal'
 import { ClipWaveform } from '../components/AudioWaveform'
 import { RetakeModal } from '../components/RetakeModal'
 import { ICLoraPanel } from '../components/ICLoraPanel'
-import type { TimelineClip, Track, SubtitleClip, EffectType } from '../types/project'
-import { EFFECT_DEFINITIONS, DEFAULT_TRACKS } from '../types/project'
+import type { TimelineClip, Track, SubtitleClip } from '../types/project' // EFFECTS HIDDEN: removed EffectType
+import { DEFAULT_TRACKS } from '../types/project' // EFFECTS HIDDEN: removed EFFECT_DEFINITIONS
 import {
   type ToolType, PRIMARY_TOOLS, TRIM_TOOLS,
   AUTOSAVE_DELAY, CUT_POINT_TOLERANCE, DEFAULT_DISSOLVE_DURATION,
   type EditorLayout, DEFAULT_LAYOUT, LAYOUT_LIMITS,
   getShortcutLabel, loadLayout, saveLayout, clampVal,
-  migrateClip, migrateTracks, getClipEffectStyles,
+  migrateClip, migrateTracks, // EFFECTS HIDDEN: removed getClipEffectStyles
   formatTime, parseTime, getColorLabel,
   type LayoutPreset, loadLayoutPresets, saveLayoutPresets,
 } from './editor/video-editor-utils'
@@ -143,7 +143,7 @@ export function VideoEditor() {
   const [lastTrimTool, setLastTrimTool] = useState<ToolType>('ripple')
   const trimLongPressRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const trimFlyoutOpenedRef = useRef(false)
-  const [effectsSearchQuery, setEffectsSearchQuery] = useState('')
+  // EFFECTS HIDDEN: const [effectsSearchQuery, setEffectsSearchQuery] = useState('')
   
   // Layout dropdown state
   const [showLayoutMenu, setShowLayoutMenu] = useState(false)
@@ -471,7 +471,7 @@ export function VideoEditor() {
   // Clip/track operations (extracted hook)
   const {
     addClipToTimeline, handleImportFile,
-    updateClip, addEffectToClip, removeEffectFromClip, updateEffectOnClip,
+    updateClip, addEffectToClip: _addEffectToClip, removeEffectFromClip, updateEffectOnClip, // EFFECTS HIDDEN: addEffectToClip prefixed
     duplicateClip, splitClipAtPlayhead, removeClip,
     addCrossDissolve, removeCrossDissolve,
     addTrack, deleteTrack, createAdjustmentLayerAsset, addTextClip,
@@ -1271,41 +1271,9 @@ export function VideoEditor() {
 
   // Get active adjustment layer effects at playhead
   // Returns an array of style objects (one per adjustment layer) to wrap around the preview content
+  // EFFECTS HIDDEN - adjustment layer effects neutered because effects are not applied during export
   const activeAdjustmentEffects = useMemo(() => {
-    // Find all adjustment layers at the current playhead time
-    // They must be on enabled tracks and be of type 'adjustment'
-    const adjClips = clips
-      .filter(c =>
-        c.type === 'adjustment' &&
-        (tracks[c.trackIndex]?.enabled !== false) &&
-        currentTime >= c.startTime &&
-        currentTime < c.startTime + c.duration
-      )
-      // Sort by trackIndex ascending — lower trackIndex = higher in visual stack = applied last (outermost wrapper)
-      // We reverse so the highest track (visually topmost) wraps outermost
-      .sort((a, b) => b.trackIndex - a.trackIndex)
-
-    // For each adjustment layer, compute the CSS filter/effects
-    const results: { clip: TimelineClip; filterStyle: React.CSSProperties; hasVignette: boolean; vignetteAmount: number; hasGrain: boolean; grainAmount: number }[] = []
-    for (const adjClip of adjClips) {
-      // Build filter string from the adjustment layer's effects and color correction
-      const style = getClipEffectStyles(adjClip, currentTime - adjClip.startTime)
-      const hasVignette = adjClip.effects?.some(fx => fx.enabled && fx.type === 'vignette' && fx.params.amount > 0) || false
-      const vignetteAmount = hasVignette
-        ? (adjClip.effects!.find(fx => fx.type === 'vignette' && fx.enabled)!.params.amount / 100) * 0.85
-        : 0
-      const hasGrain = adjClip.effects?.some(fx => fx.enabled && fx.type === 'grain' && fx.params.amount > 0) || false
-      const grainAmount = hasGrain
-        ? adjClip.effects!.find(fx => fx.type === 'grain' && fx.enabled)!.params.amount
-        : 0
-
-      // Only include if there's actually something to apply
-      const hasFilter = style.filter && style.filter !== 'none' && style.filter !== ''
-      if (hasFilter || hasVignette || hasGrain) {
-        results.push({ clip: adjClip, filterStyle: style, hasVignette, vignetteAmount, hasGrain, grainAmount })
-      }
-    }
-    return results
+    return [] as { clip: TimelineClip; filterStyle: React.CSSProperties; hasVignette: boolean; vignetteAmount: number; hasGrain: boolean; grainAmount: number }[]
   }, [clips, currentTime, tracks])
   
   // Compute adaptive ruler interval based on zoom level
@@ -2247,8 +2215,9 @@ export function VideoEditor() {
               <Magnet className="h-4 w-4" />
             </button>
             
+            {/* EFFECTS HIDDEN - FX button hidden because effects are not applied during export
             <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
-            
+
             <button
               onClick={() => setShowEffectsBrowser(!showEffectsBrowser)}
               className={`p-1.5 rounded-lg transition-colors flex-shrink-0 text-[10px] font-bold ${
@@ -2260,7 +2229,8 @@ export function VideoEditor() {
             >
               FX
             </button>
-            
+            EFFECTS HIDDEN */}
+
             <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
             
             <button
@@ -2308,111 +2278,7 @@ export function VideoEditor() {
             </button>
           </div>
           
-          {/* Effects Browser Panel */}
-          {showEffectsBrowser && (
-            <div className="w-56 flex-shrink-0 bg-zinc-950 border-r border-zinc-800/80 flex flex-col overflow-hidden">
-              {/* Header */}
-              <div className="flex items-center gap-2 px-3 py-2.5 border-b border-zinc-800/80 bg-zinc-900/50">
-                <div className="w-5 h-5 rounded bg-blue-600/20 flex items-center justify-center">
-                  <Sparkles className="h-3 w-3 text-blue-400" />
-                </div>
-                <span className="text-[11px] font-semibold text-zinc-200 flex-1">Effects</span>
-                <button onClick={() => setShowEffectsBrowser(false)} className="text-zinc-600 hover:text-zinc-300 transition-colors">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              {/* Search */}
-              <div className="px-2.5 py-2 border-b border-zinc-800/60">
-                <div className="relative">
-                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-zinc-600" />
-                  <input
-                    type="text"
-                    placeholder="Search effects..."
-                    value={effectsSearchQuery}
-                    onChange={(e) => setEffectsSearchQuery(e.target.value)}
-                    className="w-full pl-7 pr-2 py-1.5 bg-zinc-800/70 rounded-md text-[11px] text-white placeholder-zinc-600 outline-none border border-zinc-700/40 focus:border-blue-500/50 focus:bg-zinc-800 transition-colors"
-                  />
-                </div>
-              </div>
-              {/* Effect categories */}
-              <div className="flex-1 overflow-y-auto py-1.5 custom-scrollbar">
-                {(['filter', 'stylize', 'color-preset'] as const).map(category => {
-                  const categoryLabel = category === 'filter' ? 'Filters' : category === 'stylize' ? 'Stylize' : 'Color Presets'
-                  const categoryIcon = category === 'filter' ? 'filter' : category === 'stylize' ? 'stylize' : 'color'
-                  const effects = (Object.entries(EFFECT_DEFINITIONS) as [EffectType, typeof EFFECT_DEFINITIONS[EffectType]][])
-                    .filter(([_, def]) => def.category === category)
-                    .filter(([_, def]) => !effectsSearchQuery || def.name.toLowerCase().includes(effectsSearchQuery.toLowerCase()))
-                  if (effects.length === 0) return null
-                  return (
-                    <div key={category} className="mb-1">
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 text-[9px] font-bold text-zinc-500 uppercase tracking-[0.08em]">
-                        <div className={`w-1 h-1 rounded-full ${categoryIcon === 'filter' ? 'bg-blue-400' : categoryIcon === 'stylize' ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                        {categoryLabel}
-                      </div>
-                      <div className="px-2 space-y-px">
-                        {effects.map(([type, def]) => {
-                          // Color swatch for LUT presets
-                          const lutGradient: Record<string, string> = {
-                            'lut-cinematic': 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
-                            'lut-vintage': 'linear-gradient(135deg, #d4a373 0%, #e6ccb2 50%, #b5838d 100%)',
-                            'lut-bw': 'linear-gradient(135deg, #111 0%, #666 50%, #ccc 100%)',
-                            'lut-cool': 'linear-gradient(135deg, #4cc9f0 0%, #4895ef 50%, #4361ee 100%)',
-                            'lut-warm': 'linear-gradient(135deg, #f77f00 0%, #fcbf49 50%, #eae2b7 100%)',
-                            'lut-muted': 'linear-gradient(135deg, #6b7280 0%, #9ca3af 50%, #d1d5db 100%)',
-                            'lut-vivid': 'linear-gradient(135deg, #ff006e 0%, #fb5607 50%, #ffbe0b 100%)',
-                          }
-                          const filterIcon: Record<string, string> = {
-                            'blur': 'B', 'sharpen': 'S', 'glow': 'G', 'vignette': 'V', 'grain': 'N',
-                          }
-                          const filterColor: Record<string, string> = {
-                            'blur': 'from-blue-500/20 to-blue-600/10 text-blue-400',
-                            'sharpen': 'from-cyan-500/20 to-cyan-600/10 text-cyan-400',
-                            'glow': 'from-amber-500/20 to-amber-600/10 text-amber-400',
-                            'vignette': 'from-blue-500/20 to-blue-600/10 text-blue-400',
-                            'grain': 'from-stone-500/20 to-stone-600/10 text-stone-400',
-                          }
-
-                          return (
-                            <button
-                              key={type}
-                              draggable
-                              onDragStart={(e) => {
-                                e.dataTransfer.setData('effectType', type)
-                                e.dataTransfer.effectAllowed = 'copy'
-                              }}
-                              onDoubleClick={() => {
-                                if (selectedClip) addEffectToClip(selectedClip.id, type)
-                              }}
-                              className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-zinc-800/80 transition-all cursor-grab active:cursor-grabbing group"
-                              title={`${def.name} — drag onto clip or double-click to apply`}
-                            >
-                              {/* Icon/swatch */}
-                              {category === 'color-preset' ? (
-                                <div
-                                  className="w-7 h-7 rounded-md flex-shrink-0 ring-1 ring-white/10 group-hover:ring-white/20 transition-all"
-                                  style={{ background: lutGradient[type] || 'linear-gradient(135deg, #333, #555)' }}
-                                />
-                              ) : (
-                                <div className={`w-7 h-7 rounded-md flex-shrink-0 bg-gradient-to-br ${filterColor[type] || 'from-zinc-700 to-zinc-800 text-zinc-400'} flex items-center justify-center ring-1 ring-white/5 group-hover:ring-white/15 transition-all`}>
-                                  <span className="text-[11px] font-black">{filterIcon[type] || 'F'}</span>
-                                </div>
-                              )}
-                              {/* Label */}
-                              <span className="text-[11px] text-zinc-400 group-hover:text-zinc-200 transition-colors truncate">{def.name}</span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-              {/* Footer hint */}
-              <div className="px-3 py-2 border-t border-zinc-800/60 bg-zinc-900/30">
-                <p className="text-[9px] text-zinc-600 leading-relaxed">Drag onto a clip or double-click to apply to selection</p>
-              </div>
-            </div>
-          )}
+          {/* EFFECTS HIDDEN - Effects Browser panel hidden because effects are not applied during export */}
 
           {/* Timeline content */}
           <div className="flex-1 min-w-0 flex flex-col" onMouseDown={() => {
@@ -3228,20 +3094,7 @@ export function VideoEditor() {
                         }
                       }}
                       onContextMenu={(e) => handleClipContextMenu(e, clip)}
-                      onDragOver={(e) => {
-                        if (e.dataTransfer.types.includes('effecttype')) {
-                          e.preventDefault()
-                          e.dataTransfer.dropEffect = 'copy'
-                        }
-                      }}
-                      onDrop={(e) => {
-                        const effectType = e.dataTransfer.getData('effectType') as EffectType
-                        if (effectType && EFFECT_DEFINITIONS[effectType]) {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          addEffectToClip(clip.id, effectType)
-                        }
-                      }}
+                      /* EFFECTS HIDDEN - drag-drop for effects hidden because effects are not applied during export */
                     >
                       {/* Blade cut indicator line */}
                       {activeTool === 'blade' && bladeHoverInfo && (() => {

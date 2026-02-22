@@ -2,12 +2,12 @@ import React from 'react'
 import {
   Trash2, FileVideo, FileImage, FileAudio, Layers, Type,
   FlipHorizontal2, FlipVertical2, ChevronDown, ChevronRight,
-  Palette, Eye, EyeOff, Sun, Contrast, Droplets, Thermometer,
-  SunDim, Moon, Sparkles, Plus, X, RotateCcw, Film,
+  Palette, Eye, Sun, Contrast, Droplets, Thermometer,
+  SunDim, Moon, RotateCcw, Film, // EFFECTS HIDDEN: removed EyeOff, Sparkles, Plus, X
   AlignLeft, AlignCenter, AlignRight,
 } from 'lucide-react'
-import type { Asset, TimelineClip, Track, ClipEffect, LetterboxSettings, TextOverlayStyle, TransitionType, EffectMask } from '../../types/project'
-import { DEFAULT_COLOR_CORRECTION, EFFECT_DEFINITIONS, DEFAULT_LETTERBOX, TEXT_PRESETS, DEFAULT_EFFECT_MASK } from '../../types/project'
+import type { Asset, TimelineClip, Track, ClipEffect, LetterboxSettings, TextOverlayStyle, TransitionType } from '../../types/project' // EFFECTS HIDDEN: removed EffectMask
+import { DEFAULT_COLOR_CORRECTION, DEFAULT_LETTERBOX, TEXT_PRESETS } from '../../types/project' // EFFECTS HIDDEN: removed EFFECT_DEFINITIONS, DEFAULT_EFFECT_MASK
 import { formatTime } from './video-editor-utils'
 
 interface ClipPropertiesPanelProps {
@@ -61,17 +61,14 @@ export function ClipPropertiesPanel(props: ClipPropertiesPanelProps) {
     setShowFlip,
     showTransitions,
     setShowTransitions,
-    showAppliedEffects,
-    setShowAppliedEffects,
+    // EFFECTS HIDDEN: showAppliedEffects, setShowAppliedEffects removed from destructuring
     showColorCorrection,
     setShowColorCorrection,
     resolutionCache,
     rightPanelWidth,
     updateClip,
-    removeEffectFromClip,
-    updateEffectOnClip,
+    // EFFECTS HIDDEN: removeEffectFromClip, updateEffectOnClip, setShowEffectsBrowser removed from destructuring
     handleDeleteTake,
-    setShowEffectsBrowser,
     setI2vClipId,
     setI2vPrompt,
     i2vClipId,
@@ -878,224 +875,7 @@ export function ClipPropertiesPanel(props: ClipPropertiesPanelProps) {
           )}
         </div>
 
-        {/* --- Applied Effects --- */}
-        <div className="pt-3 border-t border-zinc-800/60">
-          <button
-            className="flex items-center gap-2 w-full text-left px-1 py-1 rounded-md hover:bg-zinc-800/40 transition-colors mb-1"
-            onClick={() => setShowAppliedEffects(!showAppliedEffects)}
-          >
-            {showAppliedEffects ? <ChevronDown className="h-3 w-3 text-zinc-500" /> : <ChevronRight className="h-3 w-3 text-zinc-500" />}
-            <Sparkles className="h-3 w-3 text-blue-400" />
-            <span className="text-[11px] font-semibold text-zinc-300 flex-1">Effects</span>
-            {selectedClip.effects && selectedClip.effects.length > 0 && (
-              <span className="text-[9px] font-bold text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded-full">{selectedClip.effects.length}</span>
-            )}
-          </button>
-          {showAppliedEffects && (
-            <div className="space-y-1.5 mt-1">
-              {(!selectedClip.effects || selectedClip.effects.length === 0) ? (
-                <div className="flex flex-col items-center py-4 px-3">
-                  <div className="w-10 h-10 rounded-full bg-zinc-800/80 flex items-center justify-center mb-2">
-                    <Sparkles className="h-4 w-4 text-zinc-600" />
-                  </div>
-                  <p className="text-[11px] text-zinc-600 text-center leading-relaxed">No effects applied</p>
-                  <p className="text-[10px] text-zinc-700 text-center mt-0.5">Drag from the FX browser or use the button below</p>
-                </div>
-              ) : (
-                selectedClip.effects.map((fx, fxIdx) => {
-                  const def = EFFECT_DEFINITIONS[fx.type]
-                  if (!def) return null
-                  // Color coding per effect category
-                  const catColor = def.category === 'filter'
-                    ? { dot: 'bg-blue-400', text: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' }
-                    : def.category === 'stylize'
-                    ? { dot: 'bg-amber-400', text: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20' }
-                    : { dot: 'bg-emerald-400', text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' }
-                  return (
-                    <div
-                      key={fx.id}
-                      className={`rounded-lg overflow-hidden transition-all ${
-                        fx.enabled
-                          ? `bg-zinc-800/60 border ${catColor.border}`
-                          : 'bg-zinc-800/30 border border-zinc-800/50 opacity-60'
-                      }`}
-                    >
-                      {/* Effect header */}
-                      <div className="flex items-center gap-2 px-2.5 py-2">
-                        <span className="text-[9px] font-mono text-zinc-600 w-3 text-center flex-shrink-0">{fxIdx + 1}</span>
-                        <button
-                          onClick={() => updateEffectOnClip(selectedClip.id, fx.id, { enabled: !fx.enabled })}
-                          className={`flex-shrink-0 w-5 h-5 rounded flex items-center justify-center transition-colors ${
-                            fx.enabled ? `${catColor.bg} ${catColor.text}` : 'bg-zinc-800 text-zinc-600'
-                          }`}
-                          title={fx.enabled ? 'Disable effect' : 'Enable effect'}
-                        >
-                          {fx.enabled ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-                        </button>
-                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${fx.enabled ? catColor.dot : 'bg-zinc-600'}`} />
-                          <span className={`text-[11px] font-medium truncate ${fx.enabled ? 'text-zinc-200' : 'text-zinc-500'}`}>{def.name}</span>
-                        </div>
-                        <button
-                          onClick={() => removeEffectFromClip(selectedClip.id, fx.id)}
-                          className="text-zinc-700 hover:text-red-400 flex-shrink-0 transition-colors"
-                          title="Remove effect"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                      {fx.enabled && (
-                        <div className="px-2.5 pb-2.5 space-y-2 border-t border-zinc-700/30 pt-2">
-                          {Object.entries(def.paramRanges).map(([paramKey, paramDef]) => {
-                            const value = fx.params[paramKey] ?? paramDef.min
-                            const pct = ((value - paramDef.min) / (paramDef.max - paramDef.min)) * 100
-                            return (
-                              <div key={paramKey}>
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className="text-[10px] text-zinc-500 font-medium">{paramDef.label}</span>
-                                  <input
-                                    type="number"
-                                    min={paramDef.min}
-                                    max={paramDef.max}
-                                    step={paramDef.step}
-                                    value={parseFloat(value.toFixed(paramDef.step < 1 ? 1 : 0))}
-                                    onChange={(e) => {
-                                      const v = parseFloat(e.target.value)
-                                      if (!isNaN(v)) updateEffectOnClip(selectedClip.id, fx.id, { params: { ...fx.params, [paramKey]: Math.max(paramDef.min, Math.min(paramDef.max, v)) } })
-                                    }}
-                                    className="w-12 text-[10px] text-zinc-300 font-mono text-right bg-zinc-800/80 border border-zinc-700/50 rounded px-1 py-0.5 outline-none focus:border-blue-500/50"
-                                  />
-                                </div>
-                                <div className="relative h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                                  <div
-                                    className={`absolute left-0 top-0 bottom-0 rounded-full transition-all ${
-                                      def.category === 'filter' ? 'bg-blue-500/60' : def.category === 'stylize' ? 'bg-amber-500/60' : 'bg-emerald-500/60'
-                                    }`}
-                                    style={{ width: `${pct}%` }}
-                                  />
-                                  <input
-                                    type="range"
-                                    min={paramDef.min}
-                                    max={paramDef.max}
-                                    step={paramDef.step}
-                                    value={value}
-                                    onChange={(e) => {
-                                      updateEffectOnClip(selectedClip.id, fx.id, {
-                                        params: { ...fx.params, [paramKey]: parseFloat(e.target.value) },
-                                      })
-                                    }}
-                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                  />
-                                </div>
-                              </div>
-                            )
-                          })}
-                          <div className="flex items-center justify-between">
-                            <button
-                              onClick={() => updateEffectOnClip(selectedClip.id, fx.id, { params: { ...def.defaultParams } })}
-                              className="text-[9px] text-zinc-600 hover:text-zinc-400 transition-colors"
-                            >
-                              Reset to defaults
-                            </button>
-                          </div>
-
-                          {/* Mask controls */}
-                          {(fx.type === 'blur' || fx.type === 'sharpen' || fx.type === 'glow' || fx.type.startsWith('lut-')) && (
-                            <div className="border-t border-zinc-700/30 pt-2 mt-1">
-                              <label className="flex items-center gap-2 cursor-pointer mb-1.5">
-                                <input
-                                  type="checkbox"
-                                  checked={fx.mask?.enabled || false}
-                                  onChange={e => {
-                                    const mask: EffectMask = fx.mask ? { ...fx.mask, enabled: e.target.checked } : { ...DEFAULT_EFFECT_MASK, enabled: e.target.checked }
-                                    updateEffectOnClip(selectedClip.id, fx.id, { mask })
-                                  }}
-                                  className="rounded bg-zinc-800 border-zinc-600 h-3 w-3"
-                                />
-                                <span className="text-[10px] text-zinc-400 font-medium">Mask</span>
-                                {fx.mask?.enabled && (
-                                  <span className="text-[9px] text-blue-400 ml-auto">{fx.mask.shape}</span>
-                                )}
-                              </label>
-                              {fx.mask?.enabled && (() => {
-                                const m = fx.mask
-                                const updateMask = (updates: Partial<EffectMask>) => {
-                                  updateEffectOnClip(selectedClip.id, fx.id, { mask: { ...m, ...updates } })
-                                }
-                                return (
-                                  <div className="space-y-1.5 pl-1">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[10px] text-zinc-500 w-10">Shape</span>
-                                      <div className="flex gap-1 flex-1">
-                                        {(['ellipse', 'rectangle'] as const).map(s => (
-                                          <button
-                                            key={s}
-                                            onClick={() => updateMask({ shape: s })}
-                                            className={`flex-1 py-0.5 rounded text-[9px] font-medium transition-colors ${
-                                              m.shape === s ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'bg-zinc-800 text-zinc-500 border border-zinc-700/50 hover:text-zinc-300'
-                                            }`}
-                                          >
-                                            {s === 'ellipse' ? 'Ellipse' : 'Rectangle'}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                    {([
-                                      { key: 'x', label: 'X', min: 0, max: 100, step: 1 },
-                                      { key: 'y', label: 'Y', min: 0, max: 100, step: 1 },
-                                      { key: 'width', label: 'W', min: 1, max: 100, step: 1 },
-                                      { key: 'height', label: 'H', min: 1, max: 100, step: 1 },
-                                      { key: 'feather', label: 'Feather', min: 0, max: 100, step: 1 },
-                                      { key: 'rotation', label: 'Rot', min: -180, max: 180, step: 1 },
-                                    ] as const).map(({ key, label, min, max, step }) => (
-                                      <div key={key} className="flex items-center gap-2">
-                                        <span className="text-[10px] text-zinc-500 w-10">{label}</span>
-                                        <input
-                                          type="range"
-                                          min={min} max={max} step={step}
-                                          value={m[key]}
-                                          onChange={e => updateMask({ [key]: parseFloat(e.target.value) })}
-                                          className="flex-1 h-1 accent-blue-500 cursor-pointer"
-                                        />
-                                        <input
-                                          type="number"
-                                          min={min} max={max} step={step}
-                                          value={m[key]}
-                                          onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateMask({ [key]: Math.max(min, Math.min(max, v)) }) }}
-                                          className="w-10 text-[9px] text-zinc-300 font-mono text-right bg-zinc-800/80 border border-zinc-700/50 rounded px-1 py-0.5 outline-none focus:border-blue-500/50"
-                                        />
-                                      </div>
-                                    ))}
-                                    <label className="flex items-center gap-2 cursor-pointer pt-0.5">
-                                      <input
-                                        type="checkbox"
-                                        checked={m.invert}
-                                        onChange={e => updateMask({ invert: e.target.checked })}
-                                        className="rounded bg-zinc-800 border-zinc-600 h-3 w-3"
-                                      />
-                                      <span className="text-[10px] text-zinc-400">Invert mask</span>
-                                    </label>
-                                  </div>
-                                )
-                              })()}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })
-              )}
-              <button
-                onClick={() => setShowEffectsBrowser(true)}
-                className="w-full flex items-center justify-center gap-1.5 text-[11px] text-zinc-500 hover:text-blue-400 py-2 hover:bg-blue-500/5 border border-dashed border-zinc-700/50 hover:border-blue-500/30 rounded-lg transition-all"
-              >
-                <Plus className="h-3 w-3" />
-                Add Effect
-              </button>
-            </div>
-          )}
-        </div>
+        {/* EFFECTS HIDDEN - Applied Effects section hidden because effects are not applied during export */}
 
         {/* --- Color Correction --- */}
         <div className="pt-3 border-t border-zinc-800">

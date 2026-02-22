@@ -280,6 +280,7 @@ export function getClipEffectStyles(clip: TimelineClip, timeInClip?: number): Re
   if (cc.highlights !== 0) filters.push(`brightness(${1 + cc.highlights / 300})`)
   if (cc.shadows !== 0) filters.push(`contrast(${1 + cc.shadows / 300})`)
 
+  /* EFFECTS HIDDEN - skip effects iteration because effects are not applied during export
   if (clip.effects) {
     for (const fx of clip.effects) {
       if (!fx.enabled) continue
@@ -368,6 +369,7 @@ export function getClipEffectStyles(clip: TimelineClip, timeInClip?: number): Re
       }
     }
   }
+  EFFECTS HIDDEN */
 
   const transforms: string[] = []
   if (clip.flipH) transforms.push('scaleX(-1)')

@@ -26,7 +26,7 @@ export function ToolsPanel({
   showTrimFlyout, setShowTrimFlyout,
   trimFlyoutOpenedRef, trimLongPressRef,
   snapEnabled, setSnapEnabled,
-  showEffectsBrowser, setShowEffectsBrowser,
+  showEffectsBrowser: _showEffectsBrowser, setShowEffectsBrowser: _setShowEffectsBrowser, // EFFECTS HIDDEN
   addTextClip, kbLayout,
 }: ToolsPanelProps) {
   return (
@@ -147,8 +147,9 @@ export function ToolsPanel({
         <Magnet className="h-4 w-4" />
       </button>
       
+      {/* EFFECTS HIDDEN - FX button hidden because effects are not applied during export
       <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
-      
+
       <button
         onClick={() => setShowEffectsBrowser(!showEffectsBrowser)}
         className={`p-1.5 rounded-lg transition-colors flex-shrink-0 text-[10px] font-bold ${
@@ -160,7 +161,8 @@ export function ToolsPanel({
       >
         FX
       </button>
-      
+      EFFECTS HIDDEN */}
+
       <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
       
       <button

@@ -350,89 +350,7 @@ export function ProgramMonitor({
                     return null
                   })()}
 
-                  {/* Masked effect overlays — duplicate element with CSS filter + mask-image */}
-                  {activeClip && getMaskedEffectOverlays(activeClip).map(overlay => {
-                    const maskCSS = overlay.maskImageValue
-                    const maskStyle: React.CSSProperties = {
-                      filter: overlay.filterCSS,
-                      WebkitMaskImage: maskCSS,
-                      maskImage: maskCSS,
-                      WebkitMaskSize: '100% 100%',
-                      maskSize: '100% 100%' as string,
-                    }
-                    // For image clips: duplicate <img> with CSS filter + mask
-                    if (activeClip.asset?.type === 'image') {
-                      const imgSrc = getClipUrl(activeClip) || activeClip.asset.url
-                      return (
-                        <img
-                          key={`mask-img-${overlay.effectId}`}
-                          src={imgSrc}
-                          alt=""
-                          className="absolute inset-0 w-full h-full object-contain z-[15] pointer-events-none"
-                          style={maskStyle}
-                        />
-                      )
-                    }
-                    // For video clips: duplicate <video> with CSS filter + mask, synced to pool video
-                    const videoSrc = getClipUrl(activeClip) || activeClip.asset?.url || ''
-                    return (
-                      <video
-                        key={`mask-video-${overlay.effectId}`}
-                        id={`mask-video-${overlay.effectId}`}
-                        src={videoSrc}
-                        ref={(el) => {
-                          if (!el) return
-                          // Sync to the pool video's current time
-                          const poolVideo = document.getElementById('video-pool-container')?.querySelector('video') as HTMLVideoElement | null
-                          if (poolVideo && Math.abs(el.currentTime - poolVideo.currentTime) > 0.04) {
-                            el.currentTime = poolVideo.currentTime
-                          }
-                        }}
-                        className="absolute inset-0 w-full h-full object-contain z-[15] pointer-events-none"
-                        style={maskStyle}
-                        muted
-                        playsInline
-                        preload="auto"
-                      />
-                    )
-                  })}
-
-                  {/* Vignette overlay (from effects) */}
-                  {activeClip?.effects?.some(fx => fx.enabled && fx.type === 'vignette' && fx.params.amount > 0) && (
-                    <div
-                      className="absolute inset-0 z-20 pointer-events-none"
-                      style={{
-                        background: `radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,${
-                          (activeClip.effects!.find(fx => fx.type === 'vignette' && fx.enabled)!.params.amount / 100) * 0.85
-                        }) 100%)`,
-                      }}
-                    />
-                  )}
-
-                  {/* Film grain overlay (from effects) */}
-                  {activeClip?.effects?.some(fx => fx.enabled && fx.type === 'grain' && fx.params.amount > 0) && (
-                    <canvas
-                      ref={(canvas) => {
-                        if (!canvas) return
-                        const amount = activeClip.effects!.find(fx => fx.type === 'grain' && fx.enabled)!.params.amount
-                        const ctx = canvas.getContext('2d')
-                        if (!ctx) return
-                        const w = canvas.width = 256
-                        const h = canvas.height = 256
-                        const imageData = ctx.createImageData(w, h)
-                        for (let i = 0; i < imageData.data.length; i += 4) {
-                          const v = Math.random() * 255
-                          imageData.data[i] = v
-                          imageData.data[i + 1] = v
-                          imageData.data[i + 2] = v
-                          imageData.data[i + 3] = (amount / 100) * 80
-                        }
-                        ctx.putImageData(imageData, 0, 0)
-                      }}
-                      className="absolute inset-0 z-20 pointer-events-none w-full h-full"
-                      style={{ mixBlendMode: 'overlay', imageRendering: 'pixelated' }}
-                    />
-                  )}
+                  {/* EFFECTS HIDDEN - masked effect overlays, vignette, and grain hidden because effects are not applied during export */}
 
                   {/* Audio waveform or empty state when no video/image clip is visible */}
                   {!monitorClip && (() => {
@@ -653,65 +571,7 @@ export function ProgramMonitor({
                   ) : null
                 }
               })()}
-              {/* Mask shape visual overlay — draggable */}
-              {activeClip && selectedClipIds.has(activeClip.id) && activeClip.effects?.some(fx => fx.enabled && fx.mask?.enabled) && (() => {
-                const maskedFx = activeClip.effects!.filter(fx => fx.enabled && fx.mask?.enabled)
-                return maskedFx.map(fx => {
-                  const m = fx.mask!
-                  const left = `${m.x - m.width / 2}%`
-                  const top = `${m.y - m.height / 2}%`
-                  const w = `${m.width}%`
-                  const h = `${m.height}%`
-                  return (
-                    <div
-                      key={`mask-vis-${fx.id}`}
-                      className="absolute z-[30] cursor-move"
-                      style={{
-                        left, top, width: w, height: h,
-                        transform: m.rotation !== 0 ? `rotate(${m.rotation}deg)` : undefined,
-                        border: '1.5px dashed rgba(167,139,250,0.7)',
-                        borderRadius: m.shape === 'ellipse' ? '50%' : '4px',
-                        boxShadow: '0 0 0 1px rgba(0,0,0,0.4)',
-                        pointerEvents: 'auto',
-                      }}
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        const container = (e.currentTarget.parentElement as HTMLElement)
-                        const rect = container.getBoundingClientRect()
-                        const startMX = e.clientX
-                        const startMY = e.clientY
-                        const startX = m.x
-                        const startY = m.y
-                        const onMove = (ev: MouseEvent) => {
-                          const dx = ((ev.clientX - startMX) / rect.width) * 100
-                          const dy = ((ev.clientY - startMY) / rect.height) * 100
-                          const nx = Math.max(0, Math.min(100, startX + dx))
-                          const ny = Math.max(0, Math.min(100, startY + dy))
-                          setClips(prev => prev.map(c => {
-                            if (c.id !== activeClip.id) return c
-                            return {
-                              ...c,
-                              effects: c.effects?.map(f => f.id === fx.id ? { ...f, mask: { ...f.mask!, x: nx, y: ny } } : f),
-                            }
-                          }))
-                        }
-                        const onUp = () => {
-                          window.removeEventListener('mousemove', onMove)
-                          window.removeEventListener('mouseup', onUp)
-                        }
-                        window.addEventListener('mousemove', onMove)
-                        window.addEventListener('mouseup', onUp)
-                      }}
-                      title={`Mask: ${m.shape} — drag to reposition`}
-                    >
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-[8px] text-blue-400 whitespace-nowrap bg-black/60 px-1 rounded pointer-events-none">
-                        {fx.type} mask
-                      </div>
-                    </div>
-                  )
-                })
-              })()}
+              {/* EFFECTS HIDDEN - mask shape visual overlay hidden because effects are not applied during export */}
               </div>{/* end video frame wrapper */}
 
               {/* Transparent overlay to prevent video element default interactions */}
