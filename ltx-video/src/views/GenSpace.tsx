@@ -1032,7 +1032,7 @@ export function GenSpace() {
       )}
 
       {/* Floating prompt panel */}
-      <div className="absolute bottom-5 left-[calc(50%-400px)] w-[800px]">
+      <div className="absolute bottom-5 left-[calc(50%-300px)] w-[600px]">
 
         {/* Assets grid — only shown when content exists */}
         {(assets.length > 0 || isGenerating) && (
