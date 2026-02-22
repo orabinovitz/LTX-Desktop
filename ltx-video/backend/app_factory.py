@@ -55,9 +55,7 @@ def create_app(
 
     async def _validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
         if isinstance(exc, RequestValidationError):
-            first = exc.errors()[0] if exc.errors() else {}
-            detail = first.get("msg", "Validation error")
-            return JSONResponse(status_code=422, content={"error": detail})
+            return JSONResponse(status_code=422, content={"error": str(exc)})
         return JSONResponse(status_code=422, content={"error": str(exc)})
 
     async def _route_generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
