@@ -213,7 +213,7 @@ function SettingsDropdown({
       <button 
         ref={btnRef}
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors"
+        className="flex items-center gap-1 px-2 py-1.5 rounded-md hover:bg-zinc-800 transition-colors"
       >
         {trigger}
       </button>
@@ -226,7 +226,7 @@ function SettingsDropdown({
           <>
             <div className="fixed inset-0 z-[9998]" onMouseDown={() => setIsOpen(false)} />
             <div
-              className="fixed bg-zinc-800 border border-zinc-700 rounded-lg py-3 px-4 min-w-[160px] shadow-xl z-[9999]"
+              className="fixed bg-zinc-800 border border-zinc-700 rounded-md py-3 px-4 min-w-[160px] shadow-xl z-[9999]"
               style={{ bottom: window.innerHeight - top, left }}
             >
               <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-3">{title}</div>
@@ -235,7 +235,7 @@ function SettingsDropdown({
                   <div key={option.value} className="relative group/option">
                     <button
                       onClick={() => { if (!option.disabled) { onChange(option.value); setIsOpen(false) } }}
-                      className={`w-full flex items-center justify-between px-2 py-2 rounded-lg transition-colors text-left ${
+                      className={`w-full flex items-center justify-between px-2 py-2 rounded-md transition-colors text-left ${
                         option.disabled 
                           ? 'cursor-not-allowed' 
                           : 'hover:bg-zinc-700'
@@ -379,7 +379,7 @@ function PromptBar({
       <div className="flex items-start">
         {/* Input image drop zone */}
         <div
-          className={`relative w-10 h-10 mx-2 mt-2 rounded-lg border-2 border-dashed transition-colors flex items-center justify-center flex-shrink-0 cursor-pointer ${
+          className={`relative w-10 h-10 mx-2 mt-2 rounded-md border-2 border-dashed transition-colors flex items-center justify-center flex-shrink-0 cursor-pointer ${
             isDragOver ? 'border-violet-500 bg-violet-500/10' : 'border-zinc-700 hover:border-zinc-500'
           }`}
           onDragOver={(e) => { e.preventDefault(); setIsDragOver(true) }}
@@ -452,7 +452,7 @@ function PromptBar({
         {mode === 'image' ? (
           <>
             {/* Model indicator */}
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-zinc-800/50">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-800/50">
               <LightricksIcon className="h-3.5 w-3.5" />
               <span className="text-zinc-300 font-medium">FLUX Klein</span>
             </div>
@@ -617,7 +617,7 @@ function PromptBar({
         <button
           onClick={onGenerate}
           disabled={isGenerating || !prompt.trim()}
-          className={`flex items-center gap-1.5 ml-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-shrink-0 ${
+          className={`flex items-center gap-1.5 ml-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all flex-shrink-0 ${
             isGenerating || !prompt.trim()
               ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
               : 'bg-white text-black hover:bg-zinc-200'
@@ -1033,7 +1033,7 @@ export function GenSpace() {
             <div className="flex items-center justify-end px-1 pb-2 gap-2">
               <button
                 onClick={() => setShowFavorites(!showFavorites)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   showFavorites
                     ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                     : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
@@ -1053,7 +1053,7 @@ export function GenSpace() {
               <div ref={sizeMenuRef} className="relative">
                 <button
                   onClick={() => setShowSizeMenu(!showSizeMenu)}
-                  className={`p-2 rounded-lg transition-colors ${
+                  className={`p-2 rounded-md transition-colors ${
                     showSizeMenu ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                   }`}
                 >
@@ -1063,7 +1063,7 @@ export function GenSpace() {
                 </button>
 
                 {showSizeMenu && (
-                  <div className="absolute top-full mt-2 right-0 bg-zinc-800 border border-zinc-700 rounded-lg py-3 px-4 min-w-[160px] shadow-xl z-50">
+                  <div className="absolute top-full mt-2 right-0 bg-zinc-800 border border-zinc-700 rounded-md py-3 px-4 min-w-[160px] shadow-xl z-50">
                     {([
                       { value: 'small' as GallerySize, label: 'Small', icon: GridSmallIcon },
                       { value: 'medium' as GallerySize, label: 'Medium', icon: GridMediumIcon },
@@ -1072,7 +1072,7 @@ export function GenSpace() {
                       <button
                         key={option.value}
                         onClick={() => { setGallerySize(option.value); setShowSizeMenu(false) }}
-                        className="w-full flex items-center justify-between px-2 py-2.5 rounded-lg hover:bg-zinc-700 transition-colors text-left"
+                        className="w-full flex items-center justify-between px-2 py-2.5 rounded-md hover:bg-zinc-700 transition-colors text-left"
                       >
                         <div className="flex items-center gap-3">
                           <option.icon className={`h-4 w-4 ${gallerySize === option.value ? 'text-white' : 'text-zinc-500'}`} />
