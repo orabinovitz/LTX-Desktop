@@ -121,6 +121,10 @@ $PythonExe = Join-Path $OutputPath "python.exe"
 & $PythonExe $GetPipPath --no-warn-script-location
 Write-Host "pip installed" -ForegroundColor Green
 
+# Install setuptools and wheel (needed to build some dependencies from source)
+& $PythonExe -m pip install setuptools wheel --no-warn-script-location --quiet
+Write-Host "setuptools and wheel installed" -ForegroundColor Green
+
 # ============================================================
 # Step 6: Install all dependencies from requirements.txt
 # ============================================================
