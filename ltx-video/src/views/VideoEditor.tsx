@@ -3066,7 +3066,7 @@ export function VideoEditor() {
                         {/* Take navigation + Regenerate (only for clips with gen params) */}
                         {(() => {
                           const liveAsset = getLiveAsset(clip)
-                          if (!liveAsset || clip.duration * pixelsPerSecond <= 60 || clip.type === 'adjustment') return null
+                          if (!liveAsset || clip.duration * pixelsPerSecond <= 60 || clip.type === 'adjustment' || clip.type === 'audio') return null
                           return (
                             <div className="flex-shrink-0 flex items-center gap-0.5" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
                               {/* Take navigation: prev/next */}
