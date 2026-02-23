@@ -36,7 +36,7 @@ win:
       arch:
         - x64
   icon: resources/icon.ico
-  artifactName: ${productName}-${version}-Setup.${ext}
+  artifactName: ${productName}-Setup.${ext}
 
 nsis:
   oneClick: false
@@ -63,7 +63,7 @@ mac:
         - arm64
   icon: resources/icon.png
   category: public.app-category.video
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: ${productName}-${arch}.${ext}
 
 dmg:
   contents:
