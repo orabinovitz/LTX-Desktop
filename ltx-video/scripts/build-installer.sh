@@ -12,6 +12,7 @@
 #   --skip-npm           Skip npm install
 #   --clean              Remove build artifacts before starting
 #   --unpack             Build unpacked app only (faster, no installer/dmg)
+#   --publish <mode>     Publish mode for electron-builder (always|never|onTag)
 
 set -euo pipefail
 
@@ -23,6 +24,7 @@ SKIP_NPM=false
 CLEAN=false
 UNPACK=false
 PLATFORM=""
+PUBLISH=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -30,13 +32,17 @@ while [[ $# -gt 0 ]]; do
     --skip-npm)    SKIP_NPM=true ;;
     --clean)       CLEAN=true ;;
     --unpack)      UNPACK=true ;;
+    --publish)
+      PUBLISH="$2"
+      shift
+      ;;
     --platform)
       PLATFORM="$2"
       shift
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--platform mac|win] [--skip-python] [--skip-npm] [--clean] [--unpack]"
+      echo "Usage: $0 [--platform mac|win] [--skip-python] [--skip-npm] [--clean] [--unpack] [--publish always|never|onTag]"
       exit 1
       ;;
   esac
@@ -147,8 +153,12 @@ if [ "$UNPACK" = true ]; then
   echo "[4/4] Building unpacked app (fast mode)..."
   npx electron-builder $BUILDER_ARGS --dir
 else
+  PUBLISH_ARGS=""
+  if [ -n "$PUBLISH" ]; then
+    PUBLISH_ARGS="--publish $PUBLISH"
+  fi
   echo "[4/4] Building installer..."
-  npx electron-builder $BUILDER_ARGS
+  npx electron-builder $BUILDER_ARGS $PUBLISH_ARGS
 fi
 echo ""
 

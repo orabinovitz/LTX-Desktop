@@ -1,0 +1,206 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      skip-python:
+        description: "Skip Python env preparation (use cached)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Gate: validate tag and create draft release (tag pushes only) ──
+  release-gate:
+    name: Release Gate
+    if: github.repository == 'Lightricks/ltx-desktop' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate tag ↔ package.json
+        id: version
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          PKG_VERSION=$(node -p "require('./ltx-video/package.json').version")
+          echo "Tag: $TAG_VERSION | package.json: $PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Version mismatch: tag=$TAG_VERSION package.json=$PKG_VERSION"
+            exit 1
+          fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$TAG_VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "${{ github.ref_name }}" \
+            --draft \
+            --title "LTX Desktop ${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            $PRERELEASE_FLAG
+
+  # ── Build: matrix across macOS + Windows ───────────────────────────
+  build:
+    name: Build (${{ matrix.os }})
+    needs: release-gate
+    if: >-
+      github.repository == 'Lightricks/ltx-desktop' &&
+      always() && (needs.release-gate.result == 'success' || needs.release-gate.result == 'skipped')
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos
+            runner: macos-latest
+          - os: windows
+            runner: windows-latest
+    defaults:
+      run:
+        working-directory: ltx-video
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ltx-video/package-lock.json
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      # Cache the python-embed directory to skip ~30 min preparation
+      - name: Cache python-embed
+        uses: actions/cache@v4
+        with:
+          path: ltx-video/python-embed
+          key: python-embed-${{ runner.os }}-${{ hashFiles('ltx-video/backend/uv.lock') }}
+
+      # macOS build
+      - name: Build installer (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            PUBLISH_FLAG="--publish always"
+          else
+            PUBLISH_FLAG="--publish never"
+          fi
+          bash scripts/build-installer.sh --platform mac $PUBLISH_FLAG
+        # env:
+          # Uncomment when code signing certificates are configured:
+          # CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          # CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      # Windows build
+      - name: Build installer (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          if ("${{ github.ref }}".StartsWith("refs/tags/v")) {
+            $params = @{ Publish = "always" }
+          } else {
+            $params = @{ Publish = "never" }
+          }
+          & scripts/build-installer.ps1 @params
+        # env:
+          # Uncomment when code signing certificates are configured:
+          # CSC_LINK: ${{ secrets.WIN_CERTIFICATE }}
+          # CSC_KEY_PASSWORD: ${{ secrets.WIN_CERTIFICATE_PASSWORD }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: |
+            ltx-video/release/*.dmg
+            ltx-video/release/*Setup*.exe
+            ltx-video/release/*.blockmap
+            ltx-video/release/*.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── Finalize: un-draft the release (tag pushes only) ───────────────
+  finalize:
+    name: Finalize Release
+    if: github.repository == 'Lightricks/ltx-desktop' && startsWith(github.ref, 'refs/tags/v')
+    needs: [release-gate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # To require manual approval before going live, uncomment:
+    # environment: production
+    steps:
+      - name: Verify release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Checking assets on draft release ${{ github.ref_name }}..."
+          ASSETS=$(gh release view "${{ github.ref_name }}" --json assets --jq '.assets[].name')
+          echo "Assets found:"
+          echo "$ASSETS"
+          echo ""
+
+          # Verify we have the expected files
+          MISSING=0
+          for pattern in ".dmg" "Setup.exe" "latest-mac.yml" "latest.yml"; do
+            if echo "$ASSETS" | grep -q "$pattern"; then
+              echo "✓ Found $pattern"
+            else
+              echo "✗ Missing $pattern"
+              MISSING=1
+            fi
+          done
+
+          if [ "$MISSING" -eq 1 ]; then
+            echo ""
+            echo "::warning::Some expected assets are missing. Review the draft release before un-drafting."
+          fi
+
+      - name: Un-draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [ "${{ needs.release-gate.outputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          else
+            PRERELEASE_FLAG="--latest"
+          fi
+          gh release edit "${{ github.ref_name }}" \
+            --draft=false \
+            $PRERELEASE_FLAG
+          echo "Release ${{ github.ref_name }} is now live!"

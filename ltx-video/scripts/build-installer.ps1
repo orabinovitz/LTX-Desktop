@@ -5,7 +5,8 @@ param(
     [switch]$SkipPython,
     [switch]$SkipNpm,
     [switch]$Clean,
-    [switch]$Unpack  # Build unpacked app only (faster, no installer)
+    [switch]$Unpack,  # Build unpacked app only (faster, no installer)
+    [string]$Publish = ""  # Publish mode for electron-builder (always|never|onTag)
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,7 +101,11 @@ if ($Unpack) {
     npx electron-builder --win --dir
 } else {
     Write-Host "`n[4/4] Building installer..." -ForegroundColor Yellow
-    npx electron-builder --win
+    $PublishArgs = @()
+    if ($Publish -ne "") {
+        $PublishArgs = @("--publish", $Publish)
+    }
+    npx electron-builder --win @PublishArgs
 }
 
 if ($LASTEXITCODE -ne 0) {
