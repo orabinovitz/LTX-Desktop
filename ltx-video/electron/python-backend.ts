@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { getCurrentDir, isDev, PYTHON_PORT } from './config'
 import { getCurrentLogFilename } from './logging-management'
+import { getPythonDir } from './python-setup'
 
 let pythonProcess: ChildProcess | null = null
 
@@ -14,11 +15,12 @@ function getBackendPath(): string {
 }
 
 export function getPythonPath(): string {
-  // In production, use bundled Python first
+  // In production, use bundled/downloaded Python first
   if (!isDev) {
+    const pythonDir = getPythonDir()
     const bundledPython = process.platform === 'win32'
-      ? path.join(process.resourcesPath, 'python', 'python.exe')
-      : path.join(process.resourcesPath, 'python', 'bin', 'python3')
+      ? path.join(pythonDir, 'python.exe')
+      : path.join(pythonDir, 'bin', 'python3')
     if (fs.existsSync(bundledPython)) {
       console.log(`Using bundled Python: ${bundledPython}`)
       return bundledPython
@@ -87,7 +89,7 @@ export async function startPythonBackend(): Promise<void> {
         PYTORCH_ENABLE_MPS_FALLBACK: '1',
         // Set PYTHONHOME for bundled Python on macOS so it finds its stdlib
         ...(!isDev && process.platform !== 'win32' ? {
-          PYTHONHOME: path.join(process.resourcesPath, 'python'),
+          PYTHONHOME: getPythonDir(),
         } : {}),
       },
       stdio: ['ignore', 'pipe', 'pipe']

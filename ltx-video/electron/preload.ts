@@ -85,6 +85,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportCancel: (sessionId: string): Promise<{ ok?: boolean }> =>
     ipcRenderer.invoke('export-cancel', sessionId),
 
+  // Python setup (Windows first-launch download)
+  checkPythonReady: (): Promise<{ ready: boolean }> => ipcRenderer.invoke('check-python-ready'),
+  startPythonSetup: (): Promise<void> => ipcRenderer.invoke('start-python-setup'),
+  startPythonBackend: (): Promise<void> => ipcRenderer.invoke('start-python-backend'),
+  onPythonSetupProgress: (cb: (data: unknown) => void) => {
+    ipcRenderer.on('python-setup-progress', (_: unknown, data: unknown) => cb(data))
+  },
+  removePythonSetupProgress: () => {
+    ipcRenderer.removeAllListeners('python-setup-progress')
+  },
+
   // Platform info
   platform: process.platform,
 })
@@ -131,6 +142,11 @@ declare global {
         subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[];
       }) => Promise<{ success?: boolean; error?: string }>
       exportCancel: (sessionId: string) => Promise<{ ok?: boolean }>
+      checkPythonReady: () => Promise<{ ready: boolean }>
+      startPythonSetup: () => Promise<void>
+      startPythonBackend: () => Promise<void>
+      onPythonSetupProgress: (cb: (data: unknown) => void) => void
+      removePythonSetupProgress: () => void
       platform: string
     }
   }

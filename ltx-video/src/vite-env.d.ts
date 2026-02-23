@@ -40,6 +40,11 @@ interface Window {
       subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[]
     }) => Promise<{ success?: boolean; error?: string }>
     exportCancel: (sessionId: string) => Promise<{ ok?: boolean }>
+    checkPythonReady: () => Promise<{ ready: boolean }>
+    startPythonSetup: () => Promise<void>
+    startPythonBackend: () => Promise<void>
+    onPythonSetupProgress: (cb: (data: unknown) => void) => void
+    removePythonSetupProgress: () => void
     platform: string
   }
 }

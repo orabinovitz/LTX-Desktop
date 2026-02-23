@@ -27,12 +27,8 @@ extraResources:
       - "!outputs/**"
       - "!models/**"
       - "!tests/**"
-  - from: python-embed
-    to: python
-    filter:
-      - "**/*"
-      - "!__pycache__/**"
-      - "!*.pyc"
+  - from: python-deps-hash.txt
+    to: python-deps-hash.txt
 
 win:
   target:
@@ -53,6 +49,13 @@ nsis:
   shortcutName: LTX Desktop
 
 mac:
+  extraResources:
+    - from: python-embed
+      to: python
+      filter:
+        - "**/*"
+        - "!__pycache__/**"
+        - "!*.pyc"
   target:
     - target: dmg
       arch:

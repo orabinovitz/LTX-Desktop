@@ -107,6 +107,16 @@ jobs:
           path: ltx-video/python-embed
           key: python-embed-${{ runner.os }}-${{ hashFiles('ltx-video/backend/uv.lock') }}
 
+      # Generate python deps hash
+      - name: Generate python deps hash (macOS)
+        if: matrix.os == 'macos'
+        run: shasum -a 256 backend/uv.lock | cut -d' ' -f1 > python-deps-hash.txt
+
+      - name: Generate python deps hash (Windows)
+        if: matrix.os == 'windows'
+        shell: bash
+        run: sha256sum backend/uv.lock | cut -d' ' -f1 > python-deps-hash.txt
+
       # macOS build
       - name: Build installer (macOS)
         if: matrix.os == 'macos'
@@ -140,6 +150,29 @@ jobs:
           # Uncomment when code signing certificates are configured:
           # CSC_LINK: ${{ secrets.WIN_CERTIFICATE }}
           # CSC_KEY_PASSWORD: ${{ secrets.WIN_CERTIFICATE_PASSWORD }}
+
+      # Create and upload python-embed archive (Windows only)
+      - name: Create python-embed archive (Windows)
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          cp python-deps-hash.txt python-embed/deps-hash.txt
+          tar -czf python-embed-win32.tar.gz -C . python-embed
+
+      - name: Upload python-embed to release (Windows)
+        if: matrix.os == 'windows' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "${{ github.ref_name }}" python-embed-win32.tar.gz --clobber
+
+      - name: Upload python-embed artifact (Windows)
+        if: matrix.os == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-embed-windows
+          path: ltx-video/python-embed-win32.tar.gz
+          retention-days: 7
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -176,7 +209,7 @@ jobs:
 
           # Verify we have the expected files
           MISSING=0
-          for pattern in ".dmg" "Setup.exe" "latest-mac.yml" "latest.yml"; do
+          for pattern in ".dmg" "Setup.exe" "latest-mac.yml" "latest.yml" "python-embed-win32.tar.gz"; do
             if echo "$ASSETS" | grep -q "$pattern"; then
               echo "✓ Found $pattern"
             else

@@ -3,6 +3,9 @@ import path from 'path'
 import fs from 'fs'
 import { BACKEND_BASE_URL } from '../config'
 import { checkGPU } from '../gpu'
+import { isPythonReady, downloadPythonEmbed } from '../python-setup'
+import { startPythonBackend } from '../python-backend'
+import { getMainWindow } from '../window'
 
 function getModelsPath(): string {
   const modelsPath = path.join(app.getPath('userData'), 'models')
@@ -83,6 +86,20 @@ export function registerAppHandlers(): void {
       return null
     }
     return process.resourcesPath
+  })
+
+  ipcMain.handle('check-python-ready', () => {
+    return isPythonReady()
+  })
+
+  ipcMain.handle('start-python-setup', async () => {
+    await downloadPythonEmbed((progress) => {
+      getMainWindow()?.webContents.send('python-setup-progress', progress)
+    })
+  })
+
+  ipcMain.handle('start-python-backend', async () => {
+    await startPythonBackend()
   })
 
 }

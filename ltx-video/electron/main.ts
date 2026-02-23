@@ -6,7 +6,7 @@ import { registerAppHandlers } from './ipc/app-handlers'
 import { registerFileHandlers } from './ipc/file-handlers'
 import { registerLogHandlers } from './ipc/log-handlers'
 import { initSessionLog } from './logging-management'
-import { startPythonBackend, stopPythonBackend } from './python-backend'
+import { stopPythonBackend } from './python-backend'
 import { initAutoUpdater } from './updater'
 import { createWindow, getMainWindow } from './window'
 
@@ -19,18 +19,9 @@ registerExportHandlers()
 
 app.whenReady().then(async () => {
   setupCSP()
-
-  try {
-    // Start Python backend first
-    console.log('Starting Python backend...');
-    await startPythonBackend();
-    console.log('Python backend started successfully');
-  } catch (e) {
-    console.error('Failed to initialize Python backend:', e)
-  }
-
-  createWindow();
-  initAutoUpdater();
+  createWindow()
+  initAutoUpdater()
+  // Python setup + backend start are now driven by the renderer via IPC
 })
 
 app.on('window-all-closed', () => {

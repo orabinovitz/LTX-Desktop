@@ -8,6 +8,7 @@ import { Home } from './views/Home'
 import { Project } from './views/Project'
 import { Playground } from './views/Playground'
 import { FirstRunSetup } from './components/FirstRunSetup'
+import { PythonSetup } from './components/PythonSetup'
 import { SettingsModal, type AppSettings } from './components/SettingsModal'
 import { LogViewer } from './components/LogViewer'
 import { Button } from './components/ui/button'
@@ -32,6 +33,8 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
 function AppContent() {
   const { currentView } = useProjects()
   const { status, isLoading: backendLoading, error: backendError } = useBackend()
+  const [pythonReady, setPythonReady] = useState<boolean | null>(null)
+  const [backendStarted, setBackendStarted] = useState(false)
   const [isFirstRun, setIsFirstRun] = useState<boolean | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isLogViewerOpen, setIsLogViewerOpen] = useState(false)
@@ -90,6 +93,37 @@ function AppContent() {
     syncSettings()
   }, [appSettings, settingsLoaded, status.connected])
 
+  // Check if Python environment is ready (Windows may need download)
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const result = await window.electronAPI.checkPythonReady()
+        setPythonReady(result.ready)
+      } catch (e) {
+        console.error('Failed to check Python readiness:', e)
+        // In dev mode or if check fails, assume ready
+        setPythonReady(true)
+      }
+    }
+    check()
+  }, [])
+
+  // Start backend once Python is ready
+  useEffect(() => {
+    if (pythonReady !== true || backendStarted) return
+    setBackendStarted(true)
+    const start = async () => {
+      try {
+        console.log('Starting Python backend...')
+        await window.electronAPI.startPythonBackend()
+        console.log('Python backend started successfully')
+      } catch (e) {
+        console.error('Failed to start Python backend:', e)
+      }
+    }
+    start()
+  }, [pythonReady, backendStarted])
+
   // Check for first run
   useEffect(() => {
     const checkFirstRun = async () => {
@@ -103,6 +137,22 @@ function AppContent() {
     }
     checkFirstRun()
   }, [])
+
+  // Show spinner while checking Python readiness
+  if (pythonReady === null) {
+    return (
+      <div className="h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 text-primary animate-spin" />
+      </div>
+    )
+  }
+
+  // Show Python download/setup screen (Windows first launch)
+  if (pythonReady === false) {
+    return (
+      <PythonSetup onReady={() => setPythonReady(true)} />
+    )
+  }
 
   // Show loading while checking first run
   if (isFirstRun === null) {
