@@ -373,7 +373,7 @@ export function ProgramMonitor({
                         />
                       </div>
                     ) : !isPlaying ? (
-                      <div className="text-center">
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
                         <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mx-auto mb-3">
                           <Video className="h-8 w-8 text-zinc-600" />
                         </div>
