@@ -10,7 +10,7 @@ interface TooltipProps {
   className?: string
 }
 
-const DELAY_MS = 70
+const DELAY_MS = 500
 const GAP_PX = 6
 
 /**
@@ -63,7 +63,7 @@ export function Tooltip({ content, children, side = 'top', className }: TooltipP
       {children}
       {visible && ReactDOM.createPortal(
         <div
-          className="fixed z-[99999] px-5 py-3 bg-white text-zinc-800 text-sm font-medium rounded-lg shadow-md whitespace-nowrap pointer-events-none select-none"
+          className="fixed z-[99999] px-2.5 py-1.5 bg-white text-zinc-800 text-xs font-medium rounded-md shadow-md whitespace-nowrap pointer-events-none select-none"
           style={style}
         >
           {content}
