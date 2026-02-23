@@ -19,6 +19,8 @@ interface KeyboardRefs {
     totalDuration: number
     selectedAssetIds: Set<string>
     currentTime: number
+    inPoint: number | null
+    outPoint: number | null
   }>
   clipsRef: React.MutableRefObject<TimelineClip[]>
   tracksRef: React.MutableRefObject<Track[]>
@@ -240,6 +242,18 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
         case 'transport.goToEnd':
           setters.setCurrentTime(td); setters.setIsPlaying(false); setters.setShuttleSpeed(0)
           break
+        case 'transport.goToIn': {
+          const { inPoint, clips } = refs.keyboardStateRef.current
+          const target = inPoint ?? (clips.length > 0 ? Math.min(...clips.map(c => c.startTime)) : 0)
+          setters.setIsPlaying(false); setters.setShuttleSpeed(0); setters.setCurrentTime(target)
+          break
+        }
+        case 'transport.goToOut': {
+          const { outPoint, clips: clipsOut, totalDuration: tdOut } = refs.keyboardStateRef.current
+          const target = outPoint ?? (clipsOut.length > 0 ? Math.max(...clipsOut.map(c => c.startTime + c.duration)) : tdOut)
+          setters.setIsPlaying(false); setters.setShuttleSpeed(0); setters.setCurrentTime(target)
+          break
+        }
 
         // Editing
         case 'edit.undo':    refs.undoRef.current(); break
@@ -305,6 +319,20 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
               if (prev !== null && Math.abs(prev - ct) < 0.01) return null
               return ct
             })
+          }
+          break
+        case 'mark.clearIn':
+          if (refs.activePanelRef.current === 'source') {
+            setters.setSourceIn(null)
+          } else {
+            setters.setInPoint(() => null)
+          }
+          break
+        case 'mark.clearOut':
+          if (refs.activePanelRef.current === 'source') {
+            setters.setSourceOut(null)
+          } else {
+            setters.setOutPoint(() => null)
           }
           break
         case 'mark.clearInOut':

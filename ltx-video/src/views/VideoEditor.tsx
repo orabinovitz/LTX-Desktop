@@ -1012,8 +1012,10 @@ export function VideoEditor() {
     totalDuration: totalDuration,
     selectedAssetIds: selectedAssetIds,
     currentTime: currentTime,
+    inPoint: inPoint as number | null,
+    outPoint: outPoint as number | null,
   })
-  keyboardStateRef.current = { clips, selectedClipIds, totalDuration, selectedAssetIds, currentTime }
+  keyboardStateRef.current = { clips, selectedClipIds, totalDuration, selectedAssetIds, currentTime, inPoint, outPoint }
   
   // These handler refs are populated after the useCallbacks below
   const undoRef = useRef<() => void>(() => {})

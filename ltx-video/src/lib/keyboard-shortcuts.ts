@@ -23,6 +23,8 @@ export type ActionId =
   | 'transport.jumpForward'      // Shift+Right
   | 'transport.goToStart'
   | 'transport.goToEnd'
+  | 'transport.goToIn'
+  | 'transport.goToOut'
   // Editing
   | 'edit.undo'
   | 'edit.redo'
@@ -35,6 +37,8 @@ export type ActionId =
   // Marking
   | 'mark.setIn'
   | 'mark.setOut'
+  | 'mark.clearIn'
+  | 'mark.clearOut'
   | 'mark.clearInOut'
   // 3-Point Editing
   | 'edit.insertEdit'
@@ -90,6 +94,8 @@ export const ACTION_REGISTRY: ActionDefinition[] = [
   { id: 'transport.jumpForward',     label: 'Jump Forward (1 sec)',    category: 'Transport' },
   { id: 'transport.goToStart',       label: 'Go to Start',          category: 'Transport' },
   { id: 'transport.goToEnd',         label: 'Go to End',            category: 'Transport' },
+  { id: 'transport.goToIn',          label: 'Go to In Point',       category: 'Transport' },
+  { id: 'transport.goToOut',         label: 'Go to Out Point',      category: 'Transport' },
   // Editing
   { id: 'edit.undo',          label: 'Undo',               category: 'Editing' },
   { id: 'edit.redo',          label: 'Redo',               category: 'Editing' },
@@ -105,6 +111,8 @@ export const ACTION_REGISTRY: ActionDefinition[] = [
   // Marking
   { id: 'mark.setIn',       label: 'Set In Point',         category: 'Marking' },
   { id: 'mark.setOut',      label: 'Set Out Point',        category: 'Marking' },
+  { id: 'mark.clearIn',     label: 'Clear In Point',       category: 'Marking' },
+  { id: 'mark.clearOut',    label: 'Clear Out Point',      category: 'Marking' },
   { id: 'mark.clearInOut',  label: 'Clear In / Out',       category: 'Marking' },
   // Timeline
   { id: 'timeline.zoomIn',    label: 'Zoom In',            category: 'Timeline' },
@@ -157,6 +165,8 @@ export const LTX_DEFAULT_LAYOUT: KeyboardLayout = {
   'transport.jumpForward':    [k('arrowright', { shift: true })],
   'transport.goToStart':      [k('home')],
   'transport.goToEnd':        [k('end')],
+  'transport.goToIn':         [k('i', { shift: true })],
+  'transport.goToOut':        [k('o', { shift: true })],
   // Editing
   'edit.undo':          [k('z', { ctrl: true })],
   'edit.redo':          [k('z', { ctrl: true, shift: true }), k('y', { ctrl: true })],
@@ -172,6 +182,8 @@ export const LTX_DEFAULT_LAYOUT: KeyboardLayout = {
   // Marking
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
+  'mark.clearIn':      [k('i', { alt: true })],
+  'mark.clearOut':     [k('o', { alt: true })],
   'mark.clearInOut':   [k('x', { alt: true })],
   // Timeline
   'timeline.zoomIn':    [k('='), k('+')],
@@ -207,6 +219,8 @@ export const PREMIERE_LAYOUT: KeyboardLayout = {
   'transport.jumpForward':    [k('arrowright', { shift: true })],
   'transport.goToStart':      [k('home')],
   'transport.goToEnd':        [k('end')],
+  'transport.goToIn':         [k('i', { shift: true })],
+  'transport.goToOut':        [k('o', { shift: true })],
   // Editing
   'edit.undo':          [k('z', { ctrl: true })],
   'edit.redo':          [k('z', { ctrl: true, shift: true })],
@@ -222,6 +236,8 @@ export const PREMIERE_LAYOUT: KeyboardLayout = {
   // Marking (same as Premiere)
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
+  'mark.clearIn':      [k('i', { alt: true })],   // Premiere: Alt+I / Option+I
+  'mark.clearOut':     [k('o', { alt: true })],   // Premiere: Alt+O / Option+O
   'mark.clearInOut':   [k('x', { alt: true })],   // Premiere: Alt+X or Option+X
   // Timeline
   'timeline.zoomIn':    [k('=')],
@@ -257,6 +273,8 @@ export const DAVINCI_LAYOUT: KeyboardLayout = {
   'transport.jumpForward':    [k('arrowright', { shift: true })],
   'transport.goToStart':      [k('home')],
   'transport.goToEnd':        [k('end')],
+  'transport.goToIn':         [k('i', { shift: true })],
+  'transport.goToOut':        [k('o', { shift: true })],
   // Editing
   'edit.undo':          [k('z', { ctrl: true })],
   'edit.redo':          [k('z', { ctrl: true, shift: true })],
@@ -272,6 +290,8 @@ export const DAVINCI_LAYOUT: KeyboardLayout = {
   // Marking
   'mark.setIn':       [k('i')],
   'mark.setOut':       [k('o')],
+  'mark.clearIn':      [k('i', { alt: true })],
+  'mark.clearOut':     [k('o', { alt: true })],
   'mark.clearInOut':   [k('x', { alt: true })],
   // Timeline
   'timeline.zoomIn':    [k('=', { ctrl: true })],
@@ -307,6 +327,8 @@ export const AVID_LAYOUT: KeyboardLayout = {
   'transport.jumpForward':    [k('2')],           // Avid: 2 = fast forward
   'transport.goToStart':      [k('home')],
   'transport.goToEnd':        [k('end')],
+  'transport.goToIn':         [k('i', { shift: true })],
+  'transport.goToOut':        [k('o', { shift: true })],
   // Editing
   'edit.undo':          [k('z', { ctrl: true })],
   'edit.redo':          [k('z', { ctrl: true, shift: true })],
@@ -322,6 +344,8 @@ export const AVID_LAYOUT: KeyboardLayout = {
   // Marking — Avid classic: I/O or E/R
   'mark.setIn':       [k('i'), k('e')],   // Avid: E = mark in
   'mark.setOut':       [k('o'), k('r')],   // Avid: R = mark out (when not in trim mode)
+  'mark.clearIn':      [k('i', { alt: true })],
+  'mark.clearOut':     [k('o', { alt: true })],
   'mark.clearInOut':   [k('g')],           // Avid: G = clear both marks
   // Timeline
   'timeline.zoomIn':    [k('=', { ctrl: true })],
@@ -402,9 +426,18 @@ export function formatKeyCombo(combo: KeyCombo): string {
   return parts.join('+')
 }
 
+/** Map a physical KeyboardEvent.code to a logical key string matching KeyCombo.key */
+function codeToKey(code: string): string {
+  if (code.startsWith('Key')) return code.slice(3).toLowerCase()
+  if (code.startsWith('Digit')) return code.slice(5)
+  return code.toLowerCase()
+}
+
 /** Check if a keyboard event matches a key combo */
 export function eventMatchesCombo(e: KeyboardEvent, combo: KeyCombo): boolean {
-  const key = e.key.toLowerCase()
+  // On Mac, Option (alt) remaps e.key to special characters (e.g. Option+I → 'Dead', Option+O → 'ø').
+  // Use the physical key code instead when alt is involved so shortcuts still resolve correctly.
+  const key = (combo.alt && e.altKey) ? codeToKey(e.code) : e.key.toLowerCase()
   if (key !== combo.key) return false
   if (!!combo.ctrl !== (e.ctrlKey || e.metaKey)) return false
   if (!!combo.shift !== e.shiftKey) return false

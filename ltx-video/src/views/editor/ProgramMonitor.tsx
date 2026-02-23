@@ -1,7 +1,7 @@
 import React from 'react'
 import {
   Layers, Video, ChevronDown,
-  SkipBack, SkipForward, ChevronLeft, ChevronRight, Pause, Play, Square, Repeat,
+  ChevronLeft, ChevronRight, Pause, Play, Repeat,
   Expand, Shrink,
 } from 'lucide-react'
 import { Button } from '../../components/ui/button'
@@ -745,13 +745,14 @@ export function ProgramMonitor({
             )}
           </div>
 
-          {/* Center: transport controls */}
+          {/* Center: transport controls — Premiere-style 5-button strip */}
           <div className="flex-1 flex items-center justify-center gap-0.5">
+            {/* Set In */}
             <Button
               variant="ghost" size="icon"
               className={`h-6 w-6 ${inPoint !== null ? 'text-yellow-400' : 'text-zinc-500'}`}
               onClick={() => setInPoint(prev => prev !== null && Math.abs(prev - currentTime) < 0.01 ? null : currentTime)}
-              title={inPoint !== null ? `In: ${formatTime(inPoint)}` : 'Set In point (I)'}
+              title={`${inPoint !== null ? `In: ${formatTime(inPoint)} — ` : ''}Set In point (${getShortcutLabel(kbLayout, 'mark.setIn')})`}
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="7,4 4,4 4,20 7,20" />
@@ -760,43 +761,72 @@ export function ProgramMonitor({
               </svg>
             </Button>
             <div className="w-px h-3 bg-zinc-700" />
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500" onClick={() => setCurrentTime(0)} title="Go to start">
-              <SkipBack className="h-3 w-3" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500" onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.max(0, t - 1/24)) }} title="Step back">
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </Button>
+            {/* Go to In */}
             <Button
               variant="ghost" size="icon"
-              onClick={() => { setShuttleSpeed(-1); setIsPlaying(true) }}
-              className={`h-6 w-6 ${isPlaying && shuttleSpeed < 0 ? 'text-blue-400' : 'text-zinc-500'}`}
-              title="Play reverse"
+              className={`h-6 w-6 ${inPoint !== null ? 'text-zinc-400' : 'text-zinc-500'}`}
+              onClick={() => {
+                const target = inPoint ?? (clips.length > 0 ? Math.min(...clips.map(c => c.startTime)) : 0)
+                setIsPlaying(false); setShuttleSpeed(0); setCurrentTime(target)
+              }}
+              title={`Go to In Point (${getShortcutLabel(kbLayout, 'transport.goToIn')})`}
             >
-              <Play className="h-3 w-3 mr-0.5 rotate-180" />
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="4" y1="4" x2="4" y2="20" />
+                <line x1="8" y1="12" x2="20" y2="12" />
+                <polyline points="14,7 8,12 14,17" />
+              </svg>
             </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500" onClick={() => { setShuttleSpeed(0); setIsPlaying(false) }} title="Stop">
-              <Square className="h-2.5 w-2.5" />
+            {/* Step Back */}
+            <Button
+              variant="ghost" size="icon"
+              className="h-6 w-6 text-zinc-500"
+              onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.max(0, t - 1/24)) }}
+              title={`Step Back (${getShortcutLabel(kbLayout, 'transport.stepBackward')})`}
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
             </Button>
+            {/* Play/Pause toggle */}
             <Button
               variant="ghost" size="icon"
               onClick={() => { setShuttleSpeed(0); setIsPlaying(!isPlaying) }}
               className="h-6 w-6 text-zinc-400"
-              title={isPlaying ? 'Pause' : 'Play'}
+              title={isPlaying ? `Pause (${getShortcutLabel(kbLayout, 'transport.playPause')})` : `Play (${getShortcutLabel(kbLayout, 'transport.playPause')})`}
             >
               {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 ml-0.5" />}
             </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500" onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.min(totalDuration, t + 1/24)) }} title="Step forward">
+            {/* Step Forward */}
+            <Button
+              variant="ghost" size="icon"
+              className="h-6 w-6 text-zinc-500"
+              onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.min(totalDuration, t + 1/24)) }}
+              title={`Step Forward (${getShortcutLabel(kbLayout, 'transport.stepForward')})`}
+            >
               <ChevronRight className="h-3.5 w-3.5" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500" onClick={() => setCurrentTime(totalDuration)} title="Go to end">
-              <SkipForward className="h-3 w-3" />
+            {/* Go to Out */}
+            <Button
+              variant="ghost" size="icon"
+              className={`h-6 w-6 ${outPoint !== null ? 'text-zinc-400' : 'text-zinc-500'}`}
+              onClick={() => {
+                const target = outPoint ?? (clips.length > 0 ? Math.max(...clips.map(c => c.startTime + c.duration)) : totalDuration)
+                setIsPlaying(false); setShuttleSpeed(0); setCurrentTime(target)
+              }}
+              title={`Go to Out Point (${getShortcutLabel(kbLayout, 'transport.goToOut')})`}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="20" y1="4" x2="20" y2="20" />
+                <line x1="16" y1="12" x2="4" y2="12" />
+                <polyline points="10,7 16,12 10,17" />
+              </svg>
             </Button>
             <div className="w-px h-3 bg-zinc-700" />
+            {/* Set Out */}
             <Button
               variant="ghost" size="icon"
               className={`h-6 w-6 ${outPoint !== null ? 'text-yellow-400' : 'text-zinc-500'}`}
               onClick={() => setOutPoint(prev => prev !== null && Math.abs(prev - currentTime) < 0.01 ? null : currentTime)}
-              title={outPoint !== null ? `Out: ${formatTime(outPoint)}` : 'Set Out point (O)'}
+              title={`${outPoint !== null ? `Out: ${formatTime(outPoint)} — ` : ''}Set Out point (${getShortcutLabel(kbLayout, 'mark.setOut')})`}
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="17,4 20,4 20,20 17,20" />
@@ -804,6 +834,7 @@ export function ProgramMonitor({
                 <polyline points="8,8 4,12 8,16" />
               </svg>
             </Button>
+            {/* Loop In/Out */}
             <Button
               variant="ghost" size="icon"
               className={`h-6 w-6 ${playingInOut ? 'text-yellow-400 bg-yellow-400/10' : 'text-zinc-500'} ${inPoint === null || outPoint === null ? 'opacity-30 cursor-not-allowed' : ''}`}
