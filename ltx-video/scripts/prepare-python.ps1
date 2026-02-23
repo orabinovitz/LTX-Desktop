@@ -130,10 +130,18 @@ Write-Host "setuptools and wheel installed" -ForegroundColor Green
 # ============================================================
 Write-Host "`nStep 6: Installing dependencies from requirements.txt..." -ForegroundColor Yellow
 
-# --extra-index-url provides the PyTorch CUDA builds (torch+cu128)
-& $PythonExe -m pip install -r $RequirementsFile `
-    --extra-index-url $PyTorchIndex `
-    --no-warn-script-location --quiet
+# Use uv for installation — it natively handles uv_build backends and is faster.
+# Falls back to pip if uv is not available (local dev without uv).
+$UvAvailable = Get-Command uv -ErrorAction SilentlyContinue
+if ($UvAvailable) {
+    & uv pip install -r $RequirementsFile `
+        --extra-index-url $PyTorchIndex `
+        --python $PythonExe
+} else {
+    & $PythonExe -m pip install -r $RequirementsFile `
+        --extra-index-url $PyTorchIndex `
+        --no-warn-script-location --quiet
+}
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: pip install failed!" -ForegroundColor Red
