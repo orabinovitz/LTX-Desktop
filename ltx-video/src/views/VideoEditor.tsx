@@ -976,6 +976,9 @@ export function VideoEditor() {
   })
   deleteGapRef.current = deleteGap
 
+  // Anchor position for gap action popover (screen coords of the clicked gap element)
+  const [selectedGapAnchor, setSelectedGapAnchor] = useState<{ x: number; gapTop: number; gapBottom: number } | null>(null)
+
   // Timeline drag/resize/drop handlers (extracted hook)
   const {
     draggingClip,
@@ -2956,6 +2959,8 @@ export function VideoEditor() {
                           setSelectedClipIds(new Set())
                           setSelectedSubtitleId(null)
                           setGapGenerateMode(null)
+                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                          setSelectedGapAnchor({ x: r.left + r.width / 2, gapTop: r.top, gapBottom: r.bottom })
                         }}
                         onContextMenu={(e) => {
                           e.preventDefault()
@@ -2964,6 +2969,8 @@ export function VideoEditor() {
                           setSelectedGap(gap)
                           setSelectedClipIds(new Set())
                           setSelectedSubtitleId(null)
+                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                          setSelectedGapAnchor({ x: r.left + r.width / 2, gapTop: r.top, gapBottom: r.bottom })
                         }}
                       >
                         {/* Generating indicator */}
@@ -2991,15 +2998,17 @@ export function VideoEditor() {
                           </div>
                         ) : (
                           <>
-                            {/* Gap label on hover only — hidden when selected (modal panel shows the info) */}
-                            <div className={`absolute inset-0 flex flex-col items-center justify-center gap-0.5 pointer-events-none transition-opacity ${
-                              isSelected ? 'opacity-0' : 'opacity-0 group-hover/gap:opacity-100'
-                            }`}>
+                            {/* Gap label: always visible when selected, shown on hover otherwise */}
+                            <div className={`absolute inset-0 flex flex-col items-center justify-center gap-0.5 pointer-events-none ${
+                              isSelected ? 'opacity-100' : 'opacity-0 group-hover/gap:opacity-100'
+                            } transition-opacity`}>
                               <span className="text-[9px] text-red-400 font-medium">
                                 {(gap.endTime - gap.startTime).toFixed(1)}s gap
                               </span>
                               {widthPx > 60 && (
-                                <span className="text-[8px] text-red-400/60">Click to select</span>
+                                <span className="text-[8px] text-red-400/60">
+                                  {isSelected ? 'Del to close' : 'Click to select'}
+                                </span>
                               )}
                             </div>
                             
@@ -3357,6 +3366,8 @@ export function VideoEditor() {
                           setSelectedClipIds(new Set())
                           setSelectedSubtitleId(null)
                           setGapGenerateMode(null)
+                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                          setSelectedGapAnchor({ x: r.left + r.width / 2, gapTop: r.top, gapBottom: r.bottom })
                         }}
                       >
                         {isGeneratingHere ? (
@@ -3385,9 +3396,9 @@ export function VideoEditor() {
                             </button>
                           </div>
                         ) : (
-                          <div className={`absolute inset-0 flex items-center justify-center transition-opacity ${
-                            isSelected ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'
-                          }`}>
+                          <div className={`absolute inset-0 flex items-center justify-center ${
+                            isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                          } transition-opacity`}>
                             {widthPx > 50 ? (
                               <span className="text-[9px] text-zinc-400 bg-zinc-900/70 px-1.5 py-0.5 rounded font-mono">
                                 {(gap.endTime - gap.startTime).toFixed(1)}s
@@ -4204,6 +4215,7 @@ export function VideoEditor() {
       {selectedGap && (
         <GapGenerationModal
           selectedGap={selectedGap}
+          anchorPosition={selectedGapAnchor}
           gapGenerateMode={gapGenerateMode}
           setGapGenerateMode={setGapGenerateMode}
           gapPrompt={gapPrompt}

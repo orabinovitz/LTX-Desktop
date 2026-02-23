@@ -52,6 +52,7 @@ function dataUriToFile(dataUri: string, filename: string): File {
 
 interface GapGenerationModalProps {
   selectedGap: TimelineGap | null
+  anchorPosition?: { x: number; gapTop: number; gapBottom: number } | null
   gapGenerateMode: GapGenerateMode | null
   setGapGenerateMode: (mode: GapGenerateMode | null) => void
   gapPrompt: string
@@ -135,6 +136,7 @@ export function GapGenerationModal({
   setGapApplyAudioToTrack,
   regenerateSuggestion,
   gapSuggestionError,
+  anchorPosition,
 }: GapGenerationModalProps) {
   if (!selectedGap) return null
 
@@ -469,16 +471,34 @@ export function GapGenerationModal({
       )}
       
       {/* Gap action bar - shown when gap is selected but no generate mode yet */}
-      {!gapGenerateMode && (
+      {!gapGenerateMode && (() => {
+        // Smart positioning: anchor to the clicked gap, with edge-case clamping
+        const POPOVER_W = 400
+        const POPOVER_H = 88
+        const GAP_PX = 10
+        const MARGIN = 8
+        const vw = typeof window !== 'undefined' ? window.innerWidth : 1280
+        const vh = typeof window !== 'undefined' ? window.innerHeight : 800
+
+        const cx = anchorPosition?.x ?? vw / 2
+        const gapTop = anchorPosition?.gapTop ?? vh - 220 - 52
+        const gapBottom = anchorPosition?.gapBottom ?? vh - 220
+
+        // Horizontal: center on gap, clamped so popover stays in viewport
+        const left = Math.max(MARGIN, Math.min(cx - POPOVER_W / 2, vw - POPOVER_W - MARGIN))
+
+        // Vertical: prefer below gap, flip above if not enough space below
+        const spaceBelow = vh - gapBottom - GAP_PX
+        const openAbove = spaceBelow < POPOVER_H + MARGIN
+        const rawTop = openAbove ? gapTop - GAP_PX - POPOVER_H : gapBottom + GAP_PX
+        const top = Math.max(MARGIN, Math.min(rawTop, vh - POPOVER_H - MARGIN))
+
+        return (
         <>
         <div className="fixed inset-0 z-[90]" onClick={() => setSelectedGap(null)} />
-        <div 
+        <div
           className="fixed z-[100] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-3"
-          style={{
-            bottom: '220px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-          }}
+          style={{ left, top, width: POPOVER_W }}
         >
           <div className="flex items-center gap-2 mb-2">
             <span className="text-xs text-zinc-400 font-medium">
@@ -515,7 +535,8 @@ export function GapGenerationModal({
           </div>
         </div>
         </>
-      )}
+        )
+      })()}
     </>
   )
 }
