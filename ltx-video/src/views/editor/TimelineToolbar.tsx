@@ -1,6 +1,7 @@
 import React from 'react'
 import { Plus, Gauge, Download, Maximize2, FileUp, FileDown, ZoomOut, ZoomIn } from 'lucide-react' // IC-LORA HIDDEN: removed Sparkles
 import { Button } from '../../components/ui/button'
+import { Tooltip } from '../../components/ui/tooltip'
 import type { TimelineClip, Track, SubtitleClip } from '../../types/project'
 
 interface TimelineToolbarProps {
@@ -148,13 +149,14 @@ export function TimelineToolbar({
       
       {/* Zoom slider bar */}
       <div className="flex items-center gap-2">
-        <button
-          onClick={() => { centerOnPlayheadRef.current = true; setZoom(Math.max(getMinZoom(), +(zoom - 0.25).toFixed(2))) }}
-          className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
-          title="Zoom out (-)"
-        >
-          <ZoomOut className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip content="Zoom out (-)">
+          <button
+            onClick={() => { centerOnPlayheadRef.current = true; setZoom(Math.max(getMinZoom(), +(zoom - 0.25).toFixed(2))) }}
+            className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            <ZoomOut className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
         <input
           type="range"
           min={Math.max(1, Math.round(getMinZoom() * 100))}
@@ -165,21 +167,23 @@ export function TimelineToolbar({
           className="w-28 h-1 accent-blue-500 cursor-pointer"
           title={`Zoom: ${Math.round(zoom * 100)}%`}
         />
-        <button
-          onClick={() => { centerOnPlayheadRef.current = true; setZoom(Math.min(4, +(zoom + 0.25).toFixed(2))) }}
-          className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
-          title="Zoom in (+)"
-        >
-          <ZoomIn className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip content="Zoom in (+)">
+          <button
+            onClick={() => { centerOnPlayheadRef.current = true; setZoom(Math.min(4, +(zoom + 0.25).toFixed(2))) }}
+            className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            <ZoomIn className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
         <span className="text-[10px] text-zinc-500 tabular-nums w-8 text-right">{Math.round(zoom * 100)}%</span>
-        <button
-          onClick={handleFitToView}
-          className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors ml-0.5"
-          title="Fit to view (Ctrl+0)"
-        >
-          <Maximize2 className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip content="Fit to view (Ctrl+0)">
+          <button
+            onClick={handleFitToView}
+            className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors ml-0.5"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
       </div>
     </div>
   )

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Play, Pause, Square, SkipBack, SkipForward, ChevronLeft, ChevronRight, Video, Music, X } from 'lucide-react'
 import type { Asset } from '../../types/project'
 import { formatTime } from './video-editor-utils'
+import { Tooltip } from '../../components/ui/tooltip'
 
 export interface SourceMonitorProps {
   sourceAsset: Asset | null
@@ -80,9 +81,11 @@ export function SourceMonitor({
       {/* Header */}
       <div className="h-7 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between px-3 flex-shrink-0">
         <span className="text-[11px] font-semibold text-zinc-400 tracking-wide">Clip Viewer</span>
-        <button onClick={() => { setShowSourceMonitor(false); setSourceIsPlaying(false) }} className="text-zinc-500 hover:text-white">
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip content="Close clip viewer" side="left">
+          <button onClick={() => { setShowSourceMonitor(false); setSourceIsPlaying(false) }} className="text-zinc-500 hover:text-white">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
       </div>
       {/* Video Area */}
       <div className="flex-1 relative overflow-hidden bg-black flex items-center justify-center min-h-0">

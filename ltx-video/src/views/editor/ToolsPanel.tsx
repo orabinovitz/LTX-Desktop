@@ -2,6 +2,7 @@ import React from 'react'
 import { Magnet, Type } from 'lucide-react'
 import { PRIMARY_TOOLS, TRIM_TOOLS, ToolType } from './video-editor-utils'
 import { getShortcutLabel, type KeyboardLayout } from './video-editor-utils'
+import { Tooltip } from '@/components/ui/tooltip'
 
 interface ToolsPanelProps {
   activeTool: ToolType
@@ -32,23 +33,24 @@ export function ToolsPanel({
   return (
     <div className="w-10 flex-shrink-0 bg-zinc-900 border-r border-zinc-800 flex flex-col items-center py-1 gap-0.5 overflow-y-auto">
       {PRIMARY_TOOLS.map(tool => (
-        <button
+        <Tooltip
           key={tool.id}
-          onClick={() => setActiveTool(tool.id)}
-          className={`p-1.5 rounded-lg transition-colors relative group flex-shrink-0 ${
-            activeTool === tool.id 
-              ? 'bg-blue-600 text-white' 
-              : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-          }`}
-          title={`${tool.label} (${getShortcutLabel(kbLayout, tool.actionId)})`}
+          side="right"
+          content={<>{tool.label} <span className="text-zinc-400">({getShortcutLabel(kbLayout, tool.actionId)})</span></>}
         >
-          <tool.icon className="h-4 w-4" />
-          <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
-            {tool.label} <span className="text-zinc-400">({getShortcutLabel(kbLayout, tool.actionId)})</span>
-          </div>
-        </button>
+          <button
+            onClick={() => setActiveTool(tool.id)}
+            className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
+              activeTool === tool.id
+                ? 'bg-blue-600 text-white'
+                : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+            }`}
+          >
+            <tool.icon className="h-4 w-4" />
+          </button>
+        </Tooltip>
       ))}
-      
+
       {/* Trim tools group button */}
       {(() => {
         const trimToolIds = new Set(TRIM_TOOLS.map(t => t.id))
@@ -56,48 +58,49 @@ export function ToolsPanel({
         const currentTrimTool = TRIM_TOOLS.find(t => t.id === (isTrimActive ? activeTool : lastTrimTool)) || TRIM_TOOLS[0]
         return (
           <div className="relative flex-shrink-0">
-            <button
-              onClick={() => {
-                if (trimFlyoutOpenedRef.current) { trimFlyoutOpenedRef.current = false; return }
-                setActiveTool(currentTrimTool.id)
-                setLastTrimTool(currentTrimTool.id)
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
-                trimFlyoutOpenedRef.current = true
-                setShowTrimFlyout(true)
-              }}
-              onMouseDown={(e) => {
-                if (e.button !== 0) return
-                trimFlyoutOpenedRef.current = false
-                trimLongPressRef.current = setTimeout(() => {
-                  trimLongPressRef.current = null
+            <Tooltip
+              side="right"
+              content={<>{currentTrimTool.label} <span className="text-zinc-400">({getShortcutLabel(kbLayout, currentTrimTool.actionId)}) — right-click or hold for more</span></>}
+            >
+              <button
+                onClick={() => {
+                  if (trimFlyoutOpenedRef.current) { trimFlyoutOpenedRef.current = false; return }
+                  setActiveTool(currentTrimTool.id)
+                  setLastTrimTool(currentTrimTool.id)
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
                   trimFlyoutOpenedRef.current = true
                   setShowTrimFlyout(true)
-                }, 400)
-              }}
-              onMouseUp={() => {
-                if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
-              }}
-              onMouseLeave={() => {
-                if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
-              }}
-              data-trim-group-btn=""
-              className={`p-1.5 rounded-lg transition-colors relative group ${
-                isTrimActive
-                  ? 'bg-blue-600 text-white' 
-                  : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-              }`}
-              title={`${currentTrimTool.label} (${getShortcutLabel(kbLayout, currentTrimTool.actionId)}) — right-click or hold for more`}
-            >
-              <currentTrimTool.icon className="h-4 w-4" />
-              <div className="absolute bottom-0 right-0 w-0 h-0 border-l-[4px] border-l-transparent border-b-[4px] border-b-current opacity-60" />
-              <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
-                {currentTrimTool.label} <span className="text-zinc-400">({getShortcutLabel(kbLayout, currentTrimTool.actionId)})</span>
-              </div>
-            </button>
+                }}
+                onMouseDown={(e) => {
+                  if (e.button !== 0) return
+                  trimFlyoutOpenedRef.current = false
+                  trimLongPressRef.current = setTimeout(() => {
+                    trimLongPressRef.current = null
+                    trimFlyoutOpenedRef.current = true
+                    setShowTrimFlyout(true)
+                  }, 400)
+                }}
+                onMouseUp={() => {
+                  if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
+                }}
+                onMouseLeave={() => {
+                  if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
+                }}
+                data-trim-group-btn=""
+                className={`p-1.5 rounded-lg transition-colors relative ${
+                  isTrimActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                }`}
+              >
+                <currentTrimTool.icon className="h-4 w-4" />
+                <div className="absolute bottom-0 right-0 w-0 h-0 border-l-[4px] border-l-transparent border-b-[4px] border-b-current opacity-60" />
+              </button>
+            </Tooltip>
             {showTrimFlyout && (() => {
               const btnEl = document.querySelector('[data-trim-group-btn]')
               const rect = btnEl?.getBoundingClientRect()
@@ -132,49 +135,49 @@ export function ToolsPanel({
           </div>
         )
       })()}
-      
+
       <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
-      
-      <button
-        onClick={() => setSnapEnabled(!snapEnabled)}
-        className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
-          snapEnabled 
-            ? 'bg-blue-600 text-white' 
-            : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-        }`}
-        title={snapEnabled ? 'Snapping On' : 'Snapping Off'}
-      >
-        <Magnet className="h-4 w-4" />
-      </button>
-      
+
+      <Tooltip side="right" content={snapEnabled ? 'Snapping On' : 'Snapping Off'}>
+        <button
+          onClick={() => setSnapEnabled(!snapEnabled)}
+          className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
+            snapEnabled
+              ? 'bg-blue-600 text-white'
+              : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+          }`}
+        >
+          <Magnet className="h-4 w-4" />
+        </button>
+      </Tooltip>
+
       {/* EFFECTS HIDDEN - FX button hidden because effects are not applied during export
       <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
 
-      <button
-        onClick={() => setShowEffectsBrowser(!showEffectsBrowser)}
-        className={`p-1.5 rounded-lg transition-colors flex-shrink-0 text-[10px] font-bold ${
-          showEffectsBrowser
-            ? 'bg-blue-600 text-white'
-            : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-        }`}
-        title="Effects Browser"
-      >
-        FX
-      </button>
+      <Tooltip side="right" content="Effects Browser">
+        <button
+          onClick={() => setShowEffectsBrowser(!showEffectsBrowser)}
+          className={`p-1.5 rounded-lg transition-colors flex-shrink-0 text-[10px] font-bold ${
+            showEffectsBrowser
+              ? 'bg-blue-600 text-white'
+              : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+          }`}
+        >
+          FX
+        </button>
+      </Tooltip>
       EFFECTS HIDDEN */}
 
       <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
-      
-      <button
-        onClick={() => addTextClip()}
-        className="p-1.5 rounded-lg transition-colors flex-shrink-0 text-cyan-400 hover:bg-cyan-900/30 hover:text-cyan-300 group relative"
-        title="Add Text Overlay"
-      >
-        <Type className="h-4 w-4" />
-        <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
-          Add Text Overlay
-        </div>
-      </button>
+
+      <Tooltip side="right" content="Add Text Overlay">
+        <button
+          onClick={() => addTextClip()}
+          className="p-1.5 rounded-lg transition-colors flex-shrink-0 text-cyan-400 hover:bg-cyan-900/30 hover:text-cyan-300"
+        >
+          <Type className="h-4 w-4" />
+        </button>
+      </Tooltip>
     </div>
   )
 }
