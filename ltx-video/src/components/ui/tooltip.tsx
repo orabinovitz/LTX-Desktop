@@ -9,14 +9,14 @@ interface TooltipProps {
 }
 
 const sideClasses: Record<NonNullable<TooltipProps['side']>, string> = {
-  top: 'bottom-full left-1/2 -translate-x-1/2 mb-1.5',
-  bottom: 'top-full left-1/2 -translate-x-1/2 mt-1.5',
-  left: 'right-full top-1/2 -translate-y-1/2 mr-1.5',
-  right: 'left-full top-1/2 -translate-y-1/2 ml-1.5',
+  top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
+  bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
+  left: 'right-full top-1/2 -translate-y-1/2 mr-2',
+  right: 'left-full top-1/2 -translate-y-1/2 ml-2',
 }
 
 /**
- * Lightweight tooltip with a 500ms show delay (best practice) and instant hide.
+ * Lightweight tooltip with a 250ms show delay and instant hide.
  * Wrap any icon-only button with <Tooltip content="Label"> to get a styled tooltip.
  */
 export function Tooltip({ content, children, side = 'top', className }: TooltipProps) {
@@ -25,10 +25,12 @@ export function Tooltip({ content, children, side = 'top', className }: TooltipP
       {children}
       <div
         className={cn(
-          'absolute z-[9999] px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-white whitespace-nowrap pointer-events-none',
-          'opacity-0 transition-opacity duration-100',
-          // Show delay: 500ms on hover-in, instant on hover-out
-          'group-hover/tooltip:opacity-100 group-hover/tooltip:delay-500',
+          'absolute z-[9999] px-2.5 py-1.5',
+          'bg-white text-zinc-800 text-xs font-medium',
+          'rounded-md shadow-lg whitespace-nowrap pointer-events-none',
+          'opacity-0 transition-opacity duration-150',
+          // 250ms delay on hover-in, instant on hover-out
+          'group-hover/tooltip:opacity-100 group-hover/tooltip:delay-[250ms]',
           sideClasses[side],
         )}
       >
