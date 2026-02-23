@@ -3236,8 +3236,8 @@ export function VideoEditor() {
                           isGeneratingHere
                             ? 'bg-blue-500/15 border-2 border-dashed border-blue-400/60 shadow-inner'
                             : isSelected
-                            ? 'bg-red-500/20 border-2 border-dashed border-red-400/60 shadow-inner'
-                            : 'border-2 border-dashed border-transparent hover:bg-red-500/10 hover:border-red-400/30'
+                            ? 'bg-blue-500/20 border-2 border-dashed border-blue-400/60 shadow-inner'
+                            : 'border-2 border-dashed border-transparent hover:bg-blue-500/10 hover:border-blue-400/30'
                         }`}
                         style={{
                           left: `${leftPx}px`,
@@ -3294,7 +3294,7 @@ export function VideoEditor() {
                           <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity ${
                             isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                           }`}>
-                            <span className="text-[9px] font-medium text-red-400">
+                            <span className="text-[9px] font-medium text-blue-400">
                               {(gap.endTime - gap.startTime).toFixed(1)}s
                             </span>
                           </div>

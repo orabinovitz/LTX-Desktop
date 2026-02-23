@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect } from 'react'
 import {
-  Play, X, Upload, Trash2, Video, Image,
+  Play, X, Upload, Video, Image,
   Loader2, Sparkles, ChevronDown, RefreshCw
 } from 'lucide-react'
 import { SettingsPanel } from '../../components/SettingsPanel'
@@ -473,8 +473,8 @@ export function GapGenerationModal({
       {/* Gap action bar - shown when gap is selected but no generate mode yet */}
       {!gapGenerateMode && (() => {
         // Smart positioning: anchor to the clicked gap, with edge-case clamping
-        const POPOVER_W = 400
-        const POPOVER_H = 88
+        const POPOVER_W = 420
+        const POPOVER_H = 96
         const GAP_PX = 4
         const MARGIN = 8
         const vw = typeof window !== 'undefined' ? window.innerWidth : 1280
@@ -497,32 +497,35 @@ export function GapGenerationModal({
         <>
         <div className="fixed inset-0 z-[90]" onClick={() => setSelectedGap(null)} />
         <div
-          className="fixed z-[100] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-3"
+          className="fixed z-[100] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl px-4 py-3"
           style={{ left, top, width: POPOVER_W }}
         >
-          <div className="flex items-center gap-1.5">
+          {/* Row 1: gap info + keyboard hint */}
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-white font-medium">
+              {(selectedGap.endTime - selectedGap.startTime).toFixed(1)}s gap selected
+            </span>
+            <span className="text-xs text-zinc-500">Press Del to close gap</span>
+          </div>
+          {/* Row 2: action buttons */}
+          <div className="flex gap-2">
             <button
               onClick={() => deleteGap(selectedGap)}
-              className="px-3 py-1.5 rounded-lg bg-red-900/30 border border-red-800/30 text-red-400 text-[11px] hover:bg-red-900/50 transition-colors flex items-center gap-1.5"
+              className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
             >
-              <Trash2 className="h-3 w-3" />
-              Close Gap
+              Close gap
             </button>
-            <div className="w-px h-5 bg-zinc-700" />
-            <span className="text-[10px] text-zinc-500 px-1">Fill with:</span>
             <button
               onClick={() => setGapGenerateMode('text-to-video')}
-              className="px-3 py-1.5 rounded-lg bg-blue-900/30 border border-blue-700/30 text-blue-400 text-[11px] hover:bg-blue-900/50 transition-colors flex items-center gap-1.5"
+              className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
             >
-              <Video className="h-3 w-3" />
-              Video
+              Fill with Video
             </button>
             <button
               onClick={() => setGapGenerateMode('text-to-image')}
-              className="px-3 py-1.5 rounded-lg bg-emerald-900/30 border border-emerald-700/30 text-emerald-400 text-[11px] hover:bg-emerald-900/50 transition-colors flex items-center gap-1.5"
+              className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
             >
-              <Image className="h-3 w-3" />
-              Image
+              Fill with image
             </button>
           </div>
         </div>
