@@ -7,6 +7,7 @@ import {
 import type { Asset, TimelineClip, Timeline } from '../../types/project'
 import { VideoThumbnailCard } from './VideoThumbnailCard'
 import { getColorLabel, COLOR_LABELS } from './video-editor-utils'
+import { Tooltip } from '../../components/ui/tooltip'
 
 export interface LeftPanelProps {
   leftPanelWidth: number
@@ -191,20 +192,22 @@ export function LeftPanel(props: LeftPanelProps) {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-white">Assets</h3>
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => setCreatingBin(true)}
-                className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
-                title="Create bin"
-              >
-                <FolderPlus className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
-                title="Import media"
-              >
-                <Upload className="h-4 w-4" />
-              </button>
+              <Tooltip content="Create bin" side="right">
+                <button
+                  onClick={() => setCreatingBin(true)}
+                  className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </button>
+              </Tooltip>
+              <Tooltip content="Import media" side="right">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                >
+                  <Upload className="h-4 w-4" />
+                </button>
+              </Tooltip>
             </div>
           </div>
           
@@ -226,20 +229,22 @@ export function LeftPanel(props: LeftPanelProps) {
               ))}
             </div>
             <div className="flex bg-zinc-900 rounded-lg p-0.5">
-              <button
-                onClick={() => setAssetViewMode('grid')}
-                className={`p-1 rounded transition-colors ${assetViewMode === 'grid' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                title="Grid view"
-              >
-                <LayoutGrid className="h-3 w-3" />
-              </button>
-              <button
-                onClick={() => setAssetViewMode('list')}
-                className={`p-1 rounded transition-colors ${assetViewMode === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                title="List view"
-              >
-                <List className="h-3 w-3" />
-              </button>
+              <Tooltip content="Grid view" side="right">
+                <button
+                  onClick={() => setAssetViewMode('grid')}
+                  className={`p-1 rounded transition-colors ${assetViewMode === 'grid' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  <LayoutGrid className="h-3 w-3" />
+                </button>
+              </Tooltip>
+              <Tooltip content="List view" side="right">
+                <button
+                  onClick={() => setAssetViewMode('list')}
+                  className={`p-1 rounded transition-colors ${assetViewMode === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  <List className="h-3 w-3" />
+                </button>
+              </Tooltip>
             </div>
           </div>
           
@@ -371,13 +376,14 @@ export function LeftPanel(props: LeftPanelProps) {
             <div className="flex-1 overflow-auto p-3 pt-0">
               {/* Header with back button */}
               <div className="flex items-center gap-2 mb-3">
-                <button
-                  onClick={() => setTakesViewAssetId(null)}
-                  className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
-                  title="Back to assets"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
+                <Tooltip content="Back to assets" side="right">
+                  <button
+                    onClick={() => setTakesViewAssetId(null)}
+                    className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                </Tooltip>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-white truncate">
                     {takesAsset.prompt?.slice(0, 40) || 'Asset'}{(takesAsset.prompt?.length ?? 0) > 40 ? '...' : ''}
@@ -479,32 +485,33 @@ export function LeftPanel(props: LeftPanelProps) {
                       
                       {/* Delete take button (visible on hover, only if more than 1 take) */}
                       {takesAsset.takes!.length > 1 && (
-                        <button
-                          className="absolute top-1.5 right-1.5 p-1 rounded-md bg-black/70 text-zinc-400 hover:text-red-400 hover:bg-red-900/60 opacity-0 group-hover:opacity-100 transition-all z-10"
-                          title="Delete take"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (confirm(`Delete take ${idx + 1}?`)) {
-                              if (currentProjectId) {
-                                pushAssetUndoRef.current()
-                                // Update any clips referencing this asset
-                                setClips(prev => prev.map(c => {
-                                  if (c.assetId !== takesAsset.id) return c
-                                  const cIdx = c.takeIndex ?? (takesAsset.activeTakeIndex ?? takesAsset.takes!.length - 1)
-                                  if (cIdx === idx) {
-                                    return { ...c, takeIndex: Math.max(0, idx - 1) }
-                                  } else if (cIdx > idx) {
-                                    return { ...c, takeIndex: cIdx - 1 }
-                                  }
-                                  return c
-                                }))
-                                deleteTakeFromAsset(currentProjectId, takesAsset.id, idx)
+                        <Tooltip content="Delete take" side="right">
+                          <button
+                            className="absolute top-1.5 right-1.5 p-1 rounded-md bg-black/70 text-zinc-400 hover:text-red-400 hover:bg-red-900/60 opacity-0 group-hover:opacity-100 transition-all z-10"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (confirm(`Delete take ${idx + 1}?`)) {
+                                if (currentProjectId) {
+                                  pushAssetUndoRef.current()
+                                  // Update any clips referencing this asset
+                                  setClips(prev => prev.map(c => {
+                                    if (c.assetId !== takesAsset.id) return c
+                                    const cIdx = c.takeIndex ?? (takesAsset.activeTakeIndex ?? takesAsset.takes!.length - 1)
+                                    if (cIdx === idx) {
+                                      return { ...c, takeIndex: Math.max(0, idx - 1) }
+                                    } else if (cIdx > idx) {
+                                      return { ...c, takeIndex: cIdx - 1 }
+                                    }
+                                    return c
+                                  }))
+                                  deleteTakeFromAsset(currentProjectId, takesAsset.id, idx)
+                                }
                               }
-                            }
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </Tooltip>
                       )}
                       
                       {/* Regenerating overlay */}
@@ -726,32 +733,34 @@ export function LeftPanel(props: LeftPanelProps) {
                   )}
                   <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all z-10">
                     {asset.generationParams && (
+                      <Tooltip content="Regenerate" side="right">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRegenerate(asset.id)
+                          }}
+                          disabled={isRegenerating}
+                          className={`p-1 rounded bg-black/70 transition-colors ${
+                            isRegenerating && regeneratingAssetId === asset.id
+                              ? 'text-blue-400 animate-spin'
+                              : 'text-zinc-400 hover:text-blue-400 hover:bg-blue-900/50'
+                          }`}
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                        </button>
+                      </Tooltip>
+                    )}
+                    <Tooltip content="Delete asset" side="right">
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleRegenerate(asset.id)
+                          if (currentProjectId) { pushAssetUndoRef.current(); deleteAsset(currentProjectId, asset.id) }
                         }}
-                        disabled={isRegenerating}
-                        className={`p-1 rounded bg-black/70 transition-colors ${
-                          isRegenerating && regeneratingAssetId === asset.id
-                            ? 'text-blue-400 animate-spin'
-                            : 'text-zinc-400 hover:text-blue-400 hover:bg-blue-900/50'
-                        }`}
-                        title="Regenerate"
+                        className="p-1 rounded bg-black/70 text-zinc-500 hover:text-red-400 hover:bg-red-900/50 transition-colors"
                       >
-                        <RefreshCw className="h-3 w-3" />
+                        <X className="h-3 w-3" />
                       </button>
-                    )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (currentProjectId) { pushAssetUndoRef.current(); deleteAsset(currentProjectId, asset.id) }
-                      }}
-                      className="p-1 rounded bg-black/70 text-zinc-500 hover:text-red-400 hover:bg-red-900/50 transition-colors"
-                      title="Delete asset"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                    </Tooltip>
                   </div>
                   {isRegenerating && regeneratingAssetId === asset.id && (
                     <div className="absolute inset-0 bg-blue-900/40 backdrop-blur-sm flex flex-col items-center justify-center z-20">
@@ -768,21 +777,22 @@ export function LeftPanel(props: LeftPanelProps) {
                   )}
                   {asset.takes && asset.takes.length > 1 && (
                     <div className="absolute bottom-1 right-1 flex items-center gap-0.5 rounded bg-black/80 z-10">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (currentProjectId) {
-                            pushAssetUndoRef.current()
-                            const idx = Math.max(0, (asset.activeTakeIndex ?? 0) - 1)
-                            setAssetActiveTake(currentProjectId, asset.id, idx)
-                          }
-                        }}
-                        disabled={(asset.activeTakeIndex ?? 0) === 0}
-                        className="p-0.5 text-blue-300 hover:text-white disabled:text-zinc-600 transition-colors"
-                        title="Previous take"
-                      >
-                        <ChevronLeft className="h-3 w-3" />
-                      </button>
+                      <Tooltip content="Previous take" side="right">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (currentProjectId) {
+                              pushAssetUndoRef.current()
+                              const idx = Math.max(0, (asset.activeTakeIndex ?? 0) - 1)
+                              setAssetActiveTake(currentProjectId, asset.id, idx)
+                            }
+                          }}
+                          disabled={(asset.activeTakeIndex ?? 0) === 0}
+                          className="p-0.5 text-blue-300 hover:text-white disabled:text-zinc-600 transition-colors"
+                        >
+                          <ChevronLeft className="h-3 w-3" />
+                        </button>
+                      </Tooltip>
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -797,21 +807,22 @@ export function LeftPanel(props: LeftPanelProps) {
                           {(asset.activeTakeIndex ?? 0) + 1}/{asset.takes.length}
                         </span>
                       </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (currentProjectId && asset.takes) {
-                            pushAssetUndoRef.current()
-                            const idx = Math.min(asset.takes.length - 1, (asset.activeTakeIndex ?? 0) + 1)
-                            setAssetActiveTake(currentProjectId, asset.id, idx)
-                          }
-                        }}
-                        disabled={asset.takes && (asset.activeTakeIndex ?? 0) >= asset.takes.length - 1}
-                        className="p-0.5 text-blue-300 hover:text-white disabled:text-zinc-600 transition-colors"
-                        title="Next take"
-                      >
-                        <ChevronRight className="h-3 w-3" />
-                      </button>
+                      <Tooltip content="Next take" side="right">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (currentProjectId && asset.takes) {
+                              pushAssetUndoRef.current()
+                              const idx = Math.min(asset.takes.length - 1, (asset.activeTakeIndex ?? 0) + 1)
+                              setAssetActiveTake(currentProjectId, asset.id, idx)
+                            }
+                          }}
+                          disabled={asset.takes && (asset.activeTakeIndex ?? 0) >= asset.takes.length - 1}
+                          className="p-0.5 text-blue-300 hover:text-white disabled:text-zinc-600 transition-colors"
+                        >
+                          <ChevronRight className="h-3 w-3" />
+                        </button>
+                      </Tooltip>
                     </div>
                   )}
                   {asset.bin && (
@@ -980,16 +991,17 @@ export function LeftPanel(props: LeftPanelProps) {
                       )}
                     </div>
                     {/* Delete button on hover */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (currentProjectId) { pushAssetUndoRef.current(); deleteAsset(currentProjectId, asset.id) }
-                      }}
-                      className="w-6 flex-shrink-0 flex items-center justify-center p-0.5 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-                      title="Delete asset"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                    <Tooltip content="Delete asset" side="right">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (currentProjectId) { pushAssetUndoRef.current(); deleteAsset(currentProjectId, asset.id) }
+                        }}
+                        className="w-6 flex-shrink-0 flex items-center justify-center p-0.5 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Tooltip>
                   </div>
                 )
               })}
@@ -1011,13 +1023,14 @@ export function LeftPanel(props: LeftPanelProps) {
         <div className="p-3 pb-2 flex items-center justify-between flex-shrink-0">
           <h3 className="text-sm font-semibold text-white">Timelines</h3>
           <div className="relative">
-            <button
-              onClick={() => setTimelineAddMenuOpen(prev => !prev)}
-              className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
-              title="Add timeline"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
+            <Tooltip content="Add timeline" side="right">
+              <button
+                onClick={() => setTimelineAddMenuOpen(prev => !prev)}
+                className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </Tooltip>
             {timelineAddMenuOpen && (
               <div className="absolute right-0 top-full mt-1 w-48 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-50 py-1 overflow-hidden">
                 <button
@@ -1106,16 +1119,17 @@ export function LeftPanel(props: LeftPanelProps) {
                 ) : null}
                 {/* Delete button (visible on hover, not for last timeline) */}
                 {timelines.length > 1 && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDeleteTimeline(tl.id)
-                    }}
-                    className="p-1 rounded hover:bg-red-500/20 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
-                    title="Delete timeline"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  <Tooltip content="Delete timeline" side="right">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteTimeline(tl.id)
+                      }}
+                      className="p-1 rounded hover:bg-red-500/20 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </Tooltip>
                 )}
               </div>
             )

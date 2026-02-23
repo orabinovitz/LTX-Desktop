@@ -5,6 +5,7 @@ import {
   Expand, Shrink,
 } from 'lucide-react'
 import { Button } from '../../components/ui/button'
+import { Tooltip } from '../../components/ui/tooltip'
 import { AudioWaveform } from '../../components/AudioWaveform'
 import { DEFAULT_SUBTITLE_STYLE } from '../../types/project'
 import type { TimelineClip, Track, SubtitleClip } from '../../types/project'
@@ -776,105 +777,113 @@ export function ProgramMonitor({
           {/* Center: transport controls — Premiere-style 5-button strip */}
           <div className="flex-1 flex items-center justify-center gap-0.5">
             {/* Set In */}
-            <Button
-              variant="ghost" size="icon"
-              className={`h-6 w-6 ${inPoint !== null ? 'text-yellow-400' : 'text-zinc-500'}`}
-              onClick={() => setInPoint(prev => prev !== null && Math.abs(prev - currentTime) < 0.01 ? null : currentTime)}
-              title={`${inPoint !== null ? `In: ${formatTime(inPoint)} — ` : ''}Set In point (${getShortcutLabel(kbLayout, 'mark.setIn')})`}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="7,4 4,4 4,20 7,20" />
-                <line x1="10" y1="12" x2="20" y2="12" />
-                <polyline points="16,8 20,12 16,16" />
-              </svg>
-            </Button>
+            <Tooltip content={`${inPoint !== null ? `In: ${formatTime(inPoint)} — ` : ''}Set In point (${getShortcutLabel(kbLayout, 'mark.setIn')})`} side="top">
+              <Button
+                variant="ghost" size="icon"
+                className={`h-6 w-6 ${inPoint !== null ? 'text-yellow-400' : 'text-zinc-500'}`}
+                onClick={() => setInPoint(prev => prev !== null && Math.abs(prev - currentTime) < 0.01 ? null : currentTime)}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="7,4 4,4 4,20 7,20" />
+                  <line x1="10" y1="12" x2="20" y2="12" />
+                  <polyline points="16,8 20,12 16,16" />
+                </svg>
+              </Button>
+            </Tooltip>
             <div className="w-px h-3 bg-zinc-700" />
             {/* Go to In */}
-            <Button
-              variant="ghost" size="icon"
-              className={`h-6 w-6 ${inPoint !== null ? 'text-zinc-400' : 'text-zinc-500'}`}
-              onClick={() => {
-                const target = inPoint ?? (clips.length > 0 ? Math.min(...clips.map(c => c.startTime)) : 0)
-                setIsPlaying(false); setShuttleSpeed(0); setCurrentTime(target)
-              }}
-              title={`Go to In Point (${getShortcutLabel(kbLayout, 'transport.goToIn')})`}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="4" y1="4" x2="4" y2="20" />
-                <line x1="8" y1="12" x2="20" y2="12" />
-                <polyline points="14,7 8,12 14,17" />
-              </svg>
-            </Button>
+            <Tooltip content={`Go to In Point (${getShortcutLabel(kbLayout, 'transport.goToIn')})`} side="top">
+              <Button
+                variant="ghost" size="icon"
+                className={`h-6 w-6 ${inPoint !== null ? 'text-zinc-400' : 'text-zinc-500'}`}
+                onClick={() => {
+                  const target = inPoint ?? (clips.length > 0 ? Math.min(...clips.map(c => c.startTime)) : 0)
+                  setIsPlaying(false); setShuttleSpeed(0); setCurrentTime(target)
+                }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="4" y1="4" x2="4" y2="20" />
+                  <line x1="8" y1="12" x2="20" y2="12" />
+                  <polyline points="14,7 8,12 14,17" />
+                </svg>
+              </Button>
+            </Tooltip>
             {/* Step Back */}
-            <Button
-              variant="ghost" size="icon"
-              className="h-6 w-6 text-zinc-500"
-              onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.max(0, t - 1/24)) }}
-              title={`Step Back (${getShortcutLabel(kbLayout, 'transport.stepBackward')})`}
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </Button>
+            <Tooltip content={`Step Back (${getShortcutLabel(kbLayout, 'transport.stepBackward')})`} side="top">
+              <Button
+                variant="ghost" size="icon"
+                className="h-6 w-6 text-zinc-500"
+                onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.max(0, t - 1/24)) }}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
             {/* Play/Pause toggle */}
-            <Button
-              variant="ghost" size="icon"
-              onClick={() => { setShuttleSpeed(0); setIsPlaying(!isPlaying) }}
-              className="h-6 w-6 text-zinc-400"
-              title={isPlaying ? `Pause (${getShortcutLabel(kbLayout, 'transport.playPause')})` : `Play (${getShortcutLabel(kbLayout, 'transport.playPause')})`}
-            >
-              {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 ml-0.5" />}
-            </Button>
+            <Tooltip content={isPlaying ? `Pause (${getShortcutLabel(kbLayout, 'transport.playPause')})` : `Play (${getShortcutLabel(kbLayout, 'transport.playPause')})`} side="top">
+              <Button
+                variant="ghost" size="icon"
+                onClick={() => { setShuttleSpeed(0); setIsPlaying(!isPlaying) }}
+                className="h-6 w-6 text-zinc-400"
+              >
+                {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 ml-0.5" />}
+              </Button>
+            </Tooltip>
             {/* Step Forward */}
-            <Button
-              variant="ghost" size="icon"
-              className="h-6 w-6 text-zinc-500"
-              onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.min(totalDuration, t + 1/24)) }}
-              title={`Step Forward (${getShortcutLabel(kbLayout, 'transport.stepForward')})`}
-            >
-              <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
+            <Tooltip content={`Step Forward (${getShortcutLabel(kbLayout, 'transport.stepForward')})`} side="top">
+              <Button
+                variant="ghost" size="icon"
+                className="h-6 w-6 text-zinc-500"
+                onClick={() => { setShuttleSpeed(0); setIsPlaying(false); setCurrentTime(t => Math.min(totalDuration, t + 1/24)) }}
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
             {/* Go to Out */}
-            <Button
-              variant="ghost" size="icon"
-              className={`h-6 w-6 ${outPoint !== null ? 'text-zinc-400' : 'text-zinc-500'}`}
-              onClick={() => {
-                const target = outPoint ?? (clips.length > 0 ? Math.max(...clips.map(c => c.startTime + c.duration)) : totalDuration)
-                setIsPlaying(false); setShuttleSpeed(0); setCurrentTime(target)
-              }}
-              title={`Go to Out Point (${getShortcutLabel(kbLayout, 'transport.goToOut')})`}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="20" y1="4" x2="20" y2="20" />
-                <line x1="16" y1="12" x2="4" y2="12" />
-                <polyline points="10,7 16,12 10,17" />
-              </svg>
-            </Button>
+            <Tooltip content={`Go to Out Point (${getShortcutLabel(kbLayout, 'transport.goToOut')})`} side="top">
+              <Button
+                variant="ghost" size="icon"
+                className={`h-6 w-6 ${outPoint !== null ? 'text-zinc-400' : 'text-zinc-500'}`}
+                onClick={() => {
+                  const target = outPoint ?? (clips.length > 0 ? Math.max(...clips.map(c => c.startTime + c.duration)) : totalDuration)
+                  setIsPlaying(false); setShuttleSpeed(0); setCurrentTime(target)
+                }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="20" y1="4" x2="20" y2="20" />
+                  <line x1="16" y1="12" x2="4" y2="12" />
+                  <polyline points="10,7 16,12 10,17" />
+                </svg>
+              </Button>
+            </Tooltip>
             <div className="w-px h-3 bg-zinc-700" />
             {/* Set Out */}
-            <Button
-              variant="ghost" size="icon"
-              className={`h-6 w-6 ${outPoint !== null ? 'text-yellow-400' : 'text-zinc-500'}`}
-              onClick={() => setOutPoint(prev => prev !== null && Math.abs(prev - currentTime) < 0.01 ? null : currentTime)}
-              title={`${outPoint !== null ? `Out: ${formatTime(outPoint)} — ` : ''}Set Out point (${getShortcutLabel(kbLayout, 'mark.setOut')})`}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="17,4 20,4 20,20 17,20" />
-                <line x1="14" y1="12" x2="4" y2="12" />
-                <polyline points="8,8 4,12 8,16" />
-              </svg>
-            </Button>
+            <Tooltip content={`${outPoint !== null ? `Out: ${formatTime(outPoint)} — ` : ''}Set Out point (${getShortcutLabel(kbLayout, 'mark.setOut')})`} side="top">
+              <Button
+                variant="ghost" size="icon"
+                className={`h-6 w-6 ${outPoint !== null ? 'text-yellow-400' : 'text-zinc-500'}`}
+                onClick={() => setOutPoint(prev => prev !== null && Math.abs(prev - currentTime) < 0.01 ? null : currentTime)}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="17,4 20,4 20,20 17,20" />
+                  <line x1="14" y1="12" x2="4" y2="12" />
+                  <polyline points="8,8 4,12 8,16" />
+                </svg>
+              </Button>
+            </Tooltip>
             {/* Loop In/Out */}
-            <Button
-              variant="ghost" size="icon"
-              className={`h-6 w-6 ${playingInOut ? 'text-yellow-400 bg-yellow-400/10' : 'text-zinc-500'} ${inPoint === null || outPoint === null ? 'opacity-30 cursor-not-allowed' : ''}`}
-              disabled={inPoint === null || outPoint === null}
-              onClick={() => {
-                if (inPoint === null || outPoint === null) return
-                if (playingInOut) { setPlayingInOut(false); setIsPlaying(false) } else { setCurrentTime(inPoint); setPlayingInOut(true); setIsPlaying(true) }
-              }}
-              title="Loop In/Out"
-            >
-              <Repeat className="h-3 w-3" />
-            </Button>
+            <Tooltip content="Loop In/Out" side="top">
+              <Button
+                variant="ghost" size="icon"
+                className={`h-6 w-6 ${playingInOut ? 'text-yellow-400 bg-yellow-400/10' : 'text-zinc-500'} ${inPoint === null || outPoint === null ? 'opacity-30 cursor-not-allowed' : ''}`}
+                disabled={inPoint === null || outPoint === null}
+                onClick={() => {
+                  if (inPoint === null || outPoint === null) return
+                  if (playingInOut) { setPlayingInOut(false); setIsPlaying(false) } else { setCurrentTime(inPoint); setPlayingInOut(true); setIsPlaying(true) }
+                }}
+              >
+                <Repeat className="h-3 w-3" />
+              </Button>
+            </Tooltip>
           </div>
 
           {/* Resolution dropdown */}
@@ -921,16 +930,17 @@ export function ProgramMonitor({
           </div>
 
           {/* Fullscreen */}
-          <button
-            onClick={toggleFullscreen}
-            className="p-1 rounded hover:bg-zinc-800 transition-colors text-zinc-500 hover:text-zinc-300"
-            title={`${isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} (${getShortcutLabel(kbLayout, 'view.fullscreen')})`}
-          >
-            {isFullscreen
-              ? <Shrink className="h-3.5 w-3.5" />
-              : <Expand className="h-3.5 w-3.5" />
-            }
-          </button>
+          <Tooltip content={`${isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} (${getShortcutLabel(kbLayout, 'view.fullscreen')})`} side="top">
+            <button
+              onClick={toggleFullscreen}
+              className="p-1 rounded hover:bg-zinc-800 transition-colors text-zinc-500 hover:text-zinc-300"
+            >
+              {isFullscreen
+                ? <Shrink className="h-3.5 w-3.5" />
+                : <Expand className="h-3.5 w-3.5" />
+              }
+            </button>
+          </Tooltip>
 
           {/* Right: total duration */}
           <span className="text-[12px] font-mono font-medium text-zinc-400 tabular-nums tracking-tight select-none flex-shrink-0 text-right">

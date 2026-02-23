@@ -18,6 +18,7 @@ import { useProjects } from '../contexts/ProjectContext'
 import { useKeyboardShortcuts } from '../contexts/KeyboardShortcutsContext'
 import { useGeneration } from '../hooks/use-generation'
 import { Button } from '../components/ui/button'
+import { Tooltip } from '../components/ui/tooltip'
 import { ExportModal } from '../components/ExportModal'
 import { MenuBar, type MenuDefinition } from '../components/MenuBar'
 import { ImportTimelineModal } from '../components/ImportTimelineModal'
@@ -1716,13 +1717,14 @@ export function VideoEditor() {
                             <LayoutGrid className="h-3.5 w-3.5 text-zinc-500 group-hover:text-white" />
                             {preset.name}
                           </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteLayoutPreset(preset.id) }}
-                            className="px-2 py-1.5 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-                            title="Delete preset"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
+                          <Tooltip content="Delete preset" side="top">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteLayoutPreset(preset.id) }}
+                              className="px-2 py-1.5 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </Tooltip>
                         </div>
                       ))}
                     </>
@@ -1972,31 +1974,33 @@ export function VideoEditor() {
                 <span className="truncate max-w-[120px]">{tl.name}</span>
               )}
               {/* Close tab button */}
-              <button
-                className={`ml-0.5 p-0.5 rounded transition-colors flex-shrink-0 ${
-                  tl.id === activeTimeline?.id
-                    ? 'text-zinc-500 hover:text-white hover:bg-zinc-700'
-                    : 'text-zinc-600 opacity-0 group-hover:opacity-100 hover:text-zinc-300 hover:bg-zinc-700'
-                }`}
-                title="Close tab"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleCloseTimelineTab(tl.id)
-                }}
-              >
-                <X className="h-3 w-3" />
-              </button>
+              <Tooltip content="Close tab" side="bottom">
+                <button
+                  className={`ml-0.5 p-0.5 rounded transition-colors flex-shrink-0 ${
+                    tl.id === activeTimeline?.id
+                      ? 'text-zinc-500 hover:text-white hover:bg-zinc-700'
+                      : 'text-zinc-600 opacity-0 group-hover:opacity-100 hover:text-zinc-300 hover:bg-zinc-700'
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleCloseTimelineTab(tl.id)
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Tooltip>
             </div>
           ))}
           
           {/* Add timeline button */}
-          <button
-            onClick={handleAddTimeline}
-            className="flex items-center justify-center w-6 h-6 rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors flex-shrink-0"
-            title="New timeline"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip content="New timeline" side="bottom">
+            <button
+              onClick={handleAddTimeline}
+              className="flex items-center justify-center w-6 h-6 rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors flex-shrink-0"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
           
           
           {/* Context menu */}
@@ -2107,21 +2111,21 @@ export function VideoEditor() {
           {/* Tools Panel */}
           <div className="w-10 flex-shrink-0 bg-zinc-900 border-r border-zinc-800 flex flex-col items-center py-1 gap-0.5 overflow-hidden">
             {PRIMARY_TOOLS.map(tool => (
-              <button
-                key={tool.id}
-                onClick={() => setActiveTool(tool.id)}
-                className={`p-1.5 rounded-lg transition-colors relative group flex-shrink-0 ${
-                  activeTool === tool.id 
-                    ? 'bg-blue-600 text-white' 
-                    : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-                }`}
-                title={`${tool.label} (${getShortcutLabel(kbLayout, tool.actionId)})`}
-              >
-                <tool.icon className="h-4 w-4" />
-                <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
-                  {tool.label} <span className="text-zinc-400">({getShortcutLabel(kbLayout, tool.actionId)})</span>
-                </div>
-              </button>
+              <Tooltip key={tool.id} content={`${tool.label} (${getShortcutLabel(kbLayout, tool.actionId)})`} side="right">
+                <button
+                  onClick={() => setActiveTool(tool.id)}
+                  className={`p-1.5 rounded-lg transition-colors relative group flex-shrink-0 ${
+                    activeTool === tool.id
+                      ? 'bg-blue-600 text-white'
+                      : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                  }`}
+                >
+                  <tool.icon className="h-4 w-4" />
+                  <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
+                    {tool.label} <span className="text-zinc-400">({getShortcutLabel(kbLayout, tool.actionId)})</span>
+                  </div>
+                </button>
+              </Tooltip>
             ))}
             
             {/* Trim tools group button */}
@@ -2131,48 +2135,49 @@ export function VideoEditor() {
               const currentTrimTool = TRIM_TOOLS.find(t => t.id === (isTrimActive ? activeTool : lastTrimTool)) || TRIM_TOOLS[0]
               return (
                 <div className="relative flex-shrink-0">
-                  <button
-                    onClick={() => {
-                      if (trimFlyoutOpenedRef.current) { trimFlyoutOpenedRef.current = false; return }
-                      setActiveTool(currentTrimTool.id)
-                      setLastTrimTool(currentTrimTool.id)
-                    }}
-                    onContextMenu={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
-                      trimFlyoutOpenedRef.current = true
-                      setShowTrimFlyout(true)
-                    }}
-                    onMouseDown={(e) => {
-                      if (e.button !== 0) return
-                      trimFlyoutOpenedRef.current = false
-                      trimLongPressRef.current = setTimeout(() => {
-                        trimLongPressRef.current = null
+                  <Tooltip content={`${currentTrimTool.label} (${getShortcutLabel(kbLayout, currentTrimTool.actionId)}) — right-click or hold for more`} side="right">
+                    <button
+                      onClick={() => {
+                        if (trimFlyoutOpenedRef.current) { trimFlyoutOpenedRef.current = false; return }
+                        setActiveTool(currentTrimTool.id)
+                        setLastTrimTool(currentTrimTool.id)
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
                         trimFlyoutOpenedRef.current = true
                         setShowTrimFlyout(true)
-                      }, 400)
-                    }}
-                    onMouseUp={() => {
-                      if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
-                    }}
-                    onMouseLeave={() => {
-                      if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
-                    }}
-                    data-trim-group-btn=""
-                    className={`p-1.5 rounded-lg transition-colors relative group ${
-                      isTrimActive
-                        ? 'bg-blue-600 text-white' 
-                        : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-                    }`}
-                    title={`${currentTrimTool.label} (${getShortcutLabel(kbLayout, currentTrimTool.actionId)}) — right-click or hold for more`}
-                  >
-                    <currentTrimTool.icon className="h-4 w-4" />
-                    <div className="absolute bottom-0 right-0 w-0 h-0 border-l-[4px] border-l-transparent border-b-[4px] border-b-current opacity-60" />
-                    <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
-                      {currentTrimTool.label} <span className="text-zinc-400">({getShortcutLabel(kbLayout, currentTrimTool.actionId)})</span>
-                    </div>
-                  </button>
+                      }}
+                      onMouseDown={(e) => {
+                        if (e.button !== 0) return
+                        trimFlyoutOpenedRef.current = false
+                        trimLongPressRef.current = setTimeout(() => {
+                          trimLongPressRef.current = null
+                          trimFlyoutOpenedRef.current = true
+                          setShowTrimFlyout(true)
+                        }, 400)
+                      }}
+                      onMouseUp={() => {
+                        if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
+                      }}
+                      onMouseLeave={() => {
+                        if (trimLongPressRef.current) { clearTimeout(trimLongPressRef.current); trimLongPressRef.current = null }
+                      }}
+                      data-trim-group-btn=""
+                      className={`p-1.5 rounded-lg transition-colors relative group ${
+                        isTrimActive
+                          ? 'bg-blue-600 text-white'
+                          : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                      }`}
+                    >
+                      <currentTrimTool.icon className="h-4 w-4" />
+                      <div className="absolute bottom-0 right-0 w-0 h-0 border-l-[4px] border-l-transparent border-b-[4px] border-b-current opacity-60" />
+                      <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
+                        {currentTrimTool.label} <span className="text-zinc-400">({getShortcutLabel(kbLayout, currentTrimTool.actionId)})</span>
+                      </div>
+                    </button>
+                  </Tooltip>
                   {showTrimFlyout && (() => {
                     const btnEl = document.querySelector('[data-trim-group-btn]')
                     const rect = btnEl?.getBoundingClientRect()
@@ -2210,17 +2215,18 @@ export function VideoEditor() {
             
             <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
             
-            <button
-              onClick={() => setSnapEnabled(!snapEnabled)}
-              className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
-                snapEnabled 
-                  ? 'bg-blue-600 text-white' 
-                  : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-              }`}
-              title={snapEnabled ? 'Snapping On' : 'Snapping Off'}
-            >
-              <Magnet className="h-4 w-4" />
-            </button>
+            <Tooltip content={snapEnabled ? 'Snapping On' : 'Snapping Off'} side="right">
+              <button
+                onClick={() => setSnapEnabled(!snapEnabled)}
+                className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
+                  snapEnabled
+                    ? 'bg-blue-600 text-white'
+                    : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                }`}
+              >
+                <Magnet className="h-4 w-4" />
+              </button>
+            </Tooltip>
             
             {/* EFFECTS HIDDEN - FX button hidden because effects are not applied during export
             <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
@@ -2240,51 +2246,54 @@ export function VideoEditor() {
 
             <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
             
-            <button
-              onClick={() => addTextClip()}
-              className="p-1.5 rounded-lg transition-colors flex-shrink-0 text-cyan-400 hover:bg-cyan-900/30 hover:text-cyan-300 group relative"
-              title="Add Text Overlay"
-            >
-              <Type className="h-4 w-4" />
-              <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
-                Add Text Overlay
-              </div>
-            </button>
+            <Tooltip content="Add Text Overlay" side="right">
+              <button
+                onClick={() => addTextClip()}
+                className="p-1.5 rounded-lg transition-colors flex-shrink-0 text-cyan-400 hover:bg-cyan-900/30 hover:text-cyan-300 group relative"
+              >
+                <Type className="h-4 w-4" />
+                <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
+                  Add Text Overlay
+                </div>
+              </button>
+            </Tooltip>
 
             {/* IC-LORA HIDDEN - IC-LoRA toolbar button hidden because IC-LoRA is broken on server
             <div className="w-6 h-px bg-zinc-700 my-1 flex-shrink-0" />
 
-            <button
-              onClick={() => {
-                setIcLoraSourceClipId(selectedClip?.type === 'video' ? selectedClip.id : null)
-                setShowICLoraPanel(true)
-              }}
-              className={`p-1.5 rounded-lg transition-colors flex-shrink-0 group relative ${
-                showICLoraPanel ? 'bg-amber-600/20 text-amber-400' : 'text-amber-500/70 hover:bg-amber-900/30 hover:text-amber-400'
-              }`}
-              title="IC-LoRA Style Transfer"
-            >
-              <Sparkles className="h-4 w-4" />
-              <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
-                IC-LoRA Style Transfer
-              </div>
-            </button>
+            <Tooltip content="IC-LoRA Style Transfer" side="right">
+              <button
+                onClick={() => {
+                  setIcLoraSourceClipId(selectedClip?.type === 'video' ? selectedClip.id : null)
+                  setShowICLoraPanel(true)
+                }}
+                className={`p-1.5 rounded-lg transition-colors flex-shrink-0 group relative ${
+                  showICLoraPanel ? 'bg-amber-600/20 text-amber-400' : 'text-amber-500/70 hover:bg-amber-900/30 hover:text-amber-400'
+                }`}
+              >
+                <Sparkles className="h-4 w-4" />
+                <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
+                  IC-LoRA Style Transfer
+                </div>
+              </button>
+            </Tooltip>
             */}
 
             <div className="flex-1" />
 
-            <button
-              onClick={() => setShowPropertiesPanel(p => !p)}
-              className={`p-1.5 rounded-lg transition-colors flex-shrink-0 group relative ${
-                showPropertiesPanel ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
-              }`}
-              title={showPropertiesPanel ? 'Hide Properties Panel' : 'Show Properties Panel'}
-            >
-              <PanelRight className="h-4 w-4" />
-              <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
-                {showPropertiesPanel ? 'Hide Properties' : 'Show Properties'}
-              </div>
-            </button>
+            <Tooltip content={showPropertiesPanel ? 'Hide Properties Panel' : 'Show Properties Panel'} side="right">
+              <button
+                onClick={() => setShowPropertiesPanel(p => !p)}
+                className={`p-1.5 rounded-lg transition-colors flex-shrink-0 group relative ${
+                  showPropertiesPanel ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                }`}
+              >
+                <PanelRight className="h-4 w-4" />
+                <div className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50">
+                  {showPropertiesPanel ? 'Hide Properties' : 'Show Properties'}
+                </div>
+              </button>
+            </Tooltip>
           </div>
           
           {/* EFFECTS HIDDEN - Effects Browser panel hidden because effects are not applied during export */}
@@ -2543,52 +2552,58 @@ export function VideoEditor() {
                           </div>
                           {/* Row 2: tools */}
                           <div className="flex items-center gap-0">
-                            <button
-                              onClick={() => setSubtitleTrackStyleIdx(subtitleTrackStyleIdx === realIndex ? null : realIndex)}
-                              className={`p-0.5 rounded ${subtitleTrackStyleIdx === realIndex ? 'text-amber-400 bg-amber-900/30' : 'text-amber-500/60 hover:text-amber-400'}`}
-                              title="Track style settings"
-                            >
-                              <Palette className="h-3 w-3" />
-                            </button>
-                            <button
-                              onClick={() => addSubtitleClip(realIndex)}
-                              className="p-0.5 rounded text-amber-500/60 hover:text-amber-400"
-                              title="Add subtitle"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
-                            <button 
-                              onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, locked: !t.locked} : t))}
-                              className={`p-0.5 rounded ${track.locked ? 'text-yellow-400' : 'text-zinc-500 hover:text-zinc-300'}`}
-                              title={track.locked ? 'Unlock' : 'Lock'}
-                            >
-                              {track.locked ? <Lock className="h-2.5 w-2.5" /> : <Unlock className="h-2.5 w-2.5" />}
-                            </button>
-                            <button
-                              onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, muted: !t.muted} : t))}
-                              className={`p-0.5 rounded ${track.muted ? 'text-red-400' : 'text-zinc-500 hover:text-zinc-300'}`}
-                              title={track.muted ? 'Show subtitles' : 'Hide subtitles'}
-                            >
-                              {track.muted ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (confirm(`Delete subtitle track "${track.name}"?`)) {
-                                  setTracks(tracks.filter((_, i) => i !== realIndex))
-                                  setSubtitles(prev => prev.filter(s => s.trackIndex !== realIndex))
-                                }
-                              }}
-                              className="p-0.5 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="Delete track"
-                            >
-                              <Trash2 className="h-2.5 w-2.5" />
-                            </button>
+                            <Tooltip content="Track style settings" side="right">
+                              <button
+                                onClick={() => setSubtitleTrackStyleIdx(subtitleTrackStyleIdx === realIndex ? null : realIndex)}
+                                className={`p-0.5 rounded ${subtitleTrackStyleIdx === realIndex ? 'text-amber-400 bg-amber-900/30' : 'text-amber-500/60 hover:text-amber-400'}`}
+                              >
+                                <Palette className="h-3 w-3" />
+                              </button>
+                            </Tooltip>
+                            <Tooltip content="Add subtitle" side="right">
+                              <button
+                                onClick={() => addSubtitleClip(realIndex)}
+                                className="p-0.5 rounded text-amber-500/60 hover:text-amber-400"
+                              >
+                                <Plus className="h-3 w-3" />
+                              </button>
+                            </Tooltip>
+                            <Tooltip content={track.locked ? 'Unlock' : 'Lock'} side="right">
+                              <button
+                                onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, locked: !t.locked} : t))}
+                                className={`p-0.5 rounded ${track.locked ? 'text-yellow-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                              >
+                                {track.locked ? <Lock className="h-2.5 w-2.5" /> : <Unlock className="h-2.5 w-2.5" />}
+                              </button>
+                            </Tooltip>
+                            <Tooltip content={track.muted ? 'Show subtitles' : 'Hide subtitles'} side="right">
+                              <button
+                                onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, muted: !t.muted} : t))}
+                                className={`p-0.5 rounded ${track.muted ? 'text-red-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                              >
+                                {track.muted ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
+                              </button>
+                            </Tooltip>
+                            <Tooltip content="Delete track" side="right">
+                              <button
+                                onClick={() => {
+                                  if (confirm(`Delete subtitle track "${track.name}"?`)) {
+                                    setTracks(tracks.filter((_, i) => i !== realIndex))
+                                    setSubtitles(prev => prev.filter(s => s.trackIndex !== realIndex))
+                                  }
+                                }}
+                                className="p-0.5 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <Trash2 className="h-2.5 w-2.5" />
+                              </button>
+                            </Tooltip>
                           </div>
                         </>
                       ) : (
                       <>
                       <div className="flex items-center gap-1 min-w-0 overflow-hidden">
-                        <button
+                        <Tooltip content={track.sourcePatched !== false ? 'Source patched (click to unpatch)' : 'Source unpatched (click to patch)'} side="right">
+                          <button
                             onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, sourcePatched: !(t.sourcePatched !== false)} : t))}
                             className={`p-0.5 rounded flex-shrink-0 transition-colors ${
                               track.sourcePatched !== false
@@ -2597,13 +2612,13 @@ export function VideoEditor() {
                                   : 'text-blue-400 hover:text-blue-300'
                                 : 'text-zinc-600 hover:text-zinc-400'
                             }`}
-                            title={track.sourcePatched !== false ? 'Source patched (click to unpatch)' : 'Source unpatched (click to patch)'}
                           >
                             {track.sourcePatched !== false
                               ? <CircleDot className="h-2.5 w-2.5" />
                               : <Circle className="h-2.5 w-2.5" />
                             }
                           </button>
+                        </Tooltip>
                         <span className={`text-[10px] font-semibold truncate ${
                           track.muted ? 'text-zinc-600' 
                           : track.kind === 'audio' ? 'text-emerald-400/80'
@@ -2613,30 +2628,33 @@ export function VideoEditor() {
                         </span>
                       </div>
                       <div className="flex items-center gap-0 flex-shrink-0">
-                        <button 
-                          onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, locked: !t.locked} : t))}
-                          className={`p-0.5 rounded ${track.locked ? 'text-yellow-400' : 'text-zinc-500 hover:text-zinc-300'}`}
-                          title={track.locked ? 'Unlock' : 'Lock'}
-                        >
-                          {track.locked ? <Lock className="h-2.5 w-2.5" /> : <Unlock className="h-2.5 w-2.5" />}
-                        </button>
-                        {track.kind !== 'audio' && (
-                          <button 
-                            onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, enabled: !(t.enabled !== false)}: t))}
-                            className={`p-0.5 rounded ${track.enabled === false ? 'text-zinc-600' : 'text-zinc-500 hover:text-zinc-300'}`}
-                            title={track.enabled === false ? 'Enable track output' : 'Disable track output'}
+                        <Tooltip content={track.locked ? 'Unlock' : 'Lock'} side="right">
+                          <button
+                            onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, locked: !t.locked} : t))}
+                            className={`p-0.5 rounded ${track.locked ? 'text-yellow-400' : 'text-zinc-500 hover:text-zinc-300'}`}
                           >
-                            {track.enabled === false ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
+                            {track.locked ? <Lock className="h-2.5 w-2.5" /> : <Unlock className="h-2.5 w-2.5" />}
                           </button>
+                        </Tooltip>
+                        {track.kind !== 'audio' && (
+                          <Tooltip content={track.enabled === false ? 'Enable track output' : 'Disable track output'} side="right">
+                            <button
+                              onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, enabled: !(t.enabled !== false)}: t))}
+                              className={`p-0.5 rounded ${track.enabled === false ? 'text-zinc-600' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            >
+                              {track.enabled === false ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
+                            </button>
+                          </Tooltip>
                         )}
                         {track.kind !== 'audio' && (
-                          <button 
-                            onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, muted: !t.muted} : t))}
-                            className={`p-0.5 rounded ${track.muted ? 'text-red-400' : 'text-zinc-500 hover:text-zinc-300'}`}
-                            title={track.muted ? 'Unmute' : 'Mute'}
-                          >
-                            {track.muted ? <VolumeX className="h-2.5 w-2.5" /> : <Volume2 className="h-2.5 w-2.5" />}
-                          </button>
+                          <Tooltip content={track.muted ? 'Unmute' : 'Mute'} side="right">
+                            <button
+                              onClick={() => setTracks(tracks.map((t, i) => i === realIndex ? {...t, muted: !t.muted} : t))}
+                              className={`p-0.5 rounded ${track.muted ? 'text-red-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            >
+                              {track.muted ? <VolumeX className="h-2.5 w-2.5" /> : <Volume2 className="h-2.5 w-2.5" />}
+                            </button>
+                          </Tooltip>
                         )}
                         {track.kind === 'audio' && (
                           <button
@@ -2661,13 +2679,14 @@ export function VideoEditor() {
                           </button>
                         )}
                         {tracks.length > 1 && (
-                          <button 
-                            onClick={() => deleteTrack(realIndex)}
-                            className="p-0.5 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="Delete track"
-                          >
-                            <Trash2 className="h-2.5 w-2.5" />
-                          </button>
+                          <Tooltip content="Delete track" side="right">
+                            <button
+                              onClick={() => deleteTrack(realIndex)}
+                              className="p-0.5 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Trash2 className="h-2.5 w-2.5" />
+                            </button>
+                          </Tooltip>
                         )}
                       </div>
                       </>
@@ -3074,61 +3093,66 @@ export function VideoEditor() {
                               {/* Take navigation: prev/next */}
                               {liveAsset.takes && liveAsset.takes.length > 1 && (
                                 <>
-                                  <button
-                                    onClick={() => handleClipTakeChange(clip.id, 'prev')}
-                                    className="p-0.5 rounded hover:bg-white/10 text-zinc-500 hover:text-white transition-colors"
-                                    title="Previous take"
-                                  >
-                                    <ChevronLeft className="h-3 w-3" />
-                                  </button>
+                                  <Tooltip content="Previous take" side="top">
+                                    <button
+                                      onClick={() => handleClipTakeChange(clip.id, 'prev')}
+                                      className="p-0.5 rounded hover:bg-white/10 text-zinc-500 hover:text-white transition-colors"
+                                    >
+                                      <ChevronLeft className="h-3 w-3" />
+                                    </button>
+                                  </Tooltip>
                                   <span className="text-[8px] text-zinc-400 min-w-[24px] text-center">
                                     {(clip.takeIndex ?? (liveAsset.activeTakeIndex ?? liveAsset.takes.length - 1)) + 1}/{liveAsset.takes.length}
                                   </span>
-                                  <button
-                                    onClick={() => handleClipTakeChange(clip.id, 'next')}
-                                    className="p-0.5 rounded hover:bg-white/10 text-zinc-500 hover:text-white transition-colors"
-                                    title="Next take"
-                                  >
-                                    <ChevronRight className="h-3 w-3" />
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      if (confirm(`Delete take ${(clip.takeIndex ?? (liveAsset.activeTakeIndex ?? liveAsset.takes!.length - 1)) + 1}?`)) {
-                                        handleDeleteTake(clip.id)
-                                      }
-                                    }}
-                                    className="p-0.5 rounded hover:bg-red-900/50 text-zinc-500 hover:text-red-400 transition-colors"
-                                    title="Delete this take"
-                                  >
-                                    <Trash2 className="h-2.5 w-2.5" />
-                                  </button>
+                                  <Tooltip content="Next take" side="top">
+                                    <button
+                                      onClick={() => handleClipTakeChange(clip.id, 'next')}
+                                      className="p-0.5 rounded hover:bg-white/10 text-zinc-500 hover:text-white transition-colors"
+                                    >
+                                      <ChevronRight className="h-3 w-3" />
+                                    </button>
+                                  </Tooltip>
+                                  <Tooltip content="Delete this take" side="top">
+                                    <button
+                                      onClick={() => {
+                                        if (confirm(`Delete take ${(clip.takeIndex ?? (liveAsset.activeTakeIndex ?? liveAsset.takes!.length - 1)) + 1}?`)) {
+                                          handleDeleteTake(clip.id)
+                                        }
+                                      }}
+                                      className="p-0.5 rounded hover:bg-red-900/50 text-zinc-500 hover:text-red-400 transition-colors"
+                                    >
+                                      <Trash2 className="h-2.5 w-2.5" />
+                                    </button>
+                                  </Tooltip>
                                 </>
                               )}
-                              <button
-                                onClick={() => handleRegenerate(clip.assetId!, clip.id)}
-                                disabled={isRegenerating}
-                                className={`p-0.5 rounded transition-colors ${
-                                  clip.isRegenerating
-                                    ? 'text-blue-400'
-                                    : 'hover:bg-white/10 text-zinc-500 hover:text-blue-400'
-                                }`}
-                                title="Regenerate shot"
-                              >
-                                <RefreshCw className={`h-3 w-3 ${clip.isRegenerating ? 'animate-spin' : ''}`} />
-                              </button>
-                              {clip.type === 'video' && (
+                              <Tooltip content="Regenerate shot" side="top">
                                 <button
-                                  onClick={() => setRetakeClipId(clip.id)}
-                                  disabled={isRetaking && retakeClipId === clip.id}
+                                  onClick={() => handleRegenerate(clip.assetId!, clip.id)}
+                                  disabled={isRegenerating}
                                   className={`p-0.5 rounded transition-colors ${
-                                    isRetaking && retakeClipId === clip.id
+                                    clip.isRegenerating
                                       ? 'text-blue-400'
                                       : 'hover:bg-white/10 text-zinc-500 hover:text-blue-400'
                                   }`}
-                                  title="Retake section"
                                 >
-                                  <Film className={`h-3 w-3 ${isRetaking && retakeClipId === clip.id ? 'animate-pulse' : ''}`} />
+                                  <RefreshCw className={`h-3 w-3 ${clip.isRegenerating ? 'animate-spin' : ''}`} />
                                 </button>
+                              </Tooltip>
+                              {clip.type === 'video' && (
+                                <Tooltip content="Retake section" side="top">
+                                  <button
+                                    onClick={() => setRetakeClipId(clip.id)}
+                                    disabled={isRetaking && retakeClipId === clip.id}
+                                    className={`p-0.5 rounded transition-colors ${
+                                      isRetaking && retakeClipId === clip.id
+                                        ? 'text-blue-400'
+                                        : 'hover:bg-white/10 text-zinc-500 hover:text-blue-400'
+                                    }`}
+                                  >
+                                    <Film className={`h-3 w-3 ${isRetaking && retakeClipId === clip.id ? 'animate-pulse' : ''}`} />
+                                  </button>
+                                </Tooltip>
                               )}
                             </div>
                           )
@@ -3284,13 +3308,15 @@ export function VideoEditor() {
                                 />
                               </div>
                             )}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); cancelGapGeneration() }}
-                              className="absolute top-0.5 right-0.5 p-0.5 rounded hover:bg-zinc-700/80 text-zinc-500 hover:text-red-400 transition-colors"
-                              title="Cancel generation"
-                            >
-                              <X className="h-2.5 w-2.5" />
-                            </button>
+                            {/* Cancel button */}
+                            <Tooltip content="Cancel generation" side="top">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); cancelGapGeneration() }}
+                                className="absolute top-0.5 right-0.5 p-0.5 rounded hover:bg-zinc-700/80 text-zinc-500 hover:text-red-400 transition-colors"
+                              >
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            </Tooltip>
                           </div>
                         ) : (
                           <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity ${
@@ -3704,13 +3730,14 @@ export function VideoEditor() {
           
           {/* Zoom slider bar */}
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => { centerOnPlayheadRef.current = true; setZoom(Math.max(getMinZoom(), +(zoom - 0.25).toFixed(2))) }}
-              className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
-              title="Zoom out (-)"
-            >
-              <ZoomOut className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip content="Zoom out (-)" side="top">
+              <button
+                onClick={() => { centerOnPlayheadRef.current = true; setZoom(Math.max(getMinZoom(), +(zoom - 0.25).toFixed(2))) }}
+                className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                <ZoomOut className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
             <input
               type="range"
               min={Math.max(1, Math.round(getMinZoom() * 100))}
@@ -3721,21 +3748,23 @@ export function VideoEditor() {
               className="w-28 h-1 accent-blue-500 cursor-pointer"
               title={`Zoom: ${Math.round(zoom * 100)}%`}
             />
-            <button
-              onClick={() => { centerOnPlayheadRef.current = true; setZoom(Math.min(4, +(zoom + 0.25).toFixed(2))) }}
-              className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
-              title="Zoom in (+)"
-            >
-              <ZoomIn className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip content="Zoom in (+)" side="top">
+              <button
+                onClick={() => { centerOnPlayheadRef.current = true; setZoom(Math.min(4, +(zoom + 0.25).toFixed(2))) }}
+                className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                <ZoomIn className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
             <span className="text-[10px] text-zinc-500 tabular-nums w-8 text-right">{Math.round(zoom * 100)}%</span>
-            <button
-              onClick={handleFitToView}
-              className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors ml-0.5"
-              title="Fit to view (Ctrl+0)"
-            >
-              <Maximize2 className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip content="Fit to view (Ctrl+0)" side="top">
+              <button
+                onClick={handleFitToView}
+                className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors ml-0.5"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -3749,14 +3778,15 @@ export function VideoEditor() {
           onMouseDown={(e) => handleResizeDragStart('right', e)}
         >
           <div className="absolute inset-y-0 -left-1 -right-1" />
-          <button
-            className="absolute top-1/2 -translate-y-1/2 -left-3 w-6 h-8 bg-zinc-800 border border-zinc-700 rounded-l-md flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors opacity-0 group-hover:opacity-100 z-20 cursor-pointer"
-            onClick={(e) => { e.stopPropagation(); setShowPropertiesPanel(false) }}
-            onMouseDown={(e) => e.stopPropagation()}
-            title="Collapse Properties Panel"
-          >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip content="Collapse Properties Panel" side="left">
+            <button
+              className="absolute top-1/2 -translate-y-1/2 -left-3 w-6 h-8 bg-zinc-800 border border-zinc-700 rounded-l-md flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors opacity-0 group-hover:opacity-100 z-20 cursor-pointer"
+              onClick={(e) => { e.stopPropagation(); setShowPropertiesPanel(false) }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
         </div>
         {/* Subtitle properties */}
         {selectedSubtitleId && selectedClipIds.size === 0 && (() => {

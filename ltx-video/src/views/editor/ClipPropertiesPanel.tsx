@@ -9,6 +9,7 @@ import {
 import type { Asset, TimelineClip, Track, ClipEffect, LetterboxSettings, TextOverlayStyle, TransitionType } from '../../types/project' // EFFECTS HIDDEN: removed EffectMask
 import { DEFAULT_COLOR_CORRECTION, DEFAULT_LETTERBOX, TEXT_PRESETS } from '../../types/project' // EFFECTS HIDDEN: removed EFFECT_DEFINITIONS, DEFAULT_EFFECT_MASK
 import { formatTime } from './video-editor-utils'
+import { Tooltip } from '../../components/ui/tooltip'
 
 interface ClipPropertiesPanelProps {
   selectedClip: TimelineClip
@@ -140,17 +141,18 @@ export function ClipPropertiesPanel(props: ClipPropertiesPanelProps) {
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-white font-medium">{displayTakeNum} / {totalTakes}</span>
                     {totalTakes > 1 && (
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete take ${displayTakeNum}?`)) {
-                            handleDeleteTake(selectedClip.id)
-                          }
-                        }}
-                        className="p-0.5 rounded hover:bg-red-900/50 text-zinc-500 hover:text-red-400 transition-colors"
-                        title="Delete this take"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
+                      <Tooltip content="Delete this take" side="left">
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete take ${displayTakeNum}?`)) {
+                              handleDeleteTake(selectedClip.id)
+                            }
+                          }}
+                          className="p-0.5 rounded hover:bg-red-900/50 text-zinc-500 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </Tooltip>
                     )}
                   </div>
                 </div>
