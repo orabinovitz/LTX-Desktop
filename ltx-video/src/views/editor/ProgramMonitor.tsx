@@ -128,7 +128,6 @@ export function ProgramMonitor({
   setDraggingMarker,
   playingInOut,
   setPlayingInOut,
-  shuttleSpeed,
   setShuttleSpeed,
   previewZoom,
   setPreviewZoom,
