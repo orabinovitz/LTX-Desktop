@@ -3394,19 +3394,7 @@ export function VideoEditor() {
                               <X className="h-2.5 w-2.5" />
                             </button>
                           </div>
-                        ) : (
-                          <div className={`absolute inset-0 flex items-center justify-center ${
-                            isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                          } transition-opacity`}>
-                            {widthPx > 50 ? (
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
-                                isSelected ? 'text-white bg-red-500/30' : 'text-zinc-400 bg-zinc-900/70'
-                              }`}>
-                                {(gap.endTime - gap.startTime).toFixed(1)}s
-                              </span>
-                            ) : null}
-                          </div>
-                        )}
+                        ) : null}
                       </div>
                     )
                   })}
