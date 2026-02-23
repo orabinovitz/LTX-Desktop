@@ -2998,18 +2998,17 @@ export function VideoEditor() {
                           </div>
                         ) : (
                           <>
-                            {/* Gap label: always visible when selected, shown on hover otherwise */}
-                            <div className={`absolute inset-0 flex flex-col items-center justify-center gap-0.5 pointer-events-none ${
+                            {/* Gap label: duration only — brighter when selected to indicate active */}
+                            <div className={`absolute inset-0 flex items-center justify-center pointer-events-none ${
                               isSelected ? 'opacity-100' : 'opacity-0 group-hover/gap:opacity-100'
                             } transition-opacity`}>
-                              <span className="text-[9px] text-red-400 font-medium">
-                                {(gap.endTime - gap.startTime).toFixed(1)}s gap
+                              <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${
+                                isSelected
+                                  ? 'text-white bg-red-500/30'
+                                  : 'text-red-400'
+                              }`}>
+                                {(gap.endTime - gap.startTime).toFixed(1)}s
                               </span>
-                              {widthPx > 60 && (
-                                <span className="text-[8px] text-red-400/60">
-                                  {isSelected ? 'Del to close' : 'Click to select'}
-                                </span>
-                              )}
                             </div>
                             
                             {/* Diagonal hatching pattern for selected gap */}
@@ -3400,7 +3399,9 @@ export function VideoEditor() {
                             isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                           } transition-opacity`}>
                             {widthPx > 50 ? (
-                              <span className="text-[9px] text-zinc-400 bg-zinc-900/70 px-1.5 py-0.5 rounded font-mono">
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
+                                isSelected ? 'text-white bg-red-500/30' : 'text-zinc-400 bg-zinc-900/70'
+                              }`}>
                                 {(gap.endTime - gap.startTime).toFixed(1)}s
                               </span>
                             ) : null}

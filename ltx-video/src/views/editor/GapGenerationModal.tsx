@@ -475,7 +475,7 @@ export function GapGenerationModal({
         // Smart positioning: anchor to the clicked gap, with edge-case clamping
         const POPOVER_W = 400
         const POPOVER_H = 88
-        const GAP_PX = 10
+        const GAP_PX = 4
         const MARGIN = 8
         const vw = typeof window !== 'undefined' ? window.innerWidth : 1280
         const vh = typeof window !== 'undefined' ? window.innerHeight : 800
