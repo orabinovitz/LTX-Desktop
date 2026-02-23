@@ -136,6 +136,7 @@ $UvAvailable = Get-Command uv -ErrorAction SilentlyContinue
 if ($UvAvailable) {
     & uv pip install -r $RequirementsFile `
         --extra-index-url $PyTorchIndex `
+        --index-strategy unsafe-best-match `
         --python $PythonExe
 } else {
     & $PythonExe -m pip install -r $RequirementsFile `
