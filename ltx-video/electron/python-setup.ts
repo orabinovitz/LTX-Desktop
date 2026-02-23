@@ -14,6 +14,11 @@ export interface PythonSetupProgress {
   speed: number
 }
 
+interface ArchiveManifest {
+  parts: { name: string; size: number }[]
+  totalSize: number
+}
+
 function getBundledHashPath(): string {
   if (isDev) {
     return path.join(process.cwd(), 'python-deps-hash.txt')
@@ -29,7 +34,6 @@ function getInstalledHashPath(): string {
 export function getPythonDir(): string {
   if (process.platform === 'win32') {
     if (isDev) {
-      // Dev mode: use local python-embed directory
       return path.join(process.cwd(), 'python-embed')
     }
     return path.join(app.getPath('userData'), 'python')
@@ -41,12 +45,10 @@ export function getPythonDir(): string {
 /** Check whether the Python environment is ready to use. */
 export function isPythonReady(): { ready: boolean } {
   if (process.platform !== 'win32') {
-    // macOS: always bundled
     return { ready: true }
   }
 
   if (isDev) {
-    // Dev mode: check for local python-embed or venv
     return { ready: true }
   }
 
@@ -54,7 +56,6 @@ export function isPythonReady(): { ready: boolean } {
   const installedHash = readHash(getInstalledHashPath())
 
   if (!bundledHash) {
-    // No hash file shipped — fall back to checking python.exe exists
     const pythonExe = path.join(getPythonDir(), 'python.exe')
     return { ready: fs.existsSync(pythonExe) }
   }
@@ -70,20 +71,28 @@ function readHash(filePath: string): string | null {
   }
 }
 
-function getDownloadUrl(): string {
-  // Allow override via env var (full URL to the archive)
+/**
+ * Get the base URL/path for python-embed assets.
+ * LTX_PYTHON_URL can be:
+ *   - A path to a .tar.gz file (single-file local testing)
+ *   - A path to a directory containing manifest + parts
+ *   - A URL base (remote, default: GitHub Releases)
+ */
+function getArchiveBase(): string {
   if (process.env.LTX_PYTHON_URL) {
     return process.env.LTX_PYTHON_URL
   }
-
   const version = app.getVersion()
-  const baseUrl = 'https://github.com/Lightricks/ltx-desktop/releases/download'
-  return `${baseUrl}/v${version}/python-embed-win32.tar.gz`
+  return `https://github.com/Lightricks/ltx-desktop/releases/download/v${version}`
+}
+
+function isLocalPath(source: string): boolean {
+  return !source.startsWith('http://') && !source.startsWith('https://')
 }
 
 /**
- * Download python-embed archive and extract it to userData/python/.
- * Only called on Windows in production.
+ * Download (or copy) python-embed archive and extract to userData/python/.
+ * Supports multi-part archives (split for GitHub's 2GB asset limit).
  */
 export async function downloadPythonEmbed(
   onProgress: (progress: PythonSetupProgress) => void
@@ -92,7 +101,6 @@ export async function downloadPythonEmbed(
   const tempDir = path.join(app.getPath('userData'), 'python-tmp')
   const archivePath = path.join(app.getPath('userData'), 'python-embed-win32.tar.gz')
 
-  // Clean up any previous partial attempts
   try {
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true })
@@ -101,30 +109,38 @@ export async function downloadPythonEmbed(
 
   fs.mkdirSync(tempDir, { recursive: true })
 
-  try {
-    // 1. Download the archive
-    const url = getDownloadUrl()
-    console.log(`[python-setup] Downloading from: ${url}`)
-    await downloadFile(url, archivePath, onProgress)
+  const cleanupFiles: string[] = []
 
-    // 2. Extract
+  try {
+    const base = getArchiveBase()
+    console.log(`[python-setup] Archive base: ${base}`)
+
+    if (isLocalPath(base) && base.endsWith('.tar.gz')) {
+      // Single local file — copy directly
+      await copyFileWithProgress(base, archivePath, 0, fs.statSync(base).size, onProgress)
+    } else if (isLocalPath(base)) {
+      // Local directory with manifest + parts
+      await acquirePartsLocal(base, archivePath, cleanupFiles, onProgress)
+    } else {
+      // Remote multi-part download
+      await acquirePartsRemote(base, archivePath, cleanupFiles, onProgress)
+    }
+
+    // Extract
     onProgress({ status: 'extracting', percent: 100, downloadedBytes: 0, totalBytes: 0, speed: 0 })
     console.log(`[python-setup] Extracting to: ${tempDir}`)
     await extractTarGz(archivePath, tempDir)
 
-    // 3. Move extracted directory into place
-    //    The archive contains a top-level `python-embed/` directory.
-    //    We want its contents at `userData/python/`.
+    // Move into place (archive has top-level `python-embed/` directory)
     const extractedInner = path.join(tempDir, 'python-embed')
-    const source = fs.existsSync(extractedInner) ? extractedInner : tempDir
+    const extractedSource = fs.existsSync(extractedInner) ? extractedInner : tempDir
 
-    // Remove old install if present
     if (fs.existsSync(destDir)) {
       fs.rmSync(destDir, { recursive: true, force: true })
     }
-    fs.renameSync(source, destDir)
+    fs.renameSync(extractedSource, destDir)
 
-    // 4. Copy the bundled deps hash so subsequent launches skip download
+    // Write deps hash so subsequent launches skip download
     const bundledHash = getBundledHashPath()
     if (fs.existsSync(bundledHash)) {
       fs.copyFileSync(bundledHash, path.join(destDir, 'deps-hash.txt'))
@@ -133,23 +149,205 @@ export async function downloadPythonEmbed(
     onProgress({ status: 'complete', percent: 100, downloadedBytes: 0, totalBytes: 0, speed: 0 })
     console.log('[python-setup] Python environment ready')
   } catch (err) {
-    // Clean up partial state
     try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch { /* ignore */ }
     try { fs.rmSync(destDir, { recursive: true, force: true }) } catch { /* ignore */ }
     throw err
   } finally {
-    // Always remove the archive
     try { fs.unlinkSync(archivePath) } catch { /* ignore */ }
-    // Clean up tempDir if it still exists (in case source !== tempDir)
+    for (const f of cleanupFiles) {
+      try { fs.unlinkSync(f) } catch { /* ignore */ }
+    }
     try { if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true }) } catch { /* ignore */ }
   }
 }
 
-/** Download a file with progress, following redirects. */
-function downloadFile(
+// ── Multi-part: local directory ──────────────────────────────────────
+
+async function acquirePartsLocal(
+  dirPath: string,
+  archivePath: string,
+  cleanupFiles: string[],
+  onProgress: (progress: PythonSetupProgress) => void
+): Promise<void> {
+  const manifestPath = path.join(dirPath, 'python-embed-win32.manifest.json')
+  const manifest: ArchiveManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
+
+  const partPaths: string[] = []
+  let bytesSoFar = 0
+
+  for (const part of manifest.parts) {
+    const src = path.join(dirPath, part.name)
+    const dest = path.join(app.getPath('userData'), part.name)
+    partPaths.push(dest)
+    cleanupFiles.push(dest)
+
+    await copyFileWithProgress(src, dest, bytesSoFar, manifest.totalSize, onProgress)
+    bytesSoFar += part.size
+  }
+
+  await concatenateParts(partPaths, archivePath)
+}
+
+// ── Multi-part: remote download ──────────────────────────────────────
+
+async function acquirePartsRemote(
+  baseUrl: string,
+  archivePath: string,
+  cleanupFiles: string[],
+  onProgress: (progress: PythonSetupProgress) => void
+): Promise<void> {
+  // Fetch manifest
+  const manifestUrl = `${baseUrl}/python-embed-win32.manifest.json`
+  const manifestDest = path.join(app.getPath('userData'), 'python-embed-win32.manifest.json')
+  cleanupFiles.push(manifestDest)
+  await downloadFileRaw(manifestUrl, manifestDest)
+  const manifest: ArchiveManifest = JSON.parse(fs.readFileSync(manifestDest, 'utf-8'))
+
+  const partPaths: string[] = []
+  let bytesSoFar = 0
+  let lastTime = Date.now()
+  let lastReportedBytes = 0
+
+  for (const part of manifest.parts) {
+    const partUrl = `${baseUrl}/${part.name}`
+    const partDest = path.join(app.getPath('userData'), part.name)
+    partPaths.push(partDest)
+    cleanupFiles.push(partDest)
+
+    await downloadFileWithGlobalProgress(
+      partUrl,
+      partDest,
+      bytesSoFar,
+      manifest.totalSize,
+      (globalDownloaded, totalBytes) => {
+        const now = Date.now()
+        const elapsed = (now - lastTime) / 1000
+
+        let speed = 0
+        if (elapsed >= 0.5) {
+          speed = (globalDownloaded - lastReportedBytes) / elapsed
+          lastTime = now
+          lastReportedBytes = globalDownloaded
+        }
+
+        onProgress({
+          status: 'downloading',
+          percent: Math.round((globalDownloaded / totalBytes) * 100),
+          downloadedBytes: globalDownloaded,
+          totalBytes,
+          speed,
+        })
+      }
+    )
+
+    bytesSoFar += part.size
+  }
+
+  await concatenateParts(partPaths, archivePath)
+}
+
+// ── File operations ──────────────────────────────────────────────────
+
+function concatenateParts(parts: string[], dest: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const writeStream = fs.createWriteStream(dest)
+    let i = 0
+
+    function writeNext() {
+      if (i >= parts.length) {
+        writeStream.end(() => resolve())
+        return
+      }
+
+      const readStream = fs.createReadStream(parts[i])
+      i++
+
+      readStream.on('error', (err) => {
+        writeStream.destroy()
+        reject(err)
+      })
+
+      readStream.on('end', writeNext)
+      readStream.pipe(writeStream, { end: false })
+    }
+
+    writeStream.on('error', reject)
+    writeNext()
+  })
+}
+
+/** Copy a local file with progress relative to a global total. */
+function copyFileWithProgress(
+  source: string,
+  dest: string,
+  globalOffset: number,
+  globalTotal: number,
+  onProgress: (progress: PythonSetupProgress) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let copiedBytes = 0
+
+    const readStream = fs.createReadStream(source)
+    const writeStream = fs.createWriteStream(dest)
+
+    readStream.on('data', (chunk: Buffer) => {
+      copiedBytes += chunk.length
+      const totalDone = globalOffset + copiedBytes
+      onProgress({
+        status: 'downloading',
+        percent: Math.round((totalDone / globalTotal) * 100),
+        downloadedBytes: totalDone,
+        totalBytes: globalTotal,
+        speed: 0,
+      })
+    })
+
+    readStream.on('error', reject)
+    writeStream.on('error', reject)
+    writeStream.on('finish', resolve)
+
+    readStream.pipe(writeStream)
+  })
+}
+
+/** Download a file without progress (used for manifest). */
+function downloadFileRaw(url: string, dest: string, redirectCount = 0): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (redirectCount > 5) {
+      reject(new Error('Too many redirects'))
+      return
+    }
+
+    const client = url.startsWith('https') ? https : http
+    const req = client.get(url, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume()
+        downloadFileRaw(res.headers.location, dest, redirectCount + 1).then(resolve).catch(reject)
+        return
+      }
+      if (!res.statusCode || res.statusCode >= 400) {
+        res.resume()
+        reject(new Error(`Download failed: HTTP ${res.statusCode}`))
+        return
+      }
+
+      const file = fs.createWriteStream(dest)
+      res.pipe(file)
+      file.on('finish', () => file.close(() => resolve()))
+      file.on('error', (err) => { fs.unlink(dest, () => {}); reject(err) })
+    })
+
+    req.on('error', reject)
+  })
+}
+
+/** Download a file, reporting progress as (globalDownloaded, globalTotal). */
+function downloadFileWithGlobalProgress(
   url: string,
   dest: string,
-  onProgress: (progress: PythonSetupProgress) => void,
+  globalOffset: number,
+  globalTotal: number,
+  onProgress: (globalDownloaded: number, globalTotal: number) => void,
   redirectCount = 0
 ): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -160,65 +358,32 @@ function downloadFile(
 
     const client = url.startsWith('https') ? https : http
     const req = client.get(url, (res) => {
-      // Follow redirects
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume() // consume response to free memory
-        downloadFile(res.headers.location, dest, onProgress, redirectCount + 1)
-          .then(resolve)
-          .catch(reject)
+        res.resume()
+        downloadFileWithGlobalProgress(res.headers.location, dest, globalOffset, globalTotal, onProgress, redirectCount + 1)
+          .then(resolve).catch(reject)
         return
       }
-
       if (!res.statusCode || res.statusCode >= 400) {
         res.resume()
         reject(new Error(`Download failed: HTTP ${res.statusCode}`))
         return
       }
 
-      const totalBytes = parseInt(res.headers['content-length'] || '0', 10)
       let downloadedBytes = 0
-      let lastTime = Date.now()
-      let lastBytes = 0
-
       const file = fs.createWriteStream(dest)
       res.pipe(file)
 
       res.on('data', (chunk: Buffer) => {
         downloadedBytes += chunk.length
-        const now = Date.now()
-        const elapsed = (now - lastTime) / 1000
-
-        let speed = 0
-        if (elapsed >= 0.5) {
-          speed = (downloadedBytes - lastBytes) / elapsed
-          lastTime = now
-          lastBytes = downloadedBytes
-        }
-
-        const percent = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0
-
-        onProgress({
-          status: 'downloading',
-          percent,
-          downloadedBytes,
-          totalBytes,
-          speed,
-        })
+        onProgress(globalOffset + downloadedBytes, globalTotal)
       })
 
-      file.on('finish', () => {
-        file.close(() => resolve())
-      })
-
-      file.on('error', (err) => {
-        fs.unlink(dest, () => {})
-        reject(err)
-      })
+      file.on('finish', () => file.close(() => resolve()))
+      file.on('error', (err) => { fs.unlink(dest, () => {}); reject(err) })
     })
 
-    req.on('error', (err) => {
-      reject(err)
-    })
+    req.on('error', reject)
   })
 }
 

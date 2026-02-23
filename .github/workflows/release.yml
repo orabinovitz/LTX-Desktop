@@ -151,27 +151,54 @@ jobs:
           # CSC_LINK: ${{ secrets.WIN_CERTIFICATE }}
           # CSC_KEY_PASSWORD: ${{ secrets.WIN_CERTIFICATE_PASSWORD }}
 
-      # Create and upload python-embed archive (Windows only)
-      - name: Create python-embed archive (Windows)
+      # Create, split, and upload python-embed archive (Windows only)
+      # GitHub Releases has a 2 GB per-asset limit; the archive exceeds that.
+      - name: Create and split python-embed archive (Windows)
         if: matrix.os == 'windows'
         shell: bash
         run: |
           cp python-deps-hash.txt python-embed/deps-hash.txt
           tar -czf python-embed-win32.tar.gz -C . python-embed
 
+          # Split into <1.9 GB parts (leaves headroom under the 2 GB limit)
+          split -b 1900m python-embed-win32.tar.gz python-embed-win32.tar.gz.part-
+
+          # Build a manifest so the client knows what to download
+          echo '{"parts":[' > python-embed-win32.manifest.json
+          FIRST=1
+          for part in python-embed-win32.tar.gz.part-*; do
+            SIZE=$(stat -c%s "$part" 2>/dev/null || stat -f%z "$part")
+            if [ "$FIRST" -eq 0 ]; then echo ',' >> python-embed-win32.manifest.json; fi
+            FIRST=0
+            echo "{\"name\":\"$(basename "$part")\",\"size\":$SIZE}" >> python-embed-win32.manifest.json
+          done
+          TOTAL=$(stat -c%s python-embed-win32.tar.gz 2>/dev/null || stat -f%z python-embed-win32.tar.gz)
+          echo "],\"totalSize\":$TOTAL}" >> python-embed-win32.manifest.json
+
+          echo "Manifest:"
+          cat python-embed-win32.manifest.json
+          echo ""
+          ls -lh python-embed-win32.tar.gz.part-*
+
       - name: Upload python-embed to release (Windows)
         if: matrix.os == 'windows' && startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        run: gh release upload "${{ github.ref_name }}" python-embed-win32.tar.gz --clobber
+        run: |
+          gh release upload "${{ github.ref_name }}" python-embed-win32.manifest.json --clobber
+          for part in python-embed-win32.tar.gz.part-*; do
+            gh release upload "${{ github.ref_name }}" "$part" --clobber
+          done
 
       - name: Upload python-embed artifact (Windows)
         if: matrix.os == 'windows'
         uses: actions/upload-artifact@v4
         with:
           name: python-embed-windows
-          path: ltx-video/python-embed-win32.tar.gz
+          path: |
+            ltx-video/python-embed-win32.manifest.json
+            ltx-video/python-embed-win32.tar.gz.part-*
           retention-days: 7
 
       - name: Upload build artifacts
@@ -209,7 +236,7 @@ jobs:
 
           # Verify we have the expected files
           MISSING=0
-          for pattern in ".dmg" "Setup.exe" "latest-mac.yml" "latest.yml" "python-embed-win32.tar.gz"; do
+          for pattern in ".dmg" "Setup.exe" "latest-mac.yml" "latest.yml" "python-embed-win32.manifest.json" "python-embed-win32.tar.gz.part-"; do
             if echo "$ASSETS" | grep -q "$pattern"; then
               echo "✓ Found $pattern"
             else
