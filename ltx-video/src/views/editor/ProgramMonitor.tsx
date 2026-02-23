@@ -448,6 +448,7 @@ export function ProgramMonitor({
                       cursor: 'move',
                     }}
                     onMouseDown={(e) => {
+                      e.preventDefault()
                       e.stopPropagation()
                       setSelectedClipIds(new Set([tc.id]))
                       const container = (e.currentTarget.parentElement as HTMLElement)
@@ -494,6 +495,7 @@ export function ProgramMonitor({
                           : undefined,
                         whiteSpace: 'pre-wrap',
                         wordBreak: 'break-word',
+                        userSelect: 'none',
                       }}
                     >
                       {ts.text}
