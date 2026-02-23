@@ -2991,17 +2991,15 @@ export function VideoEditor() {
                           </div>
                         ) : (
                           <>
-                            {/* Gap label on hover or selected */}
-                            <div className={`absolute inset-0 flex flex-col items-center justify-center gap-0.5 pointer-events-none ${
-                              isSelected ? 'opacity-100' : 'opacity-0 group-hover/gap:opacity-100'
-                            } transition-opacity`}>
+                            {/* Gap label on hover only — hidden when selected (modal panel shows the info) */}
+                            <div className={`absolute inset-0 flex flex-col items-center justify-center gap-0.5 pointer-events-none transition-opacity ${
+                              isSelected ? 'opacity-0' : 'opacity-0 group-hover/gap:opacity-100'
+                            }`}>
                               <span className="text-[9px] text-red-400 font-medium">
                                 {(gap.endTime - gap.startTime).toFixed(1)}s gap
                               </span>
                               {widthPx > 60 && (
-                                <span className="text-[8px] text-red-400/60">
-                                  {isSelected ? 'Del to close' : 'Click to select'}
-                                </span>
+                                <span className="text-[8px] text-red-400/60">Click to select</span>
                               )}
                             </div>
                             
@@ -3387,9 +3385,9 @@ export function VideoEditor() {
                             </button>
                           </div>
                         ) : (
-                          <div className={`absolute inset-0 flex items-center justify-center ${
-                            isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                          } transition-opacity`}>
+                          <div className={`absolute inset-0 flex items-center justify-center transition-opacity ${
+                            isSelected ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'
+                          }`}>
                             {widthPx > 50 ? (
                               <span className="text-[9px] text-zinc-400 bg-zinc-900/70 px-1.5 py-0.5 rounded font-mono">
                                 {(gap.endTime - gap.startTime).toFixed(1)}s
