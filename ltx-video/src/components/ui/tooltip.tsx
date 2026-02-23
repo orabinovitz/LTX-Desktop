@@ -10,7 +10,7 @@ interface TooltipProps {
   className?: string
 }
 
-const DELAY_MS = 250
+const DELAY_MS = 70
 const GAP_PX = 6
 
 /**
