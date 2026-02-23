@@ -500,14 +500,6 @@ export function GapGenerationModal({
           className="fixed z-[100] bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-3"
           style={{ left, top, width: POPOVER_W }}
         >
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs text-zinc-400 font-medium">
-              {(selectedGap.endTime - selectedGap.startTime).toFixed(1)}s gap selected
-            </span>
-            <span className="text-[9px] text-zinc-600">
-              (Press <kbd className="px-1 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 text-[8px] font-mono">Del</kbd> to close gap)
-            </span>
-          </div>
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => deleteGap(selectedGap)}
