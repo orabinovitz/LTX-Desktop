@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect } from 'react'
 import {
-  Play, X, Upload, Video, Image,
+  Play, X, Upload, Trash2, Video, Image,
   Loader2, Sparkles, ChevronDown, RefreshCw
 } from 'lucide-react'
 import { SettingsPanel } from '../../components/SettingsPanel'
@@ -505,26 +505,33 @@ export function GapGenerationModal({
             <span className="text-sm text-white font-medium">
               {(selectedGap.endTime - selectedGap.startTime).toFixed(1)}s gap selected
             </span>
-            <span className="text-xs text-zinc-500">Press Del to close gap</span>
+            <span className="text-xs text-zinc-500 flex items-center gap-1.5">
+              Press
+              <kbd className="px-1.5 py-0.5 rounded bg-zinc-700 border border-zinc-600 text-zinc-300 text-[10px] font-mono leading-none">Del</kbd>
+              to close gap
+            </span>
           </div>
           {/* Row 2: action buttons */}
           <div className="flex gap-2">
             <button
               onClick={() => deleteGap(selectedGap)}
-              className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
+              className="flex-1 px-3 py-2 rounded-lg bg-red-900/30 border border-red-800/30 text-red-400 text-[11px] hover:bg-red-900/50 transition-colors flex items-center justify-center gap-1.5 font-medium"
             >
+              <Trash2 className="h-3 w-3" />
               Close gap
             </button>
             <button
               onClick={() => setGapGenerateMode('text-to-video')}
-              className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
+              className="flex-1 px-3 py-2 rounded-lg bg-blue-900/30 border border-blue-700/30 text-blue-400 text-[11px] hover:bg-blue-900/50 transition-colors flex items-center justify-center gap-1.5 font-medium"
             >
+              <Video className="h-3 w-3" />
               Fill with Video
             </button>
             <button
               onClick={() => setGapGenerateMode('text-to-image')}
-              className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
+              className="flex-1 px-3 py-2 rounded-lg bg-emerald-900/30 border border-emerald-700/30 text-emerald-400 text-[11px] hover:bg-emerald-900/50 transition-colors flex items-center justify-center gap-1.5 font-medium"
             >
+              <Image className="h-3 w-3" />
               Fill with image
             </button>
           </div>
