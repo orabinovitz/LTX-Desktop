@@ -107,13 +107,10 @@ export function Playground() {
           >
             <ArrowLeft className="h-5 w-5 text-zinc-400" />
           </button>
-          <LtxLogo className="h-5 w-auto text-white" />
-          <span className="text-zinc-500 text-sm">Playground</span>
-          <ModeTabs 
-            mode={mode} 
-            onModeChange={handleModeChange}
-            disabled={isGenerating}
-          />
+          <div className="flex items-center gap-2.5">
+            <LtxLogo className="h-6 w-auto text-white" />
+            <span className="text-zinc-400 text-base font-medium tracking-wide leading-none pt-1 pl-1.5">Playground</span>
+          </div>
         </div>
         
         <div className="flex items-center gap-4 pr-20">
@@ -134,6 +131,13 @@ export function Playground() {
         {/* Left Panel - Controls */}
         <div className="w-[500px] border-r border-zinc-800 p-6 overflow-y-auto">
           <div className="space-y-6">
+            {/* Mode Tabs */}
+            <ModeTabs
+              mode={mode}
+              onModeChange={handleModeChange}
+              disabled={isGenerating}
+            />
+
             {/* Image Upload - Always shown in video mode (optional: makes it I2V) */}
             {isVideoMode && (
               <ImageUploader 
@@ -209,7 +213,7 @@ export function Playground() {
                 <Button
                   onClick={handleGenerate}
                   disabled={!canGenerate}
-                  className="flex-1 flex items-center justify-center gap-2 bg-zinc-600 hover:bg-zinc-500 text-white disabled:bg-zinc-700 disabled:text-zinc-500"
+                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white disabled:bg-zinc-700 disabled:text-zinc-500"
                 >
                   {mode === 'text-to-image' ? (
                     <>
