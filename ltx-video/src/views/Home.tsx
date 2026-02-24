@@ -253,13 +253,6 @@ export function Home() {
         <div className="p-8">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-white">Projects</h2>
-            <Button 
-              onClick={() => setIsCreating(true)}
-              className="bg-blue-600 hover:bg-blue-500"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New Project
-            </Button>
           </div>
           
           {projects.length === 0 ? (
