@@ -148,6 +148,11 @@ export function ProgramMonitor({
   toggleFullscreen,
   kbLayout,
 }: ProgramMonitorProps) {
+  // Flag to prevent the video frame wrapper's onClick from clearing selection
+  // when the user clicked on a text overlay (mousedown fires first on the overlay,
+  // but click may bubble up to the wrapper if the mouse moved slightly).
+  const clickedTextOverlayRef = React.useRef(false)
+
   // Sync mask video elements to the pool video's currentTime on every time update
   React.useEffect(() => {
     if (!activeClip || activeClip.asset?.type !== 'video') return
@@ -219,7 +224,12 @@ export function ProgramMonitor({
               <div
                 className="relative bg-black overflow-hidden"
                 style={videoFrameSize.width > 0 ? { width: videoFrameSize.width, height: videoFrameSize.height } : { width: '100%', aspectRatio: '16/9' }}
-                onClick={() => setSelectedClipIds(new Set())}
+                onClick={() => {
+                  if (clickedTextOverlayRef.current) {
+                    return
+                  }
+                  setSelectedClipIds(new Set())
+                }}
               >
               {(() => {
                 // Always render the normal clip path — the pool handles the outgoing/active clip.
@@ -453,7 +463,12 @@ export function ProgramMonitor({
                     }}
                     onMouseDown={(e) => {
                       e.stopPropagation()
+                      clickedTextOverlayRef.current = true
                       setSelectedClipIds(new Set([tc.id]))
+                      // Capture panel state at mousedown time so we can restore it after any
+                      // spurious onClick handlers that might close it
+                      const wasOpen = showPropertiesPanel
+                      const clipId = tc.id
                       const container = (e.currentTarget.parentElement as HTMLElement)
                       if (!container) return
                       const rect = container.getBoundingClientRect()
@@ -469,6 +484,12 @@ export function ProgramMonitor({
                       const onUp = () => {
                         window.removeEventListener('mousemove', onMove)
                         window.removeEventListener('mouseup', onUp)
+                        // Reset the ref and restore state after all click events have fired
+                        requestAnimationFrame(() => {
+                          clickedTextOverlayRef.current = false
+                          setSelectedClipIds(new Set([clipId]))
+                          if (wasOpen) setShowPropertiesPanel(true)
+                        })
                       }
                       window.addEventListener('mousemove', onMove)
                       window.addEventListener('mouseup', onUp)
