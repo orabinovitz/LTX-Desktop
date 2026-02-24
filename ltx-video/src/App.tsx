@@ -154,22 +154,8 @@ function AppContent() {
     )
   }
 
-  // Show loading while checking first run
-  if (isFirstRun === null) {
-    return (
-      <div className="h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 text-primary animate-spin" />
-      </div>
-    )
-  }
-
-  // Show first run setup
-  if (isFirstRun) {
-    return <FirstRunSetup onComplete={() => setIsFirstRun(false)} />
-  }
-
-  // Show loading screen while connecting to backend
-  if (backendLoading) {
+  // Wait for backend before showing first-run setup (it needs the API)
+  if (backendLoading || isFirstRun === null) {
     return (
       <div className="h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -193,6 +179,11 @@ function AppContent() {
         </div>
       </div>
     )
+  }
+
+  // Show first run setup (after backend is connected)
+  if (isFirstRun) {
+    return <FirstRunSetup onComplete={() => setIsFirstRun(false)} />
   }
 
   // Check if settings/logs buttons should show (not on home/loading screens)
