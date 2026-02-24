@@ -4,6 +4,7 @@ import fs from 'fs'
 import http from 'http'
 import https from 'https'
 import path from 'path'
+import { load as loadYaml } from 'js-yaml'
 import { isDev } from './config'
 
 export interface PythonSetupProgress {
@@ -17,6 +18,38 @@ export interface PythonSetupProgress {
 interface ArchiveManifest {
   parts: { name: string; size: number }[]
   totalSize: number
+}
+
+// ── GitHub private repo authentication ────────────────────────────────
+// Mirrors electron-updater: only sends GH_TOKEN when `private: true` is set
+// in the publish config (app-update.yml). This prevents accidental token leaks
+// for public repos.
+
+let _authHeaders: Record<string, string> | null = null
+
+function getAuthHeaders(): Record<string, string> {
+  if (_authHeaders !== null) return _authHeaders
+
+  _authHeaders = {}
+
+  const configPath = isDev
+    ? path.join(process.cwd(), 'dev-app-update.yml')
+    : path.join(process.resourcesPath, 'app-update.yml')
+
+  let isPrivate = false
+  try {
+    const config = loadYaml(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown>
+    isPrivate = config?.private === true
+  } catch { /* no config file — public repo */ }
+
+  if (isPrivate) {
+    const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
+    if (token) {
+      _authHeaders = { authorization: `token ${token}` }
+    }
+  }
+
+  return _authHeaders
 }
 
 function getBundledHashPath(): string {
@@ -98,7 +131,7 @@ export async function preDownloadPythonForUpdate(
     return false
   }
 
-  const baseUrl = process.env.LTX_PYTHON_URL?.replace(/^["']+|["']+$/g, '')
+  const baseUrl = (isDev && process.env.LTX_PYTHON_URL?.replace(/^["']+|["']+$/g, ''))
     || `https://github.com/Lightricks/ltx-desktop/releases/download/v${newVersion}`
 
   // Fetch the new version's deps hash
@@ -203,8 +236,9 @@ function readHash(filePath: string): string | null {
  *   - A URL base (remote, default: GitHub Releases)
  */
 function getArchiveBase(): string {
-  if (process.env.LTX_PYTHON_URL) {
-    // Strip surrounding quotes that Windows shell may embed
+  // LTX_PYTHON_URL is a dev-only override for testing with local archives.
+  // Disabled in production to prevent code injection into a signed app.
+  if (isDev && process.env.LTX_PYTHON_URL) {
     return process.env.LTX_PYTHON_URL.replace(/^["']+|["']+$/g, '')
   }
   const version = app.getVersion()
@@ -444,7 +478,7 @@ function downloadFileRaw(url: string, dest: string, redirectCount = 0): Promise<
     }
 
     const client = url.startsWith('https') ? https : http
-    const req = client.get(url, (res) => {
+    const req = client.get(url, { headers: getAuthHeaders() }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume()
         downloadFileRaw(res.headers.location, dest, redirectCount + 1).then(resolve).catch(reject)
@@ -482,7 +516,7 @@ function downloadFileWithGlobalProgress(
     }
 
     const client = url.startsWith('https') ? https : http
-    const req = client.get(url, (res) => {
+    const req = client.get(url, { headers: getAuthHeaders() }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume()
         downloadFileWithGlobalProgress(res.headers.location, dest, globalOffset, globalTotal, onProgress, redirectCount + 1)
