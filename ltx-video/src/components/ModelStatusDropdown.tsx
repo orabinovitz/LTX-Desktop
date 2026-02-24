@@ -8,6 +8,7 @@ interface ModelInfo {
   size: number
   expected_size: number
   is_folder?: boolean
+  required?: boolean
 }
 
 interface ModelsStatus {
@@ -242,11 +243,11 @@ export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps
 
           {/* Model List */}
           <div className="max-h-64 overflow-y-auto">
-            {modelsStatus?.models.map((model, index) => (
+            {modelsStatus?.models.filter(m => m.required).map((model, index, arr) => (
               <div
                 key={model.name}
                 className={`px-4 py-3 flex items-center gap-3 ${
-                  index !== modelsStatus.models.length - 1 ? 'border-b border-zinc-800/50' : ''
+                  index !== arr.length - 1 ? 'border-b border-zinc-800/50' : ''
                 }`}
               >
                 {model.downloaded ? (
@@ -273,7 +274,7 @@ export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps
           </div>
 
           {/* Footer Actions */}
-          {!modelsStatus?.all_downloaded && !isDownloading && (
+          {isPending && !isDownloading && (
             <div className="px-4 py-3 border-t border-zinc-800 bg-zinc-800/30">
               <button
                 onClick={startDownload}

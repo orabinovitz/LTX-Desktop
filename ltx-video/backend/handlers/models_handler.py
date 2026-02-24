@@ -38,6 +38,15 @@ class ModelsHandler(StateHandlerBase):
             path = self._config.model_path(model_type)
             if spec.is_folder:
                 ready = path.exists() and any(path.iterdir()) if path.exists() else False
+                # For snapshot downloads with multiple top-level dirs (e.g. text_encoder + tokenizer),
+                # verify all expected directories exist
+                if ready and spec.snapshot_allow_patterns:
+                    for pattern in spec.snapshot_allow_patterns:
+                        sibling = pattern.split("/")[0]
+                        sibling_path = self._config.models_dir / sibling
+                        if not sibling_path.exists() or not any(sibling_path.iterdir()):
+                            ready = False
+                            break
                 files[model_type] = path if ready else None
             else:
                 files[model_type] = path if path.exists() else None
@@ -85,7 +94,7 @@ class ModelsHandler(StateHandlerBase):
         models: list[ModelFileStatus] = []
         total_size = 0
         downloaded_size = 0
-        required_types = resolve_required_model_types(self._config.required_model_types, has_api_key)
+        required_types = resolve_required_model_types(self._config.required_model_types, has_api_key, settings.use_local_text_encoder)
 
         for model_type in MODEL_FILE_ORDER:
             spec = self._config.spec_for(model_type)

@@ -60,7 +60,7 @@ DEFAULT_MODEL_DOWNLOAD_SPECS: dict[ModelFileType, ModelFileDownloadSpec] = {
         is_folder=True,
         repo_id="Lightricks/LTX-2",
         description="Gemma text encoder",
-        snapshot_allow_patterns=("text_encoder/*",),
+        snapshot_allow_patterns=("text_encoder/*", "tokenizer/*"),
     ),
     "flux": ModelFileDownloadSpec(
         relative_path=Path("FLUX.2-klein-4B"),
@@ -77,7 +77,7 @@ DEFAULT_REQUIRED_MODEL_TYPES: frozenset[ModelFileType] = frozenset(
 )
 
 
-def resolve_required_model_types(base_required: frozenset[ModelFileType], has_api_key: bool) -> frozenset[ModelFileType]:
-    if has_api_key:
+def resolve_required_model_types(base_required: frozenset[ModelFileType], has_api_key: bool, use_local_text_encoder: bool = False) -> frozenset[ModelFileType]:
+    if has_api_key and not use_local_text_encoder:
         return base_required
     return cast(frozenset[ModelFileType], base_required | {"text_encoder"})
