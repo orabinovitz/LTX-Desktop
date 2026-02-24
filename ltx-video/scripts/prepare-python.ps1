@@ -155,7 +155,8 @@ Write-Host "All dependencies installed" -ForegroundColor Green
 # ============================================================
 Write-Host "`nStep 7: Copying Python development files for Triton JIT..." -ForegroundColor Yellow
 
-$SystemPython = "$env:LOCALAPPDATA\Programs\Python\Python312"
+$MajorMinor = ($PythonVersion -split '\.')[0..1] -join ''
+$SystemPython = "$env:LOCALAPPDATA\Programs\Python\Python$MajorMinor"
 if (Test-Path $SystemPython) {
     $IncludeSrc = Join-Path $SystemPython "Include"
     $IncludeDst = Join-Path $OutputPath "Include"
@@ -171,7 +172,7 @@ if (Test-Path $SystemPython) {
         Write-Host "  Copied libs folder (Python libraries)"
     }
 } else {
-    Write-Host "WARNING: System Python 3.12 not found at $SystemPython" -ForegroundColor Yellow
+    Write-Host "WARNING: System Python $MajorMinor not found at $SystemPython" -ForegroundColor Yellow
     Write-Host "SageAttention/Triton JIT compilation may not work" -ForegroundColor Yellow
 }
 
