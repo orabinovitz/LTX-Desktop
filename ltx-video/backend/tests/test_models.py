@@ -104,6 +104,10 @@ class TestTextEncoderDownload:
         te_dir.mkdir(parents=True, exist_ok=True)
         (te_dir / "model.safetensors").write_bytes(b"\x00" * 1024)
 
+        tokenizer_dir = test_state.config.models_dir / "tokenizer"
+        tokenizer_dir.mkdir(parents=True, exist_ok=True)
+        (tokenizer_dir / "tokenizer.model").write_bytes(b"\x00" * 1024)
+
         r = client.post("/api/text-encoder/download")
         assert r.status_code == 200
         assert r.json()["status"] == "already_downloaded"

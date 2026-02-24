@@ -122,6 +122,10 @@ def create_fake_model_files(test_state):
         te_dir.mkdir(parents=True, exist_ok=True)
         (te_dir / "model.safetensors").write_bytes(b"\x00" * 1024)
 
+        tokenizer_dir = test_state.config.models_dir / "tokenizer"
+        tokenizer_dir.mkdir(parents=True, exist_ok=True)
+        (tokenizer_dir / "tokenizer.model").write_bytes(b"\x00" * 1024)
+
         if include_flux:
             flux_dir = test_state.config.model_path("flux")
             flux_dir.mkdir(parents=True, exist_ok=True)
