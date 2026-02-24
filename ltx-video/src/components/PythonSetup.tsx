@@ -275,12 +275,12 @@ export function PythonSetup({ onReady }: PythonSetupProps) {
                         {(progress.speed / (1024 * 1024)).toFixed(1)} MB/s
                       </span>
                     )}
-                    {progress && progress.totalBytes > 0 && (
+                    {progress && progress.downloadedBytes > 0 && (
                       <span>
-                        {formatBytes(progress.downloadedBytes)} / {formatBytes(progress.totalBytes)}
+                        {formatBytes(progress.downloadedBytes)}{progress.totalBytes > 0 ? ` / ${formatBytes(progress.totalBytes)}` : ''}
                       </span>
                     )}
-                    {progress && progress.speed > 0 && (
+                    {progress && progress.speed > 0 && progress.totalBytes > 0 && (
                       <span>
                         ETA: {getTimeRemaining()}
                       </span>

@@ -279,14 +279,26 @@ async function acquireArchive(
     // GitHub Releases — multi-part
     await acquirePartsRemote(base, archivePath, cleanupFiles, onProgress)
   } else {
-    // CDN or other URL — single file
-    await downloadFileWithGlobalProgress(base, archivePath, 0, 0, (downloaded) => {
+    // CDN or other URL — single file (content-length discovered from response)
+    let lastTime = Date.now()
+    let lastBytes = 0
+    let speed = 0
+
+    await downloadFileWithGlobalProgress(base, archivePath, 0, 0, (downloaded, totalBytes) => {
+      const now = Date.now()
+      const elapsed = (now - lastTime) / 1000
+      if (elapsed >= 1) {
+        speed = (downloaded - lastBytes) / elapsed
+        lastTime = now
+        lastBytes = downloaded
+      }
+
       onProgress({
         status: 'downloading',
-        percent: 0, // total unknown for single-file CDN
+        percent: totalBytes > 0 ? Math.round((downloaded / totalBytes) * 100) : 0,
         downloadedBytes: downloaded,
-        totalBytes: 0,
-        speed: 0,
+        totalBytes,
+        speed,
       })
     })
   }
@@ -420,6 +432,7 @@ async function acquirePartsRemote(
   let bytesSoFar = 0
   let lastTime = Date.now()
   let lastReportedBytes = 0
+  let speed = 0
 
   for (const part of manifest.parts) {
     const partUrl = `${baseUrl}/${part.name}`
@@ -436,8 +449,7 @@ async function acquirePartsRemote(
         const now = Date.now()
         const elapsed = (now - lastTime) / 1000
 
-        let speed = 0
-        if (elapsed >= 0.5) {
+        if (elapsed >= 1) {
           speed = (globalDownloaded - lastReportedBytes) / elapsed
           lastTime = now
           lastReportedBytes = globalDownloaded
@@ -583,13 +595,16 @@ function downloadFileWithGlobalProgress(
         return
       }
 
+      // If caller didn't know total, use content-length from response
+      const effectiveTotal = globalTotal || parseInt(res.headers['content-length'] || '0', 10)
+
       let downloadedBytes = 0
       const file = fs.createWriteStream(dest)
       res.pipe(file)
 
       res.on('data', (chunk: Buffer) => {
         downloadedBytes += chunk.length
-        onProgress(globalOffset + downloadedBytes, globalTotal)
+        onProgress(globalOffset + downloadedBytes, effectiveTotal)
       })
 
       file.on('finish', () => file.close(() => resolve()))
