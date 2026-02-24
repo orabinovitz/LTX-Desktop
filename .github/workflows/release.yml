@@ -74,6 +74,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
+      id-token: write  # Required for GCP Workload Identity Federation
     strategy:
       fail-fast: false
       matrix:
@@ -188,6 +189,28 @@ jobs:
           cat python-embed-win32.manifest.json
           echo ""
           ls -lh python-embed-win32.tar.gz.part-*
+
+      # Upload python-embed to GCS bucket (every Windows build, not just releases).
+      # This serves as the CDN fallback when the GitHub Release doesn't exist yet.
+      - name: Authenticate to GCP (Windows)
+        if: matrix.os == 'windows'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/361900799277/locations/global/workloadIdentityPools/push-docker-images/providers/github
+          service_account: ltx-desktop-ci@ltx-vl-web-prd.iam.gserviceaccount.com
+
+      - name: Set up gcloud CLI (Windows)
+        if: matrix.os == 'windows'
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Upload python-embed to GCS (Windows)
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          DEPS_HASH=$(cat python-deps-hash.txt)
+          DEST="gs://ltx-desktop-artifacts/python-embed-win32/${DEPS_HASH}/python-embed-win32.tar.gz"
+          CLOUDSDK_STORAGE_PARALLEL_COMPOSITE_UPLOAD_ENABLED=True \
+            gcloud storage cp --no-clobber python-embed-win32.tar.gz "${DEST}"
 
       - name: Upload python-embed to release (Windows)
         if: matrix.os == 'windows' && startsWith(github.ref, 'refs/tags/v')
