@@ -159,7 +159,8 @@ Write-Host "`nStep 7: Copying Python development files for Triton JIT..." -Foreg
 & uv python install "$PythonVersion" --quiet
 $UvPython = & uv python find "$PythonVersion" 2>$null
 if ($UvPython) {
-    $UvPrefix = Split-Path (Split-Path $UvPython)
+    # Ask Python itself for its prefix — reliable regardless of install layout
+    $UvPrefix = & $UvPython -c "import sys; print(sys.prefix)"
     Write-Host "  Using uv-managed Python at: $UvPrefix"
 
     $IncludeSrc = Join-Path $UvPrefix "Include"
