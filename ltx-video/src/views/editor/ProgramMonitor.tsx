@@ -452,7 +452,6 @@ export function ProgramMonitor({
                       cursor: 'move',
                     }}
                     onMouseDown={(e) => {
-                      e.preventDefault()
                       e.stopPropagation()
                       setSelectedClipIds(new Set([tc.id]))
                       const container = (e.currentTarget.parentElement as HTMLElement)
