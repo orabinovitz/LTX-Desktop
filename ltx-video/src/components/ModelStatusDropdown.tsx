@@ -151,11 +151,11 @@ export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`
-          flex items-center gap-2 px-3 py-1.5 rounded-full
+          flex items-center gap-2 px-3 py-1.5 rounded-lg
           transition-all cursor-pointer
           ${hasError ? 'bg-red-500/20 hover:bg-red-500/30' :
             isReady ? 'bg-green-500/10 hover:bg-green-500/20' :
-            isPending ? 'bg-yellow-500/10 hover:bg-yellow-500/20' :
+            isPending ? 'bg-zinc-800 hover:bg-zinc-700' :
             'bg-zinc-800 hover:bg-zinc-700'}
         `}
       >
@@ -166,7 +166,7 @@ export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps
           <div className="w-2 h-2 bg-green-500 rounded-full" />
         )}
         {isPending && !isDownloading && !isReady && (
-          <Download className="h-3.5 w-3.5 text-yellow-400" />
+          <Download className="h-3.5 w-3.5 text-zinc-400" />
         )}
         {hasError && (
           <AlertCircle className="h-3.5 w-3.5 text-red-400" />
@@ -175,7 +175,7 @@ export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps
         <span className={`text-xs font-medium ${
           hasError ? 'text-red-400' :
           isReady ? 'text-green-400' :
-          isPending ? 'text-yellow-400' :
+          isPending ? 'text-zinc-300' :
           'text-zinc-300'
         }`}>
           {getStatusLabel()}

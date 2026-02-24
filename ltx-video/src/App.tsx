@@ -167,7 +167,7 @@ function AppContent() {
 
       {/* Global Settings & Logs buttons - top right, always available */}
       {showGlobalControls && (
-        <div className="fixed top-3 right-3 z-50 flex items-center gap-1">
+        <div className="fixed top-[18px] right-3 z-50 flex items-center gap-1">
           {/* Logs */}
           <button
             onClick={() => setIsLogViewerOpen(true)}
