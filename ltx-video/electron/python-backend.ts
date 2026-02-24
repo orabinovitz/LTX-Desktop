@@ -77,7 +77,16 @@ export async function startPythonBackend(): Promise<void> {
 
     console.log(`Starting Python backend: ${pythonPath} ${mainPy}`)
 
-    const pythonArgs = isDev ? ['-Xfrozen_modules=off', '-u', mainPy] : ['-u', mainPy]
+    // Windows embedded Python's ._pth file suppresses normal sys.path setup —
+    // the script's directory isn't added, so sibling packages (e.g. state/)
+    // can't be found. Use a -c wrapper to fix sys.path before running the server.
+    let pythonArgs: string[]
+    if (!isDev && process.platform === 'win32') {
+      const preamble = `import sys; sys.path.insert(0, r"${backendPath}"); import runpy; runpy.run_path(r"${mainPy}", run_name="__main__")`
+      pythonArgs = ['-u', '-c', preamble]
+    } else {
+      pythonArgs = isDev ? ['-Xfrozen_modules=off', '-u', mainPy] : ['-u', mainPy]
+    }
 
     pythonProcess = spawn(pythonPath, pythonArgs, {
       cwd: backendPath,
