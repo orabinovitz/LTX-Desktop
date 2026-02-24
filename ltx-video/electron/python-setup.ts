@@ -1,10 +1,10 @@
-import { app } from 'electron'
 import { execFile } from 'child_process'
+import { app } from 'electron'
 import fs from 'fs'
 import http from 'http'
 import https from 'https'
-import path from 'path'
 import { load as loadYaml } from 'js-yaml'
+import path from 'path'
 import { isDev } from './config'
 
 export interface PythonSetupProgress {
@@ -186,12 +186,19 @@ export async function preDownloadPythonForUpdate(
   const progressCb = onProgress || noop
 
   try {
-    if (isLocalPath(baseUrl) && baseUrl.endsWith('.tar.gz')) {
-      await copyFileWithProgress(baseUrl, archivePath, 0, fs.statSync(baseUrl).size, progressCb)
-    } else if (isLocalPath(baseUrl)) {
-      await acquirePartsLocal(baseUrl, archivePath, cleanupFiles, progressCb)
-    } else {
-      await acquirePartsRemote(baseUrl, archivePath, cleanupFiles, progressCb)
+    try {
+      await acquireArchive(baseUrl, archivePath, cleanupFiles, progressCb)
+    } catch (primaryErr) {
+      const fallbackUrl = newHash ? `${FALLBACK_CDN_BASE}/python-embed-win32/${newHash}/python-embed-win32.tar.gz` : null
+      if (!fallbackUrl || isLocalPath(baseUrl)) {
+        throw primaryErr
+      }
+      console.warn(`[python-setup] Pre-download primary failed: ${primaryErr}`)
+      console.log(`[python-setup] Falling back to CDN: ${fallbackUrl}`)
+      try { fs.unlinkSync(archivePath) } catch { /* ignore */ }
+      for (const f of cleanupFiles) { try { fs.unlinkSync(f) } catch { /* ignore */ } }
+      cleanupFiles.length = 0
+      await acquireArchive(fallbackUrl, archivePath, cleanupFiles, progressCb)
     }
 
     await extractTarGz(archivePath, tempDir)
@@ -228,13 +235,12 @@ function readHash(filePath: string): string | null {
   }
 }
 
-/**
- * Get the base URL/path for python-embed assets.
- * LTX_PYTHON_URL can be:
- *   - A path to a .tar.gz file (single-file local testing)
- *   - A path to a directory containing manifest + parts
- *   - A URL base (remote, default: GitHub Releases)
- */
+// ── Archive source resolution ─────────────────────────────────────────
+// Primary: GitHub Releases (multi-part, version-based)
+// Fallback: public CDN bucket (single file, deps-hash-based)
+
+const FALLBACK_CDN_BASE = 'https://storage.googleapis.com/ltx-desktop-artifacts'
+
 function getArchiveBase(): string {
   // LTX_PYTHON_URL is a dev-only override for testing with local archives.
   // Disabled in production to prevent code injection into a signed app.
@@ -245,13 +251,50 @@ function getArchiveBase(): string {
   return `https://github.com/Lightricks/ltx-desktop/releases/download/v${version}`
 }
 
+function getFallbackArchiveUrl(): string | null {
+  const hash = readHash(getBundledHashPath())
+  if (!hash) return null
+  return `${FALLBACK_CDN_BASE}/python-embed-win32/${hash}/python-embed-win32.tar.gz`
+}
+
 function isLocalPath(source: string): boolean {
   return !source.startsWith('http://') && !source.startsWith('https://')
 }
 
 /**
+ * Acquire the python-embed archive from a source (local, GitHub, or CDN).
+ * Returns once the archive is written to archivePath.
+ */
+async function acquireArchive(
+  base: string,
+  archivePath: string,
+  cleanupFiles: string[],
+  onProgress: (progress: PythonSetupProgress) => void
+): Promise<void> {
+  if (isLocalPath(base) && base.endsWith('.tar.gz')) {
+    await copyFileWithProgress(base, archivePath, 0, fs.statSync(base).size, onProgress)
+  } else if (isLocalPath(base)) {
+    await acquirePartsLocal(base, archivePath, cleanupFiles, onProgress)
+  } else if (base.includes('/releases/download/')) {
+    // GitHub Releases — multi-part
+    await acquirePartsRemote(base, archivePath, cleanupFiles, onProgress)
+  } else {
+    // CDN or other URL — single file
+    await downloadFileWithGlobalProgress(base, archivePath, 0, 0, (downloaded) => {
+      onProgress({
+        status: 'downloading',
+        percent: 0, // total unknown for single-file CDN
+        downloadedBytes: downloaded,
+        totalBytes: 0,
+        speed: 0,
+      })
+    })
+  }
+}
+
+/**
  * Download (or copy) python-embed archive and extract to userData/python/.
- * Supports multi-part archives (split for GitHub's 2GB asset limit).
+ * Tries GitHub Releases first, falls back to CDN if available.
  */
 export async function downloadPythonEmbed(
   onProgress: (progress: PythonSetupProgress) => void
@@ -274,15 +317,26 @@ export async function downloadPythonEmbed(
     const base = getArchiveBase()
     console.log(`[python-setup] Archive base: ${base}`)
 
-    if (isLocalPath(base) && base.endsWith('.tar.gz')) {
-      // Single local file — copy directly
-      await copyFileWithProgress(base, archivePath, 0, fs.statSync(base).size, onProgress)
-    } else if (isLocalPath(base)) {
-      // Local directory with manifest + parts
-      await acquirePartsLocal(base, archivePath, cleanupFiles, onProgress)
-    } else {
-      // Remote multi-part download
-      await acquirePartsRemote(base, archivePath, cleanupFiles, onProgress)
+    try {
+      await acquireArchive(base, archivePath, cleanupFiles, onProgress)
+    } catch (primaryErr) {
+      // Primary source failed — try CDN fallback
+      const fallbackUrl = getFallbackArchiveUrl()
+      if (!fallbackUrl || isLocalPath(base)) {
+        throw primaryErr
+      }
+
+      console.warn(`[python-setup] Primary download failed: ${primaryErr}`)
+      console.log(`[python-setup] Falling back to CDN: ${fallbackUrl}`)
+
+      // Clean up any partial primary download
+      try { fs.unlinkSync(archivePath) } catch { /* ignore */ }
+      for (const f of cleanupFiles) {
+        try { fs.unlinkSync(f) } catch { /* ignore */ }
+      }
+      cleanupFiles.length = 0
+
+      await acquireArchive(fallbackUrl, archivePath, cleanupFiles, onProgress)
     }
 
     // Extract
