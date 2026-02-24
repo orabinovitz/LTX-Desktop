@@ -106,7 +106,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ltx-video/python-embed
-          key: python-embed-${{ runner.os }}-${{ hashFiles('ltx-video/backend/.python-version', 'ltx-video/backend/uv.lock') }}
+          key: python-embed-${{ runner.os }}-${{ hashFiles('ltx-video/backend/.python-version', 'ltx-video/backend/uv.lock', format('ltx-video/scripts/prepare-python.{0}', matrix.os == 'windows' && 'ps1' || 'sh')) }}
 
       # Generate python deps hash (includes Python version + locked deps)
       - name: Generate python deps hash (macOS)
