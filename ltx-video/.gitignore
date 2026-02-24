@@ -70,3 +70,6 @@ backend/generated/
 # Build artifacts
 release/
 python-embed/
+
+# Downloaded during CI for Windows NSIS installer
+resources/vc_redist.x64.exe

@@ -135,6 +135,15 @@ jobs:
           # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+      # Download VC++ Redistributable for the Windows NSIS installer
+      - name: Download VC++ Redistributable (Windows)
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          curl -fSL -o resources/vc_redist.x64.exe \
+            "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+          ls -lh resources/vc_redist.x64.exe
+
       # Windows build
       - name: Build installer (Windows)
         if: matrix.os == 'windows'
@@ -186,6 +195,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
+          gh release upload "${{ github.ref_name }}" python-deps-hash.txt --clobber
           gh release upload "${{ github.ref_name }}" python-embed-win32.manifest.json --clobber
           for part in python-embed-win32.tar.gz.part-*; do
             gh release upload "${{ github.ref_name }}" "$part" --clobber

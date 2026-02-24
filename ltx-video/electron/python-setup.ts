@@ -42,7 +42,10 @@ export function getPythonDir(): string {
   return path.join(process.resourcesPath, 'python')
 }
 
-/** Check whether the Python environment is ready to use. */
+/**
+ * Check whether the Python environment is ready to use.
+ * Also promotes a staged python-next/ directory if it matches the expected hash.
+ */
 export function isPythonReady(): { ready: boolean } {
   if (process.platform !== 'win32') {
     return { ready: true }
@@ -53,6 +56,25 @@ export function isPythonReady(): { ready: boolean } {
   }
 
   const bundledHash = readHash(getBundledHashPath())
+
+  // Check if a pre-downloaded python-next/ is waiting to be promoted
+  const nextDir = path.join(app.getPath('userData'), 'python-next')
+  const nextHash = readHash(path.join(nextDir, 'deps-hash.txt'))
+  if (bundledHash && nextHash && bundledHash === nextHash) {
+    console.log('[python-setup] Promoting staged python-next/ to python/')
+    try {
+      const destDir = path.join(app.getPath('userData'), 'python')
+      if (fs.existsSync(destDir)) {
+        fs.rmSync(destDir, { recursive: true, force: true })
+      }
+      fs.renameSync(nextDir, destDir)
+      return { ready: true }
+    } catch (err) {
+      console.error('[python-setup] Failed to promote staged python:', err)
+      // Fall through to normal check
+    }
+  }
+
   const installedHash = readHash(getInstalledHashPath())
 
   if (!bundledHash) {
@@ -61,6 +83,108 @@ export function isPythonReady(): { ready: boolean } {
   }
 
   return { ready: bundledHash === installedHash }
+}
+
+/**
+ * Pre-download python-embed for an upcoming app update (Windows only).
+ * Downloads to userData/python-next/ so the next launch can promote it instantly.
+ * Returns true if a download was performed, false if not needed.
+ */
+export async function preDownloadPythonForUpdate(
+  newVersion: string,
+  onProgress?: (progress: PythonSetupProgress) => void
+): Promise<boolean> {
+  if (process.platform !== 'win32') {
+    return false
+  }
+
+  const baseUrl = process.env.LTX_PYTHON_URL?.replace(/^["']+|["']+$/g, '')
+    || `https://github.com/Lightricks/ltx-desktop/releases/download/v${newVersion}`
+
+  // Fetch the new version's deps hash
+  let newHash: string | null = null
+  if (isLocalPath(baseUrl)) {
+    // Local testing: read hash from the directory or the archive's extracted deps-hash.txt
+    const hashFile = baseUrl.endsWith('.tar.gz')
+      ? null // Can't read hash from a single tar.gz without extracting
+      : path.join(baseUrl, 'deps-hash.txt')
+    newHash = hashFile ? readHash(hashFile) : null
+  } else {
+    const hashUrl = `${baseUrl}/python-deps-hash.txt`
+    const hashDest = path.join(app.getPath('userData'), 'python-next-hash-check.txt')
+    try {
+      await downloadFileRaw(hashUrl, hashDest)
+      newHash = readHash(hashDest)
+    } catch (err) {
+      console.log('[python-setup] Could not fetch new version deps hash:', err)
+    } finally {
+      try { fs.unlinkSync(hashDest) } catch { /* ignore */ }
+    }
+  }
+
+  if (!newHash) {
+    console.log('[python-setup] No deps hash available for new version, skipping pre-download')
+    return false
+  }
+
+  // Compare with currently installed hash
+  const installedHash = readHash(getInstalledHashPath())
+  if (newHash === installedHash) {
+    console.log('[python-setup] Python deps unchanged in new version, no pre-download needed')
+    return false
+  }
+
+  console.log(`[python-setup] Python deps changed (${installedHash} → ${newHash}), pre-downloading`)
+
+  // Download to python-next/
+  const nextDir = path.join(app.getPath('userData'), 'python-next')
+  const tempDir = path.join(app.getPath('userData'), 'python-next-tmp')
+  const archivePath = path.join(app.getPath('userData'), 'python-next.tar.gz')
+
+  try {
+    if (fs.existsSync(nextDir)) fs.rmSync(nextDir, { recursive: true, force: true })
+    if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
+  } catch { /* ignore */ }
+
+  fs.mkdirSync(tempDir, { recursive: true })
+
+  const cleanupFiles: string[] = []
+  const noop = () => {}
+  const progressCb = onProgress || noop
+
+  try {
+    if (isLocalPath(baseUrl) && baseUrl.endsWith('.tar.gz')) {
+      await copyFileWithProgress(baseUrl, archivePath, 0, fs.statSync(baseUrl).size, progressCb)
+    } else if (isLocalPath(baseUrl)) {
+      await acquirePartsLocal(baseUrl, archivePath, cleanupFiles, progressCb)
+    } else {
+      await acquirePartsRemote(baseUrl, archivePath, cleanupFiles, progressCb)
+    }
+
+    await extractTarGz(archivePath, tempDir)
+
+    const extractedInner = path.join(tempDir, 'python-embed')
+    const extractedSource = fs.existsSync(extractedInner) ? extractedInner : tempDir
+
+    if (fs.existsSync(nextDir)) fs.rmSync(nextDir, { recursive: true, force: true })
+    fs.renameSync(extractedSource, nextDir)
+
+    // Write the new hash into python-next/ so isPythonReady can verify it on next launch
+    fs.writeFileSync(path.join(nextDir, 'deps-hash.txt'), newHash)
+
+    console.log('[python-setup] Pre-download complete, staged at python-next/')
+    return true
+  } catch (err) {
+    console.error('[python-setup] Pre-download failed:', err)
+    try { fs.rmSync(nextDir, { recursive: true, force: true }) } catch { /* ignore */ }
+    return false
+  } finally {
+    try { fs.unlinkSync(archivePath) } catch { /* ignore */ }
+    for (const f of cleanupFiles) {
+      try { fs.unlinkSync(f) } catch { /* ignore */ }
+    }
+    try { if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
 }
 
 function readHash(filePath: string): string | null {
@@ -80,7 +204,8 @@ function readHash(filePath: string): string | null {
  */
 function getArchiveBase(): string {
   if (process.env.LTX_PYTHON_URL) {
-    return process.env.LTX_PYTHON_URL
+    // Strip surrounding quotes that Windows shell may embed
+    return process.env.LTX_PYTHON_URL.replace(/^["']+|["']+$/g, '')
   }
   const version = app.getVersion()
   return `https://github.com/Lightricks/ltx-desktop/releases/download/v${version}`
