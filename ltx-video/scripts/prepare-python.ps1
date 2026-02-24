@@ -8,7 +8,7 @@
 #   - uv must be installed (https://docs.astral.sh/uv/)
 
 param(
-    [string]$PythonVersion = "3.12.8",
+    [string]$PythonVersion = (Get-Content "$PSScriptRoot\..\backend\.python-version" -Raw).Trim(),
     [string]$OutputDir = "python-embed"
 )
 

@@ -105,17 +105,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ltx-video/python-embed
-          key: python-embed-${{ runner.os }}-${{ hashFiles('ltx-video/backend/uv.lock') }}
+          key: python-embed-${{ runner.os }}-${{ hashFiles('ltx-video/backend/.python-version', 'ltx-video/backend/uv.lock') }}
 
-      # Generate python deps hash
+      # Generate python deps hash (includes Python version + locked deps)
       - name: Generate python deps hash (macOS)
         if: matrix.os == 'macos'
-        run: shasum -a 256 backend/uv.lock | cut -d' ' -f1 > python-deps-hash.txt
+        run: cat backend/.python-version backend/uv.lock | shasum -a 256 | cut -d' ' -f1 > python-deps-hash.txt
 
       - name: Generate python deps hash (Windows)
         if: matrix.os == 'windows'
         shell: bash
-        run: sha256sum backend/uv.lock | cut -d' ' -f1 > python-deps-hash.txt
+        run: cat backend/.python-version backend/uv.lock | sha256sum | cut -d' ' -f1 > python-deps-hash.txt
 
       # macOS build
       - name: Build installer (macOS)
