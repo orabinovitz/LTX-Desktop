@@ -155,25 +155,36 @@ Write-Host "All dependencies installed" -ForegroundColor Green
 # ============================================================
 Write-Host "`nStep 7: Copying Python development files for Triton JIT..." -ForegroundColor Yellow
 
-$MajorMinor = ($PythonVersion -split '\.')[0..1] -join ''
-$SystemPython = "$env:LOCALAPPDATA\Programs\Python\Python$MajorMinor"
-if (Test-Path $SystemPython) {
-    $IncludeSrc = Join-Path $SystemPython "Include"
+# Ensure the exact Python version is available via uv, then copy headers/libs
+& uv python install "$PythonVersion" --quiet
+$UvPython = & uv python find "$PythonVersion" 2>$null
+if ($UvPython) {
+    $UvPrefix = Split-Path (Split-Path $UvPython)
+    Write-Host "  Using uv-managed Python at: $UvPrefix"
+
+    $IncludeSrc = Join-Path $UvPrefix "Include"
+    if (-not (Test-Path $IncludeSrc)) { $IncludeSrc = Join-Path $UvPrefix "include" }
     $IncludeDst = Join-Path $OutputPath "Include"
     if (Test-Path $IncludeSrc) {
         Copy-Item -Path $IncludeSrc -Destination $IncludeDst -Recurse -Force
         Write-Host "  Copied Include folder (Python headers)"
+    } else {
+        Write-Host "ERROR: No Include folder found at $UvPrefix" -ForegroundColor Red
+        exit 1
     }
 
-    $LibsSrc = Join-Path $SystemPython "libs"
+    $LibsSrc = Join-Path $UvPrefix "libs"
     $LibsDst = Join-Path $OutputPath "libs"
     if (Test-Path $LibsSrc) {
         Copy-Item -Path $LibsSrc -Destination $LibsDst -Recurse -Force
         Write-Host "  Copied libs folder (Python libraries)"
+    } else {
+        Write-Host "ERROR: No libs folder found at $UvPrefix" -ForegroundColor Red
+        exit 1
     }
 } else {
-    Write-Host "WARNING: System Python $MajorMinor not found at $SystemPython" -ForegroundColor Yellow
-    Write-Host "SageAttention/Triton JIT compilation may not work" -ForegroundColor Yellow
+    Write-Host "ERROR: Could not find Python $PythonVersion via uv" -ForegroundColor Red
+    exit 1
 }
 
 # ============================================================
