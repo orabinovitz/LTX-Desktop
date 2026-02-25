@@ -122,24 +122,25 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     const trimStartDelta = Number(args.trim_start_delta ?? 0)
     const trimEndDelta = Number(args.trim_end_delta ?? 0)
 
-    const trimmed: string[] = []
-    for (const clip of group) {
-      const newTrimStart = Math.max(0, clip.trimStart + trimStartDelta)
-      const newTrimEnd = Math.max(0, clip.trimEnd + trimEndDelta)
-      const newDuration = Math.max(0.1, clip.duration - trimStartDelta - trimEndDelta)
-
-      updateClip(clip.id, {
-        trimStart: newTrimStart,
-        trimEnd: newTrimEnd,
-        duration: newDuration,
-      })
-      trimmed.push(clip.id)
-    }
+    // Batch-update all linked clips in a single setClips call to avoid
+    // stale-closure overwrites (updateClip uses closure state, not prev).
+    const groupIds = new Set(group.map(c => c.id))
+    setClips(prev =>
+      prev.map(c => {
+        if (!groupIds.has(c.id)) return c
+        return {
+          ...c,
+          trimStart: Math.max(0, c.trimStart + trimStartDelta),
+          trimEnd: Math.max(0, c.trimEnd + trimEndDelta),
+          duration: Math.max(0.1, c.duration - trimStartDelta - trimEndDelta),
+        }
+      }),
+    )
 
     return {
       tool_name: 'trim_clip',
       success: true,
-      result: { trimmedClips: trimmed, trimStartDelta, trimEndDelta },
+      result: { trimmedClips: Array.from(groupIds), trimStartDelta, trimEndDelta },
       error: null,
     }
   }
@@ -227,19 +228,24 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     const timeDelta = args.new_start_time !== undefined ? Number(args.new_start_time) - primary.startTime : 0
     const trackDelta = args.new_track_index !== undefined ? Number(args.new_track_index) - primary.trackIndex : 0
 
-    const moved: string[] = []
-    for (const clip of group) {
-      const updates: Partial<TimelineClip> = {}
-      if (timeDelta !== 0) updates.startTime = clip.startTime + timeDelta
-      if (trackDelta !== 0) updates.trackIndex = clip.trackIndex + trackDelta
-      updateClip(clip.id, updates)
-      moved.push(clip.id)
-    }
+    // Batch-update all linked clips in a single setClips call to avoid
+    // stale-closure overwrites (updateClip uses closure state, not prev).
+    const groupIds = new Set(group.map(c => c.id))
+    setClips(prev =>
+      prev.map(c => {
+        if (!groupIds.has(c.id)) return c
+        return {
+          ...c,
+          ...(timeDelta !== 0 ? { startTime: c.startTime + timeDelta } : {}),
+          ...(trackDelta !== 0 ? { trackIndex: c.trackIndex + trackDelta } : {}),
+        }
+      }),
+    )
 
     return {
       tool_name: 'move_clip',
       success: true,
-      result: { movedClips: moved, timeDelta, trackDelta },
+      result: { movedClips: Array.from(groupIds), timeDelta, trackDelta },
       error: null,
     }
   }
