@@ -50,6 +50,7 @@ export interface LeftPanelProps {
   handleCancelRegeneration: () => void
   isRegenerating: boolean
   regeneratingAssetId: string | null
+  analysisStatusMap: Map<string, import('../../hooks/use-analysis-status').AnalysisStatus>
   regenProgress: number
   regenStatusMessage: string
   handleResizeDragStart: (type: 'left' | 'right' | 'timeline' | 'assets', e: React.MouseEvent) => void
@@ -114,6 +115,7 @@ export function LeftPanel(props: LeftPanelProps) {
     handleCancelRegeneration,
     isRegenerating,
     regeneratingAssetId,
+    analysisStatusMap,
     regenProgress,
     regenStatusMessage,
     handleResizeDragStart,

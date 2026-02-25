@@ -61,6 +61,7 @@ import { I2vGenerationModal } from './editor/I2vGenerationModal'
 import { SubtitleTrackStyleEditor } from './editor/SubtitleTrackStyleEditor'
 import { AgentPromptBox } from './editor/AgentPromptBox'
 import { useAgent, triggerVideoAnalysis } from '../hooks/use-agent'
+import { useAnalysisStatus } from '../hooks/use-analysis-status'
 import { useAgentExecutor } from './editor/useAgentExecutor'
 
 // Custom scissors cursor SVG for the blade tool (white with dark outline for contrast)
@@ -497,6 +498,8 @@ export function VideoEditor() {
     splitClipAtPlayhead, removeClip, updateClip, addClipToTimeline,
     setCurrentTime, setClips,
   })
+  const { statusMap: analysisStatusMap, markAnalyzing } = useAnalysisStatus()
+
   const handleAgentSend = useCallback((prompt: string) => {
     sendPrompt(prompt, clips, tracks.length, currentTime, executeTool)
   }, [sendPrompt, clips, tracks.length, currentTime, executeTool])
@@ -509,9 +512,10 @@ export function VideoEditor() {
       if (asset.type === 'video' && asset.path && !analyzedAssetIds.current.has(asset.id)) {
         analyzedAssetIds.current.add(asset.id)
         triggerVideoAnalysis(asset.id, asset.path)
+        markAnalyzing(asset.id)
       }
     }
-  }, [assets])
+  }, [assets, markAnalyzing])
 
   // Ensure the active timeline is always in the open tab set.
   // On first load (empty set), open only the active timeline.
@@ -1808,6 +1812,7 @@ export function VideoEditor() {
         regeneratingAssetId={regeneratingAssetId}
         regenProgress={regenProgress}
         regenStatusMessage={regenStatusMessage}
+        analysisStatusMap={analysisStatusMap}
         handleResizeDragStart={handleResizeDragStart}
         timelineAddMenuOpen={timelineAddMenuOpen}
         setTimelineAddMenuOpen={setTimelineAddMenuOpen}
