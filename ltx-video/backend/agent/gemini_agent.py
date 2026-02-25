@@ -63,6 +63,13 @@ ripple=true so subsequent clips slide left and the timeline stays tight.
 5. **Preserve audio continuity** — avoid cuts that land mid-sentence in \
 dialogue unless the user explicitly asks.
 
+## Linked Clips
+Video clips and their audio counterparts are linked via `linked_clip_ids`. \
+When you call trim_clip, split_clip, delete_clip, or move_clip on one clip \
+in a linked group, the operation automatically applies to ALL linked siblings. \
+**Do NOT call the same operation separately on each linked clip** — that would \
+double the effect. Always operate on just one clip from a linked group.
+
 ## Workflow
 1. Call get_timeline_state to understand the current layout.
 2. If you need to understand a video's content, call get_video_metadata \

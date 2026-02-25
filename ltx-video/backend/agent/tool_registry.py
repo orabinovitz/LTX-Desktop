@@ -70,7 +70,10 @@ trim_clip = _tool(
         "earlier. A positive trim_end_delta removes frames from the end; "
         "a negative value extends it later. Both deltas default to 0. "
         "The clip's position on the timeline (startTime) is NOT changed; "
-        "only the visible portion within the source media changes."
+        "only the visible portion within the source media changes. "
+        "If the clip is part of a linked group (e.g. video+audio pair), "
+        "the operation automatically applies to all linked siblings — "
+        "do not call this tool separately for each linked clip."
     ),
     execution_target=ExecutionTarget.FRONTEND,
     parameters=[
@@ -102,7 +105,10 @@ split_clip = _tool(
         "at the split point, and a new clip is created starting at the split "
         "point with the remainder. Both clips keep the same track index. "
         "The time must fall within the clip's visible range "
-        "(startTime < time < startTime + duration - trimEnd)."
+        "(startTime < time < startTime + duration - trimEnd). "
+        "If the clip is part of a linked group (e.g. video+audio pair), "
+        "the operation automatically applies to all linked siblings — "
+        "do not call this tool separately for each linked clip."
     ),
     execution_target=ExecutionTarget.FRONTEND,
     parameters=[
@@ -121,7 +127,10 @@ delete_clip = _tool(
         "Remove a clip from the timeline. When ripple is true, all clips "
         "on the same track that start after the deleted clip slide left to "
         "close the gap. When ripple is false, the clip is removed but a "
-        "gap remains in its place."
+        "gap remains in its place. "
+        "If the clip is part of a linked group (e.g. video+audio pair), "
+        "the operation automatically applies to all linked siblings — "
+        "do not call this tool separately for each linked clip."
     ),
     execution_target=ExecutionTarget.FRONTEND,
     parameters=[
@@ -144,7 +153,10 @@ move_clip = _tool(
         "track. The clip keeps its current duration, trims, and effects. "
         "Use get_timeline_state first to verify the target position is free "
         "of overlapping clips. Track indices are zero-based and correspond "
-        "to the tracks array in the timeline state."
+        "to the tracks array in the timeline state. "
+        "If the clip is part of a linked group (e.g. video+audio pair), "
+        "the operation automatically applies to all linked siblings — "
+        "do not call this tool separately for each linked clip."
     ),
     execution_target=ExecutionTarget.FRONTEND,
     parameters=[
