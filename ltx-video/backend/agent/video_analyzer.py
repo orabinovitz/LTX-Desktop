@@ -2,17 +2,18 @@
 
 Provides background video analysis with an in-memory cache.  Structural
 metadata (duration, resolution, fps) is extracted locally via ffprobe;
-semantic metadata (scenes, dialogue, summary) comes from Gemini 2.0 Flash.
+semantic metadata (scenes, dialogue, summary) comes from Gemini 2.0 Flash
+via the File Upload API (handles large video files).
 """
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import mimetypes
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from agent.types import AnalysisStatus, DialogueLine, SceneSegment, VideoMetadata
@@ -27,6 +28,9 @@ logger = logging.getLogger(__name__)
 _metadata_cache: dict[str, VideoMetadata] = {}
 _cache_lock = threading.Lock()
 
+# Limit concurrent analyses to avoid flooding network
+_analysis_semaphore = threading.Semaphore(5)
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -39,20 +43,12 @@ def get_metadata(asset_id: str) -> VideoMetadata | None:
 
 
 def get_structural_metadata(file_path: str) -> dict[str, float | tuple[int, int]]:
-    """Run ffprobe to extract duration, resolution and fps.
-
-    Returns a dict with keys ``duration``, ``resolution`` (width, height),
-    and ``fps``.  All values are best-effort; defaults are used when
-    ffprobe output is missing or unparseable.
-    """
+    """Run ffprobe to extract duration, resolution and fps."""
     cmd = [
         "ffprobe",
-        "-v",
-        "quiet",
-        "-print_format",
-        "json",
-        "-show_format",
-        "-show_streams",
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_format", "-show_streams",
         file_path,
     ]
     try:
@@ -62,7 +58,6 @@ def get_structural_metadata(file_path: str) -> dict[str, float | tuple[int, int]
         logger.warning("ffprobe failed for %s, returning defaults", file_path)
         return {"duration": 0.0, "resolution": (0, 0), "fps": 0.0}
 
-    # --- duration ---
     duration = 0.0
     fmt = probe.get("format", {})
     if "duration" in fmt:
@@ -71,20 +66,17 @@ def get_structural_metadata(file_path: str) -> dict[str, float | tuple[int, int]
         except (ValueError, TypeError):
             pass
 
-    # --- video stream ---
     width, height, fps = 0, 0, 0.0
     for stream in probe.get("streams", []):
         if stream.get("codec_type") == "video":
             width = int(stream.get("width", 0))
             height = int(stream.get("height", 0))
-            # r_frame_rate is usually "30/1" or "24000/1001"
             r_fps = stream.get("r_frame_rate", "0/1")
             try:
                 num, den = r_fps.split("/")
                 fps = float(num) / float(den) if float(den) else 0.0
             except (ValueError, ZeroDivisionError):
                 fps = 0.0
-            # Fallback duration from stream if format-level was missing
             if duration == 0.0 and "duration" in stream:
                 try:
                     duration = float(stream["duration"])
@@ -101,12 +93,7 @@ def analyze_video_background(
     gemini_api_key: str,
     http_client: HTTPClient,
 ) -> None:
-    """Kick off background video analysis.
-
-    Sets status to PENDING immediately and spawns a daemon thread that
-    runs ffprobe + Gemini Vision.  Results (or failure) are written back
-    into ``_metadata_cache``.
-    """
+    """Kick off background video analysis (one at a time via semaphore)."""
     with _cache_lock:
         _metadata_cache[asset_id] = VideoMetadata(
             asset_id=asset_id,
@@ -136,9 +123,10 @@ def _run_analysis(
     gemini_api_key: str,
     http_client: HTTPClient,
 ) -> None:
-    """Background thread: ffprobe then Gemini Vision."""
+    """Background thread: ffprobe then Gemini Vision (serialized via semaphore)."""
+    # Wait for semaphore — only one analysis at a time
+    _analysis_semaphore.acquire()
     try:
-        # Mark as ANALYZING
         with _cache_lock:
             entry = _metadata_cache.get(asset_id)
             if entry is not None:
@@ -157,7 +145,7 @@ def _run_analysis(
                 entry.resolution = resolution
                 entry.fps = fps
 
-        # 2. Semantic analysis via Gemini Vision
+        # 2. Semantic analysis via Gemini File Upload API
         gemini_result = _call_gemini_video(
             file_path=file_path,
             duration=duration,
@@ -165,7 +153,6 @@ def _run_analysis(
             http_client=http_client,
         )
 
-        # Parse Gemini structured output
         scenes: list[SceneSegment] = []
         for s in gemini_result.get("scenes", []):
             try:
@@ -192,9 +179,7 @@ def _run_analysis(
 
         logger.info(
             "Video analysis complete for %s: %d scenes, %d dialogue lines",
-            asset_id,
-            len(scenes),
-            len(dialogue),
+            asset_id, len(scenes), len(dialogue),
         )
 
     except Exception:
@@ -203,6 +188,96 @@ def _run_analysis(
             entry = _metadata_cache.get(asset_id)
             if entry is not None:
                 entry.analysis_status = AnalysisStatus.FAILED
+    finally:
+        _analysis_semaphore.release()
+
+
+def _upload_file_to_gemini(
+    file_path: str,
+    gemini_api_key: str,
+    http_client: HTTPClient,
+) -> str:
+    """Upload a video file via Gemini File Upload API. Returns the file URI.
+
+    Uses the resumable upload protocol:
+    1. POST to start upload → get upload URL
+    2. PUT file bytes to upload URL → get file metadata with URI
+    3. Poll until file state is ACTIVE (video processing)
+    """
+    path = Path(file_path)
+    file_bytes = path.read_bytes()
+    file_size = len(file_bytes)
+    mime_type = mimetypes.guess_type(file_path)[0] or "video/mp4"
+    display_name = path.name
+
+    # Step 1: Start resumable upload
+    start_url = (
+        "https://generativelanguage.googleapis.com/upload/v1beta/files"
+        f"?key={gemini_api_key}"
+    )
+
+    start_response = http_client.post(
+        start_url,
+        headers={
+            "Content-Type": "application/json",
+            "X-Goog-Upload-Protocol": "resumable",
+            "X-Goog-Upload-Command": "start",
+            "X-Goog-Upload-Header-Content-Length": str(file_size),
+            "X-Goog-Upload-Header-Content-Type": mime_type,
+        },
+        json_payload={"file": {"display_name": display_name}},
+        timeout=30,
+    )
+
+    # The upload URL is in the response headers
+    upload_url = start_response.headers.get("X-Goog-Upload-URL") or start_response.headers.get("x-goog-upload-url")
+    if not upload_url:
+        raise RuntimeError(
+            f"No upload URL in response headers. Status: {start_response.status_code}, "
+            f"Body: {start_response.text[:500]}"
+        )
+
+    # Step 2: Upload the actual file bytes
+    upload_response = http_client.post(
+        upload_url,
+        headers={
+            "Content-Length": str(file_size),
+            "X-Goog-Upload-Offset": "0",
+            "X-Goog-Upload-Command": "upload, finalize",
+        },
+        data=file_bytes,
+        timeout=300,  # large files can take a while
+    )
+
+    if upload_response.status_code not in (200, 201):
+        raise RuntimeError(
+            f"File upload failed: {upload_response.status_code} {upload_response.text[:500]}"
+        )
+
+    file_info = upload_response.json().get("file", {})
+    file_uri = file_info.get("uri", "")
+    file_name = file_info.get("name", "")
+
+    if not file_uri:
+        raise RuntimeError(f"No file URI in upload response: {upload_response.json()}")
+
+    # Step 3: Poll until video processing is complete
+    check_url = (
+        f"https://generativelanguage.googleapis.com/v1beta/{file_name}"
+        f"?key={gemini_api_key}"
+    )
+    for _ in range(60):  # max 5 minutes of polling
+        check_response = http_client.get(check_url, headers={}, timeout=10)
+        if check_response.status_code == 200:
+            state = check_response.json().get("state", "")
+            if state == "ACTIVE":
+                logger.info("File %s is ACTIVE and ready", file_name)
+                return file_uri
+            if state == "FAILED":
+                raise RuntimeError(f"File processing failed: {check_response.json()}")
+        time.sleep(5)
+
+    raise RuntimeError(f"File processing timed out for {file_name}")
 
 
 def _call_gemini_video(
@@ -211,14 +286,11 @@ def _call_gemini_video(
     gemini_api_key: str,
     http_client: HTTPClient,
 ) -> dict:
-    """Upload video as base64 inline data to Gemini 2.0 Flash and return parsed JSON.
+    """Upload video via File API then call generateContent. Returns parsed JSON."""
 
-    Returns a dict with keys ``summary``, ``scenes``, and ``dialogue``.
-    """
-    path = Path(file_path)
-    video_bytes = path.read_bytes()
-    video_b64 = base64.b64encode(video_bytes).decode("ascii")
-
+    # Upload video file first
+    logger.info("Uploading video for analysis: %s", file_path)
+    file_uri = _upload_file_to_gemini(file_path, gemini_api_key, http_client)
     mime_type = mimetypes.guess_type(file_path)[0] or "video/mp4"
 
     system_prompt = (
@@ -258,7 +330,7 @@ def _call_gemini_video(
             {
                 "role": "user",
                 "parts": [
-                    {"inlineData": {"mimeType": mime_type, "data": video_b64}},
+                    {"fileData": {"mimeType": mime_type, "fileUri": file_uri}},
                     {"text": user_text},
                 ],
             }
@@ -282,21 +354,17 @@ def _call_gemini_video(
         logger.error("Gemini video analysis timed out for %s", file_path)
         raise
     except Exception:
-        logger.error(
-            "Gemini video analysis request failed for %s", file_path, exc_info=True
-        )
+        logger.error("Gemini video analysis request failed for %s", file_path, exc_info=True)
         raise
 
     if response.status_code != 200:
-        msg = f"Gemini API error {response.status_code}: {response.text}"
+        msg = f"Gemini API error {response.status_code}: {response.text[:500]}"
         logger.error(msg)
         raise RuntimeError(msg)
 
-    # Gemini returns candidates[0].content.parts[0].text when responseMimeType
-    # is "application/json".
     body = response.json()
     try:
-        text = body["candidates"][0]["content"]["parts"][0]["text"]  # type: ignore[index]
+        text = body["candidates"][0]["content"]["parts"][0]["text"]
     except (KeyError, IndexError, TypeError) as exc:
         raise RuntimeError(f"Unexpected Gemini response structure: {body}") from exc
 
