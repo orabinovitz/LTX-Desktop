@@ -13,6 +13,9 @@ interface TimelineClipInfo {
   trim_end: number
   track_index: number
   speed: number
+  linked_clip_ids: string[]
+  volume: number
+  muted: boolean
 }
 
 interface TimelineState {
@@ -70,6 +73,9 @@ function buildTimelineState(
     trim_end: c.trimEnd,
     track_index: c.trackIndex,
     speed: c.speed,
+    linked_clip_ids: c.linkedClipIds ?? [],
+    volume: c.volume,
+    muted: c.muted,
   }))
 
   const totalDuration = clips.reduce(
@@ -125,7 +131,8 @@ export function useAgent() {
       const backendUrl = await window.electronAPI.getBackendUrl()
       const timelineState = buildTimelineState(clips, trackCount, currentTime)
 
-      // Initial request
+      // Initial request — send session_id if we have one so backend
+      // reuses the full Gemini conversation (including tool call history)
       const res = await fetch(`${backendUrl}/api/agent/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -133,13 +140,14 @@ export function useAgent() {
           prompt,
           timeline_state: timelineState,
           conversation_history: conversationRef.current,
+          session_id: sessionIdRef.current,
         }),
       })
 
       if (!res.ok) throw new Error(`Agent API error: ${res.status}`)
       let response: AgentResponse = await res.json()
 
-      // Extract session ID from first response
+      // Extract session ID from first response (new session)
       if (response.message.startsWith('SESSION:')) {
         sessionIdRef.current = response.message.slice(8)
         response.message = ''

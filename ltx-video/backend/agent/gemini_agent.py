@@ -106,13 +106,28 @@ def execute_prompt(
     gemini_api_key: str,
     http_client: HTTPClient,
 ) -> tuple[str, AgentExecuteResponse]:
-    """Start a new agentic loop for the given user prompt.
+    """Start or continue an agentic loop for the given user prompt.
+
+    If ``request.session_id`` references an existing session the new user
+    message is appended to the full Gemini conversation history (which
+    includes all prior function calls and results).  Otherwise a fresh
+    session is created.
 
     Returns ``(session_id, response)`` where *response* may contain
     frontend tool calls that the caller must execute and feed back via
     :func:`continue_with_results`.
     """
-    session_id = create_session()
+    # Reuse existing session when available so full Gemini history
+    # (including function calls / results) is preserved.
+    existing = (
+        request.session_id
+        and request.session_id in _sessions
+    )
+    if existing:
+        session_id = request.session_id  # type: ignore[assignment]
+        logger.info("Reusing existing session %s", session_id)
+    else:
+        session_id = create_session()
 
     # -- Build context text from timeline state --------------------------
     context_parts: list[str] = []
@@ -123,7 +138,7 @@ def execute_prompt(
         # Attach video metadata for every asset already on the timeline
         seen_assets: set[str] = set()
         for clip in request.timeline_state.clips:
-            if clip.asset_id in seen_assets:
+            if not clip.asset_id or clip.asset_id in seen_assets:
                 continue
             seen_assets.add(clip.asset_id)
             meta = video_analyzer.get_metadata(clip.asset_id)
@@ -143,13 +158,18 @@ def execute_prompt(
         "parts": [{"text": "\n\n".join(user_text_parts)}],
     }
 
-    # Seed conversation with any prior history
-    contents: list[dict[str, Any]] = []
-    for msg in request.conversation_history:
-        contents.append({"role": msg.role, "parts": [{"text": msg.content}]})
-    contents.append(user_message)
-
-    _sessions[session_id] = contents
+    if existing:
+        # Append new user message to existing conversation
+        _sessions[session_id].append(user_message)
+    else:
+        # New session — seed with any prior text history as fallback
+        _role_map = {"user": "user", "agent": "model", "assistant": "model", "model": "model"}
+        contents: list[dict[str, Any]] = []
+        for msg in request.conversation_history:
+            gemini_role = _role_map.get(msg.role, "user")
+            contents.append({"role": gemini_role, "parts": [{"text": msg.content}]})
+        contents.append(user_message)
+        _sessions[session_id] = contents
 
     logger.info(
         "Executing prompt for session %s: %.120s",
@@ -180,8 +200,10 @@ def continue_with_results(
         payload: dict[str, Any] = (
             {"result": tr.result} if tr.success else {"error": tr.error or "unknown error"}
         )
+        # Use tool_name for the Gemini function response name; fall back to call_id
+        fn_name = tr.tool_name or tr.call_id or "unknown"
         function_response_parts.append(
-            {"functionResponse": {"name": tr.call_id, "response": payload}}
+            {"functionResponse": {"name": fn_name, "response": payload}}
         )
 
     _sessions[session_id].append(
@@ -452,12 +474,15 @@ def _format_timeline_context(state: TimelineState) -> str:
 
     lines.append(f"  {len(state.clips)} clip(s):")
     for clip in state.clips:
+        linked_str = ""
+        if clip.linked_clip_ids:
+            linked_str = f"  linked={clip.linked_clip_ids}"
         lines.append(
             f"  - clip_id={clip.id}  asset={clip.asset_id}  "
             f"type={clip.type}  track={clip.track_index}  "
             f"start={clip.start_time:.2f}s  dur={clip.duration:.2f}s  "
             f"trim_start={clip.trim_start:.2f}  trim_end={clip.trim_end:.2f}  "
-            f"speed={clip.speed:.2f}x"
+            f"speed={clip.speed:.2f}x{linked_str}"
         )
 
     return "\n".join(lines)

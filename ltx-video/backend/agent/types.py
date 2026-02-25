@@ -104,7 +104,8 @@ class ToolCall(BaseModel):
 class ToolResult(BaseModel):
     """Result of executing a ToolCall."""
 
-    call_id: str
+    tool_name: str = Field(default="", description="Name of the tool that was called")
+    call_id: str = Field(default="", description="Correlates with ToolCall.call_id")
     success: bool = True
     result: Any = None
     error: str | None = None
@@ -114,7 +115,7 @@ class TimelineClipInfo(BaseModel):
     """Minimal clip information for agent context."""
 
     id: str
-    asset_id: str
+    asset_id: str | None = None
     type: str = Field(description="Clip type (video, audio, image, …)")
     start_time: float = Field(description="Position on timeline in seconds")
     duration: float
@@ -122,6 +123,9 @@ class TimelineClipInfo(BaseModel):
     trim_end: float = 0.0
     track_index: int = 0
     speed: float = 1.0
+    linked_clip_ids: list[str] = Field(default_factory=list, description="IDs of linked clips (e.g. video<->audio pairs)")
+    volume: float = Field(default=1.0, description="Clip volume (0.0 to 1.0)")
+    muted: bool = Field(default=False, description="Whether clip audio is muted")
 
 
 class TimelineState(BaseModel):
@@ -146,6 +150,7 @@ class AgentExecuteRequest(BaseModel):
     prompt: str = Field(description="User's natural-language instruction")
     timeline_state: TimelineState | None = None
     conversation_history: list[AgentMessage] = Field(default_factory=list)
+    session_id: str | None = Field(default=None, description="Existing session to continue conversation in")
 
 
 class AgentExecuteResponse(BaseModel):
@@ -162,7 +167,7 @@ class AgentContinueRequest(BaseModel):
 
     tool_results: list[ToolResult] = Field(default_factory=list)
     conversation_history: list[AgentMessage] = Field(default_factory=list)
-    session_id: str = Field(default="", description="Identifies the ongoing agent session")
+    session_id: str | None = Field(default="", description="Identifies the ongoing agent session")
 
 
 class AnalyzeVideoRequest(BaseModel):
