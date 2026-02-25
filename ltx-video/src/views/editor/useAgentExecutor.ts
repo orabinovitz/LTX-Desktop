@@ -320,6 +320,16 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     }
   }
 
+  const sanitizeArgs = (args: Record<string, unknown>): Record<string, unknown> => {
+    const sanitized = { ...args }
+    for (const [key, value] of Object.entries(sanitized)) {
+      if (typeof value === 'number' && isNaN(value)) {
+        sanitized[key] = 0
+      }
+    }
+    return sanitized
+  }
+
   // -----------------------------------------------------------------------
   // Dispatcher
   // -----------------------------------------------------------------------
@@ -327,31 +337,34 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   const executeTool = useCallback(
     async (call: ToolCall): Promise<ToolResult> => {
       try {
-        switch (call.tool_name) {
+        const args = sanitizeArgs(call.arguments)
+        const safe = { ...call, arguments: args }
+
+        switch (safe.tool_name) {
           case 'get_timeline_state':
             return handleGetTimelineState()
           case 'trim_clip':
-            return handleTrimClip(call.arguments)
+            return handleTrimClip(safe.arguments)
           case 'split_clip':
-            return handleSplitClip(call.arguments)
+            return handleSplitClip(safe.arguments)
           case 'delete_clip':
-            return handleDeleteClip(call.arguments)
+            return handleDeleteClip(safe.arguments)
           case 'move_clip':
-            return handleMoveClip(call.arguments)
+            return handleMoveClip(safe.arguments)
           case 'add_clip_to_timeline':
-            return handleAddClipToTimeline(call.arguments)
+            return handleAddClipToTimeline(safe.arguments)
           case 'set_playhead':
-            return handleSetPlayhead(call.arguments)
+            return handleSetPlayhead(safe.arguments)
           case 'duplicate_timeline':
             return handleDuplicateTimeline()
           case 'get_project_assets':
             return handleGetProjectAssets()
           default:
             return {
-              tool_name: call.tool_name,
+              tool_name: safe.tool_name,
               success: false,
               result: null,
-              error: `Unknown tool: ${call.tool_name}`,
+              error: `Unknown tool: ${safe.tool_name}`,
             }
         }
       } catch (err) {
