@@ -60,7 +60,7 @@ import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
 import { I2vGenerationModal } from './editor/I2vGenerationModal'
 import { SubtitleTrackStyleEditor } from './editor/SubtitleTrackStyleEditor'
 import { AgentPromptBox } from './editor/AgentPromptBox'
-import { useAgent } from '../hooks/use-agent'
+import { useAgent, triggerVideoAnalysis } from '../hooks/use-agent'
 import { useAgentExecutor } from './editor/useAgentExecutor'
 
 // Custom scissors cursor SVG for the blade tool (white with dark outline for contrast)
@@ -501,6 +501,17 @@ export function VideoEditor() {
     sendPrompt(prompt, clips, tracks.length, currentTime, executeTool)
   }, [sendPrompt, clips, tracks.length, currentTime, executeTool])
   const handleAgentUndo = useCallback(() => { restoreSnapshot() }, [restoreSnapshot])
+
+  // Trigger background video analysis for newly imported video assets
+  const analyzedAssetIds = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    for (const asset of assets) {
+      if (asset.type === 'video' && asset.path && !analyzedAssetIds.current.has(asset.id)) {
+        analyzedAssetIds.current.add(asset.id)
+        triggerVideoAnalysis(asset.id, asset.path)
+      }
+    }
+  }, [assets])
 
   // Ensure the active timeline is always in the open tab set.
   // On first load (empty set), open only the active timeline.
