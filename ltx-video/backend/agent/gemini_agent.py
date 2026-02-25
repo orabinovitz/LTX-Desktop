@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 _MAX_TURNS = 10
 """Hard ceiling on agentic loop iterations to prevent runaway calls."""
 
-_GEMINI_MODEL = "gemini-2.5-flash"
+_GEMINI_MODEL = "gemini-3.1-pro-preview-customtools"
 
 SYSTEM_PROMPT = """\
 You are a senior video editor with years of professional editing experience, \
