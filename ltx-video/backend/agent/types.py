@@ -160,6 +160,7 @@ class AgentExecuteResponse(BaseModel):
     tool_calls: list[ToolCall] = Field(default_factory=list)
     message: str = Field(default="", description="Message to display to the user")
     done: bool = Field(default=False, description="True when the agent has finished all steps")
+    session_id: str = Field(default="", description="Session ID for continuing the conversation")
 
 
 class AgentContinueRequest(BaseModel):

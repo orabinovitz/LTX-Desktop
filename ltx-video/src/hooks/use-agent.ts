@@ -47,6 +47,7 @@ interface AgentResponse {
   tool_calls: ToolCall[]
   message: string
   done: boolean
+  session_id: string
 }
 
 export interface ChatMessage {
@@ -147,10 +148,9 @@ export function useAgent() {
       if (!res.ok) throw new Error(`Agent API error: ${res.status}`)
       let response: AgentResponse = await res.json()
 
-      // Extract session ID from first response (new session)
-      if (response.message.startsWith('SESSION:')) {
-        sessionIdRef.current = response.message.slice(8)
-        response.message = ''
+      // Extract session ID from response
+      if (response.session_id) {
+        sessionIdRef.current = response.session_id
       }
 
       // Agentic loop
@@ -173,6 +173,21 @@ export function useAgent() {
         for (const tc of response.tool_calls) {
           const result = await executeTool(tc)
           results.push(result)
+        }
+
+        // Show immediate feedback: tools executed, waiting for summary
+        const allSucceeded = results.every(r => r.success)
+        if (allSucceeded) {
+          setMessages(prev => {
+            const updated = [...prev]
+            if (updated.length > 0 && updated[updated.length - 1].isExecuting) {
+              updated[updated.length - 1] = {
+                ...updated[updated.length - 1],
+                isExecuting: false,
+              }
+            }
+            return updated
+          })
         }
 
         // Continue the loop with results

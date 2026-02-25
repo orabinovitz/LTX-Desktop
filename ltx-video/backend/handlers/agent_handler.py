@@ -40,9 +40,7 @@ class AgentHandler(StateHandlerBase):
             gemini_api_key=api_key,
             http_client=self._http,
         )
-        # Pass session_id back to frontend via message field when not done
-        if not response.done:
-            response.message = f"SESSION:{session_id}"
+        response.session_id = session_id
         return response
 
     def continue_session(self, request: AgentContinueRequest) -> AgentExecuteResponse:
