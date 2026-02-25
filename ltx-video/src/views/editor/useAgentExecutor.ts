@@ -51,6 +51,20 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   const snapshotRef = useRef<TimelineClip[] | null>(null)
 
   // -----------------------------------------------------------------------
+  // Linked-clip helper: collect the target clip + all linked siblings
+  // -----------------------------------------------------------------------
+
+  const getLinkedGroup = (clipId: string): TimelineClip[] => {
+    const clips = clipsRef.current ?? []
+    const clip = clips.find(c => c.id === clipId)
+    if (!clip) return []
+    if (!clip.linkedClipIds?.length) return [clip]
+
+    const ids = new Set<string>([clipId, ...clip.linkedClipIds])
+    return clips.filter(c => ids.has(c.id))
+  }
+
+  // -----------------------------------------------------------------------
   // Tool handlers
   // -----------------------------------------------------------------------
 
@@ -99,33 +113,33 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       return { tool_name: 'trim_clip', success: false, result: null, error: 'Missing clip_id' }
     }
 
-    const clips = clipsRef.current ?? []
-    const clip = clips.find(c => c.id === clipId)
-    if (!clip) {
+    const group = getLinkedGroup(clipId)
+    if (group.length === 0) {
       return { tool_name: 'trim_clip', success: false, result: null, error: `Clip not found: ${clipId}` }
     }
 
-    const updates: Partial<TimelineClip> = {}
+    // Apply relative deltas (matching tool_registry.py definition)
+    const trimStartDelta = Number(args.trim_start_delta ?? 0)
+    const trimEndDelta = Number(args.trim_end_delta ?? 0)
 
-    if (args.trim_start !== undefined) {
-      updates.trimStart = Number(args.trim_start)
-    }
-    if (args.trim_end !== undefined) {
-      updates.trimEnd = Number(args.trim_end)
-    }
-    if (args.duration !== undefined) {
-      updates.duration = Number(args.duration)
-    }
-    if (args.start_time !== undefined) {
-      updates.startTime = Number(args.start_time)
-    }
+    const trimmed: string[] = []
+    for (const clip of group) {
+      const newTrimStart = Math.max(0, clip.trimStart + trimStartDelta)
+      const newTrimEnd = Math.max(0, clip.trimEnd + trimEndDelta)
+      const newDuration = Math.max(0.1, clip.duration - trimStartDelta - trimEndDelta)
 
-    updateClip(clipId, updates)
+      updateClip(clip.id, {
+        trimStart: newTrimStart,
+        trimEnd: newTrimEnd,
+        duration: newDuration,
+      })
+      trimmed.push(clip.id)
+    }
 
     return {
       tool_name: 'trim_clip',
       success: true,
-      result: { clipId, updates },
+      result: { trimmedClips: trimmed, trimStartDelta, trimEndDelta },
       error: null,
     }
   }
@@ -137,12 +151,19 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     }
 
     const time = args.time !== undefined ? Number(args.time) : undefined
-    splitClipAtPlayhead(clipId, time)
+    const group = getLinkedGroup(clipId)
+
+    // Split all linked clips at the same time
+    const splitIds: string[] = []
+    for (const clip of group) {
+      splitClipAtPlayhead(clip.id, time)
+      splitIds.push(clip.id)
+    }
 
     return {
       tool_name: 'split_clip',
       success: true,
-      result: { clipId, time },
+      result: { splitClips: splitIds, time },
       error: null,
     }
   }
@@ -154,24 +175,28 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     }
 
     const ripple = Boolean(args.ripple)
-    const clips = clipsRef.current ?? []
-    const clip = clips.find(c => c.id === clipId)
+    const group = getLinkedGroup(clipId)
 
-    if (!clip) {
+    if (group.length === 0) {
       return { tool_name: 'delete_clip', success: false, result: null, error: `Clip not found: ${clipId}` }
     }
 
-    const removedDuration = clip.duration
-    const removedStart = clip.startTime
-    const trackIndex = clip.trackIndex
+    // Collect info for ripple before removal
+    const removedDuration = group[0].duration
+    const removedStart = group[0].startTime
+    const affectedTracks = new Set(group.map(c => c.trackIndex))
+    const removedIds = new Set(group.map(c => c.id))
 
-    removeClip(clipId)
+    // Remove all clips in the linked group
+    for (const clip of group) {
+      removeClip(clip.id)
+    }
 
-    // Ripple: shift subsequent clips on the same track to the left
+    // Ripple: shift subsequent clips on affected tracks to the left
     if (ripple) {
       setClips(prev =>
         prev.map(c => {
-          if (c.trackIndex === trackIndex && c.startTime > removedStart) {
+          if (affectedTracks.has(c.trackIndex) && !removedIds.has(c.id) && c.startTime > removedStart) {
             return { ...c, startTime: c.startTime - removedDuration }
           }
           return c
@@ -182,7 +207,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     return {
       tool_name: 'delete_clip',
       success: true,
-      result: { clipId, ripple },
+      result: { deletedClips: Array.from(removedIds), ripple },
       error: null,
     }
   }
@@ -193,20 +218,28 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       return { tool_name: 'move_clip', success: false, result: null, error: 'Missing clip_id' }
     }
 
-    const updates: Partial<TimelineClip> = {}
-    if (args.start_time !== undefined) {
-      updates.startTime = Number(args.start_time)
-    }
-    if (args.track_index !== undefined) {
-      updates.trackIndex = Number(args.track_index)
+    const group = getLinkedGroup(clipId)
+    if (group.length === 0) {
+      return { tool_name: 'move_clip', success: false, result: null, error: `Clip not found: ${clipId}` }
     }
 
-    updateClip(clipId, updates)
+    const primary = group.find(c => c.id === clipId)!
+    const timeDelta = args.new_start_time !== undefined ? Number(args.new_start_time) - primary.startTime : 0
+    const trackDelta = args.new_track_index !== undefined ? Number(args.new_track_index) - primary.trackIndex : 0
+
+    const moved: string[] = []
+    for (const clip of group) {
+      const updates: Partial<TimelineClip> = {}
+      if (timeDelta !== 0) updates.startTime = clip.startTime + timeDelta
+      if (trackDelta !== 0) updates.trackIndex = clip.trackIndex + trackDelta
+      updateClip(clip.id, updates)
+      moved.push(clip.id)
+    }
 
     return {
       tool_name: 'move_clip',
       success: true,
-      result: { clipId, updates },
+      result: { movedClips: moved, timeDelta, trackDelta },
       error: null,
     }
   }
