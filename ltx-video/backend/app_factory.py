@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from _routes._errors import HTTPError
+from _routes.agent import router as agent_router
 from _routes.generation import router as generation_router
 from _routes.health import router as health_router
 from _routes.ic_lora import router as ic_lora_router
@@ -74,5 +75,6 @@ def create_app(
     app.include_router(prompt_router)
     app.include_router(retake_router)
     app.include_router(ic_lora_router)
+    app.include_router(agent_router)
 
     return app

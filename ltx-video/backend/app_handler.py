@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from state.app_settings import AppSettings
 from handlers import (
+    AgentHandler,
     DownloadHandler,
     GenerationHandler,
     HealthHandler,
@@ -201,6 +202,12 @@ class AppHandler:
             ic_lora_model_downloader=ic_lora_model_downloader,
             ic_lora_dir=config.ic_lora_dir,
             outputs_dir=config.outputs_dir,
+        )
+
+        self.agent = AgentHandler(
+            state=self.state,
+            lock=self._lock,
+            http=http,
         )
 
         self.models.refresh_available_files()
