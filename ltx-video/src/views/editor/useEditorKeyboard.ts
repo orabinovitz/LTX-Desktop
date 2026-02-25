@@ -65,6 +65,7 @@ interface KeyboardSetters {
   setGapGenerateMode: React.Dispatch<React.SetStateAction<'text-to-video' | 'image-to-video' | 'text-to-image' | null>>
   setSelectedGap: (v: any) => void
   setSelectedAssetIds: React.Dispatch<React.SetStateAction<Set<string>>>
+  setAgentOpen: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 interface KeyboardContext {
@@ -394,6 +395,9 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
         }
         case 'view.fullscreen':
           refs.toggleFullscreenRef.current()
+          break
+        case 'agent.prompt':
+          setters.setAgentOpen(prev => !prev)
           break
       }
     }

@@ -59,6 +59,9 @@ import { GapGenerationModal } from './editor/GapGenerationModal'
 import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
 import { I2vGenerationModal } from './editor/I2vGenerationModal'
 import { SubtitleTrackStyleEditor } from './editor/SubtitleTrackStyleEditor'
+import { AgentPromptBox } from './editor/AgentPromptBox'
+import { useAgent } from '../hooks/use-agent'
+import { useAgentExecutor } from './editor/useAgentExecutor'
 
 // Custom scissors cursor SVG for the blade tool (white with dark outline for contrast)
 const SCISSORS_CURSOR_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='6' r='3'/><path d='M8.12 8.12 12 12'/><path d='M20 4 8.12 15.88'/><circle cx='6' cy='18' r='3'/><path d='M14.8 14.8 20 20'/></svg>`
@@ -139,6 +142,7 @@ export function VideoEditor() {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey) }
   }, [])
   const [snapEnabled, setSnapEnabled] = useState(true)
+  const [agentOpen, setAgentOpen] = useState(false)
   const [showEffectsBrowser, setShowEffectsBrowser] = useState(false)
   const [showTrimFlyout, setShowTrimFlyout] = useState(false)
   const [lastTrimTool, setLastTrimTool] = useState<ToolType>('ripple')
@@ -485,7 +489,19 @@ export function VideoEditor() {
     setActiveTimeline, setOpenTimelineIds, activeTimeline,
     fileInputRef, setHoveredCutPoint,
   })
-  
+
+  // Agent hooks
+  const { messages: agentMessages, isProcessing: agentProcessing, sendPrompt } = useAgent()
+  const { executeTool, restoreSnapshot } = useAgentExecutor({
+    clipsRef, tracksRef, assetsRef, currentTimeRef: playbackTimeRef,
+    splitClipAtPlayhead, removeClip, updateClip, addClipToTimeline,
+    setCurrentTime, setClips,
+  })
+  const handleAgentSend = useCallback((prompt: string) => {
+    sendPrompt(prompt, clips, tracks.length, currentTime, executeTool)
+  }, [sendPrompt, clips, tracks.length, currentTime, executeTool])
+  const handleAgentUndo = useCallback(() => { restoreSnapshot() }, [restoreSnapshot])
+
   // Ensure the active timeline is always in the open tab set.
   // On first load (empty set), open only the active timeline.
   useEffect(() => {
@@ -1112,6 +1128,7 @@ export function VideoEditor() {
       setZoom,
       setSnapEnabled,
       clearInOut,
+      setAgentOpen,
     },
     context: {
       selectedGap,
@@ -4207,6 +4224,16 @@ export function VideoEditor() {
           }}
         />
       )}
+
+      <AgentPromptBox
+        isOpen={agentOpen}
+        onClose={() => setAgentOpen(false)}
+        messages={agentMessages}
+        isProcessing={agentProcessing}
+        onSend={handleAgentSend}
+        onUndo={handleAgentUndo}
+        canUndo={true}
+      />
     </div>
     </div>
   )
