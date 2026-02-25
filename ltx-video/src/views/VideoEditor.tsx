@@ -3911,6 +3911,14 @@ export function VideoEditor() {
             addClipToTimeline={addClipToTimeline}
             handleRegenerate={(id) => handleRegenerate(id)}
             handleCancelRegeneration={handleCancelRegeneration}
+            onRetryAnalysis={(assetId) => {
+              const a = assets.find(x => x.id === assetId)
+              if (a?.path) {
+                analyzedAssetIds.current.delete(assetId)
+                triggerVideoAnalysis(assetId, a.path)
+                markAnalyzing(assetId)
+              }
+            }}
             setAssetActiveTake={setAssetActiveTake}
             setTakesViewAssetId={setTakesViewAssetId}
             setSelectedAssetIds={setSelectedAssetIds}

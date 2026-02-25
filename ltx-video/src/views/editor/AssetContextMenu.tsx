@@ -17,6 +17,7 @@ export interface AssetContextMenuProps {
   addClipToTimeline: (asset: Asset, trackIndex?: number, startTime?: number) => void
   handleRegenerate: (assetId: string) => void
   handleCancelRegeneration: () => void
+  onRetryAnalysis: (assetId: string) => void
   setAssetActiveTake: (projectId: string, assetId: string, takeIndex: number) => void
   setTakesViewAssetId: (assetId: string | null) => void
   setSelectedAssetIds: React.Dispatch<React.SetStateAction<Set<string>>>
@@ -42,6 +43,7 @@ export function AssetContextMenu({
   addClipToTimeline,
   handleRegenerate,
   handleCancelRegeneration,
+  onRetryAnalysis,
   setAssetActiveTake,
   setTakesViewAssetId,
   setSelectedAssetIds,
@@ -90,6 +92,19 @@ export function AssetContextMenu({
         >
           <FolderOpen className="h-3.5 w-3.5 text-zinc-500" />
           <span>Show in Explorer</span>
+        </button>
+      )}
+
+      {!isMulti && asset.type === 'video' && asset.path && (
+        <button
+          onClick={() => {
+            onRetryAnalysis(asset.id)
+            setAssetContextMenu(null)
+          }}
+          className="w-full text-left px-3 py-1.5 text-zinc-300 hover:bg-zinc-700 flex items-center gap-3"
+        >
+          <RefreshCw className="h-3.5 w-3.5 text-zinc-500" />
+          <span>Retry Analysis</span>
         </button>
       )}
 
