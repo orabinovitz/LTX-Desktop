@@ -10,7 +10,9 @@ from services.services_utils import empty_device_cache
 class TorchCleaner:
     """Wraps GPU memory cleanup operations."""
 
+    def __init__(self, device: str = "cpu") -> None:
+        self._device = device
+
     def cleanup(self) -> None:
-        empty_device_cache("cuda")
-        empty_device_cache("mps")
+        empty_device_cache(self._device)
         gc.collect()

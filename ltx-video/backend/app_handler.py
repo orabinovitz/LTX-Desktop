@@ -245,7 +245,7 @@ def build_default_service_bundle(config: RuntimeConfig) -> ServiceBundle:
 
     return ServiceBundle(
         http=http,
-        gpu_cleaner=TorchCleaner(),
+        gpu_cleaner=TorchCleaner(device=config.device),
         model_downloader=HuggingFaceDownloader(),
         gpu_info=GpuInfoImpl(),
         video_processor=VideoProcessorImpl(),
