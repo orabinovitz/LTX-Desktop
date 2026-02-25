@@ -699,10 +699,30 @@ export function LeftPanel(props: LeftPanelProps) {
                     </>
                   )}
                   {asset.type === 'video' ? (
-                    <VideoThumbnailCard
-                      url={asset.url}
-                      thumbnailUrl={thumbnailMap[asset.url]}
-                    />
+                    <div className="relative">
+                      <VideoThumbnailCard
+                        url={asset.url}
+                        thumbnailUrl={thumbnailMap[asset.url]}
+                      />
+                      {analysisStatusMap.get(asset.id) === 'analyzing' && (
+                        <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/70 backdrop-blur-sm z-10">
+                          <div className="h-2 w-2 rounded-full border-[1.5px] border-blue-400 border-t-transparent animate-spin" />
+                          <span className="text-[9px] text-blue-300 font-medium">Analyzing</span>
+                        </div>
+                      )}
+                      {analysisStatusMap.get(asset.id) === 'complete' && (
+                        <div className="absolute bottom-1.5 left-1.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-black/70 backdrop-blur-sm z-10">
+                          <div className="h-2 w-2 rounded-full bg-emerald-400" />
+                          <span className="text-[9px] text-emerald-300 font-medium">Ready</span>
+                        </div>
+                      )}
+                      {analysisStatusMap.get(asset.id) === 'failed' && (
+                        <div className="absolute bottom-1.5 left-1.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-black/70 backdrop-blur-sm z-10">
+                          <div className="h-2 w-2 rounded-full bg-red-400" />
+                          <span className="text-[9px] text-red-300 font-medium">Failed</span>
+                        </div>
+                      )}
+                    </div>
                   ) : asset.type === 'audio' ? (
                     <div className="w-full aspect-video bg-gradient-to-br from-emerald-900/60 to-zinc-900 flex flex-col items-center justify-center gap-1.5">
                       <Music className="h-6 w-6 text-emerald-400" />
