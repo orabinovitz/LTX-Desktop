@@ -233,6 +233,26 @@ duplicate_timeline = _tool(
     execution_target=ExecutionTarget.FRONTEND,
 )
 
+create_timeline = _tool(
+    name="create_timeline",
+    description=(
+        "Create a new empty timeline with default tracks (3 video, 2 audio, "
+        "1 subtitle) in the current project. The new timeline becomes the "
+        "active timeline. Use this when the user wants to start a fresh edit "
+        "from scratch rather than modifying the existing timeline."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    parameters=[
+        _param(
+            "name",
+            "string",
+            "Display name for the new timeline. Defaults to an auto-incremented "
+            "name like 'Timeline 2' if omitted.",
+            required=False,
+        ),
+    ],
+)
+
 get_project_assets = _tool(
     name="get_project_assets",
     description=(
@@ -283,6 +303,7 @@ ALL_TOOLS: list[ToolDefinition] = [
     add_clip_to_timeline,
     set_playhead,
     duplicate_timeline,
+    create_timeline,
     get_project_assets,
     # Resource (backend)
     get_video_metadata,

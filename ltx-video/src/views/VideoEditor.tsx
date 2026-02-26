@@ -497,6 +497,8 @@ export function VideoEditor() {
     clipsRef, tracksRef, assetsRef, currentTimeRef: playbackTimeRef,
     splitClipAtPlayhead, removeClip, updateClip, addClipToTimeline,
     setCurrentTime, setClips,
+    currentProjectId, activeTimelineId: activeTimeline?.id,
+    duplicateTimeline, addProjectTimeline: addTimeline,
   })
   const { statusMap: analysisStatusMap, markAnalyzing } = useAnalysisStatus()
 

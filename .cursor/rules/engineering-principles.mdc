@@ -1,0 +1,40 @@
+---
+description: Core engineering principles - the project's decision-making compass for all code changes
+alwaysApply: true
+---
+
+# Engineering Principles
+
+Every code change must be evaluated against these three pillars. When they conflict, priority is: **Security > Maintainability > Scalability**.
+
+## 1. Security
+
+Treat all inputs, user data, and system access as hostile by default.
+
+- Validate and sanitize all inputs at system boundaries (IPC handlers, API endpoints, file paths)
+- Never trust client-side state for authorization or data integrity
+- Sanitize file paths to prevent directory traversal (especially in Electron/Node file operations)
+- Never log or expose secrets, tokens, or sensitive user data
+- Prefer allowlists over denylists for input validation
+- Handle errors without leaking internal details to callers
+
+## 2. Maintainability
+
+Optimize for readability and changeability over cleverness.
+
+- Single responsibility: one module, one job
+- Small, focused functions and files - if it needs a scroll, it needs a split
+- Clear naming that reveals intent without requiring comments
+- Depend on abstractions (Protocols/interfaces), not concrete implementations
+- Test with fakes and real collaborators, not mocks/patches
+- Keep indirection minimal - every layer of abstraction must earn its place
+
+## 3. Scalability
+
+Design for growth in features, users, and contributors.
+
+- Avoid tight coupling between modules - changes in one area should not cascade
+- Prefer composition over inheritance
+- Keep state management explicit and centralized (union types, state machines)
+- Design APIs and data structures to be extensible without breaking existing consumers
+- Lazy-load heavy dependencies (PyTorch, CUDA) - pay for what you use

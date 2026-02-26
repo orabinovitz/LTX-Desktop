@@ -8,6 +8,7 @@
   "license": "MIT",
   "private": true,
   "scripts": {
+    "predev": "lsof -ti :8000 | xargs kill -9 2>/dev/null || true",
     "dev": "vite",
     "dev:debug": "DEBUG=1 vite",
     "build": "vite build && electron-builder",

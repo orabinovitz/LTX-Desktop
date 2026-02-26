@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react'
-import type { TimelineClip, Track, Asset } from '../../types/project'
+import type { TimelineClip, Track, Asset, Timeline } from '../../types/project'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,6 +28,10 @@ export interface AgentExecutorDeps {
   addClipToTimeline: (asset: Asset, trackIndex?: number, startTime?: number) => void
   setCurrentTime: (time: number) => void
   setClips: React.Dispatch<React.SetStateAction<TimelineClip[]>>
+  currentProjectId: string | null
+  activeTimelineId: string | undefined
+  duplicateTimeline: (projectId: string, timelineId: string) => Timeline | null
+  addProjectTimeline: (projectId: string, name?: string) => Timeline
 }
 
 // ---------------------------------------------------------------------------
@@ -46,6 +50,10 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     addClipToTimeline,
     setCurrentTime,
     setClips,
+    currentProjectId,
+    activeTimelineId,
+    duplicateTimeline,
+    addProjectTimeline,
   } = deps
 
   const snapshotRef = useRef<TimelineClip[] | null>(null)
@@ -295,10 +303,35 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     const clips = clipsRef.current ?? []
     snapshotRef.current = JSON.parse(JSON.stringify(clips))
 
+    if (!currentProjectId || !activeTimelineId) {
+      return { tool_name: 'duplicate_timeline', success: false, result: null, error: 'No active project or timeline' }
+    }
+
+    const newTimeline = duplicateTimeline(currentProjectId, activeTimelineId)
+    if (!newTimeline) {
+      return { tool_name: 'duplicate_timeline', success: false, result: null, error: 'Failed to duplicate timeline' }
+    }
+
     return {
       tool_name: 'duplicate_timeline',
       success: true,
-      result: { snapshotClipCount: clips.length },
+      result: { newTimelineId: newTimeline.id, newTimelineName: newTimeline.name, snapshotClipCount: clips.length },
+      error: null,
+    }
+  }
+
+  const handleCreateTimeline = (args: Record<string, unknown>): ToolResult => {
+    if (!currentProjectId) {
+      return { tool_name: 'create_timeline', success: false, result: null, error: 'No active project' }
+    }
+
+    const name = args.name as string | undefined
+    const newTimeline = addProjectTimeline(currentProjectId, name)
+
+    return {
+      tool_name: 'create_timeline',
+      success: true,
+      result: { timelineId: newTimeline.id, timelineName: newTimeline.name },
       error: null,
     }
   }
@@ -363,6 +396,8 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
             return handleSetPlayhead(safe.arguments)
           case 'duplicate_timeline':
             return handleDuplicateTimeline()
+          case 'create_timeline':
+            return handleCreateTimeline(safe.arguments)
           case 'get_project_assets':
             return handleGetProjectAssets()
           default:
@@ -393,6 +428,10 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       addClipToTimeline,
       setCurrentTime,
       setClips,
+      currentProjectId,
+      activeTimelineId,
+      duplicateTimeline,
+      addProjectTimeline,
     ],
   )
 

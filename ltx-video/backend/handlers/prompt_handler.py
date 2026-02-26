@@ -80,7 +80,7 @@ class PromptHandler(StateHandlerBase):
         system_prompt = settings.i2v_system_prompt if mode == "i2v" else settings.t2v_system_prompt
         gemini_url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-3.1-pro-preview:generateContent?key={settings.gemini_api_key}"
+            f"gemini-3-flash-preview:generateContent?key={settings.gemini_api_key}"
         )
         contents: list[JSONValue] = [{"role": "user", "parts": [{"text": prompt}]}]
         system_instruction: dict[str, JSONValue] = {"parts": [{"text": system_prompt}]}
@@ -196,7 +196,7 @@ class PromptHandler(StateHandlerBase):
 
         gemini_url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-3.1-pro-preview:generateContent?key={gemini_api_key}"
+            f"gemini-3-flash-preview:generateContent?key={gemini_api_key}"
         )
         contents: list[JSONValue] = [{"role": "user", "parts": user_parts}]
         system_instruction: dict[str, JSONValue] = {"parts": [{"text": system_text}]}

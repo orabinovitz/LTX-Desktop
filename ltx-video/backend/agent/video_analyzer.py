@@ -379,7 +379,7 @@ def _call_gemini_video(
 
     gemini_url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-3.1-pro-preview:generateContent?key={gemini_api_key}"
+        f"gemini-3-flash-preview:generateContent?key={gemini_api_key}"
     )
 
     gemini_payload = {

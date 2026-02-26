@@ -129,16 +129,18 @@ export function useAgent() {
   ) => {
     setIsProcessing(true)
 
-    // Add user message
     setMessages(prev => [...prev, { role: 'user', content: prompt }])
     conversationRef.current.push({ role: 'user', content: prompt })
+
+    const t0 = performance.now()
+    console.log('[agent] sending prompt:', prompt.slice(0, 120))
 
     try {
       const backendUrl = await window.electronAPI.getBackendUrl()
       const timelineState = buildTimelineState(clips, trackCount, currentTime)
+      console.log('[agent] timeline context: %d clips, %d tracks, playhead=%.1fs',
+        clips.length, trackCount, currentTime)
 
-      // Initial request — send session_id if we have one so backend
-      // reuses the full Gemini conversation (including tool call history)
       const res = await fetch(`${backendUrl}/api/agent/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -153,7 +155,9 @@ export function useAgent() {
       if (!res.ok) throw new Error(`Agent API error: ${res.status}`)
       let response: AgentResponse = await res.json()
 
-      // Extract session ID from response
+      console.log('[agent] initial response in %.1fs — done=%s, tools=%d',
+        (performance.now() - t0) / 1000, response.done, response.tool_calls?.length ?? 0)
+
       if (response.session_id) {
         sessionIdRef.current = response.session_id
       }
@@ -162,8 +166,12 @@ export function useAgent() {
       let turns = 0
       while (!response.done && turns < 10) {
         turns++
+        const turnStart = performance.now()
+        console.log('[agent] turn %d — %d tool call(s): %s',
+          turns,
+          response.tool_calls.length,
+          response.tool_calls.map(tc => tc.tool_name).join(', '))
 
-        // Show plan if present
         if (response.plan) {
           setMessages(prev => [...prev, {
             role: 'agent',
@@ -176,11 +184,14 @@ export function useAgent() {
         // Execute frontend tool calls
         const results: ToolResult[] = []
         for (const tc of response.tool_calls) {
+          const toolStart = performance.now()
           const result = await executeTool(tc)
+          console.log('[agent]   tool %s → %s (%.0fms)',
+            tc.tool_name, result.success ? 'ok' : `FAIL: ${result.error}`,
+            performance.now() - toolStart)
           results.push(result)
         }
 
-        // Show immediate feedback: tools executed, waiting for summary
         const allSucceeded = results.every(r => r.success)
         if (allSucceeded) {
           setMessages(prev => {
@@ -195,7 +206,7 @@ export function useAgent() {
           })
         }
 
-        // Continue the loop with results
+        console.log('[agent] turn %d tools done, sending results back...', turns)
         const contRes = await fetch(`${backendUrl}/api/agent/continue`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -208,12 +219,16 @@ export function useAgent() {
 
         if (!contRes.ok) throw new Error(`Agent continue error: ${contRes.status}`)
         response = await contRes.json()
+        console.log('[agent] turn %d complete in %.1fs — done=%s, next_tools=%d',
+          turns, (performance.now() - turnStart) / 1000,
+          response.done, response.tool_calls?.length ?? 0)
       }
 
-      // Final message
+      const totalElapsed = (performance.now() - t0) / 1000
       const finalText = response.message || response.plan || 'Done.'
+      console.log('[agent] finished in %.1fs after %d turn(s)', totalElapsed, turns)
+
       setMessages(prev => {
-        // Replace last "executing" message or add new
         const updated = [...prev]
         if (updated.length > 0 && updated[updated.length - 1].isExecuting) {
           updated[updated.length - 1] = {
@@ -230,6 +245,7 @@ export function useAgent() {
 
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+      console.error('[agent] error after %.1fs:', (performance.now() - t0) / 1000, errorMsg)
       setMessages(prev => [...prev, { role: 'agent', content: `Error: ${errorMsg}` }])
     } finally {
       setIsProcessing(false)

@@ -1,6 +1,6 @@
 """Gemini function-calling agent for the LTX Desktop agentic editor.
 
-Orchestrates a multi-turn conversation with Gemini 2.0 Flash, feeding
+Orchestrates a multi-turn conversation with Gemini 3 Flash, feeding
 timeline context and tool definitions so the model can plan and execute
 video-editing operations.  Backend tools (e.g. ``get_video_metadata``)
 are resolved inline; frontend tools are returned to the React app for
@@ -9,7 +9,9 @@ execution.
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 import uuid
 from typing import Any
 
@@ -35,7 +37,7 @@ logger = logging.getLogger(__name__)
 _MAX_TURNS = 10
 """Hard ceiling on agentic loop iterations to prevent runaway calls."""
 
-_GEMINI_MODEL = "gemini-3.1-pro-preview-customtools"
+_GEMINI_MODEL = "gemini-3-flash-preview"
 
 SYSTEM_PROMPT = """\
 You are a senior video editor with years of professional editing experience, \
@@ -66,6 +68,10 @@ doubles the effect. Always operate on just ONE clip from each linked group.
 - Only call `duplicate_timeline` when the timeline already has clips the \
 user might want to keep. If the timeline is empty or the user is building \
 from scratch, skip the duplicate — it just adds clutter.
+- Use `create_timeline` when the user wants a fresh, empty timeline \
+(e.g. "start a new edit", "create a new timeline"). Use `duplicate_timeline` \
+when you need to preserve the current edit as a backup before making \
+destructive changes.
 - After deleting or trimming clips, ALWAYS close the resulting gaps by \
 using `move_clip` to slide subsequent clips left, or use `ripple=true` \
 on delete operations. A professional edit has no dead space unless \
@@ -90,6 +96,7 @@ its best 5-8 seconds.
 - Fetch video metadata with `get_video_metadata` to understand clip content.
 - Trim, split, delete, move, and add clips.
 - Duplicate timeline (only when protecting existing work).
+- Create a new empty timeline.
 - Set playhead position.
 
 ## Workflow
@@ -202,12 +209,21 @@ def execute_prompt(
         _sessions[session_id] = contents
 
     logger.info(
-        "Executing prompt for session %s: %.120s",
-        session_id,
+        "[agent] session=%s | execute_prompt: %.120s",
+        session_id[:8],
         request.prompt,
     )
 
+    t0 = time.monotonic()
     response = _call_gemini(session_id, gemini_api_key, http_client)
+    elapsed = time.monotonic() - t0
+    logger.info(
+        "[agent] session=%s | execute_prompt completed in %.1fs (done=%s, tools=%d)",
+        session_id[:8],
+        elapsed,
+        response.done,
+        len(response.tool_calls),
+    )
     return session_id, response
 
 
@@ -240,13 +256,27 @@ def continue_with_results(
         {"role": "function", "parts": function_response_parts}
     )
 
+    result_summary = [
+        f"{tr.tool_name}:{'ok' if tr.success else 'FAIL'}"
+        for tr in tool_results
+    ]
     logger.info(
-        "Continuing session %s with %d tool results",
-        session_id,
-        len(tool_results),
+        "[agent] session=%s | continue_with_results: %s",
+        session_id[:8],
+        result_summary,
     )
 
-    return _call_gemini(session_id, gemini_api_key, http_client)
+    t0 = time.monotonic()
+    response = _call_gemini(session_id, gemini_api_key, http_client)
+    elapsed = time.monotonic() - t0
+    logger.info(
+        "[agent] session=%s | continue completed in %.1fs (done=%s, tools=%d)",
+        session_id[:8],
+        elapsed,
+        response.done,
+        len(response.tool_calls),
+    )
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +312,17 @@ def _call_gemini(
         f"{_GEMINI_MODEL}:generateContent?key={api_key}"
     )
 
+    num_messages = len(_sessions[session_id])
+    payload_bytes = len(json.dumps(_sessions[session_id]).encode())
+    logger.info(
+        "[agent] session=%s turn=%d | calling %s | %d messages, ~%.1fKB payload",
+        session_id[:8],
+        _depth,
+        _GEMINI_MODEL,
+        num_messages,
+        payload_bytes / 1024,
+    )
+
     payload: dict[str, Any] = {
         "contents": _sessions[session_id],
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
@@ -290,6 +331,7 @@ def _call_gemini(
     }
 
     # -- HTTP call -------------------------------------------------------
+    t0 = time.monotonic()
     try:
         response = http_client.post(
             gemini_url,
@@ -298,23 +340,34 @@ def _call_gemini(
             timeout=60,
         )
     except HttpTimeoutError:
-        logger.error("Gemini API timed out for session %s", session_id)
+        elapsed = time.monotonic() - t0
+        logger.error("[agent] session=%s | Gemini timed out after %.1fs", session_id[:8], elapsed)
         return AgentExecuteResponse(
             message="The AI service timed out. Please try again.",
             done=True,
         )
     except Exception:
-        logger.exception("Gemini API request failed for session %s", session_id)
+        elapsed = time.monotonic() - t0
+        logger.exception("[agent] session=%s | Gemini request failed after %.1fs", session_id[:8], elapsed)
         return AgentExecuteResponse(
             message="Failed to reach the AI service. Please check your connection and try again.",
             done=True,
         )
 
+    elapsed = time.monotonic() - t0
+    logger.info(
+        "[agent] session=%s turn=%d | Gemini responded HTTP %d in %.1fs (~%.1fKB)",
+        session_id[:8],
+        _depth,
+        response.status_code,
+        elapsed,
+        len(response.text) / 1024,
+    )
+
     if response.status_code != 200:
         logger.error(
-            "Gemini API error %d for session %s: %s",
-            response.status_code,
-            session_id,
+            "[agent] session=%s | Gemini error body: %s",
+            session_id[:8],
             response.text[:500],
         )
         return AgentExecuteResponse(
@@ -328,9 +381,10 @@ def _call_gemini(
         parts: list[dict[str, Any]] = body["candidates"][0]["content"]["parts"]  # type: ignore[index]
     except (KeyError, IndexError, TypeError) as exc:
         logger.error(
-            "Malformed Gemini response for session %s: %s",
-            session_id,
+            "[agent] session=%s | malformed Gemini response: %s — body: %s",
+            session_id[:8],
             exc,
+            response.text[:300],
         )
         return AgentExecuteResponse(
             message="Received an unexpected response from the AI service.",
@@ -377,9 +431,20 @@ def _call_gemini(
 
     combined_text = "\n".join(text_fragments).strip()
 
+    tool_names_fe = [tc.tool_name for tc in frontend_tool_calls]
+    tool_names_be = [tc.tool_name for tc in backend_tool_calls]
+    logger.info(
+        "[agent] session=%s turn=%d | parsed: text=%d chars, frontend_tools=%s, backend_tools=%s",
+        session_id[:8],
+        _depth,
+        len(combined_text),
+        tool_names_fe or "none",
+        tool_names_be or "none",
+    )
+
     # -- No tool calls at all → we're done --------------------------------
     if not frontend_tool_calls and not backend_tool_calls:
-        logger.info("Session %s: agent finished (no tool calls)", session_id)
+        logger.info("[agent] session=%s | done (text-only response)", session_id[:8])
         return AgentExecuteResponse(
             message=combined_text,
             done=True,
@@ -387,11 +452,6 @@ def _call_gemini(
 
     # -- Execute backend tools inline ------------------------------------
     if backend_tool_calls:
-        logger.info(
-            "Session %s: executing %d backend tool(s) inline",
-            session_id,
-            len(backend_tool_calls),
-        )
         backend_results = [
             _execute_backend_tool(tc) for tc in backend_tool_calls
         ]
@@ -415,9 +475,11 @@ def _call_gemini(
     # -- If there are frontend tool calls, return them to the caller ------
     if frontend_tool_calls:
         logger.info(
-            "Session %s: returning %d frontend tool call(s)",
-            session_id,
+            "[agent] session=%s turn=%d | returning %d frontend tool(s) to UI: %s",
+            session_id[:8],
+            _depth,
             len(frontend_tool_calls),
+            [tc.tool_name for tc in frontend_tool_calls],
         )
         return AgentExecuteResponse(
             plan=combined_text,
