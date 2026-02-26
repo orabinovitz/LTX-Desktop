@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react'
-import type { TimelineClip, Track, Asset, Timeline } from '../../types/project'
+import type { TimelineClip, Track, Asset, Timeline, TransitionType } from '../../types/project'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +32,8 @@ export interface AgentExecutorDeps {
   activeTimelineId: string | undefined
   duplicateTimeline: (projectId: string, timelineId: string) => Timeline | null
   addProjectTimeline: (projectId: string, name?: string) => Timeline
+  renameTimeline: (projectId: string, timelineId: string, name: string) => void
+  getMaxClipDuration: (clip: TimelineClip) => number
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +56,8 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     activeTimelineId,
     duplicateTimeline,
     addProjectTimeline,
+    renameTimeline,
+    getMaxClipDuration,
   } = deps
 
   const snapshotRef = useRef<TimelineClip[] | null>(null)
@@ -336,6 +340,163 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     }
   }
 
+  const handleRenameTimeline = (args: Record<string, unknown>): ToolResult => {
+    if (!currentProjectId || !activeTimelineId) {
+      return { tool_name: 'rename_timeline', success: false, result: null, error: 'No active project or timeline' }
+    }
+
+    const name = args.name as string | undefined
+    if (!name?.trim()) {
+      return { tool_name: 'rename_timeline', success: false, result: null, error: 'Missing or empty name' }
+    }
+
+    renameTimeline(currentProjectId, activeTimelineId, name.trim())
+
+    return {
+      tool_name: 'rename_timeline',
+      success: true,
+      result: { timelineId: activeTimelineId, newName: name.trim() },
+      error: null,
+    }
+  }
+
+  const handleSplitAtPlayhead = (): ToolResult => {
+    const clips = clipsRef.current ?? []
+    const playhead = currentTimeRef.current ?? 0
+    const spanning = clips.filter(c =>
+      c.startTime < playhead && playhead < c.startTime + c.duration
+    )
+
+    if (spanning.length === 0) {
+      return { tool_name: 'split_at_playhead', success: false, result: null, error: 'No clips at playhead position' }
+    }
+
+    const splitIds: string[] = []
+    for (const clip of spanning) {
+      splitClipAtPlayhead(clip.id, playhead)
+      splitIds.push(clip.id)
+    }
+
+    return {
+      tool_name: 'split_at_playhead',
+      success: true,
+      result: { splitClips: splitIds, time: playhead },
+      error: null,
+    }
+  }
+
+  const handleFlipClip = (args: Record<string, unknown>): ToolResult => {
+    const clipId = args.clip_id as string | undefined
+    if (!clipId) {
+      return { tool_name: 'flip_clip', success: false, result: null, error: 'Missing clip_id' }
+    }
+
+    const updates: Partial<TimelineClip> = {}
+    if (args.horizontal !== undefined) updates.flipH = Boolean(args.horizontal)
+    if (args.vertical !== undefined) updates.flipV = Boolean(args.vertical)
+
+    if (Object.keys(updates).length === 0) {
+      return { tool_name: 'flip_clip', success: false, result: null, error: 'Provide at least one of horizontal or vertical' }
+    }
+
+    updateClip(clipId, updates)
+
+    return {
+      tool_name: 'flip_clip',
+      success: true,
+      result: { clipId, ...updates },
+      error: null,
+    }
+  }
+
+  const handleReverseClip = (args: Record<string, unknown>): ToolResult => {
+    const clipId = args.clip_id as string | undefined
+    if (!clipId) {
+      return { tool_name: 'reverse_clip', success: false, result: null, error: 'Missing clip_id' }
+    }
+    if (args.reversed === undefined) {
+      return { tool_name: 'reverse_clip', success: false, result: null, error: 'Missing reversed' }
+    }
+
+    const reversed = Boolean(args.reversed)
+    updateClip(clipId, { reversed })
+
+    return {
+      tool_name: 'reverse_clip',
+      success: true,
+      result: { clipId, reversed },
+      error: null,
+    }
+  }
+
+  const handleSetClipSpeed = (args: Record<string, unknown>): ToolResult => {
+    const clipId = args.clip_id as string | undefined
+    if (!clipId) {
+      return { tool_name: 'set_clip_speed', success: false, result: null, error: 'Missing clip_id' }
+    }
+    if (args.speed === undefined) {
+      return { tool_name: 'set_clip_speed', success: false, result: null, error: 'Missing speed' }
+    }
+
+    const newSpeed = Math.max(0.25, Math.min(4, Number(args.speed)))
+    const clips = clipsRef.current ?? []
+    const clip = clips.find(c => c.id === clipId)
+    if (!clip) {
+      return { tool_name: 'set_clip_speed', success: false, result: null, error: `Clip not found: ${clipId}` }
+    }
+
+    const oldSpeed = clip.speed
+    let newDuration = clip.duration * (oldSpeed / newSpeed)
+    const maxDur = getMaxClipDuration({ ...clip, speed: newSpeed })
+    newDuration = Math.min(newDuration, maxDur)
+    newDuration = Math.max(0.5, newDuration)
+
+    updateClip(clipId, { speed: newSpeed, duration: newDuration })
+
+    return {
+      tool_name: 'set_clip_speed',
+      success: true,
+      result: { clipId, speed: newSpeed, duration: +newDuration.toFixed(2) },
+      error: null,
+    }
+  }
+
+  const handleAddDissolve = (args: Record<string, unknown>): ToolResult => {
+    const leftId = args.left_clip_id as string | undefined
+    const rightId = args.right_clip_id as string | undefined
+    if (!leftId || !rightId) {
+      return { tool_name: 'add_dissolve', success: false, result: null, error: 'Missing left_clip_id or right_clip_id' }
+    }
+
+    const clips = clipsRef.current ?? []
+    const leftClip = clips.find(c => c.id === leftId)
+    const rightClip = clips.find(c => c.id === rightId)
+    if (!leftClip || !rightClip) {
+      return { tool_name: 'add_dissolve', success: false, result: null, error: 'Clip not found' }
+    }
+
+    const leftEnd = leftClip.startTime + leftClip.duration
+    if (leftClip.trackIndex !== rightClip.trackIndex || Math.abs(leftEnd - rightClip.startTime) > 0.05) {
+      return { tool_name: 'add_dissolve', success: false, result: null, error: 'Clips must be adjacent on the same track' }
+    }
+
+    const duration = args.duration !== undefined ? Math.max(0, Number(args.duration)) : 0.5
+    const dissolveType: TransitionType = duration > 0 ? 'dissolve' : 'none'
+
+    setClips(prev => prev.map(c => {
+      if (c.id === leftId) return { ...c, transitionOut: { type: dissolveType, duration } }
+      if (c.id === rightId) return { ...c, transitionIn: { type: dissolveType, duration } }
+      return c
+    }))
+
+    return {
+      tool_name: 'add_dissolve',
+      success: true,
+      result: { leftClipId: leftId, rightClipId: rightId, duration, type: dissolveType },
+      error: null,
+    }
+  }
+
   const handleGetProjectAssets = (): ToolResult => {
     const assets = assetsRef.current ?? []
 
@@ -398,6 +559,18 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
             return handleDuplicateTimeline()
           case 'create_timeline':
             return handleCreateTimeline(safe.arguments)
+          case 'rename_timeline':
+            return handleRenameTimeline(safe.arguments)
+          case 'split_at_playhead':
+            return handleSplitAtPlayhead()
+          case 'flip_clip':
+            return handleFlipClip(safe.arguments)
+          case 'reverse_clip':
+            return handleReverseClip(safe.arguments)
+          case 'set_clip_speed':
+            return handleSetClipSpeed(safe.arguments)
+          case 'add_dissolve':
+            return handleAddDissolve(safe.arguments)
           case 'get_project_assets':
             return handleGetProjectAssets()
           default:
@@ -432,6 +605,8 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       activeTimelineId,
       duplicateTimeline,
       addProjectTimeline,
+      renameTimeline,
+      getMaxClipDuration,
     ],
   )
 

@@ -498,7 +498,8 @@ export function VideoEditor() {
     splitClipAtPlayhead, removeClip, updateClip, addClipToTimeline,
     setCurrentTime, setClips,
     currentProjectId, activeTimelineId: activeTimeline?.id,
-    duplicateTimeline, addProjectTimeline: addTimeline,
+    duplicateTimeline, addProjectTimeline: addTimeline, renameTimeline,
+    getMaxClipDuration,
   })
   const { statusMap: analysisStatusMap, markAnalyzing } = useAnalysisStatus()
 

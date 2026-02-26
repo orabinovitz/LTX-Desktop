@@ -253,6 +253,128 @@ create_timeline = _tool(
     ],
 )
 
+rename_timeline = _tool(
+    name="rename_timeline",
+    description=(
+        "Rename the currently active timeline. Use this when the user asks "
+        "to change the timeline name, or after creating/duplicating a timeline "
+        "to give it a meaningful name that reflects its content."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    parameters=[
+        _param(
+            "name",
+            "string",
+            "The new display name for the active timeline.",
+        ),
+    ],
+)
+
+split_at_playhead = _tool(
+    name="split_at_playhead",
+    description=(
+        "Split (razor-cut) every clip that spans the current playhead "
+        "position, across all tracks simultaneously. This is the equivalent "
+        "of pressing the razor blade key. No parameters are needed — the "
+        "playhead position is read from the frontend state. Linked clips "
+        "are handled automatically."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+)
+
+flip_clip = _tool(
+    name="flip_clip",
+    description=(
+        "Set the horizontal and/or vertical flip state of a clip. "
+        "Values are absolute: true = flipped, false = not flipped. "
+        "Provide at least one of horizontal or vertical. "
+        "Flipping is a visual transform applied during preview and export."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    parameters=[
+        _param("clip_id", "string", "Unique identifier of the clip to flip."),
+        _param(
+            "horizontal",
+            "boolean",
+            "Set horizontal flip state. true = flipped, false = normal.",
+            required=False,
+        ),
+        _param(
+            "vertical",
+            "boolean",
+            "Set vertical flip state. true = flipped, false = normal.",
+            required=False,
+        ),
+    ],
+)
+
+reverse_clip = _tool(
+    name="reverse_clip",
+    description=(
+        "Set whether a clip plays in reverse. When reversed, the video "
+        "plays backward from end to start. The clip's position and "
+        "duration on the timeline are unchanged."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    parameters=[
+        _param("clip_id", "string", "Unique identifier of the clip."),
+        _param(
+            "reversed",
+            "boolean",
+            "true = play backward, false = play forward (normal).",
+        ),
+    ],
+)
+
+set_clip_speed = _tool(
+    name="set_clip_speed",
+    description=(
+        "Change the playback speed of a clip. The clip's timeline duration "
+        "is automatically recalculated to match. Common presets: 0.25 "
+        "(quarter speed), 0.5 (half), 1 (normal), 1.5, 2 (double), 4 "
+        "(quadruple). Values between 0.25 and 4 are accepted."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    parameters=[
+        _param("clip_id", "string", "Unique identifier of the clip."),
+        _param(
+            "speed",
+            "number",
+            "New playback speed multiplier (0.25–4). 1 = normal speed.",
+        ),
+    ],
+)
+
+add_dissolve = _tool(
+    name="add_dissolve",
+    description=(
+        "Add a cross-dissolve transition between two adjacent clips on "
+        "the same track. The left clip's outgoing transition and the "
+        "right clip's incoming transition are both set to dissolve. The "
+        "clips must be adjacent (left clip ends where right clip begins). "
+        "To remove a dissolve, set duration to 0."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    parameters=[
+        _param(
+            "left_clip_id",
+            "string",
+            "ID of the outgoing (left) clip at the cut point.",
+        ),
+        _param(
+            "right_clip_id",
+            "string",
+            "ID of the incoming (right) clip at the cut point.",
+        ),
+        _param(
+            "duration",
+            "number",
+            "Dissolve duration in seconds (default 0.5). Set to 0 to remove.",
+            required=False,
+        ),
+    ],
+)
+
 get_project_assets = _tool(
     name="get_project_assets",
     description=(
@@ -304,6 +426,12 @@ ALL_TOOLS: list[ToolDefinition] = [
     set_playhead,
     duplicate_timeline,
     create_timeline,
+    rename_timeline,
+    split_at_playhead,
+    flip_clip,
+    reverse_clip,
+    set_clip_speed,
+    add_dissolve,
     get_project_assets,
     # Resource (backend)
     get_video_metadata,
