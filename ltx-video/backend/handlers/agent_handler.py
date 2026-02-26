@@ -100,6 +100,8 @@ class AgentHandler(StateHandlerBase):
             f"?key={api_key}"
         )
         tool_declarations = tools_to_gemini_declarations()
+        for decl in tool_declarations:
+            decl["behavior"] = "NON_BLOCKING"
 
         payload = {
             "uses": 1,

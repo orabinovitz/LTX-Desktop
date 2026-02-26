@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { GoogleGenAI, Modality } from '@google/genai/web'
+import { Behavior, FunctionResponseScheduling, GoogleGenAI, Modality } from '@google/genai/web'
 import { AudioPlaybackQueue } from '../lib/audio-playback'
 import type { ToolCall, ToolResult } from '../views/editor/useAgentExecutor'
 
 // Worklet URL resolved by Vite at build time
 const WORKLET_URL = new URL('../lib/pcm-capture-processor.js', import.meta.url).href
+
+const READ_ONLY_TOOLS = new Set(['get_timeline_state', 'get_project_assets', 'get_video_metadata'])
 
 interface LiveConfig {
   system_prompt: string
@@ -46,6 +48,8 @@ export function useLiveAgent(
   const speakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const configRef = useRef<LiveConfig | null>(null)
   const resumeHandleRef = useRef<string | null>(null)
+  const toolCallQueueRef = useRef<any[]>([])
+  const processingToolCallsRef = useRef(false)
 
   const executeToolRef = useRef(executeTool)
   executeToolRef.current = executeTool
@@ -105,26 +109,26 @@ export function useLiveAgent(
       }
       const config = configRef.current!
 
-      // Fetch ephemeral token
-      step = 'fetchToken'
-      const tokenRes = await fetch(`${backendUrl}/api/agent/live-token`, { method: 'POST' })
-      if (!tokenRes.ok) {
-        const detail = await tokenRes.json().catch(() => ({}))
-        throw new Error(detail.detail || `Token HTTP ${tokenRes.status}`)
-      }
-      const tokenData: LiveToken = await tokenRes.json()
+      // Fetch token and acquire mic in parallel (independent operations)
+      step = 'fetchToken+micAccess'
+      const tokenPromise = (async () => {
+        const tokenRes = await fetch(`${backendUrl}/api/agent/live-token`, { method: 'POST' })
+        if (!tokenRes.ok) {
+          const detail = await tokenRes.json().catch(() => ({}))
+          throw new Error(detail.detail || `Token HTTP ${tokenRes.status}`)
+        }
+        return tokenRes.json() as Promise<LiveToken>
+      })()
+      const micPromise = navigator.mediaDevices.getUserMedia({
+        audio: { sampleRate: { ideal: 16000 }, channelCount: 1, echoCancellation: true },
+      })
+
+      const [tokenData, micStream] = await Promise.all([tokenPromise, micPromise])
 
       // Set up audio playback
-      step = 'audioPlayback'
       const playback = new AudioPlaybackQueue()
       playback.start()
       playbackRef.current = playback
-
-      // Set up mic capture
-      step = 'micAccess'
-      const micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { sampleRate: { ideal: 16000 }, channelCount: 1, echoCancellation: true },
-      })
       micStreamRef.current = micStream
 
       step = 'audioWorklet'
@@ -146,7 +150,7 @@ export function useLiveAgent(
         config: {
           responseModalities: [Modality.AUDIO],
           systemInstruction: config.system_prompt,
-          tools: [{ functionDeclarations: config.tools }],
+          tools: [{ functionDeclarations: config.tools.map(t => ({ ...t, behavior: Behavior.NON_BLOCKING })) }],
           contextWindowCompression: { slidingWindow: {} },
           sessionResumption: resumeHandleRef.current
             ? { handle: resumeHandleRef.current }
@@ -245,15 +249,33 @@ export function useLiveAgent(
       }
     }
 
-    // Tool calls from model
+    // Tool calls from model -- queue for serial processing to avoid race conditions
     if (message.toolCall) {
       const names = message.toolCall.functionCalls?.map((fc: any) => fc.name) ?? []
       console.log('[live-agent] toolCall received:', names.join(', '))
-      handleToolCalls(message.toolCall)
+      enqueueToolCall(message.toolCall)
     }
   }, [])
 
-  const handleToolCalls = useCallback(async (toolCall: any) => {
+  const enqueueToolCall = useCallback((toolCall: any) => {
+    toolCallQueueRef.current.push(toolCall)
+    drainToolCallQueue()
+  }, [])
+
+  const drainToolCallQueue = useCallback(async () => {
+    if (processingToolCallsRef.current) return
+    processingToolCallsRef.current = true
+    try {
+      while (toolCallQueueRef.current.length > 0) {
+        const next = toolCallQueueRef.current.shift()!
+        await processToolCall(next)
+      }
+    } finally {
+      processingToolCallsRef.current = false
+    }
+  }, [])
+
+  const processToolCall = useCallback(async (toolCall: any) => {
     if (!toolCall.functionCalls || !sessionRef.current) return
 
     const calls: ToolCall[] = toolCall.functionCalls.map((fc: any) => ({
@@ -263,25 +285,30 @@ export function useLiveAgent(
 
     setActiveToolCalls(calls)
 
-    const functionResponses: any[] = []
-    for (const fc of toolCall.functionCalls) {
-      const call: ToolCall = { tool_name: fc.name, arguments: fc.args || {} }
+    const fcs: any[] = toolCall.functionCalls
+    const settled = await Promise.allSettled(
+      fcs.map(async (fc) => {
+        const call: ToolCall = { tool_name: fc.name, arguments: fc.args || {} }
+        return fc.name === 'get_video_metadata'
+          ? await executeBackendToolRef.current(call)
+          : await executeToolRef.current(call)
+      }),
+    )
 
-      let result: ToolResult
-      if (fc.name === 'get_video_metadata') {
-        result = await executeBackendToolRef.current(call)
-      } else {
-        result = await executeToolRef.current(call)
-      }
-
-      functionResponses.push({
+    const functionResponses: any[] = fcs.map((fc, i) => {
+      const outcome = settled[i]
+      const result: ToolResult = outcome.status === 'fulfilled'
+        ? outcome.value
+        : { tool_name: fc.name, success: false, result: null, error: 'Tool execution failed' }
+      return {
         id: fc.id,
         name: fc.name,
+        scheduling: FunctionResponseScheduling.WHEN_IDLE,
         response: result.success
           ? { result: result.result }
           : { error: result.error || 'Unknown error' },
-      })
-    }
+      }
+    })
 
     setActiveToolCalls([])
 
@@ -291,14 +318,17 @@ export function useLiveAgent(
       console.error('[live-agent] failed to send tool response')
     }
 
-    // Send updated timeline state so the model sees the effect of its tool calls
-    try {
-      const updatedContext = getTimelineContextRef.current()
-      sessionRef.current?.sendClientContent({
-        turns: [{ role: 'user', parts: [{ text: updatedContext }] }],
-        turnComplete: true,
-      })
-    } catch { /* session may be closing */ }
+    // Only send updated context when at least one tool mutated the timeline
+    const anyMutating = fcs.some((fc: any) => !READ_ONLY_TOOLS.has(fc.name))
+    if (anyMutating) {
+      try {
+        const updatedContext = getTimelineContextRef.current()
+        sessionRef.current?.sendClientContent({
+          turns: [{ role: 'user', parts: [{ text: updatedContext }] }],
+          turnComplete: true,
+        })
+      } catch { /* session may be closing */ }
+    }
   }, [])
 
   // Cleanup on unmount
@@ -315,9 +345,10 @@ export function useLiveAgent(
 }
 
 function arrayBufferToBase64(bytes: Uint8Array): string {
+  const CHUNK = 8192
   let binary = ''
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[])
   }
   return btoa(binary)
 }
