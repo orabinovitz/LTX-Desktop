@@ -199,7 +199,7 @@ export const LTX_DEFAULT_LAYOUT: KeyboardLayout = {
   'nav.nextEdit': [k('arrowdown')],
   'view.fullscreen': [k('`'), k('f11')],
   // Agent
-  'agent.prompt': [k(' ', { meta: true })],
+  'agent.prompt': [k(' ', { ctrl: true }), k('/', { ctrl: true })],
 }
 
 // ═══════════════════════════════════════════
@@ -255,7 +255,7 @@ export const PREMIERE_LAYOUT: KeyboardLayout = {
   'nav.nextEdit': [k('arrowdown')],
   'view.fullscreen': [k('`')],           // Premiere: ` = fullscreen
   // Agent
-  'agent.prompt': [k(' ', { meta: true })],
+  'agent.prompt': [k(' ', { ctrl: true }), k('/', { ctrl: true })],
 }
 
 // ═══════════════════════════════════════════
@@ -311,7 +311,7 @@ export const DAVINCI_LAYOUT: KeyboardLayout = {
   'nav.nextEdit': [k('arrowdown')],
   'view.fullscreen': [k('p', { ctrl: true, shift: true })], // DaVinci: Ctrl+Shift+P
   // Agent
-  'agent.prompt': [k(' ', { meta: true })],
+  'agent.prompt': [k(' ', { ctrl: true }), k('/', { ctrl: true })],
 }
 
 // ═══════════════════════════════════════════
@@ -367,7 +367,7 @@ export const AVID_LAYOUT: KeyboardLayout = {
   'nav.nextEdit': [k('arrowdown')],
   'view.fullscreen': [k('`'), k('f11')],
   // Agent
-  'agent.prompt': [k(' ', { meta: true })],
+  'agent.prompt': [k(' ', { ctrl: true }), k('/', { ctrl: true })],
 }
 
 // ── All Built-in Presets ──
