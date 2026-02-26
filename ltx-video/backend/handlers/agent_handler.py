@@ -99,6 +99,8 @@ class AgentHandler(StateHandlerBase):
             "https://generativelanguage.googleapis.com/v1alpha/auth_tokens"
             f"?key={api_key}"
         )
+        tool_declarations = tools_to_gemini_declarations()
+
         payload = {
             "uses": 1,
             "expireTime": expire_time.isoformat(),
@@ -108,6 +110,10 @@ class AgentHandler(StateHandlerBase):
                 "generationConfig": {
                     "responseModalities": ["AUDIO"],
                 },
+                "systemInstruction": {
+                    "parts": [{"text": gemini_agent.SYSTEM_PROMPT}],
+                },
+                "tools": [{"functionDeclarations": tool_declarations}],
             },
         }
 

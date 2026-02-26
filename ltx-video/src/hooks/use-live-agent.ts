@@ -32,6 +32,7 @@ export interface UseLiveAgentReturn {
 export function useLiveAgent(
   executeTool: (call: ToolCall) => Promise<ToolResult>,
   executeBackendTool: (call: ToolCall) => Promise<ToolResult>,
+  getTimelineContext: () => string,
 ): UseLiveAgentReturn {
   const [status, setStatus] = useState<LiveAgentStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -50,6 +51,8 @@ export function useLiveAgent(
   executeToolRef.current = executeTool
   const executeBackendToolRef = useRef(executeBackendTool)
   executeBackendToolRef.current = executeBackendTool
+  const getTimelineContextRef = useRef(getTimelineContext)
+  getTimelineContextRef.current = getTimelineContext
 
   const cleanupAudio = useCallback(() => {
     if (micStreamRef.current) {
@@ -174,6 +177,15 @@ export function useLiveAgent(
 
       sessionRef.current = session
 
+      // Send current timeline state so the model knows what it's working with
+      step = 'sendContext'
+      const contextText = getTimelineContextRef.current()
+      console.log('[live-agent] sending initial context, length:', contextText.length)
+      session.sendClientContent({
+        turns: [{ role: 'user', parts: [{ text: contextText }] }],
+        turnComplete: true,
+      })
+
       // Stream mic PCM to the session
       workletNode.port.onmessage = (e: MessageEvent) => {
         if (!sessionRef.current) return
@@ -235,6 +247,8 @@ export function useLiveAgent(
 
     // Tool calls from model
     if (message.toolCall) {
+      const names = message.toolCall.functionCalls?.map((fc: any) => fc.name) ?? []
+      console.log('[live-agent] toolCall received:', names.join(', '))
       handleToolCalls(message.toolCall)
     }
   }, [])
@@ -276,6 +290,15 @@ export function useLiveAgent(
     } catch {
       console.error('[live-agent] failed to send tool response')
     }
+
+    // Send updated timeline state so the model sees the effect of its tool calls
+    try {
+      const updatedContext = getTimelineContextRef.current()
+      sessionRef.current?.sendClientContent({
+        turns: [{ role: 'user', parts: [{ text: updatedContext }] }],
+        turnComplete: true,
+      })
+    } catch { /* session may be closing */ }
   }, [])
 
   // Cleanup on unmount

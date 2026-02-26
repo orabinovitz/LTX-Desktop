@@ -526,7 +526,32 @@ export function VideoEditor() {
       return { tool_name: call.tool_name, success: false, result: null, error: err instanceof Error ? err.message : 'Unknown error' }
     }
   }, [])
-  const liveAgent = useLiveAgent(executeTool, executeBackendTool)
+  const getTimelineContext = useCallback(() => {
+    const c = clipsRef.current ?? []
+    const t = tracksRef.current ?? []
+    const a = assetsRef.current ?? []
+    const time = playbackTimeRef.current ?? 0
+
+    const state = {
+      currentTime: time,
+      trackCount: t.length,
+      clipCount: c.length,
+      clips: c.map(clip => ({
+        id: clip.id, assetId: clip.assetId, type: clip.type,
+        trackIndex: clip.trackIndex, startTime: clip.startTime,
+        duration: clip.duration, trimStart: clip.trimStart, trimEnd: clip.trimEnd,
+        speed: clip.speed, prompt: clip.asset?.prompt ?? null,
+      })),
+    }
+
+    const assetList = a.map(asset => ({
+      id: asset.id, name: asset.name, type: asset.type,
+      duration: asset.duration ?? null,
+    }))
+
+    return `[CONTEXT UPDATE]\nTimeline state:\n${JSON.stringify(state)}\n\nProject assets:\n${JSON.stringify(assetList)}`
+  }, [])
+  const liveAgent = useLiveAgent(executeTool, executeBackendTool, getTimelineContext)
   const { statusMap: analysisStatusMap, markAnalyzing } = useAnalysisStatus()
 
   const handleAgentSend = useCallback((prompt: string) => {
