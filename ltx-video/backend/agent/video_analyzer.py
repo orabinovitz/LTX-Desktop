@@ -1,13 +1,17 @@
 """Video understanding pipeline using Gemini Vision.
 
-Provides background video analysis with an in-memory cache.  Structural
+Provides background video analysis with in-memory + disk caching.  Structural
 metadata (duration, resolution, fps) is extracted locally via ffprobe;
-semantic metadata (scenes, dialogue, summary) comes from Gemini 2.0 Flash
-via the File Upload API (handles large video files).
+semantic metadata (scenes, dialogue, summary) comes from Gemini via the
+File Upload API (handles large video files).
+
+Completed analyses are persisted to ``~/.ltx-desktop/analysis-cache/`` so
+they survive app restarts.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import mimetypes
@@ -30,6 +34,43 @@ _cache_lock = threading.Lock()
 
 # Limit concurrent analyses to avoid flooding network
 _analysis_semaphore = threading.Semaphore(5)
+
+# ---------------------------------------------------------------------------
+# Disk cache
+# ---------------------------------------------------------------------------
+
+_DISK_CACHE_DIR = Path.home() / ".ltx-desktop" / "analysis-cache"
+
+
+def _disk_cache_path(file_path: str) -> Path:
+    """Return the on-disk JSON path for a given video file."""
+    key = hashlib.sha256(file_path.encode()).hexdigest()[:16]
+    return _DISK_CACHE_DIR / f"{key}.json"
+
+
+def _save_to_disk(file_path: str, meta: VideoMetadata) -> None:
+    """Persist completed metadata to disk."""
+    try:
+        _DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        data = meta.model_dump(mode="json")
+        _disk_cache_path(file_path).write_text(json.dumps(data), encoding="utf-8")
+    except Exception:
+        logger.warning("Failed to write analysis cache for %s", file_path, exc_info=True)
+
+
+def _load_from_disk(file_path: str) -> VideoMetadata | None:
+    """Load previously completed metadata from disk, or None."""
+    cache_file = _disk_cache_path(file_path)
+    if not cache_file.exists():
+        return None
+    try:
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        meta = VideoMetadata.model_validate(data)
+        if meta.analysis_status == AnalysisStatus.COMPLETE:
+            return meta
+    except Exception:
+        logger.warning("Failed to read analysis cache for %s", file_path, exc_info=True)
+    return None
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -92,8 +133,21 @@ def analyze_video_background(
     file_path: str,
     gemini_api_key: str,
     http_client: HTTPClient,
-) -> None:
-    """Kick off background video analysis (one at a time via semaphore)."""
+) -> bool:
+    """Kick off background video analysis.
+
+    Returns ``True`` if a new analysis was started, ``False`` if the result
+    was loaded from the on-disk cache (no Gemini call needed).
+    """
+    # Check disk cache first — avoid re-analyzing on every app restart
+    cached = _load_from_disk(file_path)
+    if cached is not None:
+        cached.asset_id = asset_id  # asset IDs may differ across sessions
+        with _cache_lock:
+            _metadata_cache[asset_id] = cached
+        logger.info("Loaded analysis from disk cache for %s", asset_id)
+        return False
+
     with _cache_lock:
         _metadata_cache[asset_id] = VideoMetadata(
             asset_id=asset_id,
@@ -110,6 +164,7 @@ def analyze_video_background(
         name=f"video-analysis-{asset_id}",
     )
     thread.start()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +231,8 @@ def _run_analysis(
                 entry.dialogue = dialogue
                 entry.summary = summary
                 entry.analysis_status = AnalysisStatus.COMPLETE
+                # Persist to disk so it survives restarts
+                _save_to_disk(file_path, entry)
 
         logger.info(
             "Video analysis complete for %s: %d scenes, %d dialogue lines",

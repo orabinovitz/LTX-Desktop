@@ -511,8 +511,9 @@ export function VideoEditor() {
     for (const asset of assets) {
       if (asset.type === 'video' && asset.path && !analyzedAssetIds.current.has(asset.id)) {
         analyzedAssetIds.current.add(asset.id)
-        triggerVideoAnalysis(asset.id, asset.path)
-        markAnalyzing(asset.id)
+        triggerVideoAnalysis(asset.id, asset.path).then(started => {
+          if (started) markAnalyzing(asset.id)
+        })
       }
     }
   }, [assets, markAnalyzing])
@@ -3915,8 +3916,8 @@ export function VideoEditor() {
               const a = assets.find(x => x.id === assetId)
               if (a?.path) {
                 analyzedAssetIds.current.delete(assetId)
-                triggerVideoAnalysis(assetId, a.path)
                 markAnalyzing(assetId)
+                triggerVideoAnalysis(assetId, a.path)
               }
             }}
             setAssetActiveTake={setAssetActiveTake}

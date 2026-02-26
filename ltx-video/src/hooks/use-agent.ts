@@ -94,17 +94,22 @@ function buildTimelineState(
 
 // --- Standalone function: trigger background video analysis on import ---
 
-export async function triggerVideoAnalysis(assetId: string, filePath: string): Promise<void> {
+export async function triggerVideoAnalysis(assetId: string, filePath: string): Promise<boolean> {
   try {
     const backendUrl = await window.electronAPI.getBackendUrl()
-    await fetch(`${backendUrl}/api/agent/analyze-video`, {
+    const res = await fetch(`${backendUrl}/api/agent/analyze-video`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ asset_id: assetId, file_path: filePath }),
     })
+    if (res.ok) {
+      const data = await res.json()
+      return data.status === 'analyzing'
+    }
   } catch (err) {
     console.warn('Video analysis trigger failed:', err)
   }
+  return false
 }
 
 // --- Main hook ---

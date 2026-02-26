@@ -710,12 +710,6 @@ export function LeftPanel(props: LeftPanelProps) {
                           <span className="text-[9px] text-blue-300 font-medium">Analyzing</span>
                         </div>
                       )}
-                      {analysisStatusMap.get(asset.id) === 'complete' && (
-                        <div className="absolute bottom-1.5 left-1.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-black/70 backdrop-blur-sm z-10">
-                          <div className="h-2 w-2 rounded-full bg-emerald-400" />
-                          <span className="text-[9px] text-emerald-300 font-medium">Ready</span>
-                        </div>
-                      )}
                       {analysisStatusMap.get(asset.id) === 'failed' && (
                         <div className="absolute bottom-1.5 left-1.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-black/70 backdrop-blur-sm z-10">
                           <div className="h-2 w-2 rounded-full bg-red-400" />

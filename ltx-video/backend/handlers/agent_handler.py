@@ -10,6 +10,7 @@ from agent.types import (
     AgentContinueRequest,
     AgentExecuteRequest,
     AgentExecuteResponse,
+    AnalysisStatus,
     AnalyzeVideoRequest,
     AnalyzeVideoResponse,
     VideoMetadata,
@@ -63,15 +64,17 @@ class AgentHandler(StateHandlerBase):
         """Start background video analysis."""
         api_key = self._state.app_settings.gemini_api_key
         if not api_key:
-            return AnalyzeVideoResponse(status="error: no API key")
+            return AnalyzeVideoResponse(status=AnalysisStatus.FAILED)
 
-        video_analyzer.analyze_video_background(
+        started = video_analyzer.analyze_video_background(
             asset_id=request.asset_id,
             file_path=request.file_path,
             gemini_api_key=api_key,
             http_client=self._http,
         )
-        return AnalyzeVideoResponse(status="analyzing")
+        return AnalyzeVideoResponse(
+            status=AnalysisStatus.ANALYZING if started else AnalysisStatus.COMPLETE,
+        )
 
     def get_video_metadata(self, asset_id: str) -> VideoMetadata | None:
         """Get cached video metadata."""
