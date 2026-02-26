@@ -61,6 +61,7 @@ import { I2vGenerationModal } from './editor/I2vGenerationModal'
 import { SubtitleTrackStyleEditor } from './editor/SubtitleTrackStyleEditor'
 import { AgentPromptBox } from './editor/AgentPromptBox'
 import { useAgent, triggerVideoAnalysis } from '../hooks/use-agent'
+import { useLiveAgent } from '../hooks/use-live-agent'
 import { useAnalysisStatus } from '../hooks/use-analysis-status'
 import { useAgentExecutor } from './editor/useAgentExecutor'
 
@@ -491,6 +492,14 @@ export function VideoEditor() {
     fileInputRef, setHoveredCutPoint,
   })
 
+  // Compute the maximum timeline duration for a video clip based on its actual media length
+  const getMaxClipDuration = useCallback((clip: TimelineClip): number => {
+    if (clip.type !== 'video' || !clip.asset?.duration) return Infinity
+    const mediaDuration = clip.asset.duration
+    const usableMedia = mediaDuration - clip.trimStart - clip.trimEnd
+    return Math.max(0.5, usableMedia / clip.speed)
+  }, [])
+
   // Agent hooks
   const { messages: agentMessages, isProcessing: agentProcessing, sendPrompt } = useAgent()
   const { executeTool, restoreSnapshot } = useAgentExecutor({
@@ -501,6 +510,23 @@ export function VideoEditor() {
     duplicateTimeline, addProjectTimeline: addTimeline, renameTimeline,
     getMaxClipDuration,
   })
+  const executeBackendTool = useCallback(async (call: { tool_name: string; arguments: Record<string, unknown> }) => {
+    try {
+      const backendUrl = await window.electronAPI.getBackendUrl()
+      if (call.tool_name === 'get_video_metadata') {
+        const assetId = call.arguments.asset_id as string
+        const res = await fetch(`${backendUrl}/api/agent/video-metadata/${assetId}`)
+        if (!res.ok) return { tool_name: call.tool_name, success: false, result: null, error: `HTTP ${res.status}` }
+        const data = await res.json()
+        if (data.status === 'not_found') return { tool_name: call.tool_name, success: false, result: null, error: 'No metadata available' }
+        return { tool_name: call.tool_name, success: true, result: data, error: null }
+      }
+      return { tool_name: call.tool_name, success: false, result: null, error: `Unknown backend tool: ${call.tool_name}` }
+    } catch (err) {
+      return { tool_name: call.tool_name, success: false, result: null, error: err instanceof Error ? err.message : 'Unknown error' }
+    }
+  }, [])
+  const liveAgent = useLiveAgent(executeTool, executeBackendTool)
   const { statusMap: analysisStatusMap, markAnalyzing } = useAnalysisStatus()
 
   const handleAgentSend = useCallback((prompt: string) => {
@@ -963,15 +989,6 @@ export function VideoEditor() {
     }
     return null
   }, [clips, currentTime])
-  
-  // Compute the maximum timeline duration for a video clip based on its actual media length
-  const getMaxClipDuration = useCallback((clip: TimelineClip): number => {
-    if (clip.type !== 'video' || !clip.asset?.duration) return Infinity
-    const mediaDuration = clip.asset.duration
-    const usableMedia = mediaDuration - clip.trimStart - clip.trimEnd
-    return Math.max(0.5, usableMedia / clip.speed)
-  }, [])
-
 
   const resolveClipSrc = useCallback((clip: TimelineClip | null): string => {
     if (!clip) return ''
@@ -4261,6 +4278,12 @@ export function VideoEditor() {
         onSend={handleAgentSend}
         onUndo={handleAgentUndo}
         canUndo={true}
+        voiceStatus={liveAgent.status}
+        voiceIsSpeaking={liveAgent.isSpeaking}
+        voiceError={liveAgent.error}
+        voiceToolCalls={liveAgent.activeToolCalls}
+        onVoiceConnect={liveAgent.connect}
+        onVoiceDisconnect={liveAgent.disconnect}
       />
     </div>
     </div>

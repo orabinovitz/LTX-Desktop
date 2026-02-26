@@ -8,8 +8,12 @@ function normalize(p: string): string {
 
 function stripFileUrl(fileUrl: string): string {
   let raw = fileUrl
-  if (raw.startsWith('file:///')) raw = raw.slice(8)
-  else if (raw.startsWith('file://')) raw = raw.slice(7)
+  if (raw.startsWith('file:///')) {
+    // file:///Users/foo → /Users/foo (Unix) or file:///C:/foo → C:/foo (Windows)
+    raw = raw.slice(isWindows ? 8 : 7)
+  } else if (raw.startsWith('file://')) {
+    raw = raw.slice(7)
+  }
   return decodeURIComponent(raw).replace(/\//g, path.sep)
 }
 

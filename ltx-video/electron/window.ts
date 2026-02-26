@@ -42,6 +42,13 @@ export function createWindow(): BrowserWindow {
     mainWindow.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'))
   }
 
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (message.includes('[live-agent]')) {
+      const tag = ['LOG', 'WARN', 'ERR'][level] ?? 'LOG'
+      console.log(`[Renderer ${tag}] ${message}`)
+    }
+  })
+
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
   })

@@ -184,3 +184,24 @@ class AnalyzeVideoResponse(BaseModel):
 
     status: AnalysisStatus
     metadata: VideoMetadata | None = None
+
+
+# ============================================================
+# Live API
+# ============================================================
+
+
+class LiveTokenResponse(BaseModel):
+    """Ephemeral token for client-side Live API connections."""
+
+    token: str = Field(description="Short-lived token name for WebSocket auth")
+    expire_time: str = Field(description="ISO-8601 expiry timestamp")
+    model: str = Field(description="Model to use with the token")
+
+
+class LiveConfigResponse(BaseModel):
+    """Configuration for client-side Live API sessions."""
+
+    system_prompt: str = Field(description="System instruction for the agent")
+    tools: list[dict[str, object]] = Field(description="Gemini function declarations")
+    model: str = Field(description="Model identifier for the Live API")
