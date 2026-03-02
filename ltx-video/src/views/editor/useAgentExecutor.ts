@@ -57,7 +57,6 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     assetsRef,
     currentTimeRef,
     splitClipAtPlayhead,
-    removeClip,
     updateClip,
     addClipToTimeline,
     setCurrentTime,
@@ -243,32 +242,26 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
         };
       }
 
-      // Collect info for ripple before removal
       const removedDuration = group[0].duration;
       const removedStart = group[0].startTime;
       const affectedTracks = new Set(group.map((c) => c.trackIndex));
       const removedIds = new Set(group.map((c) => c.id));
 
-      // Remove all clips in the linked group
-      for (const clip of group) {
-        removeClip(clip.id);
-      }
-
-      // Ripple: shift subsequent clips on affected tracks to the left
-      if (ripple) {
-        setClips((prev) =>
-          prev.map((c) => {
+      setClips((prev) => {
+        let result = prev.filter((c) => !removedIds.has(c.id));
+        if (ripple) {
+          result = result.map((c) => {
             if (
               affectedTracks.has(c.trackIndex) &&
-              !removedIds.has(c.id) &&
               c.startTime > removedStart
             ) {
               return { ...c, startTime: c.startTime - removedDuration };
             }
             return c;
-          }),
-        );
-      }
+          });
+        }
+        return result;
+      });
 
       return {
         tool_name: "delete_clip",
@@ -277,7 +270,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
         error: null,
       };
     },
-    [getLinkedGroup, removeClip, setClips],
+    [getLinkedGroup, setClips],
   );
 
   const handleMoveClip = useCallback(
@@ -403,9 +396,6 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   );
 
   const handleDuplicateTimeline = useCallback((): ToolResult => {
-    const clips = clipsRef.current ?? [];
-    snapshotRef.current = JSON.parse(JSON.stringify(clips));
-
     if (!currentProjectId || !activeTimelineId) {
       return {
         tool_name: "duplicate_timeline",
@@ -414,6 +404,9 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
         error: "No active project or timeline",
       };
     }
+
+    const clips = clipsRef.current ?? [];
+    snapshotRef.current = JSON.parse(JSON.stringify(clips));
 
     const newTimeline = duplicateTimeline(currentProjectId, activeTimelineId);
     if (!newTimeline) {
@@ -754,6 +747,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
 
   const executeTool = useCallback(
     async (call: ToolCall): Promise<ToolResult> => {
+      const t0 = performance.now();
       try {
         const args = sanitizeArgs(call.arguments);
         const safe = { ...call, arguments: args };
@@ -800,6 +794,12 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
             };
         }
       } catch (err) {
+        console.error(
+          "[agent-exec] %s threw after %.0fms:",
+          call.tool_name,
+          performance.now() - t0,
+          err,
+        );
         return {
           tool_name: call.tool_name,
           success: false,

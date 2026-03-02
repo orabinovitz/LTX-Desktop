@@ -32,8 +32,13 @@ logger = logging.getLogger(__name__)
 _metadata_cache: dict[str, VideoMetadata] = {}
 _cache_lock = threading.Lock()
 
-# Limit concurrent analyses to avoid flooding network
-_analysis_semaphore = threading.Semaphore(5)
+# Limit concurrent analyses to avoid memory pressure from large file uploads
+_analysis_semaphore = threading.Semaphore(2)
+
+_ALLOWED_VIDEO_EXTENSIONS = {
+    ".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v",
+    ".flv", ".wmv", ".mpg", ".mpeg", ".ts", ".mts",
+}
 
 # ---------------------------------------------------------------------------
 # Disk cache
@@ -148,6 +153,14 @@ def analyze_video_background(
         logger.info("Loaded analysis from disk cache for %s", asset_id)
         return False
 
+    file_p = Path(file_path)
+    if not file_p.is_file():
+        logger.warning("analyze_video_background: path is not a file: %s", file_path)
+        return False
+    if file_p.suffix.lower() not in _ALLOWED_VIDEO_EXTENSIONS:
+        logger.warning("analyze_video_background: not a video extension: %s", file_path)
+        return False
+
     with _cache_lock:
         _metadata_cache[asset_id] = VideoMetadata(
             asset_id=asset_id,
@@ -164,6 +177,7 @@ def analyze_video_background(
         name=f"video-analysis-{asset_id}",
     )
     thread.start()
+    logger.info("Started video analysis thread for %s (%s)", asset_id, file_path)
     return True
 
 
@@ -178,10 +192,10 @@ def _run_analysis(
     gemini_api_key: str,
     http_client: HTTPClient,
 ) -> None:
-    """Background thread: ffprobe then Gemini Vision (serialized via semaphore)."""
-    # Wait for semaphore — only one analysis at a time
+    """Background thread: ffprobe then Gemini Vision (limited by semaphore to 2 concurrent)."""
     _analysis_semaphore.acquire()
     try:
+        logger.info("Semaphore acquired for %s, starting analysis", asset_id)
         with _cache_lock:
             entry = _metadata_cache.get(asset_id)
             if entry is not None:
@@ -213,14 +227,14 @@ def _run_analysis(
             try:
                 scenes.append(SceneSegment.model_validate(s))
             except Exception:
-                logger.debug("Skipping unparseable scene segment: %s", s)
+                logger.warning("Skipping unparseable scene segment: %s", s)
 
         dialogue: list[DialogueLine] = []
         for d in gemini_result.get("dialogue", []):
             try:
                 dialogue.append(DialogueLine.model_validate(d))
             except Exception:
-                logger.debug("Skipping unparseable dialogue line: %s", d)
+                logger.warning("Skipping unparseable dialogue line: %s", d)
 
         summary: str = gemini_result.get("summary", "")
 
@@ -268,15 +282,13 @@ def _upload_file_to_gemini(
     display_name = path.name
 
     # Step 1: Start resumable upload
-    start_url = (
-        "https://generativelanguage.googleapis.com/upload/v1beta/files"
-        f"?key={gemini_api_key}"
-    )
+    start_url = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 
     start_response = http_client.post(
         start_url,
         headers={
             "Content-Type": "application/json",
+            "x-goog-api-key": gemini_api_key,
             "X-Goog-Upload-Protocol": "resumable",
             "X-Goog-Upload-Command": "start",
             "X-Goog-Upload-Header-Content-Length": str(file_size),
@@ -321,10 +333,9 @@ def _upload_file_to_gemini(
     # Step 3: Poll until video processing is complete
     check_url = (
         f"https://generativelanguage.googleapis.com/v1beta/{file_name}"
-        f"?key={gemini_api_key}"
     )
     for _ in range(60):  # max 5 minutes of polling
-        check_response = http_client.get(check_url, headers={}, timeout=10)
+        check_response = http_client.get(check_url, headers={"x-goog-api-key": gemini_api_key}, timeout=10)
         if check_response.status_code == 200:
             state = check_response.json().get("state", "")
             if state == "ACTIVE":
@@ -379,7 +390,7 @@ def _call_gemini_video(
 
     gemini_url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-3-flash-preview:generateContent?key={gemini_api_key}"
+        "gemini-3-flash-preview:generateContent"
     )
 
     gemini_payload = {
@@ -403,7 +414,10 @@ def _call_gemini_video(
     try:
         response = http_client.post(
             gemini_url,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": gemini_api_key,
+            },
             json_payload=gemini_payload,
             timeout=120,
         )

@@ -51,7 +51,7 @@ def route_get_video_metadata(
     metadata = handler.agent.get_video_metadata(asset_id)
     if metadata is None:
         return {"status": "not_found"}
-    return metadata.model_dump()
+    return metadata.model_dump(mode="json")
 
 
 @router.post("/agent/live-token", response_model=LiveTokenResponse)

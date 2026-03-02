@@ -1,5 +1,11 @@
 import { useCallback, useRef, useState } from "react";
 import type { TimelineClip } from "../types/project";
+import type {
+  ToolCall,
+  ToolResult,
+} from "../views/editor/useAgentExecutor";
+
+export type { ToolCall };
 
 // --- Types matching backend Pydantic models ---
 
@@ -28,18 +34,6 @@ interface TimelineState {
 interface AgentMessage {
   role: "user" | "agent";
   content: string;
-}
-
-export interface ToolCall {
-  tool_name: string;
-  arguments: Record<string, unknown>;
-}
-
-interface ToolResult {
-  tool_name: string;
-  success: boolean;
-  result: unknown;
-  error: string | null;
 }
 
 interface AgentResponse {
@@ -122,6 +116,7 @@ export function useAgent() {
   const [isProcessing, setIsProcessing] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const conversationRef = useRef<AgentMessage[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
 
   const sendPrompt = useCallback(
     async (
@@ -132,6 +127,9 @@ export function useAgent() {
       executeTool: (toolCall: ToolCall) => Promise<ToolResult>,
     ) => {
       setIsProcessing(true);
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+      const { signal } = abortRef.current;
 
       setMessages((prev) => [...prev, { role: "user", content: prompt }]);
       conversationRef.current.push({ role: "user", content: prompt });
@@ -159,9 +157,11 @@ export function useAgent() {
           body: JSON.stringify({
             prompt,
             timeline_state: timelineState,
-            conversation_history: conversationRef.current,
-            session_id: sessionIdRef.current,
+            ...(sessionIdRef.current
+              ? { session_id: sessionIdRef.current }
+              : { conversation_history: conversationRef.current }),
           }),
+          signal,
         });
 
         if (!res.ok) throw new Error(`Agent API error: ${res.status}`);
@@ -242,9 +242,9 @@ export function useAgent() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               tool_results: results,
-              conversation_history: conversationRef.current,
               session_id: sessionIdRef.current,
             }),
+            signal,
           });
 
           if (!contRes.ok)
@@ -282,6 +282,7 @@ export function useAgent() {
         });
         conversationRef.current.push({ role: "agent", content: finalText });
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
         const errorMsg = err instanceof Error ? err.message : "Unknown error";
         console.error(
           "[agent] error after %.1fs:",
@@ -290,7 +291,7 @@ export function useAgent() {
         );
         setMessages((prev) => [
           ...prev,
-          { role: "agent", content: `Error: ${errorMsg}` },
+          { role: "agent", content: "Something went wrong. Please try again." },
         ]);
       } finally {
         setIsProcessing(false);
@@ -300,6 +301,7 @@ export function useAgent() {
   );
 
   const clearChat = useCallback(() => {
+    abortRef.current?.abort();
     setMessages([]);
     conversationRef.current = [];
     sessionIdRef.current = null;

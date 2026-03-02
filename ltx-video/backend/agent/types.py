@@ -74,8 +74,6 @@ class ToolParameter(BaseModel):
     type: str = Field(description="JSON Schema type (string, number, boolean, …)")
     description: str = ""
     required: bool = True
-    default: Any = None
-    enum: list[str] | None = None
 
 
 class ToolDefinition(BaseModel):
@@ -85,7 +83,6 @@ class ToolDefinition(BaseModel):
     description: str = Field(description="What the tool does")
     parameters: list[ToolParameter] = Field(default_factory=list)
     execution_target: ExecutionTarget = Field(default=ExecutionTarget.FRONTEND)
-    category: str = Field(default="general", description="Logical grouping for tools")
 
 
 # ============================================================
@@ -147,7 +144,7 @@ class AgentMessage(BaseModel):
 class AgentExecuteRequest(BaseModel):
     """Initial request from the frontend to the agent."""
 
-    prompt: str = Field(description="User's natural-language instruction")
+    prompt: str = Field(description="User's natural-language instruction", max_length=10000)
     timeline_state: TimelineState | None = None
     conversation_history: list[AgentMessage] = Field(default_factory=list)
     session_id: str | None = Field(default=None, description="Existing session to continue conversation in")
@@ -167,7 +164,6 @@ class AgentContinueRequest(BaseModel):
     """Follow-up request carrying tool results back to the agent."""
 
     tool_results: list[ToolResult] = Field(default_factory=list)
-    conversation_history: list[AgentMessage] = Field(default_factory=list)
     session_id: str | None = Field(default="", description="Identifies the ongoing agent session")
 
 

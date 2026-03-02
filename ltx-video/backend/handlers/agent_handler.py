@@ -70,6 +70,7 @@ class AgentHandler(StateHandlerBase):
         """Start background video analysis."""
         api_key = self._state.app_settings.gemini_api_key
         if not api_key:
+            logger.warning("Video analysis requested but Gemini API key not configured")
             return AnalyzeVideoResponse(status=AnalysisStatus.FAILED)
 
         started = video_analyzer.analyze_video_background(
@@ -95,10 +96,7 @@ class AgentHandler(StateHandlerBase):
         expire_time = datetime.now(tz=timezone.utc) + timedelta(minutes=30)
         new_session_expire_time = datetime.now(tz=timezone.utc) + timedelta(minutes=2)
 
-        url = (
-            "https://generativelanguage.googleapis.com/v1alpha/auth_tokens"
-            f"?key={api_key}"
-        )
+        url = "https://generativelanguage.googleapis.com/v1alpha/auth_tokens"
         tool_declarations = tools_to_gemini_declarations()
         for decl in tool_declarations:
             decl["behavior"] = "NON_BLOCKING"
@@ -122,7 +120,10 @@ class AgentHandler(StateHandlerBase):
         try:
             response = self._http.post(
                 url,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key,
+                },
                 json_payload=payload,
                 timeout=15,
             )

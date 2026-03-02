@@ -76,6 +76,8 @@ export function useLiveAgent(
   const [error, setError] = useState<string | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [activeToolCalls, setActiveToolCalls] = useState<ToolCall[]>([]);
+  const statusRef = useRef<LiveAgentStatus>("idle");
+  statusRef.current = status;
 
   const sessionRef = useRef<Session | null>(null);
   const playbackRef = useRef<AudioPlaybackQueue | null>(null);
@@ -117,8 +119,8 @@ export function useLiveAgent(
     if (sessionRef.current) {
       try {
         sessionRef.current.close();
-      } catch {
-        /* already closed */
+      } catch (e) {
+        console.warn("[live-agent] session.close() failed:", e);
       }
       sessionRef.current = null;
     }
@@ -175,8 +177,8 @@ export function useLiveAgent(
 
     try {
       sessionRef.current.sendToolResponse({ functionResponses });
-    } catch {
-      console.error("[live-agent] failed to send tool response");
+    } catch (e) {
+      console.error("[live-agent] failed to send tool response:", e);
     }
 
     const anyMutating = fcs.some((fc) => !READ_ONLY_TOOLS.has(fc.name));
@@ -187,8 +189,8 @@ export function useLiveAgent(
           turns: [{ role: "user", parts: [{ text: updatedContext }] }],
           turnComplete: true,
         });
-      } catch {
-        /* session may be closing */
+      } catch (e) {
+        console.warn("[live-agent] failed to send updated context:", e);
       }
     }
   }, []);
@@ -265,7 +267,7 @@ export function useLiveAgent(
   );
 
   const connect = useCallback(async () => {
-    if (status === "connecting" || status === "connected") return;
+    if (statusRef.current === "connecting" || statusRef.current === "connected") return;
 
     setStatus("connecting");
     setError(null);
@@ -414,22 +416,17 @@ export function useLiveAgent(
           sessionRef.current.sendRealtimeInput({
             audio: { data: base64, mimeType: "audio/pcm;rate=16000" },
           });
-        } catch {
-          // Session may have closed
+        } catch (e) {
+          console.warn("[live-agent] sendRealtimeInput failed:", e);
         }
       };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const full =
-        err instanceof Error && err.stack
-          ? err.stack.split("\n").slice(0, 3).join(" | ")
-          : msg;
       console.error(`[live-agent] FAILED at step="${step}":`, err);
-      setError(`[${step}] ${full}`);
+      setError(`Voice connection failed at ${step}. Please try again.`);
       setStatus("error");
       cleanupAudio();
     }
-  }, [status, cleanupAudio, handleMessage]);
+  }, [cleanupAudio, handleMessage]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -437,8 +434,8 @@ export function useLiveAgent(
       if (sessionRef.current) {
         try {
           sessionRef.current.close();
-        } catch {
-          /* noop */
+        } catch (e) {
+          console.warn("[live-agent] cleanup session.close() failed:", e);
         }
       }
       cleanupAudio();

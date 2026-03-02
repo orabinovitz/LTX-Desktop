@@ -8,6 +8,7 @@ export function useAnalysisStatus() {
   );
   const pollingRef = useRef<Set<string>>(new Set());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const backendUrlRef = useRef<string | null>(null);
 
   const markAnalyzing = useCallback((assetId: string) => {
     pollingRef.current.add(assetId);
@@ -23,26 +24,32 @@ export function useAnalysisStatus() {
       const ids = [...pollingRef.current];
       if (ids.length === 0) return;
 
-      for (const assetId of ids) {
-        try {
-          const backendUrl = await window.electronAPI.getBackendUrl();
+      if (!backendUrlRef.current) {
+        backendUrlRef.current = await window.electronAPI.getBackendUrl();
+      }
+      const backendUrl = backendUrlRef.current;
+
+      const results = await Promise.allSettled(
+        ids.map(async (assetId) => {
           const res = await fetch(
             `${backendUrl}/api/agent/video-metadata/${assetId}`,
           );
-          if (!res.ok) continue;
+          if (!res.ok) return null;
           const data = await res.json();
-          const status = data.analysis_status as string | undefined;
+          return { assetId, status: data.analysis_status as string | undefined };
+        }),
+      );
 
-          if (status === "complete" || status === "failed") {
-            pollingRef.current.delete(assetId);
-            setStatusMap((prev) => {
-              const next = new Map(prev);
-              next.set(assetId, status as AnalysisStatus);
-              return next;
-            });
-          }
-        } catch {
-          // Network error — keep polling
+      for (const result of results) {
+        if (result.status !== "fulfilled" || !result.value) continue;
+        const { assetId, status } = result.value;
+        if (status === "complete" || status === "failed") {
+          pollingRef.current.delete(assetId);
+          setStatusMap((prev) => {
+            const next = new Map(prev);
+            next.set(assetId, status as AnalysisStatus);
+            return next;
+          });
         }
       }
     };

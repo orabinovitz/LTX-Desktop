@@ -11,6 +11,7 @@ export class AudioPlaybackQueue {
   private ctx: AudioContext | null = null;
   private nextStartTime = 0;
   private gainNode: GainNode | null = null;
+  private activeSources = new Set<AudioBufferSourceNode>();
 
   start(): void {
     if (this.ctx) return;
@@ -41,6 +42,8 @@ export class AudioPlaybackQueue {
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(this.gainNode);
+    source.onended = () => this.activeSources.delete(source);
+    this.activeSources.add(source);
 
     const now = this.ctx.currentTime;
     const scheduleAt = Math.max(now, this.nextStartTime);
@@ -50,6 +53,11 @@ export class AudioPlaybackQueue {
 
   flush(): void {
     if (!this.ctx || !this.gainNode) return;
+
+    for (const src of this.activeSources) {
+      try { src.stop(); } catch { /* already stopped */ }
+    }
+    this.activeSources.clear();
 
     this.gainNode.disconnect();
     this.gainNode = this.ctx.createGain();
@@ -63,10 +71,5 @@ export class AudioPlaybackQueue {
     this.ctx.close().catch(() => {});
     this.ctx = null;
     this.gainNode = null;
-  }
-
-  get playing(): boolean {
-    if (!this.ctx) return false;
-    return this.ctx.currentTime < this.nextStartTime;
   }
 }

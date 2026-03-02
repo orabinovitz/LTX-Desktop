@@ -9,10 +9,10 @@ execution.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 import uuid
+from collections import OrderedDict
 from typing import Any
 
 from agent.tool_registry import TOOLS_BY_NAME, tools_to_gemini_declarations
@@ -38,6 +38,8 @@ _MAX_TURNS = 10
 """Hard ceiling on agentic loop iterations to prevent runaway calls."""
 
 _GEMINI_MODEL = "gemini-3-flash-preview"
+
+_ROLE_MAP: dict[str, str] = {"user": "user", "agent": "model", "assistant": "model", "model": "model"}
 
 SYSTEM_PROMPT = """\
 You are a senior video editor with years of professional editing experience, \
@@ -146,15 +148,48 @@ individual operations.
 # Session storage
 # ---------------------------------------------------------------------------
 
-_sessions: dict[str, list[dict[str, Any]]] = {}
-"""Maps session IDs to Gemini conversation ``contents`` arrays."""
+_MAX_SESSIONS = 50
+_SESSION_TTL_SECONDS = 1800  # 30 minutes
+
+_sessions: OrderedDict[str, tuple[float, list[dict[str, Any]]]] = OrderedDict()
+"""Maps session IDs to (last_access_time, contents) tuples."""
+
+
+def _evict_stale_sessions() -> None:
+    """Remove sessions older than TTL and enforce max session count."""
+    now = time.monotonic()
+    stale = [
+        sid for sid, (ts, _) in _sessions.items()
+        if now - ts > _SESSION_TTL_SECONDS
+    ]
+    for sid in stale:
+        del _sessions[sid]
+    while len(_sessions) > _MAX_SESSIONS:
+        evicted_id, _ = _sessions.popitem(last=False)
+        logger.info("Evicted oldest session %s (at capacity)", evicted_id[:8])
+
+
+def _get_session(session_id: str) -> list[dict[str, Any]] | None:
+    """Get session contents, updating access time. Returns None if not found."""
+    if session_id not in _sessions:
+        return None
+    ts, contents = _sessions[session_id]
+    _sessions[session_id] = (time.monotonic(), contents)
+    _sessions.move_to_end(session_id)
+    return contents
+
+
+def _set_session(session_id: str, contents: list[dict[str, Any]]) -> None:
+    """Create or update a session."""
+    _sessions[session_id] = (time.monotonic(), contents)
 
 
 def create_session() -> str:
     """Create a new conversation session and return its UUID."""
+    _evict_stale_sessions()
     session_id = uuid.uuid4().hex
-    _sessions[session_id] = []
-    logger.info("Created agent session %s", session_id)
+    _set_session(session_id, [])
+    logger.info("Created agent session %s (total: %d)", session_id, len(_sessions))
     return session_id
 
 
@@ -183,7 +218,7 @@ def execute_prompt(
     # (including function calls / results) is preserved.
     existing = (
         request.session_id
-        and request.session_id in _sessions
+        and _get_session(request.session_id) is not None
     )
     if existing:
         session_id = request.session_id  # type: ignore[assignment]
@@ -222,16 +257,17 @@ def execute_prompt(
 
     if existing:
         # Append new user message to existing conversation
-        _sessions[session_id].append(user_message)
+        session_contents = _get_session(session_id)
+        if session_contents is not None:
+            session_contents.append(user_message)
     else:
         # New session — seed with any prior text history as fallback
-        _role_map = {"user": "user", "agent": "model", "assistant": "model", "model": "model"}
         contents: list[dict[str, Any]] = []
         for msg in request.conversation_history:
-            gemini_role = _role_map.get(msg.role, "user")
+            gemini_role = _ROLE_MAP.get(msg.role, "user")
             contents.append({"role": gemini_role, "parts": [{"text": msg.content}]})
         contents.append(user_message)
-        _sessions[session_id] = contents
+        _set_session(session_id, contents)
 
     logger.info(
         "[agent] session=%s | execute_prompt: %.120s",
@@ -262,7 +298,8 @@ def continue_with_results(
 
     Raises ``KeyError`` if the session does not exist.
     """
-    if session_id not in _sessions:
+    session_contents = _get_session(session_id)
+    if session_contents is None:
         raise KeyError(f"Unknown session: {session_id}")
 
     # Append function responses into the conversation
@@ -277,7 +314,7 @@ def continue_with_results(
             {"functionResponse": {"name": fn_name, "response": payload}}
         )
 
-    _sessions[session_id].append(
+    session_contents.append(
         {"role": "function", "parts": function_response_parts}
     )
 
@@ -334,22 +371,27 @@ def _call_gemini(
 
     gemini_url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{_GEMINI_MODEL}:generateContent?key={api_key}"
+        f"{_GEMINI_MODEL}:generateContent"
     )
 
-    num_messages = len(_sessions[session_id])
-    payload_bytes = len(json.dumps(_sessions[session_id]).encode())
+    session_contents = _get_session(session_id)
+    if session_contents is None:
+        return AgentExecuteResponse(
+            message="Session expired or not found.",
+            done=True,
+        )
+
+    num_messages = len(session_contents)
     logger.info(
-        "[agent] session=%s turn=%d | calling %s | %d messages, ~%.1fKB payload",
+        "[agent] session=%s turn=%d | calling %s | %d messages",
         session_id[:8],
         _depth,
         _GEMINI_MODEL,
         num_messages,
-        payload_bytes / 1024,
     )
 
     payload: dict[str, Any] = {
-        "contents": _sessions[session_id],
+        "contents": session_contents,
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "tools": [{"functionDeclarations": tools_to_gemini_declarations()}],
         "generationConfig": {"temperature": 0.5, "maxOutputTokens": 8192},
@@ -360,7 +402,10 @@ def _call_gemini(
     try:
         response = http_client.post(
             gemini_url,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            },
             json_payload=payload,
             timeout=60,
         )
@@ -417,9 +462,9 @@ def _call_gemini(
         )
 
     # Append the model turn to history
-    _sessions[session_id].append(
-        {"role": "model", "parts": parts}
-    )
+    session_contents = _get_session(session_id)
+    if session_contents is not None:
+        session_contents.append({"role": "model", "parts": parts})
 
     # -- Separate text from function calls --------------------------------
     text_fragments: list[str] = []
@@ -493,9 +538,11 @@ def _call_gemini(
                 {"functionResponse": {"name": tr.call_id, "response": payload_inner}}
             )
 
-        _sessions[session_id].append(
-            {"role": "function", "parts": fn_response_parts}
-        )
+        session_contents_be = _get_session(session_id)
+        if session_contents_be is not None:
+            session_contents_be.append(
+                {"role": "function", "parts": fn_response_parts}
+            )
 
     # -- If there are frontend tool calls, return them to the caller ------
     if frontend_tool_calls:

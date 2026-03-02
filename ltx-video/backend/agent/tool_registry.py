@@ -443,18 +443,10 @@ TOOLS_BY_NAME: dict[str, ToolDefinition] = {tool.name: tool for tool in ALL_TOOL
 # Gemini function-declaration converter
 # ---------------------------------------------------------------------------
 
-_PARAM_TYPE_MAP: dict[str, str] = {
-    "string": "string",
-    "number": "number",
-    "integer": "integer",
-    "boolean": "boolean",
-}
-
-
 def _param_to_property(param: ToolParameter) -> dict[str, str]:
     """Convert a single ToolParameter to a JSON Schema property dict."""
     return {
-        "type": _PARAM_TYPE_MAP.get(param.type, param.type),
+        "type": param.type,
         "description": param.description,
     }
 

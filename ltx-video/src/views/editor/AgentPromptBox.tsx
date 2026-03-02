@@ -1,14 +1,9 @@
 import { useState, useRef, useEffect, useCallback, Fragment } from "react";
 import { X, Send, Loader2, Bot, Undo2, Mic, Phone } from "lucide-react";
 import type { LiveAgentStatus } from "../../hooks/use-live-agent";
-import type { ToolCall } from "../../hooks/use-agent";
+import type { ToolCall, ChatMessage } from "../../hooks/use-agent";
 
-export interface ChatMessage {
-  role: "user" | "agent";
-  content: string;
-  toolCalls?: { tool_name: string; arguments: Record<string, unknown> }[];
-  isExecuting?: boolean;
-}
+export type { ChatMessage };
 
 interface AgentPromptBoxProps {
   isOpen: boolean;
