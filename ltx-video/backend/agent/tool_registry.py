@@ -493,12 +493,22 @@ create_subclip_assets = _tool(
     ),
     execution_target=ExecutionTarget.FRONTEND,
     parameters=[
-        _param(
-            "subclips",
-            "array",
-            "Array of sub-clip definitions. Each has: parent_asset_id (string), "
-            "source_in (number, seconds), source_out (number, seconds), "
-            "title (string), description (string), topics (array of strings).",
+        ToolParameter(
+            name="subclips",
+            type="array",
+            description="Array of sub-clip definitions.",
+            items={
+                "type": "object",
+                "properties": {
+                    "parent_asset_id": {"type": "string", "description": "ID of the parent video asset"},
+                    "source_in": {"type": "number", "description": "Source in-point in seconds"},
+                    "source_out": {"type": "number", "description": "Source out-point in seconds"},
+                    "title": {"type": "string", "description": "Sub-clip title"},
+                    "description": {"type": "string", "description": "Sub-clip description"},
+                    "topics": {"type": "array", "description": "Topic tags", "items": {"type": "string"}},
+                },
+                "required": ["parent_asset_id", "source_in", "source_out", "title", "description"],
+            },
         ),
     ],
 )
@@ -539,12 +549,15 @@ TOOLS_BY_NAME: dict[str, ToolDefinition] = {tool.name: tool for tool in ALL_TOOL
 # Gemini function-declaration converter
 # ---------------------------------------------------------------------------
 
-def _param_to_property(param: ToolParameter) -> dict[str, str]:
+def _param_to_property(param: ToolParameter) -> dict[str, object]:
     """Convert a single ToolParameter to a JSON Schema property dict."""
-    return {
+    prop: dict[str, object] = {
         "type": param.type,
         "description": param.description,
     }
+    if param.items is not None:
+        prop["items"] = param.items
+    return prop
 
 
 def tools_to_gemini_declarations(

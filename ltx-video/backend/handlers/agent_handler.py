@@ -79,6 +79,7 @@ class AgentHandler(StateHandlerBase):
             gemini_api_key=api_key,
             http_client=self._http,
             project_save_path=request.project_save_path,
+            force=request.force,
         )
         return AnalyzeVideoResponse(
             status=AnalysisStatus.ANALYZING if started else AnalysisStatus.COMPLETE,

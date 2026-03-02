@@ -255,6 +255,10 @@ export function VideoEditor() {
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [agentOpen, setAgentOpen] = useState(false);
   const [isDecomposing, setIsDecomposing] = useState(false);
+  const [decomposeNotification, setDecomposeNotification] = useState<{
+    message: string;
+    type: "success" | "error";
+  } | null>(null);
   const [showEffectsBrowser, setShowEffectsBrowser] = useState(false);
   const [showTrimFlyout, setShowTrimFlyout] = useState(false);
   const [lastTrimTool, setLastTrimTool] = useState<ToolType>("ripple");
@@ -903,16 +907,27 @@ export function VideoEditor() {
           { method: "POST" },
         );
         if (!res.ok) {
-          console.error("Decompose failed:", res.status);
+          setDecomposeNotification({ message: `Decomposition failed (status ${res.status})`, type: "error" });
+          setTimeout(() => setDecomposeNotification(null), 4000);
           return;
         }
         const data = await res.json();
         if (data.error) {
-          console.error("Decompose error:", data.error);
+          setDecomposeNotification({ message: data.error, type: "error" });
+          setTimeout(() => setDecomposeNotification(null), 4000);
           return;
         }
         const parentAsset = assets.find((a) => a.id === assetId);
-        if (!parentAsset || !data.subclips?.length) return;
+        if (!parentAsset || !data.subclips?.length) {
+          setDecomposeNotification({ message: "No scenes found to decompose", type: "error" });
+          setTimeout(() => setDecomposeNotification(null), 4000);
+          return;
+        }
+
+        const existingChildren = assets.filter((a) => a.parentAssetId === assetId);
+        for (const child of existingChildren) {
+          deleteAsset(currentProjectId, child.id);
+        }
 
         for (const sc of data.subclips) {
           addAsset(currentProjectId, {
@@ -928,9 +943,15 @@ export function VideoEditor() {
             sourceOut: sc.source_out,
             transcript: sc.transcript ?? "",
             topics: sc.topics ?? [],
-            bin: sc.topics?.[0] ?? undefined,
           });
         }
+
+        const count = data.subclips.length;
+        setDecomposeNotification({
+          message: `Decomposed into ${count} scene${count !== 1 ? "s" : ""}`,
+          type: "success",
+        });
+        setTimeout(() => setDecomposeNotification(null), 4000);
 
         // Notify brain that decomposition happened
         fetch(
@@ -946,11 +967,27 @@ export function VideoEditor() {
         fetch(buildUrl, { method: "POST" }).catch(() => {});
       } catch (err) {
         console.error("Decompose into scenes failed:", err);
+        setDecomposeNotification({ message: "Decomposition failed unexpectedly", type: "error" });
+        setTimeout(() => setDecomposeNotification(null), 4000);
       } finally {
         setIsDecomposing(false);
       }
     },
     [currentProjectId, currentProject, assets, addAsset],
+  );
+
+  const handleRemoveDecomposition = useCallback(
+    (parentAssetId: string) => {
+      if (!currentProjectId) return;
+      const childIds = assets
+        .filter((a) => a.parentAssetId === parentAssetId)
+        .map((a) => a.id);
+      if (childIds.length === 0) return;
+      for (const id of childIds) {
+        deleteAsset(currentProjectId, id);
+      }
+    },
+    [currentProjectId, assets, deleteAsset],
   );
 
   // Ensure the active timeline is always in the open tab set.
@@ -2544,6 +2581,17 @@ export function VideoEditor() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
+      {decomposeNotification && (
+        <div
+          className={`absolute left-1/2 top-12 z-[100] -translate-x-1/2 animate-in fade-in slide-in-from-top-2 rounded-lg border px-4 py-2 text-xs font-medium shadow-lg backdrop-blur-sm ${
+            decomposeNotification.type === "success"
+              ? "border-emerald-500/30 bg-emerald-900/80 text-emerald-200"
+              : "border-red-500/30 bg-red-900/80 text-red-200"
+          }`}
+        >
+          {decomposeNotification.message}
+        </div>
+      )}
       {/* Menu Bar */}
       <MenuBar
         menus={menuDefinitions}
@@ -2736,6 +2784,7 @@ export function VideoEditor() {
           handleStartRename={handleStartRename}
           handleFinishRename={handleFinishRename}
           setRenamingTimelineId={setRenamingTimelineId}
+          onRemoveDecomposition={handleRemoveDecomposition}
         />
         {/* Left resize handle */}
         <div
@@ -5630,7 +5679,7 @@ export function VideoEditor() {
                   if (a?.path) {
                     analyzedAssetIds.current.delete(assetId);
                     markAnalyzing(assetId);
-                    triggerVideoAnalysis(assetId, a.path);
+                    triggerVideoAnalysis(assetId, a.path, currentProject?.assetSavePath, true);
                   }
                 }}
                 setAssetActiveTake={setAssetActiveTake}
@@ -5644,6 +5693,7 @@ export function VideoEditor() {
                 setClips={setClips}
                 onDecomposeIntoScenes={handleDecomposeIntoScenes}
                 isDecomposing={isDecomposing}
+                onRemoveDecomposition={handleRemoveDecomposition}
               />
             );
           })()}

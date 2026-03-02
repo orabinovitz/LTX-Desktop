@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   FolderPlus,
   Folder,
@@ -21,6 +21,7 @@ import {
   LayoutGrid,
   List,
   ArrowUpDown,
+  Scissors,
 } from "lucide-react";
 import type { Asset, TimelineClip, Timeline } from "../../types/project";
 import { VideoThumbnailCard } from "./VideoThumbnailCard";
@@ -141,6 +142,7 @@ export interface LeftPanelProps {
   ) => void;
   handleFinishRename: () => void;
   setRenamingTimelineId: (v: string | null) => void;
+  onRemoveDecomposition?: (parentAssetId: string) => void;
 }
 
 export function LeftPanel(props: LeftPanelProps) {
@@ -206,6 +208,7 @@ export function LeftPanel(props: LeftPanelProps) {
     handleStartRename,
     handleFinishRename,
     setRenamingTimelineId,
+    onRemoveDecomposition,
   } = props;
 
   const [assetViewMode, setAssetViewMode] = useState<"grid" | "list">("grid");
@@ -213,6 +216,7 @@ export function LeftPanel(props: LeftPanelProps) {
     "name" | "type" | "duration" | "resolution" | "date" | "color"
   >("name");
   const [listSortDir, setListSortDir] = useState<"asc" | "desc">("asc");
+  const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
   const toggleSort = (col: typeof listSortCol) => {
     if (listSortCol === col) {
@@ -223,9 +227,30 @@ export function LeftPanel(props: LeftPanelProps) {
     }
   };
 
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, Asset[]>();
+    for (const asset of assets) {
+      if (asset.parentAssetId) {
+        const existing = map.get(asset.parentAssetId) ?? [];
+        existing.push(asset);
+        map.set(asset.parentAssetId, existing);
+      }
+    }
+    for (const children of map.values()) {
+      children.sort((a, b) => (a.sourceIn ?? 0) - (b.sourceIn ?? 0));
+    }
+    return map;
+  }, [assets]);
+
+  const topLevelFilteredAssets = useMemo(() => {
+    return filteredAssets.filter(
+      (a) => !a.parentAssetId || !assets.some(p => p.id === a.parentAssetId),
+    );
+  }, [filteredAssets, assets]);
+
   const sortedAssets = useMemo(() => {
-    if (assetViewMode !== "list") return filteredAssets;
-    const sorted = [...filteredAssets];
+    if (assetViewMode !== "list") return topLevelFilteredAssets;
+    const sorted = [...topLevelFilteredAssets];
     const dir = listSortDir === "asc" ? 1 : -1;
     sorted.sort((a, b) => {
       switch (listSortCol) {
@@ -270,7 +295,16 @@ export function LeftPanel(props: LeftPanelProps) {
       }
     });
     return sorted;
-  }, [filteredAssets, listSortCol, listSortDir, assetViewMode]);
+  }, [topLevelFilteredAssets, listSortCol, listSortDir, assetViewMode]);
+
+  const toggleParentExpand = useCallback((parentId: string) => {
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentId)) next.delete(parentId);
+      else next.add(parentId);
+      return next;
+    });
+  }, []);
 
   return (
     <div
@@ -821,14 +855,17 @@ export function LeftPanel(props: LeftPanelProps) {
               </div>
             ) : assetViewMode === "grid" ? (
               <div className="grid grid-cols-2 gap-2">
-                {filteredAssets.map((asset) => {
+                {topLevelFilteredAssets.map((asset) => {
                   const cl = getColorLabel(asset.colorLabel);
+                  const assetChildren = childrenByParent.get(asset.id);
+                  const hasChildren = assetChildren && assetChildren.length > 0;
+                  const isParentExpanded = expandedParents.has(asset.id);
                   return (
+                    <React.Fragment key={asset.id}>
                     <div
-                      key={asset.id}
                       data-asset-card
                       data-asset-id={asset.id}
-                      className={`group relative cursor-pointer overflow-hidden rounded-lg border-2 transition-all ${
+                      className={`group relative cursor-pointer overflow-hidden rounded-lg border-2 transition-all ${hasChildren ? "col-span-2" : ""} ${
                         selectedAssetIds.has(asset.id)
                           ? "border-blue-500 shadow-lg shadow-blue-500/20 ring-2 ring-blue-500/40"
                           : "border-zinc-800 hover:border-zinc-600"
@@ -1127,7 +1164,114 @@ export function LeftPanel(props: LeftPanelProps) {
                             ? `${asset.duration.toFixed(1)}s`
                             : ""}
                       </div>
+                      {hasChildren && (
+                        <div className="absolute right-1 bottom-1 z-10 flex items-center gap-0.5 rounded bg-black/70 px-1.5 py-0.5 text-[9px] text-purple-300">
+                          <Scissors className="h-2.5 w-2.5" />
+                          {assetChildren!.length}
+                        </div>
+                      )}
                     </div>
+                    {hasChildren && (
+                      <div className="col-span-2 -mt-1">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleParentExpand(asset.id); }}
+                          className="flex w-full items-center gap-1.5 rounded-b-lg border border-t-0 border-zinc-700/50 bg-zinc-900/80 px-2 py-1 text-[10px] text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                        >
+                          {isParentExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                          <Scissors className="h-3 w-3 text-purple-400" />
+                          <span>{assetChildren!.length} scene{assetChildren!.length !== 1 ? "s" : ""}</span>
+                          {onRemoveDecomposition && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onRemoveDecomposition(asset.id); }}
+                              className="ml-auto rounded p-0.5 text-zinc-600 transition-colors hover:text-red-400"
+                              title="Remove decomposition"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                        </button>
+                        {isParentExpanded && (
+                          <div className="mt-1 space-y-0.5 border-l-2 border-purple-500/30 pl-2">
+                            {assetChildren!.map((child) => {
+                              const fmtTime = (s: number) => {
+                                const m = Math.floor(s / 60);
+                                const sec = Math.floor(s % 60);
+                                return `${m}:${sec.toString().padStart(2, "0")}`;
+                              };
+                              const timeRange = child.sourceIn != null && child.sourceOut != null
+                                ? `${fmtTime(child.sourceIn)} – ${fmtTime(child.sourceOut)}`
+                                : "";
+                              const topicLabel = child.topics?.[0] ?? "";
+                              return (
+                                <div
+                                  key={child.id}
+                                  data-asset-card
+                                  data-asset-id={child.id}
+                                  className={`group/sub flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-all ${
+                                    selectedAssetIds.has(child.id)
+                                      ? "bg-blue-600/20 ring-1 ring-blue-500/40"
+                                      : "hover:bg-zinc-800/60"
+                                  }`}
+                                  draggable
+                                  onDragStart={(e) => {
+                                    e.dataTransfer.setData("assetId", child.id);
+                                    e.dataTransfer.setData("asset", JSON.stringify(child));
+                                    e.dataTransfer.effectAllowed = "copy";
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (e.ctrlKey || e.metaKey) {
+                                      setSelectedAssetIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(child.id)) next.delete(child.id); else next.add(child.id);
+                                        return next;
+                                      });
+                                    } else {
+                                      setSelectedAssetIds(new Set([child.id]));
+                                    }
+                                  }}
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
+                                    loadSourceAsset(child);
+                                  }}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setSelectedAssetIds(new Set([child.id]));
+                                    setAssetContextMenu({ assetId: child.id, x: e.clientX, y: e.clientY });
+                                  }}
+                                >
+                                  <div className="h-7 w-10 flex-shrink-0 overflow-hidden rounded bg-zinc-800">
+                                    {thumbnailMap[child.url] ? (
+                                      <img src={thumbnailMap[child.url]} alt="" className="h-full w-full object-cover" />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center"><Film className="h-3 w-3 text-zinc-500" /></div>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-[10px] font-medium leading-tight text-zinc-200">
+                                      {child.prompt || `Scene`}
+                                    </p>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[9px] tabular-nums text-zinc-500">{timeRange}</span>
+                                      {topicLabel && (
+                                        <span className="truncate rounded bg-purple-500/15 px-1 py-0.5 text-[8px] text-purple-300">
+                                          {topicLabel}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <span className="flex-shrink-0 text-[9px] tabular-nums text-zinc-500">
+                                    {child.duration != null ? `${child.duration.toFixed(1)}s` : ""}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </div>

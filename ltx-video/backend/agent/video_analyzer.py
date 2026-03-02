@@ -237,12 +237,24 @@ def analyze_video_background(
     gemini_api_key: str,
     http_client: HTTPClient,
     project_save_path: str | None = None,
+    force: bool = False,
 ) -> bool:
     """Kick off background video analysis.
 
     Returns ``True`` if a new analysis was started, ``False`` if the result
     was loaded from the on-disk cache (no Gemini call needed).
+
+    When *force* is True, any existing disk and in-memory caches are
+    cleared so a fresh Gemini analysis is performed.
     """
+    if force:
+        cache_file = _disk_cache_path(file_path)
+        if cache_file.exists():
+            cache_file.unlink(missing_ok=True)
+            logger.info("Force flag set — deleted disk cache for %s", file_path)
+        with _cache_lock:
+            _metadata_cache.pop(asset_id, None)
+
     # Check disk cache first — avoid re-analyzing on every app restart
     cached = _load_from_disk(file_path)
     if cached is not None:

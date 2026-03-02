@@ -62,6 +62,7 @@ export interface AssetContextMenuProps {
   >;
   onDecomposeIntoScenes?: (assetId: string) => void;
   isDecomposing?: boolean;
+  onRemoveDecomposition?: (parentAssetId: string) => void;
 }
 
 export function AssetContextMenu({
@@ -90,7 +91,9 @@ export function AssetContextMenu({
   setClips,
   onDecomposeIntoScenes,
   isDecomposing,
+  onRemoveDecomposition,
 }: AssetContextMenuProps) {
+  const hasChildSubclips = assets.some((a) => a.parentAssetId === asset.id);
   const isMulti = targetIds.length > 1;
 
   return (
@@ -155,7 +158,20 @@ export function AssetContextMenu({
           className="flex w-full items-center gap-3 px-3 py-1.5 text-left text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
         >
           <Scissors className="h-3.5 w-3.5 text-zinc-500" />
-          <span>{isDecomposing ? "Decomposing..." : "Decompose into Scenes"}</span>
+          <span>{isDecomposing ? "Decomposing..." : hasChildSubclips ? "Re-decompose into Scenes" : "Decompose into Scenes"}</span>
+        </button>
+      )}
+
+      {!isMulti && hasChildSubclips && onRemoveDecomposition && (
+        <button
+          onClick={() => {
+            onRemoveDecomposition(asset.id);
+            setAssetContextMenu(null);
+          }}
+          className="flex w-full items-center gap-3 px-3 py-1.5 text-left text-red-400 hover:bg-zinc-700"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          <span>Remove Decomposition</span>
         </button>
       )}
 

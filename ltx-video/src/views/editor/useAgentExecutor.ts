@@ -813,7 +813,6 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           sourceOut: sc.source_out,
           transcript: sc.transcript ?? "",
           topics: sc.topics ?? [],
-          bin: sc.topics?.[0] ?? undefined,
         });
         createdIds.push(newAsset.id);
       }

@@ -84,9 +84,13 @@ class ToolParameter(BaseModel):
     """Schema for a single parameter accepted by a tool."""
 
     name: str
-    type: str = Field(description="JSON Schema type (string, number, boolean, …)")
+    type: str = Field(description="JSON Schema type (string, number, boolean, array, …)")
     description: str = ""
     required: bool = True
+    items: dict[str, Any] | None = Field(
+        default=None,
+        description="JSON Schema for array element type (required when type='array')",
+    )
 
 
 class ToolDefinition(BaseModel):
@@ -188,6 +192,7 @@ class AnalyzeVideoRequest(BaseModel):
     file_path: str
     duration: float | None = None
     project_save_path: str | None = None
+    force: bool = False
 
 
 class AnalyzeVideoResponse(BaseModel):

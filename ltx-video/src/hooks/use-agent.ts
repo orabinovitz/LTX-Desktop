@@ -92,6 +92,7 @@ export async function triggerVideoAnalysis(
   assetId: string,
   filePath: string,
   projectSavePath?: string,
+  force?: boolean,
 ): Promise<boolean> {
   try {
     const backendUrl = await window.electronAPI.getBackendUrl();
@@ -102,6 +103,7 @@ export async function triggerVideoAnalysis(
         asset_id: assetId,
         file_path: filePath,
         ...(projectSavePath ? { project_save_path: projectSavePath } : {}),
+        ...(force ? { force: true } : {}),
       }),
     });
     if (res.ok) {
