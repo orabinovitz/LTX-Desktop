@@ -1,0 +1,87 @@
+---
+description: Multi-stage code quality audit pipeline — triggered when user asks to audit, review, or verify code quality
+alwaysApply: true
+---
+
+# Code Quality Audit Pipeline
+
+When the user asks to "audit code quality", "review code", "verify production readiness", or similar — run this pipeline. Audit the changed/specified files against the engineering principles (Security > Maintainability > Scalability).
+
+## Pipeline
+
+Run stages sequentially. Within each stage, run subagents in **parallel** where marked.
+
+### Stage 1: Structural Fit
+
+> Does the code follow existing patterns and fit the architecture?
+
+Launch in **parallel**:
+- `pattern-recognition-specialist` — Check naming conventions, design patterns, anti-patterns, duplication, codebase consistency
+- `architecture-strategist` — Check architectural compliance, coupling, design integrity, pattern violations
+
+### Stage 2: Code Quality
+
+> Is the code as simple and well-crafted as it can be?
+
+Launch in **parallel**:
+- `code-simplicity-reviewer` — Find YAGNI violations, over-abstraction, unnecessary complexity, dead paths
+- `kieran-typescript-reviewer` — TypeScript-specific quality: type safety, modern patterns, maintainability (swap for `kieran-python-reviewer` or `kieran-rails-reviewer` if auditing Python/Ruby code)
+
+### Stage 3: Safety
+
+> Is it safe to ship?
+
+Launch in **parallel**:
+- `security-sentinel` — Injection, auth/authz, secrets, input validation, OWASP compliance
+- `data-integrity-guardian` — **Only if changes touch database, migrations, or persistent data.** Skip otherwise.
+
+### Stage 4: Scalability
+
+> Will it hold up under growth?
+
+- `performance-oracle` — Algorithmic complexity, N+1 queries, memory leaks, bundle size, database performance
+
+### Stage 5: Production Readiness
+
+> Can we debug this at 3am?
+
+Run the `code-observability` and `code-testing` **skills** (read their SKILL.md files and follow their procedures):
+- **code-observability** — Error handling gaps, silent failures, unstructured logging, missing telemetry
+- **code-testing** — Test coverage gaps, test quality, missing edge cases
+
+## Output Format
+
+After all stages complete, produce a single consolidated report:
+
+```
+## Audit Report
+
+### Critical (must fix before merge)
+- [SECURITY] ...
+- [DATA] ...
+
+### High (should fix before merge)
+- [PATTERN] ...
+- [PERFORMANCE] ...
+
+### Medium (fix soon)
+- [SIMPLICITY] ...
+- [OBSERVABILITY] ...
+
+### Low (nice to have)
+- [STYLE] ...
+
+### Summary
+- Stages run: 1-5
+- Findings: X critical, Y high, Z medium, W low
+- Verdict: PASS / PASS WITH CONDITIONS / FAIL
+```
+
+## Rules
+
+- Deduplicate findings flagged by multiple reviewers — report each issue once under its highest severity
+- Every finding must reference a specific file and line range
+- Every finding must cite which engineering principle it violates (Security, Maintainability, or Scalability)
+- If a stage finds zero issues, say so explicitly — don't skip it from the report
+- If the user specifies files/directories, scope all reviewers to those paths
+- If no scope specified, audit files changed in the current branch vs main

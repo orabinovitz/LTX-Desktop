@@ -1,133 +1,171 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import { 
-  Plus, Trash2, Download, Image, Video, X,
-  Heart, Film, Volume2, VolumeX, Sparkles,
-  Clock, Monitor, ChevronUp, Scissors, AudioLines,
-  Paintbrush, ChevronLeft, ChevronRight
-} from 'lucide-react'
-import { useProjects } from '../contexts/ProjectContext'
-import { useGeneration } from '../hooks/use-generation'
-import type { Asset } from '../types/project'
-import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
-import { copyToAssetFolder } from '../lib/asset-copy'
-import { fileUrlToPath } from '../lib/url-to-path'
+import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  Plus,
+  Trash2,
+  Download,
+  Image,
+  Video,
+  X,
+  Heart,
+  Film,
+  Volume2,
+  VolumeX,
+  Sparkles,
+  Clock,
+  Monitor,
+  ChevronUp,
+  Scissors,
+  AudioLines,
+  Paintbrush,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
+import { useProjects } from "../contexts/ProjectContext";
+import { useGeneration } from "../hooks/use-generation";
+import type { Asset } from "../types/project";
+import { GenerationErrorDialog } from "../components/GenerationErrorDialog";
+import { copyToAssetFolder } from "../lib/asset-copy";
+import { fileUrlToPath } from "../lib/url-to-path";
 
 // Asset card with hover overlays
-function AssetCard({ 
-  asset, 
-  onDelete, 
+function AssetCard({
+  asset,
+  onDelete,
   onPlay,
   onDragStart,
   onCreateVideo,
   onEditImage,
-  onToggleFavorite
-}: { 
-  asset: Asset
-  onDelete: () => void
-  onPlay: () => void
-  onDragStart: (e: React.DragEvent, asset: Asset) => void
-  onCreateVideo?: (asset: Asset) => void
-  onEditImage?: (asset: Asset) => void
-  onToggleFavorite?: () => void
+  onToggleFavorite,
+}: {
+  asset: Asset;
+  onDelete: () => void;
+  onPlay: () => void;
+  onDragStart: (e: React.DragEvent, asset: Asset) => void;
+  onCreateVideo?: (asset: Asset) => void;
+  onEditImage?: (asset: Asset) => void;
+  onToggleFavorite?: () => void;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const [isHovered, setIsHovered] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [isMuted, setIsMuted] = useState(true)
-  const isFavorite = asset.favorite || false
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isMuted, setIsMuted] = useState(true);
+  const isFavorite = asset.favorite || false;
 
   useEffect(() => {
-    if (asset.type === 'video' && videoRef.current) {
+    if (asset.type === "video" && videoRef.current) {
       if (isHovered) {
-        videoRef.current.play().catch(() => {})
+        videoRef.current.play().catch(() => {});
       } else {
-        videoRef.current.pause()
-        videoRef.current.currentTime = 0
-        setCurrentTime(0)
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setCurrentTime(0);
       }
     }
-  }, [isHovered, asset.type])
+  }, [isHovered, asset.type]);
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime)
+      setCurrentTime(videoRef.current.currentTime);
     }
-  }
+  };
 
   const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-  }
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
 
   const handleDownload = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    const a = document.createElement('a')
-    a.href = asset.url
-    a.download = asset.path.split('/').pop() || `${asset.type}-${asset.id}`
-    a.click()
-  }
+    e.stopPropagation();
+    const a = document.createElement("a");
+    a.href = asset.url;
+    a.download = asset.path.split("/").pop() || `${asset.type}-${asset.id}`;
+    a.click();
+  };
 
   return (
     <div
-      className="relative group cursor-pointer rounded-xl overflow-hidden bg-zinc-900"
+      className="group relative cursor-pointer overflow-hidden rounded-xl bg-zinc-900"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={onPlay}
-      draggable={asset.type === 'image'}
-      onDragStart={(e) => asset.type === 'image' && onDragStart(e, asset)}
+      draggable={asset.type === "image"}
+      onDragStart={(e) => asset.type === "image" && onDragStart(e, asset)}
     >
-      {asset.type === 'video' ? (
-        <video 
+      {asset.type === "video" ? (
+        <video
           ref={videoRef}
-          src={asset.url} 
-          className="w-full aspect-video object-cover" 
+          src={asset.url}
+          className="aspect-video w-full object-cover"
           muted={isMuted}
           loop
           onTimeUpdate={handleTimeUpdate}
         />
       ) : (
-        <img src={asset.url} alt="" className="w-full aspect-video object-cover" />
+        <img
+          src={asset.url}
+          alt=""
+          className="aspect-video w-full object-cover"
+        />
       )}
-      
+
       {/* Favorite heart - always visible when favorited */}
       {isFavorite && !isHovered && (
         <button
-          onClick={(e) => { e.stopPropagation(); onToggleFavorite?.() }}
-          className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white transition-colors z-10"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite?.();
+          }}
+          className="absolute left-2 top-2 z-10 rounded-lg bg-black/40 p-1.5 text-white backdrop-blur-md transition-colors"
         >
           <Heart className="h-3.5 w-3.5 fill-current" />
         </button>
       )}
-      
+
       {/* Hover overlay */}
-      <div className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 transition-opacity duration-200 ${
-        isHovered ? 'opacity-100' : 'opacity-0'
-      }`}>
+      <div
+        className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 transition-opacity duration-200 ${
+          isHovered ? "opacity-100" : "opacity-0"
+        }`}
+      >
         {/* Top buttons */}
-        <div className="absolute top-2 left-2 right-2 flex items-center justify-between">
+        <div className="absolute left-2 right-2 top-2 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <button
-              onClick={(e) => { e.stopPropagation(); onToggleFavorite?.() }}
-              className={`p-1.5 rounded-lg backdrop-blur-md transition-colors ${
-                isFavorite ? 'bg-white/20 text-white' : 'bg-black/40 text-white hover:bg-black/60'
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite?.();
+              }}
+              className={`rounded-lg p-1.5 backdrop-blur-md transition-colors ${
+                isFavorite
+                  ? "bg-white/20 text-white"
+                  : "bg-black/40 text-white hover:bg-black/60"
               }`}
             >
-              <Heart className={`h-3.5 w-3.5 ${isFavorite ? 'fill-current' : ''}`} />
+              <Heart
+                className={`h-3.5 w-3.5 ${isFavorite ? "fill-current" : ""}`}
+              />
             </button>
-            
-            {asset.type === 'image' && (
+
+            {asset.type === "image" && (
               <>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onEditImage?.(asset) }}
-                  className="px-2.5 py-1.5 rounded-lg bg-blue-500/70 backdrop-blur-md text-white hover:bg-blue-400/80 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEditImage?.(asset);
+                  }}
+                  className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-blue-500/70 px-2.5 py-1.5 text-xs font-medium text-white backdrop-blur-md transition-colors hover:bg-blue-400/80"
                 >
                   <Paintbrush className="h-3 w-3" />
                   Edit
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onCreateVideo?.(asset) }}
-                  className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateVideo?.(asset);
+                  }}
+                  className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-black/40 px-2.5 py-1.5 text-xs font-medium text-white backdrop-blur-md transition-colors hover:bg-black/60"
                 >
                   <Film className="h-3 w-3" />
                   Create video
@@ -135,140 +173,194 @@ function AssetCard({
               </>
             )}
           </div>
-          
+
           <div className="flex items-center gap-1.5">
             <button
               onClick={handleDownload}
-              className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors"
+              className="rounded-lg bg-black/40 p-1.5 text-white backdrop-blur-md transition-colors hover:bg-black/60"
             >
               <Download className="h-3.5 w-3.5" />
             </button>
             {/* Tools button hidden for now */}
           </div>
         </div>
-        
+
         {/* Bottom controls for video */}
-        {asset.type === 'video' && (
+        {asset.type === "video" && (
           <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-            <div className="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-md text-white text-xs font-mono">
+            <div className="rounded-lg bg-black/50 px-2 py-1 font-mono text-xs text-white backdrop-blur-md">
               {formatTime(currentTime)}
             </div>
             <button
-              onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted) }}
-              className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMuted(!isMuted);
+              }}
+              className="rounded-lg bg-black/40 p-1.5 text-white backdrop-blur-md transition-colors hover:bg-black/60"
             >
-              {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+              {isMuted ? (
+                <VolumeX className="h-3.5 w-3.5" />
+              ) : (
+                <Volume2 className="h-3.5 w-3.5" />
+              )}
             </button>
           </div>
         )}
-        
+
         {/* Delete button (subtle, bottom right for images) */}
-        {asset.type === 'image' && (
+        {asset.type === "image" && (
           <button
-            onClick={(e) => { e.stopPropagation(); onDelete() }}
-            className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-red-600/70 backdrop-blur-md text-white hover:bg-red-500 transition-colors opacity-0 group-hover:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="absolute bottom-2 right-2 rounded-lg bg-red-600/70 p-1.5 text-white opacity-0 backdrop-blur-md transition-colors hover:bg-red-500 group-hover:opacity-100"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         )}
       </div>
-      
     </div>
-  )
+  );
 }
 
 // Dropdown component for settings
-function SettingsDropdown({ 
-  trigger, 
-  options, 
-  value, 
+function SettingsDropdown({
+  trigger,
+  options,
+  value,
   onChange,
-  title 
-}: { 
-  trigger: React.ReactNode
-  options: { value: string; label: string; disabled?: boolean; tooltip?: string; icon?: React.ReactNode }[]
-  value: string
-  onChange: (value: string) => void
-  title: string
+  title,
+}: {
+  trigger: React.ReactNode;
+  options: {
+    value: string;
+    label: string;
+    disabled?: boolean;
+    tooltip?: string;
+    icon?: React.ReactNode;
+  }[];
+  value: string;
+  onChange: (value: string) => void;
+  title: string;
 }) {
-  const [isOpen, setIsOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-  
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsOpen(false);
       }
-    }
+    };
     if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
+      document.addEventListener("mousedown", handleClickOutside);
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [isOpen])
-  
-  const btnRef = useRef<HTMLButtonElement>(null)
-  
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
+
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
+
   return (
     <div ref={dropdownRef} className="relative">
-      <button 
+      <button
         ref={btnRef}
-        onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-1 px-2 py-1.5 rounded-md transition-colors ${isOpen ? 'bg-zinc-700 hover:bg-zinc-700' : 'hover:bg-zinc-800'}`}
+        onClick={() => {
+          if (!isOpen) {
+            const rect = btnRef.current?.getBoundingClientRect();
+            setDropdownPos({
+              top: rect ? rect.top - 8 : 0,
+              left: rect ? rect.left : 0,
+            });
+          }
+          setIsOpen(!isOpen);
+        }}
+        className={`flex items-center gap-1 rounded-md px-2 py-1.5 transition-colors ${isOpen ? "bg-zinc-700 hover:bg-zinc-700" : "hover:bg-zinc-800"}`}
       >
         {trigger}
       </button>
-      
-      {isOpen && (() => {
-        const rect = btnRef.current?.getBoundingClientRect()
-        const top = rect ? rect.top - 8 : 0
-        const left = rect ? rect.left : 0
-        return (
-          <>
-            <div className="fixed inset-0 z-[9998]" onMouseDown={() => setIsOpen(false)} />
-            <div
-              className="fixed bg-zinc-800 border border-zinc-700 rounded-md p-2 min-w-[160px] shadow-xl z-[9999]"
-              style={{ bottom: window.innerHeight - top, left }}
-            >
-              <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2">{title}</div>
-              <div className="space-y-1">
-                {options.map(option => (
-                  <div key={option.value} className="relative group/option">
-                    <button
-                      onClick={() => { if (!option.disabled) { onChange(option.value); setIsOpen(false) } }}
-                      className={`w-full flex items-center justify-between px-2 py-2 rounded-md transition-colors text-left ${
+
+      {isOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-[9998]"
+            onMouseDown={() => setIsOpen(false)}
+          />
+          <div
+            className="fixed z-[9999] min-w-[160px] rounded-md border border-zinc-700 bg-zinc-800 p-2 shadow-xl"
+            style={{
+              bottom: window.innerHeight - dropdownPos.top,
+              left: dropdownPos.left,
+            }}
+          >
+            <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-500">
+              {title}
+            </div>
+            <div className="space-y-1">
+              {options.map((option) => (
+                <div key={option.value} className="group/option relative">
+                  <button
+                    onClick={() => {
+                      if (!option.disabled) {
+                        onChange(option.value);
+                        setIsOpen(false);
+                      }
+                    }}
+                    className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-left transition-colors ${
+                      option.disabled
+                        ? "cursor-not-allowed"
+                        : value === option.value
+                          ? "bg-white/20 hover:bg-white/25"
+                          : "hover:bg-zinc-700"
+                    }`}
+                  >
+                    <span
+                      className={`flex items-center gap-2.5 text-sm ${
                         option.disabled
-                          ? 'cursor-not-allowed'
-                          : value === option.value ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-zinc-700'
+                          ? "text-zinc-600"
+                          : value === option.value
+                            ? "text-white"
+                            : "text-zinc-400"
                       }`}
                     >
-                      <span className={`flex items-center gap-2.5 text-sm ${
-                        option.disabled 
-                          ? 'text-zinc-600' 
-                          : value === option.value ? 'text-white' : 'text-zinc-400'
-                      }`}>
-                        {option.icon && <span className="flex-shrink-0">{option.icon}</span>}
-                        {option.label}
-                      </span>
-                      {value === option.value && !option.disabled && (
-                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
+                      {option.icon && (
+                        <span className="flex-shrink-0">{option.icon}</span>
                       )}
-                    </button>
-                    {option.disabled && option.tooltip && (
-                      <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-zinc-700 rounded text-xs text-zinc-300 whitespace-nowrap opacity-0 group-hover/option:opacity-100 pointer-events-none z-[10000] transition-opacity">
-                        {option.tooltip}
-                      </div>
+                      {option.label}
+                    </span>
+                    {value === option.value && !option.disabled && (
+                      <svg
+                        className="h-5 w-5 text-white"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5 13l4 4L19 7"
+                        />
+                      </svg>
                     )}
-                  </div>
-                ))}
-              </div>
+                  </button>
+                  {option.disabled && option.tooltip && (
+                    <div className="pointer-events-none absolute left-full top-1/2 z-[10000] ml-2 -translate-y-1/2 whitespace-nowrap rounded bg-zinc-700 px-2 py-1 text-xs text-zinc-300 opacity-0 transition-opacity group-hover/option:opacity-100">
+                      {option.tooltip}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-          </>
-        )
-      })()}
+          </div>
+        </>
+      )}
     </div>
-  )
+  );
 }
 
 // Grid icon for variations
@@ -280,34 +372,61 @@ function GridIcon({ className }: { className?: string }) {
       <rect x="3" y="14" width="7" height="7" rx="1.5" />
       <rect x="14" y="14" width="7" height="7" rx="1.5" />
     </svg>
-  )
+  );
 }
 
 // Lightricks brand icon
 function LightricksIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path fillRule="evenodd" clipRule="evenodd" d="M17.0073 8.18934C16.3266 5.6556 14.9346 2.06903 12.3065 2.06903C9.27204 2.06903 6.86627 7.24621 5.45487 11.7948C4.79654 13.9203 4.35877 15.9049 4.17755 17.1736C4.10214 17.5829 4.06274 18.0044 4.06274 18.4347C4.06274 22.2903 7.22553 25.4338 11.1133 25.4338C15.5206 25.4338 23.9376 22.7073 23.9376 18.4347C23.9376 17.1179 23.1376 15.948 21.9018 14.9595L21.9039 14.9575C22.4493 13.7707 22.847 12.648 23.001 11.705C23.1934 10.5053 23.0074 9.5494 22.4429 8.88217C21.7692 8.07382 20.7107 7.85572 19.6586 7.84288C18.8826 7.84288 17.9777 7.96904 17.0073 8.18934ZM8.00176 9.17083C7.6945 9.93266 7.02317 11.7419 6.70157 12.9799C7.93005 11.9987 9.2965 11.1653 10.7091 10.4796C12.2325 9.73758 13.9171 9.06448 15.518 8.58411C15.08 6.98293 13.9585 3.62158 12.3129 3.62158C11.0298 3.62158 9.41958 5.69374 8.00176 9.17083ZM20.6201 14.083L20.6209 14.0786C21.0507 13.1163 21.3522 12.2118 21.4741 11.4547C21.5511 10.9607 21.5832 10.2872 21.2752 9.89577C20.9416 9.46599 20.1975 9.39543 19.6521 9.38901C18.9932 9.38901 18.2117 9.49943 17.3641 9.69208L17.3683 9.69702C17.586 10.7217 17.7526 11.772 17.8808 12.7968C18.8527 13.16 19.7877 13.5908 20.6201 14.083ZM15.8828 10.0897C14.6739 10.4588 13.4041 10.9464 12.209 11.4846C13.4346 11.588 14.8471 11.8527 16.2581 12.2608C16.1554 11.5367 16.0273 10.8061 15.8799 10.0948L15.8828 10.0897ZM11.1133 12.9816C8.07878 12.9816 5.60884 15.4258 5.60884 18.4347C5.60884 21.4435 8.07878 23.8878 11.1133 23.8878C13.8701 23.8878 16.3653 21.6639 16.6048 18.9158C16.7011 17.7546 16.669 15.9263 16.4637 13.9311C14.6294 13.3385 12.6763 12.9816 11.1133 12.9816ZM18.3883 22.2069C17.7984 22.4697 17.1711 22.7085 16.5284 22.9184C18.0872 21.3274 19.8832 18.8193 21.1982 16.3689L21.1997 16.3654C21.9756 17.0509 22.3915 17.7593 22.3915 18.4347C22.3915 19.6985 20.9288 21.0778 18.3883 22.2069ZM19.9493 15.4655L19.9473 15.4707C19.4291 16.4567 18.8221 17.4625 18.1833 18.4092C18.2214 17.4089 18.1892 16.0386 18.0611 14.5212C18.71 14.7948 19.3456 15.1021 19.9493 15.4655Z" fill="currentColor" />
+    <svg
+      className={className}
+      viewBox="0 0 28 28"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M17.0073 8.18934C16.3266 5.6556 14.9346 2.06903 12.3065 2.06903C9.27204 2.06903 6.86627 7.24621 5.45487 11.7948C4.79654 13.9203 4.35877 15.9049 4.17755 17.1736C4.10214 17.5829 4.06274 18.0044 4.06274 18.4347C4.06274 22.2903 7.22553 25.4338 11.1133 25.4338C15.5206 25.4338 23.9376 22.7073 23.9376 18.4347C23.9376 17.1179 23.1376 15.948 21.9018 14.9595L21.9039 14.9575C22.4493 13.7707 22.847 12.648 23.001 11.705C23.1934 10.5053 23.0074 9.5494 22.4429 8.88217C21.7692 8.07382 20.7107 7.85572 19.6586 7.84288C18.8826 7.84288 17.9777 7.96904 17.0073 8.18934ZM8.00176 9.17083C7.6945 9.93266 7.02317 11.7419 6.70157 12.9799C7.93005 11.9987 9.2965 11.1653 10.7091 10.4796C12.2325 9.73758 13.9171 9.06448 15.518 8.58411C15.08 6.98293 13.9585 3.62158 12.3129 3.62158C11.0298 3.62158 9.41958 5.69374 8.00176 9.17083ZM20.6201 14.083L20.6209 14.0786C21.0507 13.1163 21.3522 12.2118 21.4741 11.4547C21.5511 10.9607 21.5832 10.2872 21.2752 9.89577C20.9416 9.46599 20.1975 9.39543 19.6521 9.38901C18.9932 9.38901 18.2117 9.49943 17.3641 9.69208L17.3683 9.69702C17.586 10.7217 17.7526 11.772 17.8808 12.7968C18.8527 13.16 19.7877 13.5908 20.6201 14.083ZM15.8828 10.0897C14.6739 10.4588 13.4041 10.9464 12.209 11.4846C13.4346 11.588 14.8471 11.8527 16.2581 12.2608C16.1554 11.5367 16.0273 10.8061 15.8799 10.0948L15.8828 10.0897ZM11.1133 12.9816C8.07878 12.9816 5.60884 15.4258 5.60884 18.4347C5.60884 21.4435 8.07878 23.8878 11.1133 23.8878C13.8701 23.8878 16.3653 21.6639 16.6048 18.9158C16.7011 17.7546 16.669 15.9263 16.4637 13.9311C14.6294 13.3385 12.6763 12.9816 11.1133 12.9816ZM18.3883 22.2069C17.7984 22.4697 17.1711 22.7085 16.5284 22.9184C18.0872 21.3274 19.8832 18.8193 21.1982 16.3689L21.1997 16.3654C21.9756 17.0509 22.3915 17.7593 22.3915 18.4347C22.3915 19.6985 20.9288 21.0778 18.3883 22.2069ZM19.9493 15.4655L19.9473 15.4707C19.4291 16.4567 18.8221 17.4625 18.1833 18.4092C18.2214 17.4089 18.1892 16.0386 18.0611 14.5212C18.71 14.7948 19.3456 15.1021 19.9493 15.4655Z"
+        fill="currentColor"
+      />
     </svg>
-  )
+  );
 }
 
 function FluxIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M19.113 12.2515H16.5605L14.008 8.63382L6.04545 19.9068H8.60348L14.0079 12.2518L16.5605 12.2515L11.156 19.9068H13.721L19.113 12.2515V15.8693L16.2716 19.9073V22.0063H2L14.008 5L19.113 12.2515Z" fill="currentColor"/>
-      <path d="M26 22.0064L21.9704 22.0063V19.9151L19.113 15.8693V12.2515L26 22.0064Z" fill="currentColor"/>
+    <svg
+      className={className}
+      viewBox="0 0 28 28"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M19.113 12.2515H16.5605L14.008 8.63382L6.04545 19.9068H8.60348L14.0079 12.2518L16.5605 12.2515L11.156 19.9068H13.721L19.113 12.2515V15.8693L16.2716 19.9073V22.0063H2L14.008 5L19.113 12.2515Z"
+        fill="currentColor"
+      />
+      <path
+        d="M26 22.0064L21.9704 22.0063V19.9151L19.113 15.8693V12.2515L26 22.0064Z"
+        fill="currentColor"
+      />
     </svg>
-  )
+  );
 }
 
 // Square icon for aspect ratio
 function AspectIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
       <rect x="3" y="5" width="18" height="14" rx="2" />
     </svg>
-  )
+  );
 }
 
 // Prompt bar component matching the design
@@ -324,84 +443,106 @@ function PromptBar({
   settings,
   onSettingsChange,
 }: {
-  mode: 'image' | 'video'
-  onModeChange: (mode: 'image' | 'video') => void
-  prompt: string
-  onPromptChange: (prompt: string) => void
-  onGenerate: () => void
-  isGenerating: boolean
-  inputImage: string | null
-  onInputImageChange: (url: string | null) => void
+  mode: "image" | "video";
+  onModeChange: (mode: "image" | "video") => void;
+  prompt: string;
+  onPromptChange: (prompt: string) => void;
+  onGenerate: () => void;
+  isGenerating: boolean;
+  inputImage: string | null;
+  onInputImageChange: (url: string | null) => void;
   settings: {
-    model: string
-    duration: number
-    videoResolution: string
-    aspectRatio: string
-    imageResolution: string
-    variations: number
-    audio?: boolean
-  }
-  onSettingsChange: (settings: any) => void
+    model: string;
+    duration: number;
+    videoResolution: string;
+    aspectRatio: string;
+    imageResolution: string;
+    variations: number;
+    audio: boolean;
+  };
+  onSettingsChange: (settings: {
+    model: string;
+    duration: number;
+    videoResolution: string;
+    aspectRatio: string;
+    imageResolution: string;
+    variations: number;
+    audio: boolean;
+  }) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [isDragOver, setIsDragOver] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    
-    const assetData = e.dataTransfer.getData('asset')
+    e.preventDefault();
+    setIsDragOver(false);
+
+    const assetData = e.dataTransfer.getData("asset");
     if (assetData) {
-      const asset = JSON.parse(assetData) as Asset
-      if (asset.type === 'image') {
-        onInputImageChange(asset.url)
+      const asset = JSON.parse(assetData) as Asset;
+      if (asset.type === "image") {
+        onInputImageChange(asset.url);
       }
     }
-  }
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file && file.type.startsWith('image/')) {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith("image/")) {
       // In Electron, File objects have a .path property with the full filesystem path
-      const filePath = (file as any).path as string | undefined
+      const filePath = (file as File & { path?: string }).path;
       if (filePath) {
-        const normalized = filePath.replace(/\\/g, '/')
-        const fileUrl = normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`
-        onInputImageChange(fileUrl)
+        const normalized = filePath.replace(/\\/g, "/");
+        const fileUrl = normalized.startsWith("/")
+          ? `file://${normalized}`
+          : `file:///${normalized}`;
+        onInputImageChange(fileUrl);
       } else {
-        const url = URL.createObjectURL(file)
-        onInputImageChange(url)
+        const url = URL.createObjectURL(file);
+        onInputImageChange(url);
       }
     }
-  }
-  
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey && prompt.trim() && !isGenerating) {
-      e.preventDefault()
-      onGenerate()
+    if (e.key === "Enter" && !e.shiftKey && prompt.trim() && !isGenerating) {
+      e.preventDefault();
+      onGenerate();
     }
-  }
+  };
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-visible">
+    <div className="overflow-visible rounded-2xl border border-zinc-800 bg-zinc-900">
       {/* Top row: Image ref | Prompt | Generate */}
       <div className="flex items-start">
         {/* Input image drop zone */}
         <div
-          className={`relative w-10 h-10 mx-2 mt-2 rounded-lg border-2 border-dashed transition-colors flex items-center justify-center flex-shrink-0 cursor-pointer ${
-            isDragOver ? 'border-blue-500 bg-blue-500/10' : 'border-zinc-700 hover:border-zinc-500'
+          className={`relative mx-2 mt-2 flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg border-2 border-dashed transition-colors ${
+            isDragOver
+              ? "border-blue-500 bg-blue-500/10"
+              : "border-zinc-700 hover:border-zinc-500"
           }`}
-          onDragOver={(e) => { e.preventDefault(); setIsDragOver(true) }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragOver(true);
+          }}
           onDragLeave={() => setIsDragOver(false)}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
         >
           {inputImage ? (
             <>
-              <img src={inputImage} alt="" className="w-full h-full object-cover rounded-md" />
+              <img
+                src={inputImage}
+                alt=""
+                className="h-full w-full rounded-md object-cover"
+              />
               <button
-                onClick={(e) => { e.stopPropagation(); onInputImageChange(null) }}
-                className="absolute -top-1 -right-1 p-0.5 rounded-full bg-zinc-800 text-zinc-400 hover:text-white z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInputImageChange(null);
+                }}
+                className="absolute -right-1 -top-1 z-10 rounded-full bg-zinc-800 p-0.5 text-zinc-400 hover:text-white"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -419,80 +560,112 @@ function PromptBar({
         </div>
 
         {/* Prompt input - fills remaining width */}
-        <div className="flex-1 min-w-0 py-1">
+        <div className="min-w-0 flex-1 py-1">
           <textarea
             value={prompt}
             onChange={(e) => onPromptChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={mode === 'image'
-              ? (inputImage ? "Change the background to a sunset beach..." : "A close-up of a woman talking on the phone...")
-              : "The woman sips from a cup of coffee..."
+            placeholder={
+              mode === "image"
+                ? inputImage
+                  ? "Change the background to a sunset beach..."
+                  : "A close-up of a woman talking on the phone..."
+                : "The woman sips from a cup of coffee..."
             }
-            className="w-full bg-transparent text-white text-sm placeholder:text-zinc-500 focus:outline-none px-2 py-2 resize-none overflow-y-auto h-[70px] leading-5"
+            className="h-[70px] w-full resize-none overflow-y-auto bg-transparent px-2 py-2 text-sm leading-5 text-white placeholder:text-zinc-500 focus:outline-none"
           />
         </div>
-
       </div>
-      
+
       {/* Bottom row: Mode selector + Settings */}
-      <div className="flex items-center gap-0.5 px-1.5 py-1.5 border-t border-zinc-800/60 text-xs text-zinc-400">
+      <div className="flex items-center gap-0.5 border-t border-zinc-800/60 px-1.5 py-1.5 text-xs text-zinc-400">
         {/* Mode dropdown */}
         <SettingsDropdown
           title="MODE"
           value={mode}
-          onChange={(v) => onModeChange(v as 'image' | 'video')}
+          onChange={(v) => onModeChange(v as "image" | "video")}
           options={[
-            { value: 'image', label: 'Generate Images', icon: <Image className="h-4 w-4" /> },
-            { value: 'video', label: 'Generate Videos', icon: <Video className="h-4 w-4" /> },
-            { value: 'audio-to-video', label: 'Audio to Video', icon: <AudioLines className="h-4 w-4" />, disabled: true, tooltip: 'Coming soon' },
-            { value: 'retake', label: 'Retake', icon: <Scissors className="h-4 w-4" />, disabled: true, tooltip: 'Coming soon' },
+            {
+              value: "image",
+              label: "Generate Images",
+              icon: <Image className="h-4 w-4" />,
+            },
+            {
+              value: "video",
+              label: "Generate Videos",
+              icon: <Video className="h-4 w-4" />,
+            },
+            {
+              value: "audio-to-video",
+              label: "Audio to Video",
+              icon: <AudioLines className="h-4 w-4" />,
+              disabled: true,
+              tooltip: "Coming soon",
+            },
+            {
+              value: "retake",
+              label: "Retake",
+              icon: <Scissors className="h-4 w-4" />,
+              disabled: true,
+              tooltip: "Coming soon",
+            },
           ]}
           trigger={
             <>
-              {mode === 'image' ? <Image className="h-3.5 w-3.5" /> : <Video className="h-3.5 w-3.5" />}
-              <span className="text-zinc-300 font-medium">{mode === 'image' ? 'Image' : 'Video'}</span>
+              {mode === "image" ? (
+                <Image className="h-3.5 w-3.5" />
+              ) : (
+                <Video className="h-3.5 w-3.5" />
+              )}
+              <span className="font-medium text-zinc-300">
+                {mode === "image" ? "Image" : "Video"}
+              </span>
               <ChevronUp className="h-3 w-3 text-zinc-500" />
             </>
           }
         />
-        
+
         <div className="flex-1" />
-        
-        {mode === 'image' ? (
+
+        {mode === "image" ? (
           <>
             {/* Model indicator */}
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-800/50">
+            <div className="flex items-center gap-1.5 rounded-md bg-zinc-800/50 px-2 py-1">
               <FluxIcon className="h-3.5 w-3.5" />
-              <span className="text-zinc-300 font-medium">FLUX Klein</span>
+              <span className="font-medium text-zinc-300">FLUX Klein</span>
             </div>
-            
+
             {/* Resolution dropdown */}
             <SettingsDropdown
               title="IMAGE RESOLUTION"
               value={settings.imageResolution}
-              onChange={(v) => onSettingsChange({ ...settings, imageResolution: v })}
+              onChange={(v) =>
+                onSettingsChange({ ...settings, imageResolution: v })
+              }
               options={[
-                { value: '1080p', label: '1080p' },
-                { value: '1440p', label: '1440p' },
-                { value: '2048p', label: '2048p' },
+                { value: "1080p", label: "1080p" },
+                { value: "1440p", label: "1440p" },
+                { value: "2048p", label: "2048p" },
               ]}
               trigger={
                 <>
                   <Monitor className="h-3.5 w-3.5" />
-                  <span>{settings.imageResolution.replace('p', '')}</span>
+                  <span>{settings.imageResolution.replace("p", "")}</span>
                 </>
               }
             />
-            
+
             {/* Aspect ratio dropdown */}
             <SettingsDropdown
               title="RATIO"
               value={settings.aspectRatio}
-              onChange={(v) => onSettingsChange({ ...settings, aspectRatio: v })}
+              onChange={(v) =>
+                onSettingsChange({ ...settings, aspectRatio: v })
+              }
               options={[
-                { value: '16:9', label: '16:9' },
-                { value: '1:1', label: '1:1' },
-                { value: '9:16', label: '9:16' },
+                { value: "16:9", label: "16:9" },
+                { value: "1:1", label: "1:1" },
+                { value: "9:16", label: "9:16" },
               ]}
               trigger={
                 <>
@@ -501,18 +674,20 @@ function PromptBar({
                 </>
               }
             />
-            
+
             {/* Variations dropdown */}
             <SettingsDropdown
               title="VARIATIONS"
               value={String(settings.variations)}
-              onChange={(v) => onSettingsChange({ ...settings, variations: parseInt(v) })}
+              onChange={(v) =>
+                onSettingsChange({ ...settings, variations: parseInt(v) })
+              }
               options={[
-                { value: '12', label: '12' },
-                { value: '9', label: '9' },
-                { value: '6', label: '6' },
-                { value: '3', label: '3' },
-                { value: '1', label: '1' },
+                { value: "12", label: "12" },
+                { value: "9", label: "9" },
+                { value: "6", label: "6" },
+                { value: "3", label: "3" },
+                { value: "1", label: "1" },
               ]}
               trigger={
                 <>
@@ -530,30 +705,34 @@ function PromptBar({
               value={settings.model}
               onChange={(v) => onSettingsChange({ ...settings, model: v })}
               options={[
-                { value: 'fast', label: 'LTX-2 Fast' },
-                { value: 'pro', label: 'LTX-2 Pro' },
+                { value: "fast", label: "LTX-2 Fast" },
+                { value: "pro", label: "LTX-2 Pro" },
               ]}
               trigger={
                 <>
                   <LightricksIcon className="h-3.5 w-3.5" />
-                  <span className="text-zinc-300 font-medium">{settings.model === 'fast' ? 'LTX-2 Fast' : 'LTX-2 Pro'}</span>
+                  <span className="font-medium text-zinc-300">
+                    {settings.model === "fast" ? "LTX-2 Fast" : "LTX-2 Pro"}
+                  </span>
                 </>
               }
             />
 
-            <div className="w-px h-4 bg-zinc-700 mx-0.5" />
-            
+            <div className="mx-0.5 h-4 w-px bg-zinc-700" />
+
             {/* Duration dropdown */}
             <SettingsDropdown
               title="DURATION"
               value={String(settings.duration)}
-              onChange={(v) => onSettingsChange({ ...settings, duration: parseFloat(v) })}
+              onChange={(v) =>
+                onSettingsChange({ ...settings, duration: parseFloat(v) })
+              }
               options={[
-                { value: '5', label: '5 Sec' },
-                { value: '6', label: '6 Sec' },
-                { value: '8', label: '8 Sec' },
-                { value: '10', label: '10 Sec' },
-                { value: '20', label: '20 Sec' },
+                { value: "5", label: "5 Sec" },
+                { value: "6", label: "6 Sec" },
+                { value: "8", label: "8 Sec" },
+                { value: "10", label: "10 Sec" },
+                { value: "20", label: "20 Sec" },
               ]}
               trigger={
                 <>
@@ -562,34 +741,48 @@ function PromptBar({
                 </>
               }
             />
-            
+
             {/* Resolution dropdown */}
             <SettingsDropdown
               title="RESOLUTION"
               value={settings.videoResolution}
-              onChange={(v) => onSettingsChange({ ...settings, videoResolution: v })}
+              onChange={(v) =>
+                onSettingsChange({ ...settings, videoResolution: v })
+              }
               options={[
-                { value: '540p', label: '540p' },
-                { value: '720p', label: '720p' },
-                { value: '1080p', label: '1080p' },
+                { value: "540p", label: "540p" },
+                { value: "720p", label: "720p" },
+                { value: "1080p", label: "1080p" },
               ]}
               trigger={
                 <>
                   <Monitor className="h-3.5 w-3.5" />
-                  <span>{settings.videoResolution.replace('p', '')}</span>
+                  <span>{settings.videoResolution.replace("p", "")}</span>
                 </>
               }
             />
-            
+
             {/* Aspect Ratio dropdown */}
             <SettingsDropdown
               title="ASPECT RATIO"
               value={settings.aspectRatio}
-              onChange={(v) => onSettingsChange({ ...settings, aspectRatio: v })}
+              onChange={(v) =>
+                onSettingsChange({ ...settings, aspectRatio: v })
+              }
               options={[
-                { value: '1:1', label: '1:1', disabled: true, tooltip: 'Coming soon' },
-                { value: '16:9', label: '16:9' },
-                { value: '9:16', label: '9:16', disabled: true, tooltip: 'Coming soon' },
+                {
+                  value: "1:1",
+                  label: "1:1",
+                  disabled: true,
+                  tooltip: "Coming soon",
+                },
+                { value: "16:9", label: "16:9" },
+                {
+                  value: "9:16",
+                  label: "9:16",
+                  disabled: true,
+                  tooltip: "Coming soon",
+                },
               ]}
               trigger={
                 <>
@@ -598,18 +791,20 @@ function PromptBar({
                 </>
               }
             />
-            
+
             {/* Variations dropdown */}
             <SettingsDropdown
               title="VARIATIONS"
               value={String(settings.variations)}
-              onChange={(v) => onSettingsChange({ ...settings, variations: parseInt(v) })}
+              onChange={(v) =>
+                onSettingsChange({ ...settings, variations: parseInt(v) })
+              }
               options={[
-                { value: '12', label: '12' },
-                { value: '9', label: '9' },
-                { value: '6', label: '6' },
-                { value: '3', label: '3' },
-                { value: '1', label: '1' },
+                { value: "12", label: "12" },
+                { value: "9", label: "9" },
+                { value: "6", label: "6" },
+                { value: "3", label: "3" },
+                { value: "1", label: "1" },
               ]}
               trigger={
                 <>
@@ -620,23 +815,25 @@ function PromptBar({
             />
           </>
         )}
-        
+
         {/* Generate button */}
         <button
           onClick={onGenerate}
           disabled={isGenerating || !prompt.trim()}
-          className={`flex items-center gap-1.5 ml-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all flex-shrink-0 ${
+          className={`ml-2 flex flex-shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
             isGenerating || !prompt.trim()
-              ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
-              : 'bg-white text-black hover:bg-zinc-200'
+              ? "cursor-not-allowed bg-zinc-700 text-zinc-500"
+              : "bg-white text-black hover:bg-zinc-200"
           }`}
         >
-          <Sparkles className={`h-3.5 w-3.5 ${isGenerating ? 'animate-pulse' : ''}`} />
+          <Sparkles
+            className={`h-3.5 w-3.5 ${isGenerating ? "animate-pulse" : ""}`}
+          />
           Generate
         </button>
       </div>
     </div>
-  )
+  );
 }
 
 // Gallery size icon components
@@ -656,7 +853,7 @@ function GridSmallIcon({ className }: { className?: string }) {
       <rect x="14" y="14" width="4" height="4" rx="0.5" />
       <rect x="20" y="14" width="2" height="4" rx="0.5" />
     </svg>
-  )
+  );
 }
 
 function GridMediumIcon({ className }: { className?: string }) {
@@ -672,7 +869,7 @@ function GridMediumIcon({ className }: { className?: string }) {
       <rect x="10" y="18" width="6" height="4" rx="1" />
       <rect x="18" y="18" width="4" height="4" rx="1" />
     </svg>
-  )
+  );
 }
 
 function GridLargeIcon({ className }: { className?: string }) {
@@ -683,38 +880,51 @@ function GridLargeIcon({ className }: { className?: string }) {
       <rect x="2" y="13" width="9" height="9" rx="1.5" />
       <rect x="13" y="13" width="9" height="9" rx="1.5" />
     </svg>
-  )
+  );
 }
 
-type GallerySize = 'small' | 'medium' | 'large'
+type GallerySize = "small" | "medium" | "large";
 
 const gallerySizeClasses: Record<GallerySize, string> = {
-  small: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7',
-  medium: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5',
-  large: 'grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3',
-}
+  small:
+    "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7",
+  medium:
+    "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
+  large:
+    "grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3",
+};
 
 export function GenSpace() {
-  const { currentProject, currentProjectId, addAsset, deleteAsset, toggleFavorite, genSpaceEditImageUrl, setGenSpaceEditImageUrl, genSpaceEditMode, setGenSpaceEditMode } = useProjects()
-  const [mode, setMode] = useState<'image' | 'video'>('video')
-  const [prompt, setPrompt] = useState('')
-  const [inputImage, setInputImage] = useState<string | null>(null)
-  const [localError, setLocalError] = useState<string | null>(null)
-  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
-  const [showFavorites, setShowFavorites] = useState(false)
-  const [gallerySize, setGallerySize] = useState<GallerySize>('medium')
-  const [showSizeMenu, setShowSizeMenu] = useState(false)
-  const sizeMenuRef = useRef<HTMLDivElement>(null)
+  const {
+    currentProject,
+    currentProjectId,
+    addAsset,
+    deleteAsset,
+    toggleFavorite,
+    genSpaceEditImageUrl,
+    setGenSpaceEditImageUrl,
+    genSpaceEditMode,
+    setGenSpaceEditMode,
+  } = useProjects();
+  const [mode, setMode] = useState<"image" | "video">("video");
+  const [prompt, setPrompt] = useState("");
+  const [inputImage, setInputImage] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [gallerySize, setGallerySize] = useState<GallerySize>("medium");
+  const [showSizeMenu, setShowSizeMenu] = useState(false);
+  const sizeMenuRef = useRef<HTMLDivElement>(null);
   const [settings, setSettings] = useState({
-    model: 'fast',
+    model: "fast",
     duration: 5,
-    videoResolution: '540p',
-    aspectRatio: '16:9',
-    imageResolution: '1080p',
+    videoResolution: "540p",
+    aspectRatio: "16:9",
+    imageResolution: "1080p",
     variations: 1,
     audio: true,
-  })
-  
+  });
+
   const {
     generate,
     generateImage,
@@ -727,305 +937,351 @@ export function GenSpace() {
     imageUrls,
     error,
     reset,
-  } = useGeneration()
-  
+  } = useGeneration();
+
   // Handle incoming frame from the Video Editor for editing
   useEffect(() => {
     if (genSpaceEditImageUrl) {
-      const targetMode = genSpaceEditMode || 'image'
-      setMode(targetMode)
-      setInputImage(genSpaceEditImageUrl)
-      setPrompt('')
-      setGenSpaceEditImageUrl(null)
-      setGenSpaceEditMode(null)
+      const targetMode = genSpaceEditMode || "image";
+      setMode(targetMode);
+      setInputImage(genSpaceEditImageUrl);
+      setPrompt("");
+      setGenSpaceEditImageUrl(null);
+      setGenSpaceEditMode(null);
     }
-  }, [genSpaceEditImageUrl, setGenSpaceEditImageUrl, genSpaceEditMode, setGenSpaceEditMode])
+  }, [
+    genSpaceEditImageUrl,
+    setGenSpaceEditImageUrl,
+    genSpaceEditMode,
+    setGenSpaceEditMode,
+  ]);
 
   // Only show assets that were generated (have generationParams), not imported files
-  const assets = (currentProject?.assets || []).filter(a => a.generationParams)
-  const [lastPrompt, setLastPrompt] = useState('')
-  
-  const assetSavePath = currentProject?.assetSavePath
+  const assets = (currentProject?.assets || []).filter(
+    (a) => a.generationParams,
+  );
+  const [lastPrompt, setLastPrompt] = useState("");
+
+  const assetSavePath = currentProject?.assetSavePath;
 
   // When video generation completes, add to project assets
   useEffect(() => {
     if (videoUrl && videoPath && currentProjectId && !isGenerating) {
-      const exists = assets.some(a => a.url === videoUrl)
+      const exists = assets.some((a) => a.url === videoUrl);
       if (!exists) {
-        const genMode = inputImage ? 'image-to-video' : 'text-to-video'
-        ;(async () => {
-          const { path: finalPath, url: finalUrl } = await copyToAssetFolder(videoPath, videoUrl, assetSavePath)
+        const genMode = inputImage ? "image-to-video" : "text-to-video";
+        (async () => {
+          const { path: finalPath, url: finalUrl } = await copyToAssetFolder(
+            videoPath,
+            videoUrl,
+            assetSavePath,
+          );
           addAsset(currentProjectId, {
-            type: 'video',
+            type: "video",
             path: finalPath,
             url: finalUrl,
             prompt: lastPrompt,
             resolution: settings.videoResolution,
             duration: settings.duration,
             generationParams: {
-              mode: genMode as 'text-to-video' | 'image-to-video',
+              mode: genMode as "text-to-video" | "image-to-video",
               prompt: lastPrompt,
               model: settings.model,
               duration: settings.duration,
               resolution: settings.videoResolution,
               fps: 24,
               audio: settings.audio || false,
-              cameraMotion: 'none',
+              cameraMotion: "none",
               imageAspectRatio: settings.aspectRatio,
               imageSteps: 4,
               inputImageUrl: inputImage || undefined,
             },
-            takes: [{
-              url: finalUrl,
-              path: finalPath,
-              createdAt: Date.now(),
-            }],
+            takes: [
+              {
+                url: finalUrl,
+                path: finalPath,
+                createdAt: Date.now(),
+              },
+            ],
             activeTakeIndex: 0,
-          })
-        })()
+          });
+        })();
       }
     }
-  }, [videoUrl, videoPath, currentProjectId, isGenerating])
-  
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally fires only when generation result arrives
+  }, [videoUrl, videoPath, currentProjectId, isGenerating]);
+
   // When image generation/editing completes, add all images to project assets
   useEffect(() => {
     if (imageUrls.length > 0 && currentProjectId && !isGenerating) {
-      const genMode = inputImage ? 'image-edit' : 'text-to-image'
-      ;(async () => {
+      const genMode = inputImage ? "image-edit" : "text-to-image";
+      (async () => {
         for (const imageUrl of imageUrls) {
-          const exists = assets.some(a => a.url === imageUrl)
+          const exists = assets.some((a) => a.url === imageUrl);
           if (!exists) {
-            const { path: finalPath, url: finalUrl } = await copyToAssetFolder(imageUrl, imageUrl, assetSavePath)
+            const { path: finalPath, url: finalUrl } = await copyToAssetFolder(
+              imageUrl,
+              imageUrl,
+              assetSavePath,
+            );
             addAsset(currentProjectId, {
-              type: 'image',
+              type: "image",
               path: finalPath,
               url: finalUrl,
               prompt: lastPrompt,
               resolution: settings.imageResolution,
               generationParams: {
-                mode: genMode as any,
+                mode: genMode,
                 prompt: lastPrompt,
-                model: 'fast',
+                model: "fast",
                 duration: 5,
                 resolution: settings.imageResolution,
                 fps: 24,
                 audio: false,
-                cameraMotion: 'none',
+                cameraMotion: "none",
                 imageAspectRatio: settings.aspectRatio,
                 imageSteps: 4,
-                inputImageUrl: genMode === 'image-edit' ? inputImage || undefined : undefined,
+                inputImageUrl:
+                  genMode === "image-edit"
+                    ? inputImage || undefined
+                    : undefined,
               },
-              takes: [{
-                url: finalUrl,
-                path: finalPath,
-                createdAt: Date.now(),
-              }],
+              takes: [
+                {
+                  url: finalUrl,
+                  path: finalPath,
+                  createdAt: Date.now(),
+                },
+              ],
               activeTakeIndex: 0,
-            })
+            });
           }
         }
-      })()
+      })();
     }
-  }, [imageUrls, currentProjectId, isGenerating])
-  
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally fires only when generation result arrives
+  }, [imageUrls, currentProjectId, isGenerating]);
+
   const handleGenerate = async () => {
-    if (!prompt.trim()) return
-    
+    if (!prompt.trim()) return;
+
     // Save the prompt before generation starts
-    setLastPrompt(prompt)
-    
-    if (mode === 'image') {
+    setLastPrompt(prompt);
+
+    if (mode === "image") {
       if (inputImage) {
         // Image + input image → edit image mode (auto-detected)
-        let imageFile: File | null = null
+        let imageFile: File | null = null;
         try {
-          if (inputImage.startsWith('blob:')) {
-            const response = await fetch(inputImage)
-            const blob = await response.blob()
-            imageFile = new File([blob], 'input-image.png', { type: blob.type })
-          } else if (inputImage.startsWith('file:///') || inputImage.startsWith('file://')) {
-            let filePath = inputImage
-            if (filePath.startsWith('file:///')) filePath = filePath.slice(8)
-            else if (filePath.startsWith('file://')) filePath = filePath.slice(7)
-            filePath = decodeURIComponent(filePath)
-            const fileName = filePath.split(/[/\\]/).pop() || 'input-image.png'
-            
-            const img = document.createElement('img')
-            img.crossOrigin = 'anonymous'
+          if (inputImage.startsWith("blob:")) {
+            const response = await fetch(inputImage);
+            const blob = await response.blob();
+            imageFile = new File([blob], "input-image.png", {
+              type: blob.type,
+            });
+          } else if (
+            inputImage.startsWith("file:///") ||
+            inputImage.startsWith("file://")
+          ) {
+            let filePath = inputImage;
+            if (filePath.startsWith("file:///")) filePath = filePath.slice(8);
+            else if (filePath.startsWith("file://"))
+              filePath = filePath.slice(7);
+            filePath = decodeURIComponent(filePath);
+            const fileName = filePath.split(/[/\\]/).pop() || "input-image.png";
+
+            const img = document.createElement("img");
+            img.crossOrigin = "anonymous";
             const blob = await new Promise<Blob>((resolve, reject) => {
               img.onload = () => {
-                const canvas = document.createElement('canvas')
-                canvas.width = img.naturalWidth
-                canvas.height = img.naturalHeight
-                const ctx = canvas.getContext('2d')
-                if (!ctx) { reject(new Error('No canvas context')); return }
-                ctx.drawImage(img, 0, 0)
+                const canvas = document.createElement("canvas");
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) {
+                  reject(new Error("No canvas context"));
+                  return;
+                }
+                ctx.drawImage(img, 0, 0);
                 canvas.toBlob((b) => {
-                  if (b) resolve(b)
-                  else reject(new Error('Failed to convert canvas to blob'))
-                }, 'image/png')
-              }
-              img.onerror = () => reject(new Error('Failed to load image'))
-              img.src = inputImage
-            })
-            imageFile = new File([blob], fileName, { type: 'image/png' })
-          } else if (inputImage.startsWith('http://') || inputImage.startsWith('https://')) {
-            const response = await fetch(inputImage)
-            const blob = await response.blob()
-            imageFile = new File([blob], 'input-image.png', { type: blob.type })
+                  if (b) resolve(b);
+                  else reject(new Error("Failed to convert canvas to blob"));
+                }, "image/png");
+              };
+              img.onerror = () => reject(new Error("Failed to load image"));
+              img.src = inputImage;
+            });
+            imageFile = new File([blob], fileName, { type: "image/png" });
+          } else if (
+            inputImage.startsWith("http://") ||
+            inputImage.startsWith("https://")
+          ) {
+            const response = await fetch(inputImage);
+            const blob = await response.blob();
+            imageFile = new File([blob], "input-image.png", {
+              type: blob.type,
+            });
           }
         } catch (e) {
-          console.error('Failed to convert input image for editing:', e)
-          setLocalError(e instanceof Error ? e.message : 'Failed to prepare the input image.')
-          return
+          console.error("Failed to convert input image for editing:", e);
+          setLocalError(
+            e instanceof Error
+              ? e.message
+              : "Failed to prepare the input image.",
+          );
+          return;
         }
-        
-        if (!imageFile) return
-        
-        editImage(
-          prompt,
-          [imageFile],
-          {
-            model: 'fast' as 'fast' | 'pro',
-            duration: 5,
-            videoResolution: settings.videoResolution,
-            fps: 24,
-            audio: false,
-            cameraMotion: 'none',
-            imageResolution: settings.imageResolution,
-            imageAspectRatio: settings.aspectRatio,
-            imageSteps: 4,
-          }
-        )
+
+        if (!imageFile) return;
+
+        editImage(prompt, [imageFile], {
+          model: "fast" as "fast" | "pro",
+          duration: 5,
+          videoResolution: settings.videoResolution,
+          fps: 24,
+          audio: false,
+          cameraMotion: "none",
+          imageResolution: settings.imageResolution,
+          imageAspectRatio: settings.aspectRatio,
+          imageSteps: 4,
+        });
       } else {
         // No input image → generate image(s)
-        generateImage(
-          prompt,
-          {
-            model: 'fast' as 'fast' | 'pro',
-            duration: 5,
-            videoResolution: settings.videoResolution,
-            fps: 24,
-            audio: false,
-            cameraMotion: 'none',
-            imageResolution: settings.imageResolution,
-            imageAspectRatio: settings.aspectRatio,
-            imageSteps: 4,
-            variations: settings.variations,
-          }
-        )
+        generateImage(prompt, {
+          model: "fast" as "fast" | "pro",
+          duration: 5,
+          videoResolution: settings.videoResolution,
+          fps: 24,
+          audio: false,
+          cameraMotion: "none",
+          imageResolution: settings.imageResolution,
+          imageAspectRatio: settings.aspectRatio,
+          imageSteps: 4,
+          variations: settings.variations,
+        });
       }
     } else {
       // Generate video (t2v if no image, i2v if image is provided)
       // Extract filesystem path from the file:// URL for the backend
-      const imagePath = inputImage ? fileUrlToPath(inputImage) : null
+      const imagePath = inputImage ? fileUrlToPath(inputImage) : null;
 
-      generate(
-        prompt,
-        imagePath,
-        {
-          model: settings.model as 'fast' | 'pro',
-          duration: settings.duration,
-          videoResolution: settings.videoResolution,
-          fps: 24,
-          audio: settings.audio || false,
-          cameraMotion: 'none',
-          imageResolution: settings.imageResolution,
-          imageAspectRatio: settings.aspectRatio,
-          imageSteps: 4,
-        }
-      )
+      generate(prompt, imagePath, {
+        model: settings.model as "fast" | "pro",
+        duration: settings.duration,
+        videoResolution: settings.videoResolution,
+        fps: 24,
+        audio: settings.audio || false,
+        cameraMotion: "none",
+        imageResolution: settings.imageResolution,
+        imageAspectRatio: settings.aspectRatio,
+        imageSteps: 4,
+      });
     }
-  }
-  
+  };
+
   const handleDelete = (assetId: string) => {
     if (currentProjectId) {
-      deleteAsset(currentProjectId, assetId)
+      deleteAsset(currentProjectId, assetId);
     }
-  }
-  
+  };
+
   const handleDragStart = (e: React.DragEvent, asset: Asset) => {
-    e.dataTransfer.setData('asset', JSON.stringify(asset))
-    e.dataTransfer.setData('assetId', asset.id)
-    e.dataTransfer.effectAllowed = 'copy'
-  }
-  
+    e.dataTransfer.setData("asset", JSON.stringify(asset));
+    e.dataTransfer.setData("assetId", asset.id);
+    e.dataTransfer.effectAllowed = "copy";
+  };
+
   const handleCreateVideo = (imageAsset: Asset) => {
-    setMode('video')
-    setInputImage(imageAsset.url)
-    setPrompt(`${imageAsset.prompt || 'The scene comes to life...'}`)
-  }
-  
+    setMode("video");
+    setInputImage(imageAsset.url);
+    setPrompt(`${imageAsset.prompt || "The scene comes to life..."}`);
+  };
+
   const handleEditImage = (imageAsset: Asset) => {
-    setMode('image')
-    setInputImage(imageAsset.url)
-    setPrompt('')
-  }
-  
+    setMode("image");
+    setInputImage(imageAsset.url);
+    setPrompt("");
+  };
+
   // Close size menu on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (sizeMenuRef.current && !sizeMenuRef.current.contains(e.target as Node)) {
-        setShowSizeMenu(false)
+      if (
+        sizeMenuRef.current &&
+        !sizeMenuRef.current.contains(e.target as Node)
+      ) {
+        setShowSizeMenu(false);
       }
-    }
+    };
     if (showSizeMenu) {
-      document.addEventListener('mousedown', handleClickOutside)
+      document.addEventListener("mousedown", handleClickOutside);
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showSizeMenu])
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showSizeMenu]);
 
-  const filteredAssets = showFavorites ? assets.filter(a => a.favorite) : assets
-  const favoriteCount = assets.filter(a => a.favorite).length
+  const filteredAssets = showFavorites
+    ? assets.filter((a) => a.favorite)
+    : assets;
+  const favoriteCount = assets.filter((a) => a.favorite).length;
 
   // Navigation for the asset preview modal
-  const selectedIndex = selectedAsset ? filteredAssets.findIndex(a => a.id === selectedAsset.id) : -1
-  const canGoPrev = selectedIndex > 0
-  const canGoNext = selectedIndex >= 0 && selectedIndex < filteredAssets.length - 1
+  const selectedIndex = selectedAsset
+    ? filteredAssets.findIndex((a) => a.id === selectedAsset.id)
+    : -1;
+  const canGoPrev = selectedIndex > 0;
+  const canGoNext =
+    selectedIndex >= 0 && selectedIndex < filteredAssets.length - 1;
 
   const goToPrev = useCallback(() => {
-    if (canGoPrev) setSelectedAsset(filteredAssets[selectedIndex - 1])
-  }, [canGoPrev, filteredAssets, selectedIndex])
+    if (canGoPrev) setSelectedAsset(filteredAssets[selectedIndex - 1]);
+  }, [canGoPrev, filteredAssets, selectedIndex]);
 
   const goToNext = useCallback(() => {
-    if (canGoNext) setSelectedAsset(filteredAssets[selectedIndex + 1])
-  }, [canGoNext, filteredAssets, selectedIndex])
+    if (canGoNext) setSelectedAsset(filteredAssets[selectedIndex + 1]);
+  }, [canGoNext, filteredAssets, selectedIndex]);
 
   // Keyboard navigation for the preview modal
   useEffect(() => {
-    if (!selectedAsset) return
+    if (!selectedAsset) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') { e.preventDefault(); goToPrev() }
-      else if (e.key === 'ArrowRight') { e.preventDefault(); goToNext() }
-      else if (e.key === 'Escape') setSelectedAsset(null)
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [selectedAsset, goToPrev, goToNext])
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        goToPrev();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        goToNext();
+      } else if (e.key === "Escape") setSelectedAsset(null);
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [selectedAsset, goToPrev, goToNext]);
 
   return (
-    <div className="h-full relative bg-zinc-950">
-
+    <div className="relative h-full bg-zinc-950">
       {/* Empty state */}
       {assets.length === 0 && !isGenerating && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
-          <div className="w-24 h-24 rounded-2xl border-2 border-dashed border-zinc-700 flex items-center justify-center mb-4">
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+          <div className="mb-4 flex h-24 w-24 items-center justify-center rounded-2xl border-2 border-dashed border-zinc-700">
             <Sparkles className="h-10 w-10 text-zinc-600" />
           </div>
-          <h3 className="text-xl font-semibold text-white mb-2">Start Creating</h3>
-          <p className="text-zinc-500 max-w-md">
-            Use the prompt bar below to generate images and videos.
-            Drag assets into the input box to use them as references.
+          <h3 className="mb-2 text-xl font-semibold text-white">
+            Start Creating
+          </h3>
+          <p className="max-w-md text-zinc-500">
+            Use the prompt bar below to generate images and videos. Drag assets
+            into the input box to use them as references.
           </p>
         </div>
       )}
 
       {/* No favorites empty state */}
       {showFavorites && filteredAssets.length === 0 && assets.length > 0 && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
-          <Heart className="h-12 w-12 text-zinc-700 mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2">No favorites yet</h3>
-          <p className="text-zinc-500 text-sm">
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+          <Heart className="mb-4 h-12 w-12 text-zinc-700" />
+          <h3 className="mb-2 text-lg font-semibold text-white">
+            No favorites yet
+          </h3>
+          <p className="text-sm text-zinc-500">
             Click the heart icon on any asset to add it to your favorites.
           </p>
         </div>
@@ -1033,23 +1289,29 @@ export function GenSpace() {
 
       {/* Assets area — full width, no background, above the prompt bar */}
       {(assets.length > 0 || isGenerating) && (
-        <div className="absolute inset-x-0 top-0 bottom-[160px] flex flex-col px-4 pt-4">
+        <div className="absolute inset-x-0 bottom-[160px] top-0 flex flex-col px-4 pt-4">
           {/* Top bar */}
-          <div className="flex items-center justify-end pb-2 gap-2">
+          <div className="flex items-center justify-end gap-2 pb-2">
             <button
               onClick={() => setShowFavorites(!showFavorites)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                 showFavorites
-                  ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                  ? "border border-red-500/30 bg-red-500/20 text-red-400"
+                  : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
               }`}
             >
-              <Heart className={`h-4 w-4 ${showFavorites ? 'fill-current' : ''}`} />
+              <Heart
+                className={`h-4 w-4 ${showFavorites ? "fill-current" : ""}`}
+              />
               Favorites
               {favoriteCount > 0 && (
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                  showFavorites ? 'bg-red-500/30 text-red-300' : 'bg-zinc-800 text-zinc-500'
-                }`}>
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-xs ${
+                    showFavorites
+                      ? "bg-red-500/30 text-red-300"
+                      : "bg-zinc-800 text-zinc-500"
+                  }`}
+                >
                   {favoriteCount}
                 </span>
               )}
@@ -1058,36 +1320,71 @@ export function GenSpace() {
             <div ref={sizeMenuRef} className="relative">
               <button
                 onClick={() => setShowSizeMenu(!showSizeMenu)}
-                className={`p-2 rounded-md transition-colors ${
-                  showSizeMenu ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                className={`rounded-md p-2 transition-colors ${
+                  showSizeMenu
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
                 }`}
               >
-                {gallerySize === 'small' ? <GridSmallIcon className="h-4 w-4" /> :
-                 gallerySize === 'medium' ? <GridMediumIcon className="h-4 w-4" /> :
-                 <GridLargeIcon className="h-4 w-4" />}
+                {gallerySize === "small" ? (
+                  <GridSmallIcon className="h-4 w-4" />
+                ) : gallerySize === "medium" ? (
+                  <GridMediumIcon className="h-4 w-4" />
+                ) : (
+                  <GridLargeIcon className="h-4 w-4" />
+                )}
               </button>
 
               {showSizeMenu && (
-                <div className="absolute top-full mt-2 right-0 bg-zinc-800 border border-zinc-700 rounded-md p-2 min-w-[160px] shadow-xl z-50">
-                  {([
-                    { value: 'small' as GallerySize, label: 'Small', icon: GridSmallIcon },
-                    { value: 'medium' as GallerySize, label: 'Medium', icon: GridMediumIcon },
-                    { value: 'large' as GallerySize, label: 'Large', icon: GridLargeIcon },
-                  ]).map(option => (
+                <div className="absolute right-0 top-full z-50 mt-2 min-w-[160px] rounded-md border border-zinc-700 bg-zinc-800 p-2 shadow-xl">
+                  {[
+                    {
+                      value: "small" as GallerySize,
+                      label: "Small",
+                      icon: GridSmallIcon,
+                    },
+                    {
+                      value: "medium" as GallerySize,
+                      label: "Medium",
+                      icon: GridMediumIcon,
+                    },
+                    {
+                      value: "large" as GallerySize,
+                      label: "Large",
+                      icon: GridLargeIcon,
+                    },
+                  ].map((option) => (
                     <button
                       key={option.value}
-                      onClick={() => { setGallerySize(option.value); setShowSizeMenu(false) }}
-                      className={`w-full flex items-center justify-between px-2 py-2.5 rounded-md transition-colors text-left ${gallerySize === option.value ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-zinc-700'}`}
+                      onClick={() => {
+                        setGallerySize(option.value);
+                        setShowSizeMenu(false);
+                      }}
+                      className={`flex w-full items-center justify-between rounded-md px-2 py-2.5 text-left transition-colors ${gallerySize === option.value ? "bg-white/20 hover:bg-white/25" : "hover:bg-zinc-700"}`}
                     >
                       <div className="flex items-center gap-3">
-                        <option.icon className={`h-4 w-4 ${gallerySize === option.value ? 'text-white' : 'text-zinc-500'}`} />
-                        <span className={`text-sm ${gallerySize === option.value ? 'text-white font-medium' : 'text-zinc-400'}`}>
+                        <option.icon
+                          className={`h-4 w-4 ${gallerySize === option.value ? "text-white" : "text-zinc-500"}`}
+                        />
+                        <span
+                          className={`text-sm ${gallerySize === option.value ? "font-medium text-white" : "text-zinc-400"}`}
+                        >
                           {option.label}
                         </span>
                       </div>
                       {gallerySize === option.value && (
-                        <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        <svg
+                          className="h-4 w-4 text-white"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
                         </svg>
                       )}
                     </button>
@@ -1098,28 +1395,33 @@ export function GenSpace() {
           </div>
 
           {/* Assets grid — fills remaining space, scrollable */}
-          <div className="overflow-auto flex-1">
+          <div className="flex-1 overflow-auto">
             <div className={`grid ${gallerySizeClasses[gallerySize]} gap-4`}>
               {isGenerating && (
-                <div className="relative rounded-xl overflow-hidden bg-zinc-800 aspect-video">
+                <div className="relative aspect-video overflow-hidden rounded-xl bg-zinc-800">
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <div className="relative w-16 h-16 mb-3">
+                    <div className="relative mb-3 h-16 w-16">
                       <div className="absolute inset-0 rounded-full border-2 border-violet-500/30" />
-                      <div className="absolute inset-0 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
-                      <div className="absolute inset-2 rounded-full bg-zinc-800 flex items-center justify-center">
+                      <div className="absolute inset-0 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+                      <div className="absolute inset-2 flex items-center justify-center rounded-full bg-zinc-800">
                         <Sparkles className="h-6 w-6 text-violet-400" />
                       </div>
                     </div>
-                    <p className="text-sm text-zinc-400">{statusMessage || 'Generating...'}</p>
+                    <p className="text-sm text-zinc-400">
+                      {statusMessage || "Generating..."}
+                    </p>
                     {progress > 0 && (
-                      <div className="w-32 h-1 bg-zinc-800 rounded-full mt-2 overflow-hidden">
-                        <div className="h-full bg-violet-500 transition-all" style={{ width: `${progress}%` }} />
+                      <div className="mt-2 h-1 w-32 overflow-hidden rounded-full bg-zinc-800">
+                        <div
+                          className="h-full bg-violet-500 transition-all"
+                          style={{ width: `${progress}%` }}
+                        />
                       </div>
                     )}
                   </div>
                 </div>
               )}
-              {filteredAssets.map(asset => (
+              {filteredAssets.map((asset) => (
                 <AssetCard
                   key={asset.id}
                   asset={asset}
@@ -1128,7 +1430,10 @@ export function GenSpace() {
                   onDragStart={handleDragStart}
                   onCreateVideo={handleCreateVideo}
                   onEditImage={handleEditImage}
-                  onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
+                  onToggleFavorite={() =>
+                    currentProjectId &&
+                    toggleFavorite(currentProjectId, asset.id)
+                  }
                 />
               ))}
             </div>
@@ -1138,7 +1443,6 @@ export function GenSpace() {
 
       {/* Floating prompt panel — centered 600px */}
       <div className="absolute bottom-5 left-[calc(50%-300px)] w-[600px]">
-
         {/* Prompt bar */}
         <PromptBar
           mode={mode}
@@ -1153,21 +1457,24 @@ export function GenSpace() {
           onSettingsChange={setSettings}
         />
       </div>
-      
+
       {/* Asset preview modal */}
       {selectedAsset && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
           onClick={() => setSelectedAsset(null)}
         >
           {/* Previous button */}
           <button
-            onClick={(e) => { e.stopPropagation(); goToPrev() }}
+            onClick={(e) => {
+              e.stopPropagation();
+              goToPrev();
+            }}
             disabled={!canGoPrev}
-            className={`absolute left-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full backdrop-blur-md transition-all ${
+            className={`absolute left-4 top-1/2 z-10 -translate-y-1/2 rounded-full p-3 backdrop-blur-md transition-all ${
               canGoPrev
-                ? 'bg-white/10 text-white hover:bg-white/20 cursor-pointer'
-                : 'bg-white/5 text-zinc-600 cursor-default'
+                ? "cursor-pointer bg-white/10 text-white hover:bg-white/20"
+                : "cursor-default bg-white/5 text-zinc-600"
             }`}
           >
             <ChevronLeft className="h-6 w-6" />
@@ -1175,33 +1482,39 @@ export function GenSpace() {
 
           {/* Next button */}
           <button
-            onClick={(e) => { e.stopPropagation(); goToNext() }}
+            onClick={(e) => {
+              e.stopPropagation();
+              goToNext();
+            }}
             disabled={!canGoNext}
-            className={`absolute right-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full backdrop-blur-md transition-all ${
+            className={`absolute right-4 top-1/2 z-10 -translate-y-1/2 rounded-full p-3 backdrop-blur-md transition-all ${
               canGoNext
-                ? 'bg-white/10 text-white hover:bg-white/20 cursor-pointer'
-                : 'bg-white/5 text-zinc-600 cursor-default'
+                ? "cursor-pointer bg-white/10 text-white hover:bg-white/20"
+                : "cursor-default bg-white/5 text-zinc-600"
             }`}
           >
             <ChevronRight className="h-6 w-6" />
           </button>
 
           {/* Content area */}
-          <div className="relative max-w-5xl w-full max-h-full px-20 py-8" onClick={e => e.stopPropagation()}>
+          <div
+            className="relative max-h-full w-full max-w-5xl px-20 py-8"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Top bar: counter + close */}
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm text-zinc-500 font-medium">
+            <div className="mb-4 flex items-center justify-between">
+              <span className="text-sm font-medium text-zinc-500">
                 {selectedIndex + 1} / {filteredAssets.length}
               </span>
               <button
                 onClick={() => setSelectedAsset(null)}
-                className="p-2 rounded-md text-zinc-400 hover:text-white transition-colors"
+                className="rounded-md p-2 text-zinc-400 transition-colors hover:text-white"
               >
                 <X className="h-6 w-6" />
               </button>
             </div>
 
-            {selectedAsset.type === 'video' ? (
+            {selectedAsset.type === "video" ? (
               <video
                 key={selectedAsset.id}
                 src={selectedAsset.url}
@@ -1214,13 +1527,16 @@ export function GenSpace() {
                 key={selectedAsset.id}
                 src={selectedAsset.url}
                 alt=""
-                className="w-full rounded-xl object-contain max-h-[75vh]"
+                className="max-h-[75vh] w-full rounded-xl object-contain"
               />
             )}
             <div className="mt-4 text-center">
               <p className="text-zinc-300">{selectedAsset.prompt}</p>
-              <p className="text-zinc-500 text-sm mt-1">
-                {selectedAsset.resolution} • {selectedAsset.duration ? `${selectedAsset.duration}s` : 'Image'}
+              <p className="mt-1 text-sm text-zinc-500">
+                {selectedAsset.resolution} •{" "}
+                {selectedAsset.duration
+                  ? `${selectedAsset.duration}s`
+                  : "Image"}
               </p>
             </div>
           </div>
@@ -1230,9 +1546,12 @@ export function GenSpace() {
       {(error || localError) && (
         <GenerationErrorDialog
           error={(error || localError)!}
-          onDismiss={() => { if (error) reset(); if (localError) setLocalError(null) }}
+          onDismiss={() => {
+            if (error) reset();
+            if (localError) setLocalError(null);
+          }}
         />
       )}
     </div>
-  )
+  );
 }

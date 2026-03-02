@@ -1,135 +1,145 @@
-import { useState, useRef } from 'react'
-import { Sparkles, Trash2, Square, ImageIcon, ArrowLeft } from 'lucide-react'
-import { ImageUploader } from '../components/ImageUploader'
-import { VideoPlayer } from '../components/VideoPlayer'
-import { ImageResult } from '../components/ImageResult'
-import { SettingsPanel, type GenerationSettings } from '../components/SettingsPanel'
-import { ModeTabs, type GenerationMode } from '../components/ModeTabs'
-import { LtxLogo } from '../components/LtxLogo'
-import { ModelStatusDropdown } from '../components/ModelStatusDropdown'
-import { Textarea } from '../components/ui/textarea'
-import { Button } from '../components/ui/button'
-import { useGeneration } from '../hooks/use-generation'
-import { useBackend } from '../hooks/use-backend'
-import { useProjects } from '../contexts/ProjectContext'
-import { fileUrlToPath } from '../lib/url-to-path'
+import { useState, useRef } from "react";
+import { Sparkles, Trash2, Square, ImageIcon, ArrowLeft } from "lucide-react";
+import { ImageUploader } from "../components/ImageUploader";
+import { VideoPlayer } from "../components/VideoPlayer";
+import { ImageResult } from "../components/ImageResult";
+import {
+  SettingsPanel,
+  type GenerationSettings,
+} from "../components/SettingsPanel";
+import { ModeTabs, type GenerationMode } from "../components/ModeTabs";
+import { LtxLogo } from "../components/LtxLogo";
+import { ModelStatusDropdown } from "../components/ModelStatusDropdown";
+import { Textarea } from "../components/ui/textarea";
+import { Button } from "../components/ui/button";
+import { useGeneration } from "../hooks/use-generation";
+import { useBackend } from "../hooks/use-backend";
+import { useProjects } from "../contexts/ProjectContext";
+import { fileUrlToPath } from "../lib/url-to-path";
 
 const DEFAULT_SETTINGS: GenerationSettings = {
-  model: 'fast',
+  model: "fast",
   duration: 5,
-  videoResolution: '540p',
+  videoResolution: "540p",
   fps: 24,
   audio: true,
-  cameraMotion: 'none',
+  cameraMotion: "none",
   // Image settings
-  imageResolution: '1080p',
-  imageAspectRatio: '16:9',
+  imageResolution: "1080p",
+  imageAspectRatio: "16:9",
   imageSteps: 4,
-}
+};
 
 export function Playground() {
-  const { goHome } = useProjects()
-  const [mode, setMode] = useState<GenerationMode>('text-to-video')
-  const [prompt, setPrompt] = useState('')
-  const [selectedImage, setSelectedImage] = useState<string | null>(null)
-  const [settings, setSettings] = useState<GenerationSettings>(DEFAULT_SETTINGS)
+  const { goHome } = useProjects();
+  const [mode, setMode] = useState<GenerationMode>("text-to-video");
+  const [prompt, setPrompt] = useState("");
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [settings, setSettings] =
+    useState<GenerationSettings>(DEFAULT_SETTINGS);
 
-  const { status } = useBackend()
+  const { status } = useBackend();
 
   // Handle mode change
   const handleModeChange = (newMode: GenerationMode) => {
-    setMode(newMode)
-  }
-  const { 
-    isGenerating, 
-    progress, 
-    statusMessage, 
+    setMode(newMode);
+  };
+  const {
+    isGenerating,
+    progress,
+    statusMessage,
     videoUrl,
     videoPath,
-    imageUrl, 
+    imageUrl,
     error: generationError,
     generate,
     generateImage,
     cancel,
     reset,
-  } = useGeneration()
-  
+  } = useGeneration();
+
   // Ref to store generated image URL for "Create video" flow
-  const generatedImageRef = useRef<string | null>(null)
+  const generatedImageRef = useRef<string | null>(null);
 
   const handleGenerate = () => {
-    if (mode === 'text-to-image') {
-      if (!prompt.trim()) return
-      generateImage(prompt, settings)
+    if (mode === "text-to-image") {
+      if (!prompt.trim()) return;
+      generateImage(prompt, settings);
     } else {
       // Auto-detect: if image is loaded → I2V, otherwise → T2V
-      if (!prompt.trim()) return
-      const imagePath = selectedImage ? fileUrlToPath(selectedImage) : null
-      generate(prompt, imagePath, settings)
+      if (!prompt.trim()) return;
+      const imagePath = selectedImage ? fileUrlToPath(selectedImage) : null;
+      generate(prompt, imagePath, settings);
     }
-  }
-  
+  };
+
   // Handle "Create video" from generated image
   const handleCreateVideoFromImage = () => {
     if (!imageUrl) {
-      console.error('No image URL available')
-      return
+      console.error("No image URL available");
+      return;
     }
 
     // imageUrl is already a file:// URL — just pass it as the selected image path
-    setSelectedImage(imageUrl)
-    setMode('image-to-video')
-    generatedImageRef.current = imageUrl
-  }
+    setSelectedImage(imageUrl);
+    setMode("image-to-video");
+    generatedImageRef.current = imageUrl;
+  };
 
   const handleClearAll = () => {
-    setPrompt('')
-    setSelectedImage(null)
-    setSettings(DEFAULT_SETTINGS)
-    if (mode !== 'text-to-image') setMode('text-to-video')
-    reset()
-  }
+    setPrompt("");
+    setSelectedImage(null);
+    setSettings(DEFAULT_SETTINGS);
+    if (mode !== "text-to-image") setMode("text-to-video");
+    reset();
+  };
 
-  const isVideoMode = mode !== 'text-to-image'
-  const canGenerate = status.connected && !isGenerating && !!prompt.trim() && (
-    isVideoMode || mode === 'text-to-image'
-  )
+  const isVideoMode = mode !== "text-to-image";
+  const canGenerate =
+    status.connected &&
+    !isGenerating &&
+    !!prompt.trim() &&
+    (isVideoMode || mode === "text-to-image");
 
   return (
-    <div className="h-screen bg-background flex flex-col">
+    <div className="flex h-screen flex-col bg-background">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
+      <header className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
         <div className="flex items-center gap-4">
-          <button 
+          <button
             onClick={goHome}
-            className="p-2 rounded-lg hover:bg-zinc-800 transition-colors"
+            className="rounded-lg p-2 transition-colors hover:bg-zinc-800"
             title="Back to Home"
           >
             <ArrowLeft className="h-5 w-5 text-zinc-400" />
           </button>
           <div className="flex items-center gap-2.5">
             <LtxLogo className="h-6 w-auto text-white" />
-            <span className="text-zinc-400 text-base font-medium tracking-wide leading-none pt-1 pl-1.5">Playground</span>
+            <span className="pl-1.5 pt-1 text-base font-medium leading-none tracking-wide text-zinc-400">
+              Playground
+            </span>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-4 pr-20">
           {/* Model Status Dropdown */}
           <ModelStatusDropdown />
-          
+
           {/* GPU Info */}
           {status.gpuInfo && (
             <div className="text-sm text-zinc-500">
-              {status.gpuInfo.name} ({(status.gpuInfo.vramUsed / 1024).toFixed(1)}GB / {Math.round(status.gpuInfo.vram / 1024)}GB)
+              {status.gpuInfo.name} (
+              {(status.gpuInfo.vramUsed / 1024).toFixed(1)}GB /{" "}
+              {Math.round(status.gpuInfo.vram / 1024)}GB)
             </div>
           )}
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex flex-1 overflow-hidden">
         {/* Left Panel - Controls */}
-        <div className="w-[500px] border-r border-zinc-800 p-6 overflow-y-auto">
+        <div className="w-[500px] overflow-y-auto border-r border-zinc-800 p-6">
           <div className="space-y-6">
             {/* Mode Tabs */}
             <ModeTabs
@@ -140,7 +150,7 @@ export function Playground() {
 
             {/* Image Upload - Always shown in video mode (optional: makes it I2V) */}
             {isVideoMode && (
-              <ImageUploader 
+              <ImageUploader
                 selectedImage={selectedImage}
                 onImageSelect={setSelectedImage}
               />
@@ -168,17 +178,22 @@ export function Playground() {
 
             {/* Error Display */}
             {generationError && (
-              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm">
-                {generationError.includes('TEXT_ENCODING_NOT_CONFIGURED') ? (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm">
+                {generationError.includes("TEXT_ENCODING_NOT_CONFIGURED") ? (
                   <div className="space-y-2">
-                    <p className="text-red-400 font-medium">Text encoding not configured</p>
+                    <p className="font-medium text-red-400">
+                      Text encoding not configured
+                    </p>
                     <p className="text-red-400/80">
-                      To generate videos, you need to set up text encoding in Settings.
+                      To generate videos, you need to set up text encoding in
+                      Settings.
                     </p>
                   </div>
-                ) : generationError.includes('TEXT_ENCODER_NOT_DOWNLOADED') ? (
+                ) : generationError.includes("TEXT_ENCODER_NOT_DOWNLOADED") ? (
                   <div className="space-y-2">
-                    <p className="text-red-400 font-medium">Text encoder not downloaded</p>
+                    <p className="font-medium text-red-400">
+                      Text encoder not downloaded
+                    </p>
                     <p className="text-red-400/80">
                       The local text encoder needs to be downloaded (~8 GB).
                     </p>
@@ -200,11 +215,11 @@ export function Playground() {
                 <Trash2 className="h-4 w-4" />
                 Clear all
               </Button>
-              
+
               {isGenerating ? (
                 <Button
                   onClick={cancel}
-                  className="flex-1 flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white"
+                  className="flex flex-1 items-center justify-center gap-2 bg-red-600 text-white hover:bg-red-500"
                 >
                   <Square className="h-4 w-4" />
                   Stop generation
@@ -213,9 +228,9 @@ export function Playground() {
                 <Button
                   onClick={handleGenerate}
                   disabled={!canGenerate}
-                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white disabled:bg-zinc-700 disabled:text-zinc-500"
+                  className="flex flex-1 items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500"
                 >
-                  {mode === 'text-to-image' ? (
+                  {mode === "text-to-image" ? (
                     <>
                       <ImageIcon className="h-4 w-4" />
                       Generate image
@@ -234,7 +249,7 @@ export function Playground() {
 
         {/* Right Panel - Result Preview */}
         <div className="flex-1 p-6">
-          {mode === 'text-to-image' ? (
+          {mode === "text-to-image" ? (
             <ImageResult
               imageUrl={imageUrl}
               isGenerating={isGenerating}
@@ -255,5 +270,5 @@ export function Playground() {
         </div>
       </main>
     </div>
-  )
+  );
 }

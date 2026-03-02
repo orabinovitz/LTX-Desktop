@@ -1,119 +1,124 @@
-import { useState, useRef, useEffect, useCallback, Fragment } from 'react'
-import { X, Send, Loader2, Bot, Undo2, Mic, Phone } from 'lucide-react'
-import type { LiveAgentStatus } from '../../hooks/use-live-agent'
-import type { ToolCall } from '../../hooks/use-agent'
+import { useState, useRef, useEffect, useCallback, Fragment } from "react";
+import { X, Send, Loader2, Bot, Undo2, Mic, Phone } from "lucide-react";
+import type { LiveAgentStatus } from "../../hooks/use-live-agent";
+import type { ToolCall } from "../../hooks/use-agent";
 
 export interface ChatMessage {
-  role: 'user' | 'agent'
-  content: string
-  toolCalls?: { tool_name: string; arguments: Record<string, unknown> }[]
-  isExecuting?: boolean
+  role: "user" | "agent";
+  content: string;
+  toolCalls?: { tool_name: string; arguments: Record<string, unknown> }[];
+  isExecuting?: boolean;
 }
 
 interface AgentPromptBoxProps {
-  isOpen: boolean
-  onClose: () => void
-  messages: ChatMessage[]
-  isProcessing: boolean
-  onSend: (prompt: string) => void
-  onUndo: () => void
-  canUndo: boolean
-  voiceStatus: LiveAgentStatus
-  voiceIsSpeaking: boolean
-  voiceError: string | null
-  voiceToolCalls: ToolCall[]
-  onVoiceConnect: () => void
-  onVoiceDisconnect: () => void
+  isOpen: boolean;
+  onClose: () => void;
+  messages: ChatMessage[];
+  isProcessing: boolean;
+  onSend: (prompt: string) => void;
+  onUndo: () => void;
+  canUndo: boolean;
+  voiceStatus: LiveAgentStatus;
+  voiceIsSpeaking: boolean;
+  voiceError: string | null;
+  voiceToolCalls: ToolCall[];
+  onVoiceConnect: () => void;
+  onVoiceDisconnect: () => void;
 }
 
 function renderInline(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = []
-  const regex = /\*\*(.+?)\*\*|\*(.+?)\*/g
-  let lastIndex = 0
-  let match
-  let key = 0
+  const parts: React.ReactNode[] = [];
+  const regex = /\*\*(.+?)\*\*|\*(.+?)\*/g;
+  let lastIndex = 0;
+  let match;
+  let key = 0;
 
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index))
+      parts.push(text.slice(lastIndex, match.index));
     }
     if (match[1] !== undefined) {
       parts.push(
         <strong key={key++} className="font-semibold text-zinc-100">
           {match[1]}
-        </strong>
-      )
+        </strong>,
+      );
     } else if (match[2] !== undefined) {
-      parts.push(<em key={key++}>{match[2]}</em>)
+      parts.push(<em key={key++}>{match[2]}</em>);
     }
-    lastIndex = regex.lastIndex
+    lastIndex = regex.lastIndex;
   }
 
   if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex))
+    parts.push(text.slice(lastIndex));
   }
 
-  return parts.length <= 1 ? parts[0] ?? text : parts
+  return parts.length <= 1 ? (parts[0] ?? text) : parts;
 }
 
 function renderMarkdown(text: string): React.ReactNode {
-  const blocks = text.split(/\n\n+/)
-  const elements: React.ReactNode[] = []
+  const blocks = text.split(/\n\n+/);
+  const elements: React.ReactNode[] = [];
 
   blocks.forEach((block, bi) => {
-    const trimmed = block.trim()
-    if (!trimmed) return
+    const trimmed = block.trim();
+    if (!trimmed) return;
 
-    const lines = trimmed.split('\n')
-    let textLines: string[] = []
-    let listItems: string[] = []
+    const lines = trimmed.split("\n");
+    let textLines: string[] = [];
+    let listItems: string[] = [];
 
     const flushText = () => {
-      if (textLines.length === 0) return
+      if (textLines.length === 0) return;
       elements.push(
-        <p key={`${bi}-t-${elements.length}`} className={elements.length > 0 ? 'mt-2' : ''}>
+        <p
+          key={`${bi}-t-${elements.length}`}
+          className={elements.length > 0 ? "mt-2" : ""}
+        >
           {textLines.map((line, j) => (
             <Fragment key={j}>
               {j > 0 && <br />}
               {renderInline(line)}
             </Fragment>
           ))}
-        </p>
-      )
-      textLines = []
-    }
+        </p>,
+      );
+      textLines = [];
+    };
 
     const flushList = () => {
-      if (listItems.length === 0) return
+      if (listItems.length === 0) return;
       elements.push(
-        <ul key={`${bi}-l-${elements.length}`} className="space-y-1 my-1.5">
+        <ul key={`${bi}-l-${elements.length}`} className="my-1.5 space-y-1">
           {listItems.map((item, j) => (
-            <li key={j} className="flex gap-1.5 items-start">
-              <span className="text-blue-400 mt-0.5 text-[8px] flex-shrink-0">●</span>
+            <li key={j} className="flex items-start gap-1.5">
+              <span className="mt-0.5 flex-shrink-0 text-[8px] text-blue-400">
+                ●
+              </span>
               <span>{renderInline(item)}</span>
             </li>
           ))}
-        </ul>
-      )
-      listItems = []
-    }
+        </ul>,
+      );
+      listItems = [];
+    };
 
     lines.forEach((line) => {
-      const listMatch = line.match(/^\s*[*\-+]\s+(.*)/)
+      const listMatch = line.match(/^\s*[*\-+]\s+(.*)/);
       if (listMatch) {
-        flushText()
-        listItems.push(listMatch[1])
+        flushText();
+        listItems.push(listMatch[1]);
       } else {
-        flushList()
-        textLines.push(line)
+        flushList();
+        textLines.push(line);
       }
-    })
+    });
 
-    flushText()
-    flushList()
-  })
+    flushText();
+    flushList();
+  });
 
-  return elements
+  return elements;
 }
 
 export function AgentPromptBox({
@@ -131,77 +136,80 @@ export function AgentPromptBox({
   onVoiceConnect,
   onVoiceDisconnect,
 }: AgentPromptBoxProps) {
-  const [input, setInput] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [input, setInput] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const isVoiceActive = voiceStatus === 'connected' || voiceStatus === 'connecting'
+  const isVoiceActive =
+    voiceStatus === "connected" || voiceStatus === "connecting";
 
   useEffect(() => {
     if (isOpen && !isVoiceActive) {
-      const timer = setTimeout(() => inputRef.current?.focus(), 50)
-      return () => clearTimeout(timer)
+      const timer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
     }
-  }, [isOpen, isVoiceActive])
+  }, [isOpen, isVoiceActive]);
 
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isProcessing])
+  }, [messages, isProcessing]);
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
+      if (e.key === "Escape") {
+        e.stopPropagation();
         if (isVoiceActive) {
-          onVoiceDisconnect()
+          onVoiceDisconnect();
         } else {
-          onClose()
+          onClose();
         }
       }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, isVoiceActive, onClose, onVoiceDisconnect])
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, isVoiceActive, onClose, onVoiceDisconnect]);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
-      e.preventDefault()
-      const trimmed = input.trim()
-      if (!trimmed || isProcessing) return
-      onSend(trimmed)
-      setInput('')
+      e.preventDefault();
+      const trimmed = input.trim();
+      if (!trimmed || isProcessing) return;
+      onSend(trimmed);
+      setInput("");
     },
-    [input, isProcessing, onSend]
-  )
+    [input, isProcessing, onSend],
+  );
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   const showThinking =
-    isProcessing && messages.length > 0 && messages[messages.length - 1].role === 'user'
+    isProcessing &&
+    messages.length > 0 &&
+    messages[messages.length - 1].role === "user";
 
   return (
     <div
-      className="fixed bottom-24 right-6 z-50 w-96 flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden"
-      style={{ maxHeight: '60vh' }}
+      className="fixed bottom-24 right-6 z-50 flex w-96 flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
+      style={{ maxHeight: "60vh" }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800 bg-zinc-900/95 flex-shrink-0">
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900/95 px-4 py-2.5">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-blue-600/20 flex items-center justify-center">
+          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-600/20">
             <Bot className="h-3.5 w-3.5 text-blue-400" />
           </div>
           <span className="text-sm font-semibold text-zinc-200">
-            {isVoiceActive ? 'Voice Agent' : 'Agent'}
+            {isVoiceActive ? "Voice Agent" : "Agent"}
           </span>
         </div>
         <div className="flex items-center gap-1">
           {canUndo && !isVoiceActive && (
             <button
               onClick={onUndo}
-              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+              className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
               title="Undo last agent action"
             >
               <Undo2 className="h-3.5 w-3.5" />
@@ -209,10 +217,10 @@ export function AgentPromptBox({
           )}
           <button
             onClick={() => {
-              if (isVoiceActive) onVoiceDisconnect()
-              onClose()
+              if (isVoiceActive) onVoiceDisconnect();
+              onClose();
             }}
-            className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+            className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -221,20 +229,20 @@ export function AgentPromptBox({
 
       {/* Voice mode active view */}
       {isVoiceActive ? (
-        <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 min-h-[200px]">
+        <div className="flex min-h-[200px] flex-1 flex-col items-center justify-center px-4 py-8">
           {/* Pulsing indicator */}
           <div className="relative mb-6">
             <div
-              className={`w-20 h-20 rounded-full flex items-center justify-center transition-all ${
-                voiceStatus === 'connecting'
-                  ? 'bg-amber-600/20'
+              className={`flex h-20 w-20 items-center justify-center rounded-full transition-all ${
+                voiceStatus === "connecting"
+                  ? "bg-amber-600/20"
                   : voiceIsSpeaking
-                    ? 'bg-blue-600/30'
-                    : 'bg-emerald-600/20'
+                    ? "bg-blue-600/30"
+                    : "bg-emerald-600/20"
               }`}
             >
-              {voiceStatus === 'connecting' ? (
-                <Loader2 className="h-8 w-8 text-amber-400 animate-spin" />
+              {voiceStatus === "connecting" ? (
+                <Loader2 className="h-8 w-8 animate-spin text-amber-400" />
               ) : voiceIsSpeaking ? (
                 <Bot className="h-8 w-8 text-blue-400" />
               ) : (
@@ -242,40 +250,42 @@ export function AgentPromptBox({
               )}
             </div>
             {/* Animated ring for active states */}
-            {voiceStatus === 'connected' && (
+            {voiceStatus === "connected" && (
               <div
-                className={`absolute inset-0 rounded-full border-2 animate-ping ${
-                  voiceIsSpeaking ? 'border-blue-500/40' : 'border-emerald-500/30'
+                className={`absolute inset-0 animate-ping rounded-full border-2 ${
+                  voiceIsSpeaking
+                    ? "border-blue-500/40"
+                    : "border-emerald-500/30"
                 }`}
-                style={{ animationDuration: voiceIsSpeaking ? '1s' : '2s' }}
+                style={{ animationDuration: voiceIsSpeaking ? "1s" : "2s" }}
               />
             )}
           </div>
 
-          <p className="text-sm text-zinc-300 mb-1">
-            {voiceStatus === 'connecting'
-              ? 'Connecting...'
+          <p className="mb-1 text-sm text-zinc-300">
+            {voiceStatus === "connecting"
+              ? "Connecting..."
               : voiceIsSpeaking
-                ? 'Agent is speaking...'
-                : 'Listening...'}
+                ? "Agent is speaking..."
+                : "Listening..."}
           </p>
-          <p className="text-xs text-zinc-500 mb-6">
-            {voiceStatus === 'connecting'
-              ? 'Setting up voice connection'
+          <p className="mb-6 text-xs text-zinc-500">
+            {voiceStatus === "connecting"
+              ? "Setting up voice connection"
               : voiceIsSpeaking
-                ? 'The agent is responding'
-                : 'Speak naturally to edit your video'}
+                ? "The agent is responding"
+                : "Speak naturally to edit your video"}
           </p>
 
           {/* Voice tool call chips */}
           {voiceToolCalls.length > 0 && (
-            <div className="w-full space-y-1 mb-4">
+            <div className="mb-4 w-full space-y-1">
               {voiceToolCalls.map((tc, j) => (
                 <div
                   key={j}
-                  className="flex items-center gap-1.5 text-[10px] text-zinc-400 bg-zinc-800 rounded px-2 py-1"
+                  className="flex items-center gap-1.5 rounded bg-zinc-800 px-2 py-1 text-[10px] text-zinc-400"
                 >
-                  <Loader2 className="h-2.5 w-2.5 animate-spin text-blue-400 flex-shrink-0" />
+                  <Loader2 className="h-2.5 w-2.5 flex-shrink-0 animate-spin text-blue-400" />
                   <span className="truncate">{tc.tool_name}</span>
                 </div>
               ))}
@@ -285,7 +295,7 @@ export function AgentPromptBox({
           {/* Disconnect button */}
           <button
             onClick={onVoiceDisconnect}
-            className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors text-xs"
+            className="flex items-center gap-2 rounded-full bg-red-600/20 px-4 py-2 text-xs text-red-400 transition-colors hover:bg-red-600/30"
           >
             <Phone className="h-3.5 w-3.5 rotate-[135deg]" />
             <span>End voice session</span>
@@ -294,24 +304,32 @@ export function AgentPromptBox({
       ) : (
         <>
           {/* Messages (text mode) */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
+          <div
+            ref={scrollRef}
+            className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3"
+          >
             {messages.length === 0 && (
-              <p className="text-xs text-zinc-500 text-center py-8">
+              <p className="py-8 text-center text-xs text-zinc-500">
                 Describe what you'd like to do with your video...
               </p>
             )}
 
             {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div
+                key={i}
+                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              >
                 <div
                   className={`max-w-[85%] rounded-lg px-3 py-2 text-xs leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-zinc-800 text-zinc-200'
+                    msg.role === "user"
+                      ? "bg-blue-600 text-white"
+                      : "bg-zinc-800 text-zinc-200"
                   }`}
                 >
                   <div className="space-y-0">
-                    {msg.role === 'agent' ? renderMarkdown(msg.content) : (
+                    {msg.role === "agent" ? (
+                      renderMarkdown(msg.content)
+                    ) : (
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                     )}
                   </div>
@@ -321,12 +339,14 @@ export function AgentPromptBox({
                       {msg.toolCalls.map((tc, j) => (
                         <div
                           key={j}
-                          className="flex items-center gap-1.5 text-[10px] text-zinc-400 bg-zinc-700/50 rounded px-2 py-1"
+                          className="flex items-center gap-1.5 rounded bg-zinc-700/50 px-2 py-1 text-[10px] text-zinc-400"
                         >
                           {msg.isExecuting ? (
-                            <Loader2 className="h-2.5 w-2.5 animate-spin text-blue-400 flex-shrink-0" />
+                            <Loader2 className="h-2.5 w-2.5 flex-shrink-0 animate-spin text-blue-400" />
                           ) : (
-                            <span className="text-emerald-400 flex-shrink-0">&#10003;</span>
+                            <span className="flex-shrink-0 text-emerald-400">
+                              &#10003;
+                            </span>
                           )}
                           <span className="truncate">{tc.tool_name}</span>
                         </div>
@@ -334,19 +354,20 @@ export function AgentPromptBox({
                     </div>
                   )}
 
-                  {msg.isExecuting && (!msg.toolCalls || msg.toolCalls.length === 0) && (
-                    <div className="mt-2 flex items-center gap-1.5 text-[10px] text-blue-400">
-                      <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                      <span>Executing...</span>
-                    </div>
-                  )}
+                  {msg.isExecuting &&
+                    (!msg.toolCalls || msg.toolCalls.length === 0) && (
+                      <div className="mt-2 flex items-center gap-1.5 text-[10px] text-blue-400">
+                        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                        <span>Executing...</span>
+                      </div>
+                    )}
                 </div>
               </div>
             ))}
 
             {showThinking && (
               <div className="flex justify-start">
-                <div className="bg-zinc-800 text-zinc-400 rounded-lg px-3 py-2 text-xs flex items-center gap-2">
+                <div className="flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2 text-xs text-zinc-400">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   <span>Thinking...</span>
                 </div>
@@ -357,7 +378,7 @@ export function AgentPromptBox({
           {/* Input (text mode) */}
           <form
             onSubmit={handleSubmit}
-            className="flex items-center gap-2 px-3 py-2.5 border-t border-zinc-800 bg-zinc-900/95 flex-shrink-0"
+            className="flex flex-shrink-0 items-center gap-2 border-t border-zinc-800 bg-zinc-900/95 px-3 py-2.5"
           >
             <input
               ref={inputRef}
@@ -367,13 +388,13 @@ export function AgentPromptBox({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="Type your prompt here..."
               disabled={isProcessing}
-              className="flex-1 bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
+              className="flex-1 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 outline-none transition-colors focus:border-blue-500 disabled:opacity-50"
             />
             <button
               type="button"
               onClick={onVoiceConnect}
               disabled={isProcessing}
-              className="p-2 rounded-lg text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+              className="flex-shrink-0 rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
               title="Switch to voice mode"
             >
               <Mic className="h-3.5 w-3.5" />
@@ -381,7 +402,7 @@ export function AgentPromptBox({
             <button
               type="submit"
               disabled={isProcessing || !input.trim()}
-              className="p-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+              className="flex-shrink-0 rounded-lg bg-blue-600 p-2 text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send className="h-3.5 w-3.5" />
             </button>
@@ -391,10 +412,10 @@ export function AgentPromptBox({
 
       {/* Voice error banner */}
       {voiceError && (
-        <div className="px-3 py-2 bg-red-900/30 border-t border-red-800/50 text-xs text-red-400">
+        <div className="border-t border-red-800/50 bg-red-900/30 px-3 py-2 text-xs text-red-400">
           {voiceError}
         </div>
       )}
     </div>
-  )
+  );
 }

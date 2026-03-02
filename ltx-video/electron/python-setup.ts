@@ -1,23 +1,23 @@
-import { execFile } from 'child_process'
-import { app } from 'electron'
-import fs from 'fs'
-import http from 'http'
-import https from 'https'
-import { load as loadYaml } from 'js-yaml'
-import path from 'path'
-import { isDev } from './config'
+import { execFile } from "child_process";
+import { app } from "electron";
+import fs from "fs";
+import http from "http";
+import https from "https";
+import { load as loadYaml } from "js-yaml";
+import path from "path";
+import { isDev } from "./config";
 
 export interface PythonSetupProgress {
-  status: 'downloading' | 'extracting' | 'complete' | 'error'
-  percent: number
-  downloadedBytes: number
-  totalBytes: number
-  speed: number
+  status: "downloading" | "extracting" | "complete" | "error";
+  percent: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  speed: number;
 }
 
 interface ArchiveManifest {
-  parts: { name: string; size: number }[]
-  totalSize: number
+  parts: { name: string; size: number }[];
+  totalSize: number;
 }
 
 // ── GitHub private repo authentication ────────────────────────────────
@@ -25,54 +25,59 @@ interface ArchiveManifest {
 // in the publish config (app-update.yml). This prevents accidental token leaks
 // for public repos.
 
-let _authHeaders: Record<string, string> | null = null
+let _authHeaders: Record<string, string> | null = null;
 
 function getAuthHeaders(): Record<string, string> {
-  if (_authHeaders !== null) return _authHeaders
+  if (_authHeaders !== null) return _authHeaders;
 
-  _authHeaders = {}
+  _authHeaders = {};
 
   const configPath = isDev
-    ? path.join(process.cwd(), 'dev-app-update.yml')
-    : path.join(process.resourcesPath, 'app-update.yml')
+    ? path.join(process.cwd(), "dev-app-update.yml")
+    : path.join(process.resourcesPath, "app-update.yml");
 
-  let isPrivate = false
+  let isPrivate = false;
   try {
-    const config = loadYaml(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown>
-    isPrivate = config?.private === true
-  } catch { /* no config file — public repo */ }
+    const config = loadYaml(fs.readFileSync(configPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    isPrivate = config?.private === true;
+  } catch {
+    /* no config file — public repo */
+  }
 
   if (isPrivate) {
-    const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN
+    const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
     if (token) {
-      _authHeaders = { authorization: `token ${token}` }
+      _authHeaders = { authorization: `token ${token}` };
     }
   }
 
-  return _authHeaders
+  return _authHeaders;
 }
 
 function getBundledHashPath(): string {
   if (isDev) {
-    return path.join(process.cwd(), 'python-deps-hash.txt')
+    return path.join(process.cwd(), "python-deps-hash.txt");
   }
-  return path.join(process.resourcesPath, 'python-deps-hash.txt')
+  return path.join(process.resourcesPath, "python-deps-hash.txt");
 }
 
 function getInstalledHashPath(): string {
-  return path.join(app.getPath('userData'), 'python', 'deps-hash.txt')
+  return path.join(app.getPath("userData"), "python", "deps-hash.txt");
 }
 
 /** Directory where python-embed lives at runtime. */
 export function getPythonDir(): string {
-  if (process.platform === 'win32') {
+  if (process.platform === "win32") {
     if (isDev) {
-      return path.join(process.cwd(), 'python-embed')
+      return path.join(process.cwd(), "python-embed");
     }
-    return path.join(app.getPath('userData'), 'python')
+    return path.join(app.getPath("userData"), "python");
   }
   // macOS: bundled in resources
-  return path.join(process.resourcesPath, 'python')
+  return path.join(process.resourcesPath, "python");
 }
 
 /**
@@ -80,42 +85,42 @@ export function getPythonDir(): string {
  * Also promotes a staged python-next/ directory if it matches the expected hash.
  */
 export function isPythonReady(): { ready: boolean } {
-  if (process.platform !== 'win32') {
-    return { ready: true }
+  if (process.platform !== "win32") {
+    return { ready: true };
   }
 
   if (isDev) {
-    return { ready: true }
+    return { ready: true };
   }
 
-  const bundledHash = readHash(getBundledHashPath())
+  const bundledHash = readHash(getBundledHashPath());
 
   // Check if a pre-downloaded python-next/ is waiting to be promoted
-  const nextDir = path.join(app.getPath('userData'), 'python-next')
-  const nextHash = readHash(path.join(nextDir, 'deps-hash.txt'))
+  const nextDir = path.join(app.getPath("userData"), "python-next");
+  const nextHash = readHash(path.join(nextDir, "deps-hash.txt"));
   if (bundledHash && nextHash && bundledHash === nextHash) {
-    console.log('[python-setup] Promoting staged python-next/ to python/')
+    console.log("[python-setup] Promoting staged python-next/ to python/");
     try {
-      const destDir = path.join(app.getPath('userData'), 'python')
+      const destDir = path.join(app.getPath("userData"), "python");
       if (fs.existsSync(destDir)) {
-        fs.rmSync(destDir, { recursive: true, force: true })
+        fs.rmSync(destDir, { recursive: true, force: true });
       }
-      fs.renameSync(nextDir, destDir)
-      return { ready: true }
+      fs.renameSync(nextDir, destDir);
+      return { ready: true };
     } catch (err) {
-      console.error('[python-setup] Failed to promote staged python:', err)
+      console.error("[python-setup] Failed to promote staged python:", err);
       // Fall through to normal check
     }
   }
 
-  const installedHash = readHash(getInstalledHashPath())
+  const installedHash = readHash(getInstalledHashPath());
 
   if (!bundledHash) {
-    const pythonExe = path.join(getPythonDir(), 'python.exe')
-    return { ready: fs.existsSync(pythonExe) }
+    const pythonExe = path.join(getPythonDir(), "python.exe");
+    return { ready: fs.existsSync(pythonExe) };
   }
 
-  return { ready: bundledHash === installedHash }
+  return { ready: bundledHash === installedHash };
 }
 
 /**
@@ -125,113 +130,163 @@ export function isPythonReady(): { ready: boolean } {
  */
 export async function preDownloadPythonForUpdate(
   newVersion: string,
-  onProgress?: (progress: PythonSetupProgress) => void
+  onProgress?: (progress: PythonSetupProgress) => void,
 ): Promise<boolean> {
-  if (process.platform !== 'win32') {
-    return false
+  if (process.platform !== "win32") {
+    return false;
   }
 
-  const baseUrl = (isDev && process.env.LTX_PYTHON_URL?.replace(/^["']+|["']+$/g, ''))
-    || `https://github.com/Lightricks/ltx-desktop/releases/download/v${newVersion}`
+  const baseUrl =
+    (isDev && process.env.LTX_PYTHON_URL?.replace(/^["']+|["']+$/g, "")) ||
+    `https://github.com/Lightricks/ltx-desktop/releases/download/v${newVersion}`;
 
   // Fetch the new version's deps hash
-  let newHash: string | null = null
+  let newHash: string | null = null;
   if (isLocalPath(baseUrl)) {
     // Local testing: read hash from the directory or the archive's extracted deps-hash.txt
-    const hashFile = baseUrl.endsWith('.tar.gz')
+    const hashFile = baseUrl.endsWith(".tar.gz")
       ? null // Can't read hash from a single tar.gz without extracting
-      : path.join(baseUrl, 'deps-hash.txt')
-    newHash = hashFile ? readHash(hashFile) : null
+      : path.join(baseUrl, "deps-hash.txt");
+    newHash = hashFile ? readHash(hashFile) : null;
   } else {
-    const hashUrl = `${baseUrl}/python-deps-hash.txt`
-    const hashDest = path.join(app.getPath('userData'), 'python-next-hash-check.txt')
+    const hashUrl = `${baseUrl}/python-deps-hash.txt`;
+    const hashDest = path.join(
+      app.getPath("userData"),
+      "python-next-hash-check.txt",
+    );
     try {
-      await downloadFileRaw(hashUrl, hashDest)
-      newHash = readHash(hashDest)
+      await downloadFileRaw(hashUrl, hashDest);
+      newHash = readHash(hashDest);
     } catch (err) {
-      console.log('[python-setup] Could not fetch new version deps hash:', err)
+      console.log("[python-setup] Could not fetch new version deps hash:", err);
     } finally {
-      try { fs.unlinkSync(hashDest) } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(hashDest);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
   if (!newHash) {
-    console.log('[python-setup] No deps hash available for new version, skipping pre-download')
-    return false
+    console.log(
+      "[python-setup] No deps hash available for new version, skipping pre-download",
+    );
+    return false;
   }
 
   // Compare with currently installed hash
-  const installedHash = readHash(getInstalledHashPath())
+  const installedHash = readHash(getInstalledHashPath());
   if (newHash === installedHash) {
-    console.log('[python-setup] Python deps unchanged in new version, no pre-download needed')
-    return false
+    console.log(
+      "[python-setup] Python deps unchanged in new version, no pre-download needed",
+    );
+    return false;
   }
 
-  console.log(`[python-setup] Python deps changed (${installedHash} → ${newHash}), pre-downloading`)
+  console.log(
+    `[python-setup] Python deps changed (${installedHash} → ${newHash}), pre-downloading`,
+  );
 
   // Download to python-next/
-  const nextDir = path.join(app.getPath('userData'), 'python-next')
-  const tempDir = path.join(app.getPath('userData'), 'python-next-tmp')
-  const archivePath = path.join(app.getPath('userData'), 'python-next.tar.gz')
+  const nextDir = path.join(app.getPath("userData"), "python-next");
+  const tempDir = path.join(app.getPath("userData"), "python-next-tmp");
+  const archivePath = path.join(app.getPath("userData"), "python-next.tar.gz");
 
   try {
-    if (fs.existsSync(nextDir)) fs.rmSync(nextDir, { recursive: true, force: true })
-    if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true })
-  } catch { /* ignore */ }
+    if (fs.existsSync(nextDir))
+      fs.rmSync(nextDir, { recursive: true, force: true });
+    if (fs.existsSync(tempDir))
+      fs.rmSync(tempDir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
 
-  fs.mkdirSync(tempDir, { recursive: true })
+  fs.mkdirSync(tempDir, { recursive: true });
 
-  const cleanupFiles: string[] = []
-  const noop = () => {}
-  const progressCb = onProgress || noop
+  const cleanupFiles: string[] = [];
+  const noop = () => {};
+  const progressCb = onProgress || noop;
 
   try {
     try {
-      await acquireArchive(baseUrl, archivePath, cleanupFiles, progressCb)
+      await acquireArchive(baseUrl, archivePath, cleanupFiles, progressCb);
     } catch (primaryErr) {
-      const fallbackUrl = newHash ? `${FALLBACK_CDN_BASE}/python-embed-win32/${newHash}/python-embed-win32.tar.gz` : null
+      const fallbackUrl = newHash
+        ? `${FALLBACK_CDN_BASE}/python-embed-win32/${newHash}/python-embed-win32.tar.gz`
+        : null;
       if (!fallbackUrl || isLocalPath(baseUrl)) {
-        throw primaryErr
+        throw primaryErr;
       }
-      console.warn(`[python-setup] Pre-download primary failed: ${primaryErr}`)
-      console.log(`[python-setup] Falling back to CDN: ${fallbackUrl}`)
-      try { fs.unlinkSync(archivePath) } catch { /* ignore */ }
-      for (const f of cleanupFiles) { try { fs.unlinkSync(f) } catch { /* ignore */ } }
-      cleanupFiles.length = 0
-      await acquireArchive(fallbackUrl, archivePath, cleanupFiles, progressCb)
+      console.warn(`[python-setup] Pre-download primary failed: ${primaryErr}`);
+      console.log(`[python-setup] Falling back to CDN: ${fallbackUrl}`);
+      try {
+        fs.unlinkSync(archivePath);
+      } catch {
+        /* ignore */
+      }
+      for (const f of cleanupFiles) {
+        try {
+          fs.unlinkSync(f);
+        } catch {
+          /* ignore */
+        }
+      }
+      cleanupFiles.length = 0;
+      await acquireArchive(fallbackUrl, archivePath, cleanupFiles, progressCb);
     }
 
-    await extractTarGz(archivePath, tempDir)
+    await extractTarGz(archivePath, tempDir);
 
-    const extractedInner = path.join(tempDir, 'python-embed')
-    const extractedSource = fs.existsSync(extractedInner) ? extractedInner : tempDir
+    const extractedInner = path.join(tempDir, "python-embed");
+    const extractedSource = fs.existsSync(extractedInner)
+      ? extractedInner
+      : tempDir;
 
-    if (fs.existsSync(nextDir)) fs.rmSync(nextDir, { recursive: true, force: true })
-    fs.renameSync(extractedSource, nextDir)
+    if (fs.existsSync(nextDir))
+      fs.rmSync(nextDir, { recursive: true, force: true });
+    fs.renameSync(extractedSource, nextDir);
 
     // Write the new hash into python-next/ so isPythonReady can verify it on next launch
-    fs.writeFileSync(path.join(nextDir, 'deps-hash.txt'), newHash)
+    fs.writeFileSync(path.join(nextDir, "deps-hash.txt"), newHash);
 
-    console.log('[python-setup] Pre-download complete, staged at python-next/')
-    return true
+    console.log("[python-setup] Pre-download complete, staged at python-next/");
+    return true;
   } catch (err) {
-    console.error('[python-setup] Pre-download failed:', err)
-    try { fs.rmSync(nextDir, { recursive: true, force: true }) } catch { /* ignore */ }
-    return false
-  } finally {
-    try { fs.unlinkSync(archivePath) } catch { /* ignore */ }
-    for (const f of cleanupFiles) {
-      try { fs.unlinkSync(f) } catch { /* ignore */ }
+    console.error("[python-setup] Pre-download failed:", err);
+    try {
+      fs.rmSync(nextDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
     }
-    try { if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true }) } catch { /* ignore */ }
+    return false;
+  } finally {
+    try {
+      fs.unlinkSync(archivePath);
+    } catch {
+      /* ignore */
+    }
+    for (const f of cleanupFiles) {
+      try {
+        fs.unlinkSync(f);
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      if (fs.existsSync(tempDir))
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
 }
 
 function readHash(filePath: string): string | null {
   try {
-    return fs.readFileSync(filePath, 'utf-8').trim()
+    return fs.readFileSync(filePath, "utf-8").trim();
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -239,26 +294,27 @@ function readHash(filePath: string): string | null {
 // Primary: GitHub Releases (multi-part, version-based)
 // Fallback: public CDN bucket (single file, deps-hash-based)
 
-const FALLBACK_CDN_BASE = 'https://storage.googleapis.com/ltx-desktop-artifacts'
+const FALLBACK_CDN_BASE =
+  "https://storage.googleapis.com/ltx-desktop-artifacts";
 
 function getArchiveBase(): string {
   // LTX_PYTHON_URL is a dev-only override for testing with local archives.
   // Disabled in production to prevent code injection into a signed app.
   if (isDev && process.env.LTX_PYTHON_URL) {
-    return process.env.LTX_PYTHON_URL.replace(/^["']+|["']+$/g, '')
+    return process.env.LTX_PYTHON_URL.replace(/^["']+|["']+$/g, "");
   }
-  const version = app.getVersion()
-  return `https://github.com/Lightricks/ltx-desktop/releases/download/v${version}`
+  const version = app.getVersion();
+  return `https://github.com/Lightricks/ltx-desktop/releases/download/v${version}`;
 }
 
 function getFallbackArchiveUrl(): string | null {
-  const hash = readHash(getBundledHashPath())
-  if (!hash) return null
-  return `${FALLBACK_CDN_BASE}/python-embed-win32/${hash}/python-embed-win32.tar.gz`
+  const hash = readHash(getBundledHashPath());
+  if (!hash) return null;
+  return `${FALLBACK_CDN_BASE}/python-embed-win32/${hash}/python-embed-win32.tar.gz`;
 }
 
 function isLocalPath(source: string): boolean {
-  return !source.startsWith('http://') && !source.startsWith('https://')
+  return !source.startsWith("http://") && !source.startsWith("https://");
 }
 
 /**
@@ -269,38 +325,51 @@ async function acquireArchive(
   base: string,
   archivePath: string,
   cleanupFiles: string[],
-  onProgress: (progress: PythonSetupProgress) => void
+  onProgress: (progress: PythonSetupProgress) => void,
 ): Promise<void> {
-  if (isLocalPath(base) && base.endsWith('.tar.gz')) {
-    await copyFileWithProgress(base, archivePath, 0, fs.statSync(base).size, onProgress)
+  if (isLocalPath(base) && base.endsWith(".tar.gz")) {
+    await copyFileWithProgress(
+      base,
+      archivePath,
+      0,
+      fs.statSync(base).size,
+      onProgress,
+    );
   } else if (isLocalPath(base)) {
-    await acquirePartsLocal(base, archivePath, cleanupFiles, onProgress)
-  } else if (base.includes('/releases/download/')) {
+    await acquirePartsLocal(base, archivePath, cleanupFiles, onProgress);
+  } else if (base.includes("/releases/download/")) {
     // GitHub Releases — multi-part
-    await acquirePartsRemote(base, archivePath, cleanupFiles, onProgress)
+    await acquirePartsRemote(base, archivePath, cleanupFiles, onProgress);
   } else {
     // CDN or other URL — single file (content-length discovered from response)
-    let lastTime = Date.now()
-    let lastBytes = 0
-    let speed = 0
+    let lastTime = Date.now();
+    let lastBytes = 0;
+    let speed = 0;
 
-    await downloadFileWithGlobalProgress(base, archivePath, 0, 0, (downloaded, totalBytes) => {
-      const now = Date.now()
-      const elapsed = (now - lastTime) / 1000
-      if (elapsed >= 1) {
-        speed = (downloaded - lastBytes) / elapsed
-        lastTime = now
-        lastBytes = downloaded
-      }
+    await downloadFileWithGlobalProgress(
+      base,
+      archivePath,
+      0,
+      0,
+      (downloaded, totalBytes) => {
+        const now = Date.now();
+        const elapsed = (now - lastTime) / 1000;
+        if (elapsed >= 1) {
+          speed = (downloaded - lastBytes) / elapsed;
+          lastTime = now;
+          lastBytes = downloaded;
+        }
 
-      onProgress({
-        status: 'downloading',
-        percent: totalBytes > 0 ? Math.round((downloaded / totalBytes) * 100) : 0,
-        downloadedBytes: downloaded,
-        totalBytes,
-        speed,
-      })
-    })
+        onProgress({
+          status: "downloading",
+          percent:
+            totalBytes > 0 ? Math.round((downloaded / totalBytes) * 100) : 0,
+          downloadedBytes: downloaded,
+          totalBytes,
+          speed,
+        });
+      },
+    );
   }
 }
 
@@ -309,80 +378,128 @@ async function acquireArchive(
  * Tries GitHub Releases first, falls back to CDN if available.
  */
 export async function downloadPythonEmbed(
-  onProgress: (progress: PythonSetupProgress) => void
+  onProgress: (progress: PythonSetupProgress) => void,
 ): Promise<void> {
-  const destDir = path.join(app.getPath('userData'), 'python')
-  const tempDir = path.join(app.getPath('userData'), 'python-tmp')
-  const archivePath = path.join(app.getPath('userData'), 'python-embed-win32.tar.gz')
+  const destDir = path.join(app.getPath("userData"), "python");
+  const tempDir = path.join(app.getPath("userData"), "python-tmp");
+  const archivePath = path.join(
+    app.getPath("userData"),
+    "python-embed-win32.tar.gz",
+  );
 
   try {
     if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true, force: true })
+      fs.rmSync(tempDir, { recursive: true, force: true });
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
-  fs.mkdirSync(tempDir, { recursive: true })
+  fs.mkdirSync(tempDir, { recursive: true });
 
-  const cleanupFiles: string[] = []
+  const cleanupFiles: string[] = [];
 
   try {
-    const base = getArchiveBase()
-    console.log(`[python-setup] Archive base: ${base}`)
+    const base = getArchiveBase();
+    console.log(`[python-setup] Archive base: ${base}`);
 
     try {
-      await acquireArchive(base, archivePath, cleanupFiles, onProgress)
+      await acquireArchive(base, archivePath, cleanupFiles, onProgress);
     } catch (primaryErr) {
       // Primary source failed — try CDN fallback
-      const fallbackUrl = getFallbackArchiveUrl()
+      const fallbackUrl = getFallbackArchiveUrl();
       if (!fallbackUrl || isLocalPath(base)) {
-        throw primaryErr
+        throw primaryErr;
       }
 
-      console.warn(`[python-setup] Primary download failed: ${primaryErr}`)
-      console.log(`[python-setup] Falling back to CDN: ${fallbackUrl}`)
+      console.warn(`[python-setup] Primary download failed: ${primaryErr}`);
+      console.log(`[python-setup] Falling back to CDN: ${fallbackUrl}`);
 
       // Clean up any partial primary download
-      try { fs.unlinkSync(archivePath) } catch { /* ignore */ }
-      for (const f of cleanupFiles) {
-        try { fs.unlinkSync(f) } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(archivePath);
+      } catch {
+        /* ignore */
       }
-      cleanupFiles.length = 0
+      for (const f of cleanupFiles) {
+        try {
+          fs.unlinkSync(f);
+        } catch {
+          /* ignore */
+        }
+      }
+      cleanupFiles.length = 0;
 
-      await acquireArchive(fallbackUrl, archivePath, cleanupFiles, onProgress)
+      await acquireArchive(fallbackUrl, archivePath, cleanupFiles, onProgress);
     }
 
     // Extract
-    onProgress({ status: 'extracting', percent: 100, downloadedBytes: 0, totalBytes: 0, speed: 0 })
-    console.log(`[python-setup] Extracting to: ${tempDir}`)
-    await extractTarGz(archivePath, tempDir)
+    onProgress({
+      status: "extracting",
+      percent: 100,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      speed: 0,
+    });
+    console.log(`[python-setup] Extracting to: ${tempDir}`);
+    await extractTarGz(archivePath, tempDir);
 
     // Move into place (archive has top-level `python-embed/` directory)
-    const extractedInner = path.join(tempDir, 'python-embed')
-    const extractedSource = fs.existsSync(extractedInner) ? extractedInner : tempDir
+    const extractedInner = path.join(tempDir, "python-embed");
+    const extractedSource = fs.existsSync(extractedInner)
+      ? extractedInner
+      : tempDir;
 
     if (fs.existsSync(destDir)) {
-      fs.rmSync(destDir, { recursive: true, force: true })
+      fs.rmSync(destDir, { recursive: true, force: true });
     }
-    fs.renameSync(extractedSource, destDir)
+    fs.renameSync(extractedSource, destDir);
 
     // Write deps hash so subsequent launches skip download
-    const bundledHash = getBundledHashPath()
+    const bundledHash = getBundledHashPath();
     if (fs.existsSync(bundledHash)) {
-      fs.copyFileSync(bundledHash, path.join(destDir, 'deps-hash.txt'))
+      fs.copyFileSync(bundledHash, path.join(destDir, "deps-hash.txt"));
     }
 
-    onProgress({ status: 'complete', percent: 100, downloadedBytes: 0, totalBytes: 0, speed: 0 })
-    console.log('[python-setup] Python environment ready')
+    onProgress({
+      status: "complete",
+      percent: 100,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      speed: 0,
+    });
+    console.log("[python-setup] Python environment ready");
   } catch (err) {
-    try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch { /* ignore */ }
-    try { fs.rmSync(destDir, { recursive: true, force: true }) } catch { /* ignore */ }
-    throw err
-  } finally {
-    try { fs.unlinkSync(archivePath) } catch { /* ignore */ }
-    for (const f of cleanupFiles) {
-      try { fs.unlinkSync(f) } catch { /* ignore */ }
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
     }
-    try { if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true }) } catch { /* ignore */ }
+    try {
+      fs.rmSync(destDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  } finally {
+    try {
+      fs.unlinkSync(archivePath);
+    } catch {
+      /* ignore */
+    }
+    for (const f of cleanupFiles) {
+      try {
+        fs.unlinkSync(f);
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      if (fs.existsSync(tempDir))
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -392,25 +509,33 @@ async function acquirePartsLocal(
   dirPath: string,
   archivePath: string,
   cleanupFiles: string[],
-  onProgress: (progress: PythonSetupProgress) => void
+  onProgress: (progress: PythonSetupProgress) => void,
 ): Promise<void> {
-  const manifestPath = path.join(dirPath, 'python-embed-win32.manifest.json')
-  const manifest: ArchiveManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
+  const manifestPath = path.join(dirPath, "python-embed-win32.manifest.json");
+  const manifest: ArchiveManifest = JSON.parse(
+    fs.readFileSync(manifestPath, "utf-8"),
+  );
 
-  const partPaths: string[] = []
-  let bytesSoFar = 0
+  const partPaths: string[] = [];
+  let bytesSoFar = 0;
 
   for (const part of manifest.parts) {
-    const src = path.join(dirPath, part.name)
-    const dest = path.join(app.getPath('userData'), part.name)
-    partPaths.push(dest)
-    cleanupFiles.push(dest)
+    const src = path.join(dirPath, part.name);
+    const dest = path.join(app.getPath("userData"), part.name);
+    partPaths.push(dest);
+    cleanupFiles.push(dest);
 
-    await copyFileWithProgress(src, dest, bytesSoFar, manifest.totalSize, onProgress)
-    bytesSoFar += part.size
+    await copyFileWithProgress(
+      src,
+      dest,
+      bytesSoFar,
+      manifest.totalSize,
+      onProgress,
+    );
+    bytesSoFar += part.size;
   }
 
-  await concatenateParts(partPaths, archivePath)
+  await concatenateParts(partPaths, archivePath);
 }
 
 // ── Multi-part: remote download ──────────────────────────────────────
@@ -419,26 +544,31 @@ async function acquirePartsRemote(
   baseUrl: string,
   archivePath: string,
   cleanupFiles: string[],
-  onProgress: (progress: PythonSetupProgress) => void
+  onProgress: (progress: PythonSetupProgress) => void,
 ): Promise<void> {
   // Fetch manifest
-  const manifestUrl = `${baseUrl}/python-embed-win32.manifest.json`
-  const manifestDest = path.join(app.getPath('userData'), 'python-embed-win32.manifest.json')
-  cleanupFiles.push(manifestDest)
-  await downloadFileRaw(manifestUrl, manifestDest)
-  const manifest: ArchiveManifest = JSON.parse(fs.readFileSync(manifestDest, 'utf-8'))
+  const manifestUrl = `${baseUrl}/python-embed-win32.manifest.json`;
+  const manifestDest = path.join(
+    app.getPath("userData"),
+    "python-embed-win32.manifest.json",
+  );
+  cleanupFiles.push(manifestDest);
+  await downloadFileRaw(manifestUrl, manifestDest);
+  const manifest: ArchiveManifest = JSON.parse(
+    fs.readFileSync(manifestDest, "utf-8"),
+  );
 
-  const partPaths: string[] = []
-  let bytesSoFar = 0
-  let lastTime = Date.now()
-  let lastReportedBytes = 0
-  let speed = 0
+  const partPaths: string[] = [];
+  let bytesSoFar = 0;
+  let lastTime = Date.now();
+  let lastReportedBytes = 0;
+  let speed = 0;
 
   for (const part of manifest.parts) {
-    const partUrl = `${baseUrl}/${part.name}`
-    const partDest = path.join(app.getPath('userData'), part.name)
-    partPaths.push(partDest)
-    cleanupFiles.push(partDest)
+    const partUrl = `${baseUrl}/${part.name}`;
+    const partDest = path.join(app.getPath("userData"), part.name);
+    partPaths.push(partDest);
+    cleanupFiles.push(partDest);
 
     await downloadFileWithGlobalProgress(
       partUrl,
@@ -446,59 +576,59 @@ async function acquirePartsRemote(
       bytesSoFar,
       manifest.totalSize,
       (globalDownloaded, totalBytes) => {
-        const now = Date.now()
-        const elapsed = (now - lastTime) / 1000
+        const now = Date.now();
+        const elapsed = (now - lastTime) / 1000;
 
         if (elapsed >= 1) {
-          speed = (globalDownloaded - lastReportedBytes) / elapsed
-          lastTime = now
-          lastReportedBytes = globalDownloaded
+          speed = (globalDownloaded - lastReportedBytes) / elapsed;
+          lastTime = now;
+          lastReportedBytes = globalDownloaded;
         }
 
         onProgress({
-          status: 'downloading',
+          status: "downloading",
           percent: Math.round((globalDownloaded / totalBytes) * 100),
           downloadedBytes: globalDownloaded,
           totalBytes,
           speed,
-        })
-      }
-    )
+        });
+      },
+    );
 
-    bytesSoFar += part.size
+    bytesSoFar += part.size;
   }
 
-  await concatenateParts(partPaths, archivePath)
+  await concatenateParts(partPaths, archivePath);
 }
 
 // ── File operations ──────────────────────────────────────────────────
 
 function concatenateParts(parts: string[], dest: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const writeStream = fs.createWriteStream(dest)
-    let i = 0
+    const writeStream = fs.createWriteStream(dest);
+    let i = 0;
 
     function writeNext() {
       if (i >= parts.length) {
-        writeStream.end(() => resolve())
-        return
+        writeStream.end(() => resolve());
+        return;
       }
 
-      const readStream = fs.createReadStream(parts[i])
-      i++
+      const readStream = fs.createReadStream(parts[i]);
+      i++;
 
-      readStream.on('error', (err) => {
-        writeStream.destroy()
-        reject(err)
-      })
+      readStream.on("error", (err) => {
+        writeStream.destroy();
+        reject(err);
+      });
 
-      readStream.on('end', writeNext)
-      readStream.pipe(writeStream, { end: false })
+      readStream.on("end", writeNext);
+      readStream.pipe(writeStream, { end: false });
     }
 
-    writeStream.on('error', reject)
-    writeNext()
-  })
+    writeStream.on("error", reject);
+    writeNext();
+  });
 }
 
 /** Copy a local file with progress relative to a global total. */
@@ -507,63 +637,77 @@ function copyFileWithProgress(
   dest: string,
   globalOffset: number,
   globalTotal: number,
-  onProgress: (progress: PythonSetupProgress) => void
+  onProgress: (progress: PythonSetupProgress) => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    let copiedBytes = 0
+    let copiedBytes = 0;
 
-    const readStream = fs.createReadStream(source)
-    const writeStream = fs.createWriteStream(dest)
+    const readStream = fs.createReadStream(source);
+    const writeStream = fs.createWriteStream(dest);
 
-    readStream.on('data', (chunk: Buffer) => {
-      copiedBytes += chunk.length
-      const totalDone = globalOffset + copiedBytes
+    readStream.on("data", (chunk: Buffer) => {
+      copiedBytes += chunk.length;
+      const totalDone = globalOffset + copiedBytes;
       onProgress({
-        status: 'downloading',
+        status: "downloading",
         percent: Math.round((totalDone / globalTotal) * 100),
         downloadedBytes: totalDone,
         totalBytes: globalTotal,
         speed: 0,
-      })
-    })
+      });
+    });
 
-    readStream.on('error', reject)
-    writeStream.on('error', reject)
-    writeStream.on('finish', resolve)
+    readStream.on("error", reject);
+    writeStream.on("error", reject);
+    writeStream.on("finish", resolve);
 
-    readStream.pipe(writeStream)
-  })
+    readStream.pipe(writeStream);
+  });
 }
 
 /** Download a file without progress (used for manifest). */
-function downloadFileRaw(url: string, dest: string, redirectCount = 0): Promise<void> {
+function downloadFileRaw(
+  url: string,
+  dest: string,
+  redirectCount = 0,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     if (redirectCount > 5) {
-      reject(new Error('Too many redirects'))
-      return
+      reject(new Error("Too many redirects"));
+      return;
     }
 
-    const client = url.startsWith('https') ? https : http
+    const client = url.startsWith("https") ? https : http;
     const req = client.get(url, { headers: getAuthHeaders() }, (res) => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume()
-        downloadFileRaw(res.headers.location, dest, redirectCount + 1).then(resolve).catch(reject)
-        return
+      if (
+        res.statusCode &&
+        res.statusCode >= 300 &&
+        res.statusCode < 400 &&
+        res.headers.location
+      ) {
+        res.resume();
+        downloadFileRaw(res.headers.location, dest, redirectCount + 1)
+          .then(resolve)
+          .catch(reject);
+        return;
       }
       if (!res.statusCode || res.statusCode >= 400) {
-        res.resume()
-        reject(new Error(`Download failed: HTTP ${res.statusCode}`))
-        return
+        res.resume();
+        reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+        return;
       }
 
-      const file = fs.createWriteStream(dest)
-      res.pipe(file)
-      file.on('finish', () => file.close(() => resolve()))
-      file.on('error', (err) => { fs.unlink(dest, () => {}); reject(err) })
-    })
+      const file = fs.createWriteStream(dest);
+      res.pipe(file);
+      file.on("finish", () => file.close(() => resolve()));
+      file.on("error", (err) => {
+        fs.unlink(dest, () => {});
+        reject(err);
+      });
+    });
 
-    req.on('error', reject)
-  })
+    req.on("error", reject);
+  });
 }
 
 /** Download a file, reporting progress as (globalDownloaded, globalTotal). */
@@ -573,57 +717,78 @@ function downloadFileWithGlobalProgress(
   globalOffset: number,
   globalTotal: number,
   onProgress: (globalDownloaded: number, globalTotal: number) => void,
-  redirectCount = 0
+  redirectCount = 0,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (redirectCount > 5) {
-      reject(new Error('Too many redirects'))
-      return
+      reject(new Error("Too many redirects"));
+      return;
     }
 
-    const client = url.startsWith('https') ? https : http
+    const client = url.startsWith("https") ? https : http;
     const req = client.get(url, { headers: getAuthHeaders() }, (res) => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume()
-        downloadFileWithGlobalProgress(res.headers.location, dest, globalOffset, globalTotal, onProgress, redirectCount + 1)
-          .then(resolve).catch(reject)
-        return
+      if (
+        res.statusCode &&
+        res.statusCode >= 300 &&
+        res.statusCode < 400 &&
+        res.headers.location
+      ) {
+        res.resume();
+        downloadFileWithGlobalProgress(
+          res.headers.location,
+          dest,
+          globalOffset,
+          globalTotal,
+          onProgress,
+          redirectCount + 1,
+        )
+          .then(resolve)
+          .catch(reject);
+        return;
       }
       if (!res.statusCode || res.statusCode >= 400) {
-        res.resume()
-        reject(new Error(`Download failed: HTTP ${res.statusCode}`))
-        return
+        res.resume();
+        reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+        return;
       }
 
       // If caller didn't know total, use content-length from response
-      const effectiveTotal = globalTotal || parseInt(res.headers['content-length'] || '0', 10)
+      const effectiveTotal =
+        globalTotal || parseInt(res.headers["content-length"] || "0", 10);
 
-      let downloadedBytes = 0
-      const file = fs.createWriteStream(dest)
-      res.pipe(file)
+      let downloadedBytes = 0;
+      const file = fs.createWriteStream(dest);
+      res.pipe(file);
 
-      res.on('data', (chunk: Buffer) => {
-        downloadedBytes += chunk.length
-        onProgress(globalOffset + downloadedBytes, effectiveTotal)
-      })
+      res.on("data", (chunk: Buffer) => {
+        downloadedBytes += chunk.length;
+        onProgress(globalOffset + downloadedBytes, effectiveTotal);
+      });
 
-      file.on('finish', () => file.close(() => resolve()))
-      file.on('error', (err) => { fs.unlink(dest, () => {}); reject(err) })
-    })
+      file.on("finish", () => file.close(() => resolve()));
+      file.on("error", (err) => {
+        fs.unlink(dest, () => {});
+        reject(err);
+      });
+    });
 
-    req.on('error', reject)
-  })
+    req.on("error", reject);
+  });
 }
 
 /** Extract a .tar.gz file using the system tar command (ships on Windows 10+). */
 function extractTarGz(archive: string, destDir: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile('tar', ['-xzf', archive, '-C', destDir], (err, _stdout, stderr) => {
-      if (err) {
-        reject(new Error(`tar extraction failed: ${stderr || err.message}`))
-        return
-      }
-      resolve()
-    })
-  })
+    execFile(
+      "tar",
+      ["-xzf", archive, "-C", destDir],
+      (err, _stdout, stderr) => {
+        if (err) {
+          reject(new Error(`tar extraction failed: ${stderr || err.message}`));
+          return;
+        }
+        resolve();
+      },
+    );
+  });
 }

@@ -1,42 +1,47 @@
-import path from 'path'
+import path from "path";
 
-const isWindows = process.platform === 'win32'
+const isWindows = process.platform === "win32";
 
 function normalize(p: string): string {
-  return isWindows ? path.resolve(p).toLowerCase() : path.resolve(p)
+  return isWindows ? path.resolve(p).toLowerCase() : path.resolve(p);
 }
 
 function stripFileUrl(fileUrl: string): string {
-  let raw = fileUrl
-  if (raw.startsWith('file:///')) {
+  let raw = fileUrl;
+  if (raw.startsWith("file:///")) {
     // file:///Users/foo → /Users/foo (Unix) or file:///C:/foo → C:/foo (Windows)
-    raw = raw.slice(isWindows ? 8 : 7)
-  } else if (raw.startsWith('file://')) {
-    raw = raw.slice(7)
+    raw = raw.slice(isWindows ? 8 : 7);
+  } else if (raw.startsWith("file://")) {
+    raw = raw.slice(7);
   }
-  return decodeURIComponent(raw).replace(/\//g, path.sep)
+  return decodeURIComponent(raw).replace(/\//g, path.sep);
 }
 
-const approvedPaths = new Set<string>()
+const approvedPaths = new Set<string>();
 
 export function approvePath(filePath: string): void {
-  approvedPaths.add(normalize(filePath))
+  approvedPaths.add(normalize(filePath));
 }
 
-export function validatePath(inputPath: string, allowedRoots: string[]): string {
-  const cleaned = inputPath.startsWith('file://') ? stripFileUrl(inputPath) : inputPath
-  const resolved = path.resolve(cleaned)
-  const norm = normalize(resolved)
+export function validatePath(
+  inputPath: string,
+  allowedRoots: string[],
+): string {
+  const cleaned = inputPath.startsWith("file://")
+    ? stripFileUrl(inputPath)
+    : inputPath;
+  const resolved = path.resolve(cleaned);
+  const norm = normalize(resolved);
 
   for (const root of allowedRoots.map(normalize)) {
-    if (norm === root || norm.startsWith(root + path.sep)) return resolved
+    if (norm === root || norm.startsWith(root + path.sep)) return resolved;
   }
 
-  let found = false
+  let found = false;
   approvedPaths.forEach((approved) => {
-    if (norm === approved || norm.startsWith(approved + path.sep)) found = true
-  })
-  if (found) return resolved
+    if (norm === approved || norm.startsWith(approved + path.sep)) found = true;
+  });
+  if (found) return resolved;
 
-  throw new Error(`Path not allowed: ${inputPath}`)
+  throw new Error(`Path not allowed: ${inputPath}`);
 }

@@ -1,53 +1,53 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import electron from 'vite-plugin-electron'
-import renderer from 'vite-plugin-electron-renderer'
-import path from 'path'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import electron from "vite-plugin-electron";
+import renderer from "vite-plugin-electron-renderer";
+import path from "path";
 
 export default defineConfig({
   plugins: [
     react(),
     electron([
       {
-        entry: 'electron/main.ts',
+        entry: "electron/main.ts",
         onstart(options) {
-          options.startup()
+          options.startup();
         },
         vite: {
           build: {
-            outDir: 'dist-electron',
+            outDir: "dist-electron",
             rollupOptions: {
-              external: ['electron']
-            }
-          }
-        }
+              external: ["electron"],
+            },
+          },
+        },
       },
       {
-        entry: 'electron/preload.ts',
+        entry: "electron/preload.ts",
         onstart(options) {
-          options.reload()
+          options.reload();
         },
         vite: {
           build: {
-            outDir: 'dist-electron',
+            outDir: "dist-electron",
             rollupOptions: {
               output: {
-                format: 'cjs'  // Preload must be CommonJS
-              }
-            }
-          }
-        }
-      }
+                format: "cjs", // Preload must be CommonJS
+              },
+            },
+          },
+        },
+      },
     ]),
-    renderer()
+    renderer(),
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src')
-    }
+      "@": path.resolve(__dirname, "./src"),
+    },
   },
-  base: './',  // Use relative paths for Electron file:// protocol
+  base: "./", // Use relative paths for Electron file:// protocol
   build: {
-    outDir: 'dist'
-  }
-})
+    outDir: "dist",
+  },
+});

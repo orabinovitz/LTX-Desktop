@@ -1,21 +1,28 @@
-import { app, BrowserWindow, nativeImage } from 'electron'
-import path from 'path'
-import fs from 'fs'
-import { isDev, getCurrentDir } from './config'
+import { app, BrowserWindow, nativeImage } from "electron";
+import path from "path";
+import fs from "fs";
+import { isDev, getCurrentDir } from "./config";
 
-let mainWindow: BrowserWindow | null = null
+let mainWindow: BrowserWindow | null = null;
 
 export function createWindow(): BrowserWindow {
   // Get the path to preload script
   const preloadPath = isDev
-    ? path.join(getCurrentDir(), 'dist-electron', 'preload.js')
-    : path.join(app.getAppPath(), 'dist-electron', 'preload.js')
+    ? path.join(getCurrentDir(), "dist-electron", "preload.js")
+    : path.join(app.getAppPath(), "dist-electron", "preload.js");
 
   // App icon — use .ico on Windows, .png elsewhere
-  const iconExt = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
-  const iconPath = path.join(getCurrentDir(), 'resources', iconExt)
-  console.log('[icon] Loading app icon from:', iconPath, '| exists:', fs.existsSync(iconPath))
-  const appIcon = fs.existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : undefined
+  const iconExt = process.platform === "win32" ? "icon.ico" : "icon.png";
+  const iconPath = path.join(getCurrentDir(), "resources", iconExt);
+  console.log(
+    "[icon] Loading app icon from:",
+    iconPath,
+    "| exists:",
+    fs.existsSync(iconPath),
+  );
+  const appIcon = fs.existsSync(iconPath)
+    ? nativeImage.createFromPath(iconPath)
+    : undefined;
 
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -29,37 +36,41 @@ export function createWindow(): BrowserWindow {
       nodeIntegration: false,
       webSecurity: isDev ? false : true,
     },
-    backgroundColor: '#1a1a1a',
-    titleBarStyle: 'default',
+    backgroundColor: "#1a1a1a",
+    titleBarStyle: "default",
     show: false,
-  })
+  });
 
   // Load the app
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
+    mainWindow.loadURL("http://localhost:5173");
     // DevTools can be opened manually with Ctrl+Shift+I or F12
   } else {
-    mainWindow.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'))
+    mainWindow.loadFile(path.join(app.getAppPath(), "dist", "index.html"));
   }
 
-  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    if (message.includes('[live-agent]')) {
-      const tag = ['LOG', 'WARN', 'ERR'][level] ?? 'LOG'
-      console.log(`[Renderer ${tag}] ${message}`)
-    }
-  })
+  mainWindow.webContents.on(
+    "console-message",
+    (_event, level, message) => {
+       
+      if (message.includes("[live-agent]")) {
+        const tag = ["LOG", "WARN", "ERR"][level] ?? "LOG";
+        console.log(`[Renderer ${tag}] ${message}`);
+      }
+    },
+  );
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show()
-  })
+  mainWindow.once("ready-to-show", () => {
+    mainWindow?.show();
+  });
 
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
 
-  return mainWindow
+  return mainWindow;
 }
 
 export function getMainWindow(): BrowserWindow | null {
-  return mainWindow
+  return mainWindow;
 }

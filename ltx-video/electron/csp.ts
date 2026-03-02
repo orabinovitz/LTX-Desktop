@@ -1,10 +1,10 @@
-import { session } from 'electron'
-import { isDev } from './config'
+import { session } from "electron";
+import { isDev } from "./config";
 
 // Enforce Content Security Policy via response headers (tamper-proof from renderer)
 export function setupCSP(): void {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const geminiWs = 'wss://generativelanguage.googleapis.com'
+    const geminiWs = "wss://generativelanguage.googleapis.com";
 
     const csp = isDev
       ? [
@@ -19,7 +19,7 @@ export function setupCSP(): void {
           "base-uri 'self'",
           "form-action 'self'",
           "frame-ancestors 'none'",
-        ].join('; ')
+        ].join("; ")
       : [
           "default-src 'self'",
           "script-src 'self'",
@@ -32,13 +32,13 @@ export function setupCSP(): void {
           "base-uri 'self'",
           "form-action 'self'",
           "frame-ancestors 'none'",
-        ].join('; ')
+        ].join("; ");
 
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [csp],
+        "Content-Security-Policy": [csp],
       },
-    })
-  })
+    });
+  });
 }

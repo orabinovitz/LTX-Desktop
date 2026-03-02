@@ -1,11 +1,11 @@
 // SRT subtitle format parsing and export utilities
 
 export interface SrtCue {
-  index: number
-  startTime: number  // in seconds
-  endTime: number    // in seconds
-  text: string
-  color?: string     // extracted from <font color=...> tags if present
+  index: number;
+  startTime: number; // in seconds
+  endTime: number; // in seconds
+  text: string;
+  color?: string; // extracted from <font color=...> tags if present
 }
 
 /**
@@ -13,10 +13,12 @@ export interface SrtCue {
  * Format: HH:MM:SS,mmm (e.g. "00:01:23,456")
  */
 function parseTimestamp(ts: string): number {
-  const match = ts.trim().match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/)
-  if (!match) return 0
-  const [, h, m, s, ms] = match
-  return parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s) + parseInt(ms) / 1000
+  const match = ts.trim().match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+  if (!match) return 0;
+  const [, h, m, s, ms] = match;
+  return (
+    parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s) + parseInt(ms) / 1000
+  );
 }
 
 /**
@@ -24,11 +26,11 @@ function parseTimestamp(ts: string): number {
  * Returns format: HH:MM:SS,mmm
  */
 function formatTimestamp(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  const ms = Math.round((seconds % 1) * 1000)
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.round((seconds % 1) * 1000);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
 }
 
 /**
@@ -37,30 +39,30 @@ function formatTimestamp(seconds: number): string {
  * Extracts the first color value found (if any).
  */
 function stripTags(text: string): { clean: string; color?: string } {
-  let color: string | undefined
+  let color: string | undefined;
 
   // Extract color from <font color=...> (Premiere format: color=#RRGGBBAA or #RRGGBB)
-  const colorMatch = text.match(/<font\s+color\s*=\s*["']?([^"'>]+)["']?\s*>/i)
+  const colorMatch = text.match(/<font\s+color\s*=\s*["']?([^"'>]+)["']?\s*>/i);
   if (colorMatch) {
-    let c = colorMatch[1].trim()
+    let c = colorMatch[1].trim();
     // Premiere sometimes outputs 8-char hex (#RRGGBBAA) — convert to standard 6-char
     if (/^#[0-9A-Fa-f]{8}$/.test(c)) {
-      c = c.slice(0, 7) // drop the alpha suffix
+      c = c.slice(0, 7); // drop the alpha suffix
     }
-    color = c
+    color = c;
   }
 
   // Strip all HTML tags
   const clean = text
-    .replace(/<[^>]+>/g, '')   // remove tags
-    .replace(/\n\s*\n/g, '\n') // collapse blank lines left by removed tags
-    .trim()
+    .replace(/<[^>]+>/g, "") // remove tags
+    .replace(/\n\s*\n/g, "\n") // collapse blank lines left by removed tags
+    .trim();
 
-  return { clean, color }
+  return { clean, color };
 }
 
 // Threshold: cues shorter than this (in seconds) are considered "pre-cues" / fade markers
-const PRE_CUE_THRESHOLD = 0.1 // 100ms
+const PRE_CUE_THRESHOLD = 0.1; // 100ms
 
 /**
  * Parse an SRT file content string into an array of cues.
@@ -72,52 +74,52 @@ const PRE_CUE_THRESHOLD = 0.1 // 100ms
  *   → merged into a single cue using the pre-cue's start time and the real cue's end time
  */
 export function parseSrt(content: string): SrtCue[] {
-  const rawCues: SrtCue[] = []
-  
+  const rawCues: SrtCue[] = [];
+
   // Normalize line endings
-  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
-  
+  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+
   // Split into blocks separated by empty lines
-  const blocks = normalized.split(/\n\n+/)
-  
+  const blocks = normalized.split(/\n\n+/);
+
   for (const block of blocks) {
-    const lines = block.trim().split('\n')
-    if (lines.length < 3) continue
-    
+    const lines = block.trim().split("\n");
+    if (lines.length < 3) continue;
+
     // First line: index number
-    const index = parseInt(lines[0].trim())
-    if (isNaN(index)) continue
-    
+    const index = parseInt(lines[0].trim());
+    if (isNaN(index)) continue;
+
     // Second line: timestamps (start --> end)
-    const timeParts = lines[1].split('-->')
-    if (timeParts.length !== 2) continue
-    
-    const startTime = parseTimestamp(timeParts[0])
-    const endTime = parseTimestamp(timeParts[1])
-    
-    if (endTime <= startTime) continue
-    
+    const timeParts = lines[1].split("-->");
+    if (timeParts.length !== 2) continue;
+
+    const startTime = parseTimestamp(timeParts[0]);
+    const endTime = parseTimestamp(timeParts[1]);
+
+    if (endTime <= startTime) continue;
+
     // Remaining lines: subtitle text (strip HTML tags)
-    const rawText = lines.slice(2).join('\n').trim()
-    if (!rawText) continue
-    
-    const { clean, color } = stripTags(rawText)
-    if (!clean) continue
-    
-    rawCues.push({ index, startTime, endTime, text: clean, color })
+    const rawText = lines.slice(2).join("\n").trim();
+    if (!rawText) continue;
+
+    const { clean, color } = stripTags(rawText);
+    if (!clean) continue;
+
+    rawCues.push({ index, startTime, endTime, text: clean, color });
   }
-  
+
   // --- Merge Premiere-style pre-cue pairs ---
   // Pattern: a near-zero-duration cue immediately followed by a cue with the same text.
   // The first cue's start time is the real start; the second cue's end time is the real end.
-  const merged: SrtCue[] = []
-  let i = 0
+  const merged: SrtCue[] = [];
+  let i = 0;
   while (i < rawCues.length) {
-    const cur = rawCues[i]
-    const next = rawCues[i + 1]
-    
-    const curDuration = cur.endTime - cur.startTime
-    
+    const cur = rawCues[i];
+    const next = rawCues[i + 1];
+
+    const curDuration = cur.endTime - cur.startTime;
+
     if (
       next &&
       curDuration <= PRE_CUE_THRESHOLD &&
@@ -131,29 +133,35 @@ export function parseSrt(content: string): SrtCue[] {
         endTime: next.endTime,
         text: cur.text,
         color: cur.color || next.color,
-      })
-      i += 2 // skip both
+      });
+      i += 2; // skip both
     } else if (curDuration <= PRE_CUE_THRESHOLD) {
       // Standalone near-zero cue with no matching follow-up — skip it (likely orphan pre-cue)
-      i++
+      i++;
     } else {
-      merged.push(cur)
-      i++
+      merged.push(cur);
+      i++;
     }
   }
-  
+
   // Re-index
-  return merged.map((cue, idx) => ({ ...cue, index: idx + 1 }))
+  return merged.map((cue, idx) => ({ ...cue, index: idx + 1 }));
 }
 
 /**
  * Export an array of cues to SRT format string
  */
-export function exportSrt(cues: { startTime: number; endTime: number; text: string }[]): string {
+export function exportSrt(
+  cues: { startTime: number; endTime: number; text: string }[],
+): string {
   // Sort by start time
-  const sorted = [...cues].sort((a, b) => a.startTime - b.startTime)
-  
-  return sorted.map((cue, i) => {
-    return `${i + 1}\n${formatTimestamp(cue.startTime)} --> ${formatTimestamp(cue.endTime)}\n${cue.text}`
-  }).join('\n\n') + '\n'
+  const sorted = [...cues].sort((a, b) => a.startTime - b.startTime);
+
+  return (
+    sorted
+      .map((cue, i) => {
+        return `${i + 1}\n${formatTimestamp(cue.startTime)} --> ${formatTimestamp(cue.endTime)}\n${cue.text}`;
+      })
+      .join("\n\n") + "\n"
+  );
 }
