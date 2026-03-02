@@ -38,6 +38,8 @@ from services.interfaces import (
     TextEncoder,
     VideoProcessor,
 )
+from agent import brain as brain_module
+from agent import video_analyzer
 from state.app_state_types import AppState, StartupPending, TextEncoderState
 
 
@@ -210,7 +212,22 @@ class AppHandler:
             http=http,
         )
 
+        # Wire brain updates: when a video analysis completes, mark brain dirty
+        self._http_ref = http
+        video_analyzer.on_analysis_complete(self._on_video_analyzed)
+
         self.models.refresh_available_files()
+
+    def _on_video_analyzed(self, asset_id: str, metadata) -> None:
+        """Called when background video analysis completes — triggers brain update."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("Video analysis complete callback for %s, scheduling brain update", asset_id[:8])
+        # We don't know the project_id here (backend is project-agnostic),
+        # so we mark all known brains as dirty. The next agent call with
+        # a project_id will trigger a rebuild if needed.
+        for pid in list(brain_module._brains.keys()):
+            brain_module.mark_dirty(pid)
 
 
 @dataclass

@@ -42,6 +42,17 @@ class DialogueLine(BaseModel):
     text: str = Field(description="Transcribed text")
 
 
+class TopicTag(BaseModel):
+    """A thematic topic detected within a video."""
+
+    name: str = Field(description="Short topic name")
+    description: str = Field(default="", description="One-sentence description of the topic")
+    time_ranges: list[tuple[float, float]] = Field(
+        default_factory=list,
+        description="List of (start, end) time ranges in seconds where this topic appears",
+    )
+
+
 class VideoMetadata(BaseModel):
     """Full analysis metadata for a video asset."""
 
@@ -52,6 +63,8 @@ class VideoMetadata(BaseModel):
     scenes: list[SceneSegment] = Field(default_factory=list)
     dialogue: list[DialogueLine] = Field(default_factory=list)
     summary: str = Field(default="", description="High-level summary of the video")
+    topics: list[TopicTag] = Field(default_factory=list, description="Thematic topics detected in the video")
+    full_transcript: str = Field(default="", description="Complete transcript of all dialogue")
     analysis_status: AnalysisStatus = Field(default=AnalysisStatus.PENDING)
 
 
@@ -148,6 +161,7 @@ class AgentExecuteRequest(BaseModel):
     timeline_state: TimelineState | None = None
     conversation_history: list[AgentMessage] = Field(default_factory=list)
     session_id: str | None = Field(default=None, description="Existing session to continue conversation in")
+    project_id: str | None = Field(default=None, description="Project ID for brain context lookup")
 
 
 class AgentExecuteResponse(BaseModel):
@@ -173,6 +187,7 @@ class AnalyzeVideoRequest(BaseModel):
     asset_id: str
     file_path: str
     duration: float | None = None
+    project_save_path: str | None = None
 
 
 class AnalyzeVideoResponse(BaseModel):
@@ -180,6 +195,26 @@ class AnalyzeVideoResponse(BaseModel):
 
     status: AnalysisStatus
     metadata: VideoMetadata | None = None
+
+
+class SubClipInfo(BaseModel):
+    """A sub-clip definition returned by the decompose endpoint."""
+
+    parent_asset_id: str
+    source_in: float
+    source_out: float
+    title: str
+    description: str
+    transcript: str = ""
+    topics: list[str] = Field(default_factory=list)
+    scene_indices: list[int] = Field(default_factory=list)
+
+
+class DecomposeVideoResponse(BaseModel):
+    """Response from the video decomposition endpoint."""
+
+    subclips: list[SubClipInfo] = Field(default_factory=list)
+    error: str | None = None
 
 
 # ============================================================

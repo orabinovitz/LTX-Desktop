@@ -11,6 +11,7 @@ import {
   Folder,
   Trash2,
   FolderOpen,
+  Scissors,
 } from "lucide-react";
 import type { Asset } from "../../types/project";
 import { COLOR_LABELS } from "./video-editor-utils";
@@ -59,6 +60,8 @@ export interface AssetContextMenuProps {
   setClips: React.Dispatch<
     React.SetStateAction<import("../../types/project").TimelineClip[]>
   >;
+  onDecomposeIntoScenes?: (assetId: string) => void;
+  isDecomposing?: boolean;
 }
 
 export function AssetContextMenu({
@@ -85,6 +88,8 @@ export function AssetContextMenu({
   deleteAsset,
   deleteTakeFromAsset,
   setClips,
+  onDecomposeIntoScenes,
+  isDecomposing,
 }: AssetContextMenuProps) {
   const isMulti = targetIds.length > 1;
 
@@ -137,6 +142,20 @@ export function AssetContextMenu({
         >
           <RefreshCw className="h-3.5 w-3.5 text-zinc-500" />
           <span>Retry Analysis</span>
+        </button>
+      )}
+
+      {!isMulti && asset.type === "video" && asset.path && !asset.parentAssetId && onDecomposeIntoScenes && (
+        <button
+          onClick={() => {
+            onDecomposeIntoScenes(asset.id);
+            setAssetContextMenu(null);
+          }}
+          disabled={isDecomposing}
+          className="flex w-full items-center gap-3 px-3 py-1.5 text-left text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
+        >
+          <Scissors className="h-3.5 w-3.5 text-zinc-500" />
+          <span>{isDecomposing ? "Decomposing..." : "Decompose into Scenes"}</span>
         </button>
       )}
 

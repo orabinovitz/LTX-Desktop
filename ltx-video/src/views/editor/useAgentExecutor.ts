@@ -44,6 +44,10 @@ export interface AgentExecutorDeps {
   addProjectTimeline: (projectId: string, name?: string) => Timeline;
   renameTimeline: (projectId: string, timelineId: string, name: string) => void;
   getMaxClipDuration: (clip: TimelineClip) => number;
+  addAsset: (
+    projectId: string,
+    asset: Omit<Asset, "id" | "createdAt">,
+  ) => Asset;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +71,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     addProjectTimeline,
     renameTimeline,
     getMaxClipDuration,
+    addAsset,
   } = deps;
 
   const snapshotRef = useRef<TimelineClip[] | null>(null);
@@ -361,6 +366,30 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
 
       addClipToTimeline(asset, trackIndex, startTime);
 
+      // For sub-clip assets, apply source in/out as trim points after adding
+      if (asset.parentAssetId && asset.sourceIn != null && asset.sourceOut != null) {
+        const parentAsset = assets.find((a) => a.id === asset.parentAssetId);
+        const parentDuration = parentAsset?.duration ?? asset.duration ?? 0;
+        const subDuration = asset.sourceOut - asset.sourceIn;
+
+        setClips((prev) => {
+          const lastClipForAsset = [...prev]
+            .reverse()
+            .find((c) => c.assetId === assetId);
+          if (!lastClipForAsset) return prev;
+          return prev.map((c) =>
+            c.id === lastClipForAsset.id
+              ? {
+                  ...c,
+                  trimStart: asset.sourceIn!,
+                  trimEnd: Math.max(0, parentDuration - asset.sourceOut!),
+                  duration: subDuration,
+                }
+              : c,
+          );
+        });
+      }
+
       return {
         tool_name: "add_clip_to_timeline",
         success: true,
@@ -368,7 +397,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
         error: null,
       };
     },
-    [assetsRef, addClipToTimeline],
+    [assetsRef, addClipToTimeline, setClips],
   );
 
   const handleSetPlayhead = useCallback(
@@ -722,11 +751,82 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           path: a.path,
           favorite: a.favorite ?? false,
           bin: a.bin ?? null,
+          parentAssetId: a.parentAssetId ?? null,
+          sourceIn: a.sourceIn ?? null,
+          sourceOut: a.sourceOut ?? null,
+          topics: a.topics ?? [],
         })),
       },
       error: null,
     };
   }, [assetsRef]);
+
+  const handleCreateSubclipAssets = useCallback(
+    (args: Record<string, unknown>): ToolResult => {
+      if (!currentProjectId) {
+        return {
+          tool_name: "create_subclip_assets",
+          success: false,
+          result: null,
+          error: "No active project",
+        };
+      }
+
+      const subclips = args.subclips as
+        | Array<{
+            parent_asset_id: string;
+            source_in: number;
+            source_out: number;
+            title: string;
+            description: string;
+            topics?: string[];
+            transcript?: string;
+          }>
+        | undefined;
+
+      if (!subclips?.length) {
+        return {
+          tool_name: "create_subclip_assets",
+          success: false,
+          result: null,
+          error: "Missing or empty subclips array",
+        };
+      }
+
+      const assets = assetsRef.current ?? [];
+      const createdIds: string[] = [];
+
+      for (const sc of subclips) {
+        const parent = assets.find((a) => a.id === sc.parent_asset_id);
+        if (!parent) continue;
+
+        const newAsset = addAsset(currentProjectId, {
+          type: "video",
+          path: parent.path,
+          url: parent.url,
+          prompt: sc.title,
+          resolution: parent.resolution,
+          duration: sc.source_out - sc.source_in,
+          thumbnail: parent.thumbnail,
+          parentAssetId: sc.parent_asset_id,
+          sourceIn: sc.source_in,
+          sourceOut: sc.source_out,
+          transcript: sc.transcript ?? "",
+          topics: sc.topics ?? [],
+          bin: sc.topics?.[0] ?? undefined,
+        });
+        createdIds.push(newAsset.id);
+      }
+
+      return {
+        tool_name: "create_subclip_assets",
+        success: true,
+        result: { createdAssetIds: createdIds, count: createdIds.length },
+        error: null,
+      };
+    },
+    [currentProjectId, assetsRef, addAsset],
+  );
 
   const sanitizeArgs = useCallback(
     (args: Record<string, unknown>): Record<string, unknown> => {
@@ -785,6 +885,8 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
             return handleAddDissolve(safe.arguments);
           case "get_project_assets":
             return handleGetProjectAssets();
+          case "create_subclip_assets":
+            return handleCreateSubclipAssets(safe.arguments);
           default:
             return {
               tool_name: safe.tool_name,
@@ -811,6 +913,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     [
       handleAddClipToTimeline,
       handleAddDissolve,
+      handleCreateSubclipAssets,
       handleCreateTimeline,
       handleDeleteClip,
       handleDuplicateTimeline,

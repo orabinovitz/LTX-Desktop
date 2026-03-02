@@ -91,13 +91,18 @@ function buildTimelineState(
 export async function triggerVideoAnalysis(
   assetId: string,
   filePath: string,
+  projectSavePath?: string,
 ): Promise<boolean> {
   try {
     const backendUrl = await window.electronAPI.getBackendUrl();
     const res = await fetch(`${backendUrl}/api/agent/analyze-video`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ asset_id: assetId, file_path: filePath }),
+      body: JSON.stringify({
+        asset_id: assetId,
+        file_path: filePath,
+        ...(projectSavePath ? { project_save_path: projectSavePath } : {}),
+      }),
     });
     if (res.ok) {
       const data = await res.json();
@@ -125,6 +130,7 @@ export function useAgent() {
       trackCount: number,
       currentTime: number,
       executeTool: (toolCall: ToolCall) => Promise<ToolResult>,
+      projectId?: string | null,
     ) => {
       setIsProcessing(true);
       abortRef.current?.abort();
@@ -157,6 +163,7 @@ export function useAgent() {
           body: JSON.stringify({
             prompt,
             timeline_state: timelineState,
+            ...(projectId ? { project_id: projectId } : {}),
             ...(sessionIdRef.current
               ? { session_id: sessionIdRef.current }
               : { conversation_history: conversationRef.current }),

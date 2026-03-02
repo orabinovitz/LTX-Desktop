@@ -254,6 +254,7 @@ export function VideoEditor() {
   }, []);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [isDecomposing, setIsDecomposing] = useState(false);
   const [showEffectsBrowser, setShowEffectsBrowser] = useState(false);
   const [showTrimFlyout, setShowTrimFlyout] = useState(false);
   const [lastTrimTool, setLastTrimTool] = useState<ToolType>("ripple");
@@ -774,6 +775,7 @@ export function VideoEditor() {
     addProjectTimeline: addTimeline,
     renameTimeline,
     getMaxClipDuration,
+    addAsset,
   });
   const executeBackendTool = useCallback(
     async (call: { tool_name: string; arguments: Record<string, unknown> }) => {
@@ -865,9 +867,9 @@ export function VideoEditor() {
 
   const handleAgentSend = useCallback(
     (prompt: string) => {
-      sendPrompt(prompt, clips, tracks.length, currentTime, executeTool);
+      sendPrompt(prompt, clips, tracks.length, currentTime, executeTool, currentProjectId);
     },
-    [sendPrompt, clips, tracks.length, currentTime, executeTool],
+    [sendPrompt, clips, tracks.length, currentTime, executeTool, currentProjectId],
   );
   const handleAgentUndo = useCallback(() => {
     restoreSnapshot();
@@ -883,12 +885,73 @@ export function VideoEditor() {
         !analyzedAssetIds.current.has(asset.id)
       ) {
         analyzedAssetIds.current.add(asset.id);
-        triggerVideoAnalysis(asset.id, asset.path).then((started) => {
+        triggerVideoAnalysis(asset.id, asset.path, currentProject?.assetSavePath).then((started) => {
           if (started) markAnalyzing(asset.id);
         });
       }
     }
   }, [assets, markAnalyzing]);
+
+  const handleDecomposeIntoScenes = useCallback(
+    async (assetId: string) => {
+      if (!currentProjectId) return;
+      setIsDecomposing(true);
+      try {
+        const backendUrl = await window.electronAPI.getBackendUrl();
+        const res = await fetch(
+          `${backendUrl}/api/agent/decompose-video/${assetId}`,
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          console.error("Decompose failed:", res.status);
+          return;
+        }
+        const data = await res.json();
+        if (data.error) {
+          console.error("Decompose error:", data.error);
+          return;
+        }
+        const parentAsset = assets.find((a) => a.id === assetId);
+        if (!parentAsset || !data.subclips?.length) return;
+
+        for (const sc of data.subclips) {
+          addAsset(currentProjectId, {
+            type: "video",
+            path: parentAsset.path,
+            url: parentAsset.url,
+            prompt: sc.title,
+            resolution: parentAsset.resolution,
+            duration: sc.source_out - sc.source_in,
+            thumbnail: parentAsset.thumbnail,
+            parentAssetId: assetId,
+            sourceIn: sc.source_in,
+            sourceOut: sc.source_out,
+            transcript: sc.transcript ?? "",
+            topics: sc.topics ?? [],
+            bin: sc.topics?.[0] ?? undefined,
+          });
+        }
+
+        // Notify brain that decomposition happened
+        fetch(
+          `${backendUrl}/api/agent/brain/${currentProjectId}/notify-decomposition`,
+          { method: "POST" },
+        ).catch(() => {});
+
+        // Trigger brain build if not yet built
+        const savePath = currentProject?.assetSavePath;
+        const buildUrl = savePath
+          ? `${backendUrl}/api/agent/brain/${currentProjectId}/build?project_save_path=${encodeURIComponent(savePath)}`
+          : `${backendUrl}/api/agent/brain/${currentProjectId}/build`;
+        fetch(buildUrl, { method: "POST" }).catch(() => {});
+      } catch (err) {
+        console.error("Decompose into scenes failed:", err);
+      } finally {
+        setIsDecomposing(false);
+      }
+    },
+    [currentProjectId, currentProject, assets, addAsset],
+  );
 
   // Ensure the active timeline is always in the open tab set.
   // On first load (empty set), open only the active timeline.
@@ -5579,6 +5642,8 @@ export function VideoEditor() {
                 deleteAsset={deleteAsset}
                 deleteTakeFromAsset={deleteTakeFromAsset}
                 setClips={setClips}
+                onDecomposeIntoScenes={handleDecomposeIntoScenes}
+                isDecomposing={isDecomposing}
               />
             );
           })()}

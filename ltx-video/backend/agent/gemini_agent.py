@@ -25,7 +25,9 @@ from agent.types import (
     ToolResult,
     VideoMetadata,
 )
+from agent import brain as brain_module
 from agent import video_analyzer
+from agent.scene_decomposer import decompose_to_scenes
 from services.http_client.http_client import HTTPClient, HttpTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -96,6 +98,10 @@ its best 5-8 seconds.
 ## Available Actions
 - Read the current timeline state (provided in context — no need to fetch).
 - Fetch video metadata with `get_video_metadata` to understand clip content.
+- Query the project brain with `query_project_brain` to find relevant clips.
+- Get transcript segments with `get_transcript_segment` for specific time ranges.
+- Decompose long videos into scene-based sub-clips with `decompose_video`.
+- Create sub-clip assets from decomposition results with `create_subclip_assets`.
 - Trim, split, delete, move, and add clips.
 - Split all clips at the playhead with `split_at_playhead`.
 - Flip clips horizontally/vertically, reverse playback, change speed.
@@ -103,6 +109,35 @@ its best 5-8 seconds.
 - Duplicate timeline (only when protecting existing work).
 - Create a new empty timeline, rename timelines.
 - Set playhead position.
+
+## Project Brain
+Your context includes a **Project Brain** — a high-level index of all \
+content in this project organized by topic. The brain tells you what \
+clips exist and what they contain WITHOUT loading all their detailed \
+metadata upfront.
+
+**When asked to create an edit on a specific topic:**
+1. Read the brain summary in your context to understand available content.
+2. Use `query_project_brain` with the topic/query to find relevant clips.
+3. Only call `get_video_metadata` for the specific clips you plan to use.
+4. Use `get_transcript_segment` to verify what's said in a specific range.
+5. If a long video hasn't been decomposed, use `decompose_video` first, \
+then use the resulting sub-clips.
+
+**Critical: Be selective.** A professional editor does NOT use every clip \
+that mentions the topic. Pick the strongest 3-5 moments that build a \
+narrative arc. Consider:
+- Opening: a hook that establishes the topic
+- Body: the core content, best quotes, strongest visuals
+- Closing: a conclusive or impactful ending
+- Pacing: vary shot lengths, avoid monotony
+
+### Sub-clip Assets
+Some assets are sub-clips with `parentAssetId`, `sourceIn`, and \
+`sourceOut` fields. These are virtual clips carved from longer videos. \
+When you add a sub-clip to the timeline via `add_clip_to_timeline`, the \
+system automatically sets the correct trim points based on sourceIn/sourceOut. \
+The `topics` field on sub-clip assets tells you what they're about.
 
 ### Scene-Based Editing (Smart Cuts)
 Video metadata provides scene boundaries with timestamps, descriptions, \
@@ -130,12 +165,14 @@ the sections before and after instead of the middle).
 1. Timeline state is already in your context. Only call \
 `get_timeline_state` if the context is completely missing or you need \
 updated clip IDs after splits.
-2. Call `get_video_metadata` for clips you need to understand.
-3. Plan your edit strategy. Think about the final result, not just \
+2. If a project brain is in your context, use `query_project_brain` \
+to find clips relevant to the user's request BEFORE loading metadata.
+3. Call `get_video_metadata` only for clips you actually need.
+4. Plan your edit strategy. Think about the final result, not just \
 individual operations.
-4. If the timeline has existing clips worth preserving, duplicate first.
-5. Execute edits in logical order. After trims/deletes, close gaps.
-6. Summarize what you did and why — then STOP. Trust tool results.
+5. If the timeline has existing clips worth preserving, duplicate first.
+6. Execute edits in logical order. After trims/deletes, close gaps.
+7. Summarize what you did and why — then STOP. Trust tool results.
 
 ## Response Style
 - Be concise and professional. Brief editorial reasoning, then action.
@@ -241,6 +278,12 @@ def execute_prompt(
             meta = video_analyzer.get_metadata(clip.asset_id)
             if meta is not None:
                 context_parts.append(_format_video_metadata(meta))
+
+    # Inject project brain summary if available
+    if request.project_id:
+        project_brain = brain_module.get_brain(request.project_id)
+        if project_brain is not None:
+            context_parts.append(brain_module.format_brain_for_agent(project_brain))
 
     # -- Build the user message ------------------------------------------
     user_text_parts: list[str] = []
@@ -573,15 +616,22 @@ def _execute_backend_tool(tool_call: ToolCall) -> ToolResult:
     """Execute a backend-side tool and return the result."""
     logger.info("Executing backend tool: %s(%s)", tool_call.tool_name, tool_call.arguments)
 
+    handlers = {
+        "get_video_metadata": _handle_get_video_metadata,
+        "query_project_brain": _handle_query_brain,
+        "get_transcript_segment": _handle_get_transcript_segment,
+        "decompose_video": _handle_decompose_video,
+    }
+
     try:
-        if tool_call.tool_name == "get_video_metadata":
-            return _handle_get_video_metadata(tool_call)
-        else:
+        handler = handlers.get(tool_call.tool_name)
+        if handler is None:
             return ToolResult(
                 call_id=tool_call.call_id,
                 success=False,
                 error=f"Unknown backend tool: {tool_call.tool_name}",
             )
+        return handler(tool_call)
     except Exception as exc:
         logger.exception(
             "Backend tool '%s' raised an exception", tool_call.tool_name
@@ -616,6 +666,126 @@ def _handle_get_video_metadata(tool_call: ToolCall) -> ToolResult:
         call_id=tool_call.call_id,
         success=True,
         result=meta.model_dump(mode="json"),
+    )
+
+
+def _handle_query_brain(tool_call: ToolCall) -> ToolResult:
+    """Handle the ``query_project_brain`` backend tool."""
+    query = tool_call.arguments.get("query", "")
+    if not query:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error="Missing required argument: query",
+        )
+
+    # Search across all project brains (we don't know project_id in the tool call)
+    all_results: list[dict] = []
+    for project_id in list(brain_module._brains.keys()):
+        results = brain_module.query_brain(project_id, query)
+        for clip in results:
+            all_results.append(clip.model_dump(mode="json"))
+
+    return ToolResult(
+        call_id=tool_call.call_id,
+        success=True,
+        result={
+            "query": query,
+            "matches": all_results[:20],
+            "total_matches": len(all_results),
+        },
+    )
+
+
+def _handle_get_transcript_segment(tool_call: ToolCall) -> ToolResult:
+    """Handle the ``get_transcript_segment`` backend tool."""
+    asset_id = tool_call.arguments.get("asset_id", "")
+    start_time = float(tool_call.arguments.get("start_time", 0))
+    end_time = float(tool_call.arguments.get("end_time", 0))
+
+    if not asset_id:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error="Missing required argument: asset_id",
+        )
+
+    meta = video_analyzer.get_metadata(asset_id)
+    if meta is None:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error=f"No metadata for asset '{asset_id}'.",
+        )
+
+    lines = []
+    for dl in meta.dialogue:
+        if dl.end_time > start_time and dl.start_time < end_time:
+            speaker = f"[{dl.speaker}] " if dl.speaker else ""
+            lines.append(f"{dl.start_time:.1f}s: {speaker}{dl.text}")
+
+    transcript = "\n".join(lines) if lines else "(no dialogue in this range)"
+
+    return ToolResult(
+        call_id=tool_call.call_id,
+        success=True,
+        result={
+            "asset_id": asset_id,
+            "start_time": start_time,
+            "end_time": end_time,
+            "transcript": transcript,
+            "line_count": len(lines),
+        },
+    )
+
+
+def _handle_decompose_video(tool_call: ToolCall) -> ToolResult:
+    """Handle the ``decompose_video`` backend tool."""
+    asset_id = tool_call.arguments.get("asset_id", "")
+    if not asset_id:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error="Missing required argument: asset_id",
+        )
+
+    meta = video_analyzer.get_metadata(asset_id)
+    if meta is None:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error=f"No metadata for asset '{asset_id}'. Analyze the video first.",
+        )
+
+    if not meta.scenes:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error="Video has no detected scenes to decompose.",
+        )
+
+    subclip_defs = decompose_to_scenes(meta)
+    subclips = [
+        {
+            "parent_asset_id": sc.parent_asset_id,
+            "source_in": sc.source_in,
+            "source_out": sc.source_out,
+            "title": sc.title,
+            "description": sc.description,
+            "transcript": sc.transcript,
+            "topics": sc.topics,
+        }
+        for sc in subclip_defs
+    ]
+
+    return ToolResult(
+        call_id=tool_call.call_id,
+        success=True,
+        result={
+            "asset_id": asset_id,
+            "subclips": subclips,
+            "count": len(subclips),
+        },
     )
 
 

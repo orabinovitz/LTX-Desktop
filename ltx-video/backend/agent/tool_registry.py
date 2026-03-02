@@ -411,6 +411,98 @@ get_video_metadata = _tool(
     ],
 )
 
+query_project_brain = _tool(
+    name="query_project_brain",
+    description=(
+        "Search the project brain for clips relevant to a query or topic. "
+        "Returns a ranked list of matching clips with their descriptions, "
+        "durations, topics, and key quotes. Use this BEFORE loading full "
+        "video metadata to find only the clips that matter for the user's "
+        "request. The brain is a pre-built index — this call is instant."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    parameters=[
+        _param(
+            "query",
+            "string",
+            "Natural-language query describing what content to find "
+            "(e.g. 'product demo', 'interview about pricing', 'outdoor shots').",
+        ),
+    ],
+)
+
+get_transcript_segment = _tool(
+    name="get_transcript_segment",
+    description=(
+        "Get the transcribed dialogue for a specific time range of a video. "
+        "Returns the transcript text for all speech between start_time and "
+        "end_time. Use this to read what was said in a specific section "
+        "before deciding whether to include it in an edit."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    parameters=[
+        _param(
+            "asset_id",
+            "string",
+            "ID of the video asset.",
+        ),
+        _param(
+            "start_time",
+            "number",
+            "Start of the time range in seconds.",
+        ),
+        _param(
+            "end_time",
+            "number",
+            "End of the time range in seconds.",
+        ),
+    ],
+)
+
+decompose_video = _tool(
+    name="decompose_video",
+    description=(
+        "Break a long video into scene-based sub-clip assets. The video must "
+        "have been analyzed first (via get_video_metadata). Creates virtual "
+        "sub-clips in the project bin organized by topic — each sub-clip "
+        "references the original file with specific in/out points. Use this "
+        "when a user imports a long video and you need to work with "
+        "individual segments."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    parameters=[
+        _param(
+            "asset_id",
+            "string",
+            "ID of the video asset to decompose.",
+        ),
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# Frontend tool for sub-clip creation
+# ---------------------------------------------------------------------------
+
+create_subclip_assets = _tool(
+    name="create_subclip_assets",
+    description=(
+        "Create virtual sub-clip assets in the project bin from a list of "
+        "sub-clip definitions. Each sub-clip references a parent video asset "
+        "and has specific source in/out points, a title, and topic tags. "
+        "Sub-clips appear in the bin organized by their first topic tag."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    parameters=[
+        _param(
+            "subclips",
+            "array",
+            "Array of sub-clip definitions. Each has: parent_asset_id (string), "
+            "source_in (number, seconds), source_out (number, seconds), "
+            "title (string), description (string), topics (array of strings).",
+        ),
+    ],
+)
+
 # ---------------------------------------------------------------------------
 # Public registry
 # ---------------------------------------------------------------------------
@@ -433,8 +525,12 @@ ALL_TOOLS: list[ToolDefinition] = [
     set_clip_speed,
     add_dissolve,
     get_project_assets,
+    create_subclip_assets,
     # Resource (backend)
     get_video_metadata,
+    query_project_brain,
+    get_transcript_segment,
+    decompose_video,
 ]
 
 TOOLS_BY_NAME: dict[str, ToolDefinition] = {tool.name: tool for tool in ALL_TOOLS}

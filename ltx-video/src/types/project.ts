@@ -40,6 +40,12 @@ export interface Asset {
   takes?: AssetTake[]; // All takes (index 0 = original). If undefined, the asset itself is the only take.
   activeTakeIndex?: number; // Which take is currently active (default = 0 / latest)
   colorLabel?: string; // Color label for organization (e.g. 'violet', 'blue', 'green', 'yellow', 'red', 'rose', 'orange', 'mango')
+  // Sub-clip support (virtual clips carved from a longer video)
+  parentAssetId?: string; // Source video asset ID for sub-clips
+  sourceIn?: number; // Sub-clip source in-point (seconds)
+  sourceOut?: number; // Sub-clip source out-point (seconds)
+  transcript?: string; // Transcript text for this clip/segment
+  topics?: string[]; // Topic tags for content-based organization
 }
 
 export interface Track {
