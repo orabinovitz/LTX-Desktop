@@ -219,15 +219,26 @@ class AppHandler:
         self.models.refresh_available_files()
 
     def _on_video_analyzed(self, asset_id: str, metadata) -> None:
-        """Called when background video analysis completes — triggers brain update."""
+        """Called when background video analysis completes — rebuild existing brains."""
         import logging
         logger = logging.getLogger(__name__)
-        logger.info("Video analysis complete callback for %s, scheduling brain update", asset_id[:8])
-        # We don't know the project_id here (backend is project-agnostic),
-        # so we mark all known brains as dirty. The next agent call with
-        # a project_id will trigger a rebuild if needed.
+        logger.info("Video analysis complete callback for %s, rebuilding brains", asset_id[:8])
+
+        api_key = self._state.app_settings.gemini_api_key
+        if not api_key:
+            return
+
+        all_metadata = [
+            m for m in video_analyzer._metadata_cache.values()
+            if m.analysis_status.value == "complete"
+        ]
+        if not all_metadata:
+            return
+
         for pid in list(brain_module._brains.keys()):
-            brain_module.mark_dirty(pid)
+            brain_module.schedule_brain_build(
+                pid, all_metadata, api_key, self._http_ref,
+            )
 
 
 @dataclass

@@ -360,9 +360,22 @@ def execute_prompt(
             if meta is not None:
                 context_parts.append(_format_video_metadata(meta))
 
-    # Inject project brain summary if available
+    # Inject project brain summary — lazy-build if none exists yet
     if request.project_id:
         project_brain = brain_module.get_brain(request.project_id)
+        if project_brain is None:
+            all_meta = [
+                m for m in video_analyzer._metadata_cache.values()
+                if m.analysis_status.value == "complete"
+            ]
+            if all_meta and gemini_api_key:
+                logger.info(
+                    "No brain for project %s — building synchronously from %d analyses",
+                    request.project_id[:8], len(all_meta),
+                )
+                project_brain = brain_module.build_brain(
+                    request.project_id, all_meta, gemini_api_key, http_client,
+                )
         if project_brain is not None:
             context_parts.append(brain_module.format_brain_for_agent(project_brain))
 
@@ -521,30 +534,47 @@ def _call_gemini(
         "generationConfig": {"temperature": 0.4, "maxOutputTokens": 16384},
     }
 
-    # -- HTTP call -------------------------------------------------------
+    # -- HTTP call with retry on 503 ------------------------------------
     t0 = time.monotonic()
-    try:
-        response = http_client.post(
-            gemini_url,
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": api_key,
-            },
-            json_payload=payload,
-            timeout=300,
-        )
-    except HttpTimeoutError:
-        elapsed = time.monotonic() - t0
-        logger.error("[agent] session=%s | Gemini timed out after %.1fs", session_id[:8], elapsed)
+    response = None
+    _MAX_RETRIES = 3
+    for _attempt in range(_MAX_RETRIES):
+        try:
+            response = http_client.post(
+                gemini_url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key,
+                },
+                json_payload=payload,
+                timeout=300,
+            )
+            if response.status_code != 503:
+                break
+            wait = 5 * (2 ** _attempt)
+            logger.warning(
+                "[agent] session=%s | Gemini returned 503, retrying in %ds (attempt %d/%d)",
+                session_id[:8], wait, _attempt + 1, _MAX_RETRIES,
+            )
+            time.sleep(wait)
+        except HttpTimeoutError:
+            elapsed = time.monotonic() - t0
+            logger.error("[agent] session=%s | Gemini timed out after %.1fs", session_id[:8], elapsed)
+            return AgentExecuteResponse(
+                message="The AI service timed out. Please try again.",
+                done=True,
+            )
+        except Exception:
+            elapsed = time.monotonic() - t0
+            logger.exception("[agent] session=%s | Gemini request failed after %.1fs", session_id[:8], elapsed)
+            return AgentExecuteResponse(
+                message="Failed to reach the AI service. Please check your connection and try again.",
+                done=True,
+            )
+
+    if response is None:
         return AgentExecuteResponse(
-            message="The AI service timed out. Please try again.",
-            done=True,
-        )
-    except Exception:
-        elapsed = time.monotonic() - t0
-        logger.exception("[agent] session=%s | Gemini request failed after %.1fs", session_id[:8], elapsed)
-        return AgentExecuteResponse(
-            message="Failed to reach the AI service. Please check your connection and try again.",
+            message="Failed to reach the AI service after retries.",
             done=True,
         )
 
