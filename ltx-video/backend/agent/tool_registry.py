@@ -182,7 +182,12 @@ add_clip_to_timeline = _tool(
         "track index (zero-based), and the start time (seconds). The clip "
         "duration is derived from the asset's intrinsic duration. "
         "Video and image assets should go on video tracks (kind='video'), "
-        "and audio assets on audio tracks (kind='audio')."
+        "and audio assets on audio tracks (kind='audio'). "
+        "To add only a specific segment of a video, provide optional "
+        "source_in and source_out (in seconds of the source media). "
+        "The system will automatically create a sub-clip and trim to "
+        "the specified range. This is the preferred way to extract "
+        "segments from long videos."
     ),
     execution_target=ExecutionTarget.FRONTEND,
     parameters=[
@@ -200,6 +205,22 @@ add_clip_to_timeline = _tool(
             "start_time",
             "number",
             "Absolute position on the timeline (seconds) where the clip begins.",
+        ),
+        _param(
+            "source_in",
+            "number",
+            "Optional source in-point in seconds. When provided with source_out, "
+            "only the segment between source_in and source_out from the source "
+            "media is placed on the timeline. Use this to extract specific segments "
+            "from long videos without needing to create sub-clip assets first.",
+            required=False,
+        ),
+        _param(
+            "source_out",
+            "number",
+            "Optional source out-point in seconds. Must be provided together "
+            "with source_in. Defines the end of the segment to extract.",
+            required=False,
         ),
     ],
 )

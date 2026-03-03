@@ -349,7 +349,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       }
 
       const assets = assetsRef.current ?? [];
-      const asset = assets.find((a) => a.id === assetId);
+      let asset = assets.find((a) => a.id === assetId);
       if (!asset) {
         return {
           tool_name: "add_clip_to_timeline",
@@ -364,25 +364,56 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       const startTime =
         args.start_time !== undefined ? Number(args.start_time) : undefined;
 
+      // If source_in/source_out are provided for a non-subclip asset,
+      // create a sub-clip asset on-the-fly to extract the segment.
+      const sourceIn = args.source_in !== undefined ? Number(args.source_in) : undefined;
+      const sourceOut = args.source_out !== undefined ? Number(args.source_out) : undefined;
+      let createdSubclipId: string | null = null;
+
+      if (
+        sourceIn != null && sourceOut != null && sourceOut > sourceIn &&
+        !asset.parentAssetId && currentProjectId
+      ) {
+        const subAsset = addAsset(currentProjectId, {
+          type: "video",
+          path: asset.path,
+          url: asset.url,
+          prompt: asset.prompt ?? "",
+          resolution: asset.resolution,
+          duration: sourceOut - sourceIn,
+          thumbnail: asset.thumbnail,
+          parentAssetId: asset.id,
+          sourceIn,
+          sourceOut,
+          topics: [],
+        });
+        createdSubclipId = subAsset.id;
+        asset = subAsset;
+      }
+
+      const effectiveAssetId = asset.id;
       addClipToTimeline(asset, trackIndex, startTime);
 
       // For sub-clip assets, apply source in/out as trim points after adding
-      if (asset.parentAssetId && asset.sourceIn != null && asset.sourceOut != null) {
-        const parentAsset = assets.find((a) => a.id === asset.parentAssetId);
+      const applySourceIn = asset.sourceIn ?? sourceIn;
+      const applySourceOut = asset.sourceOut ?? sourceOut;
+      if (applySourceIn != null && applySourceOut != null) {
+        const parentId = asset.parentAssetId ?? assetId;
+        const parentAsset = assets.find((a) => a.id === parentId);
         const parentDuration = parentAsset?.duration ?? asset.duration ?? 0;
-        const subDuration = asset.sourceOut - asset.sourceIn;
+        const subDuration = applySourceOut - applySourceIn;
 
         setClips((prev) => {
           const lastClipForAsset = [...prev]
             .reverse()
-            .find((c) => c.assetId === assetId);
+            .find((c) => c.assetId === effectiveAssetId);
           if (!lastClipForAsset) return prev;
           return prev.map((c) =>
             c.id === lastClipForAsset.id
               ? {
                   ...c,
-                  trimStart: asset.sourceIn!,
-                  trimEnd: Math.max(0, parentDuration - asset.sourceOut!),
+                  trimStart: applySourceIn!,
+                  trimEnd: Math.max(0, parentDuration - applySourceOut!),
                   duration: subDuration,
                 }
               : c,
@@ -393,11 +424,18 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       return {
         tool_name: "add_clip_to_timeline",
         success: true,
-        result: { assetId, trackIndex, startTime },
+        result: {
+          assetId: effectiveAssetId,
+          trackIndex,
+          startTime,
+          ...(createdSubclipId ? { createdSubclipId } : {}),
+          ...(sourceIn != null ? { sourceIn } : {}),
+          ...(sourceOut != null ? { sourceOut } : {}),
+        },
         error: null,
       };
     },
-    [assetsRef, addClipToTimeline, setClips],
+    [assetsRef, addClipToTimeline, setClips, currentProjectId, addAsset],
   );
 
   const handleSetPlayhead = useCallback(

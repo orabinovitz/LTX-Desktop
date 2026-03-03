@@ -66,6 +66,7 @@ class VideoMetadata(BaseModel):
     topics: list[TopicTag] = Field(default_factory=list, description="Thematic topics detected in the video")
     full_transcript: str = Field(default="", description="Complete transcript of all dialogue")
     analysis_status: AnalysisStatus = Field(default=AnalysisStatus.PENDING)
+    analysis_version: int = Field(default=1, description="Schema version for cache invalidation")
 
 
 # ============================================================

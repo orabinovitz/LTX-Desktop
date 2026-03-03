@@ -19,6 +19,7 @@ import re
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from agent.types import AnalysisStatus, DialogueLine, SceneSegment, TopicTag, VideoMetadata
@@ -47,6 +48,13 @@ _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 _PROXY_SIZE_THRESHOLD = 500 * 1024 * 1024  # 500 MB — above this, transcode before upload
 _UPLOAD_MAX_RETRIES = 2
+
+_ANALYSIS_VERSION = 2
+"""Bump when the analysis pipeline changes in a way that invalidates cached results."""
+
+_DIALOGUE_CHUNK_SECONDS = 120  # 2 minutes per transcription chunk (keeps output small)
+_DIALOGUE_CHUNK_OVERLAP = 10   # seconds of overlap to catch boundary speech
+_DIALOGUE_PARALLEL_WORKERS = 5  # concurrent Gemini API calls for dialogue chunks
 
 # Callbacks invoked when an analysis completes successfully.
 # Signature: callback(asset_id: str, metadata: VideoMetadata)
@@ -89,18 +97,69 @@ def _save_to_disk(file_path: str, meta: VideoMetadata) -> None:
 
 
 def _load_from_disk(file_path: str) -> VideoMetadata | None:
-    """Load previously completed metadata from disk, or None."""
+    """Load previously completed metadata from disk, or None.
+
+    Returns None (triggering re-analysis) if the cached version is older
+    than ``_ANALYSIS_VERSION``.
+    """
     cache_file = _disk_cache_path(file_path)
     if not cache_file.exists():
         return None
     try:
         data = json.loads(cache_file.read_text(encoding="utf-8"))
         meta = VideoMetadata.model_validate(data)
-        if meta.analysis_status == AnalysisStatus.COMPLETE:
-            return meta
+        if meta.analysis_status != AnalysisStatus.COMPLETE:
+            return None
+        if meta.analysis_version < _ANALYSIS_VERSION:
+            logger.info(
+                "Discarding stale cache for %s (version %d < %d)",
+                file_path, meta.analysis_version, _ANALYSIS_VERSION,
+            )
+            cache_file.unlink(missing_ok=True)
+            return None
+        return meta
     except Exception:
         logger.warning("Failed to read analysis cache for %s", file_path, exc_info=True)
     return None
+
+
+def _recover_from_project_files(
+    meta: VideoMetadata,
+    file_path: str,
+    project_save_path: str,
+) -> None:
+    """Try to recover missing topics/summary from project-level analysis files.
+
+    The disk cache may have been saved before topics were generated, but the
+    project folder may contain a valid topics.json from a later save.
+    """
+    try:
+        video_name = _sanitize_filename(Path(file_path).name)
+        analysis_dir = Path(project_save_path) / ".ltx-desktop" / "analysis" / video_name
+
+        if not meta.topics:
+            topics_file = analysis_dir / "topics.json"
+            if topics_file.exists():
+                raw = json.loads(topics_file.read_text(encoding="utf-8"))
+                recovered_topics = _parse_topics(raw)
+                if recovered_topics:
+                    meta.topics = recovered_topics
+                    logger.info(
+                        "Recovered %d topics from project folder for %s",
+                        len(recovered_topics), meta.asset_id,
+                    )
+                    _save_to_disk(file_path, meta)
+
+        if not meta.summary:
+            metadata_file = analysis_dir / "metadata.json"
+            if metadata_file.exists():
+                raw_meta = json.loads(metadata_file.read_text(encoding="utf-8"))
+                if raw_meta.get("summary"):
+                    meta.summary = raw_meta["summary"]
+                    logger.info("Recovered summary from project folder for %s", meta.asset_id)
+                    _save_to_disk(file_path, meta)
+    except Exception:
+        logger.debug("Could not recover from project files for %s", file_path, exc_info=True)
 
 
 def _sanitize_filename(name: str) -> str:
@@ -259,6 +318,9 @@ def analyze_video_background(
     cached = _load_from_disk(file_path)
     if cached is not None:
         cached.asset_id = asset_id  # asset IDs may differ across sessions
+        # If disk cache has empty topics/summary, try to recover from project-level files
+        if project_save_path and (not cached.topics or not cached.summary):
+            _recover_from_project_files(cached, file_path, project_save_path)
         with _cache_lock:
             _metadata_cache[asset_id] = cached
         logger.info("Loaded analysis from disk cache for %s", asset_id)
@@ -372,6 +434,7 @@ def _run_singlepass_analysis(
             entry.dialogue = dialogue
             entry.summary = summary
             entry.analysis_status = AnalysisStatus.COMPLETE
+            entry.analysis_version = _ANALYSIS_VERSION
             _save_to_disk(file_path, entry)
             if project_save_path:
                 _save_to_project_folder(file_path, entry, project_save_path)
@@ -418,6 +481,24 @@ def _run_multipass_analysis(
     summary: str = summary_result.get("summary", "")
     topics = _parse_topics(summary_result.get("topics", []))
 
+    # Retry pass 1 with higher token budget if results are empty
+    if not summary or not topics:
+        logger.warning(
+            "Pass 1 returned empty results for %s (summary=%d chars, topics=%d) — retrying with higher budget",
+            asset_id, len(summary), len(topics),
+        )
+        t0 = time.monotonic()
+        summary_result = _multipass_summary(
+            file_uri, mime_type, duration, gemini_api_key, http_client,
+            max_output_tokens=16384,
+        )
+        logger.info("[multipass] pass 1 retry took %.1fs for %s", time.monotonic() - t0, asset_id)
+        if not summary:
+            summary = summary_result.get("summary", "")
+        retry_topics = _parse_topics(summary_result.get("topics", []))
+        if retry_topics:
+            topics = retry_topics
+
     # Pass 2 — Scene segmentation
     t0 = time.monotonic()
     scene_result = _multipass_scenes(file_uri, mime_type, duration, gemini_api_key, http_client)
@@ -435,14 +516,15 @@ def _run_multipass_analysis(
                 asset_id, coverage_pct,
             )
 
-    # Pass 3 — Dialogue transcription (non-fatal: pass 1+2 results are preserved on failure)
+    # Pass 3 — Chunked dialogue transcription (non-fatal: pass 1+2 results are preserved)
     dialogue: list[DialogueLine] = []
     full_transcript: str = ""
     t0 = time.monotonic()
     try:
-        dialogue_result = _multipass_dialogue(file_uri, mime_type, duration, gemini_api_key, http_client)
-        logger.info("[multipass] pass 3 (dialogue) took %.1fs for %s", time.monotonic() - t0, asset_id)
-        dialogue = _parse_dialogue(dialogue_result.get("dialogue", []))
+        dialogue = _multipass_dialogue_chunked(
+            file_uri, mime_type, duration, gemini_api_key, http_client,
+        )
+        logger.info("[multipass] pass 3 (chunked dialogue) took %.1fs for %s", time.monotonic() - t0, asset_id)
     except Exception:
         logger.error(
             "Pass 3 (dialogue) failed for %s after %.1fs — saving results from passes 1+2",
@@ -461,6 +543,7 @@ def _run_multipass_analysis(
             entry.topics = topics
             entry.full_transcript = full_transcript
             entry.analysis_status = AnalysisStatus.COMPLETE
+            entry.analysis_version = _ANALYSIS_VERSION
             _save_to_disk(file_path, entry)
             if project_save_path:
                 _save_to_project_folder(file_path, entry, project_save_path)
@@ -649,6 +732,7 @@ def _multipass_summary(
     duration: float,
     gemini_api_key: str,
     http_client: HTTPClient,
+    max_output_tokens: int = 8192,
 ) -> dict:
     """Pass 1: Extract a summary and thematic topics from the video."""
     system_prompt = (
@@ -672,7 +756,7 @@ def _multipass_summary(
     )
     return _gemini_generate(
         file_uri, mime_type, system_prompt, user_text,
-        gemini_api_key, http_client, max_output_tokens=4096, timeout=180,
+        gemini_api_key, http_client, max_output_tokens=max_output_tokens, timeout=180,
     )
 
 
@@ -714,50 +798,176 @@ def _multipass_scenes(
     )
 
 
-def _multipass_dialogue(
+def _multipass_dialogue_chunked(
     file_uri: str,
     mime_type: str,
     duration: float,
     gemini_api_key: str,
     http_client: HTTPClient,
-) -> dict:
-    """Pass 3: Full dialogue transcription.
+) -> list[DialogueLine]:
+    """Pass 3: Full dialogue transcription via time-windowed chunks.
 
-    Token budget and timeout scale with video duration so long interviews
-    don't get truncated.  ``full_transcript`` is NOT requested from Gemini
-    (it doubles token usage for the same content); the caller builds it
-    from the dialogue entries instead.
+    Splits the video into overlapping 5-minute windows and transcribes each
+    separately so no single Gemini call needs to produce more than ~3,500
+    tokens of output.  Results are merged, deduplicated, and validated.
     """
+    chunk_size = _DIALOGUE_CHUNK_SECONDS
+    overlap = _DIALOGUE_CHUNK_OVERLAP
+
+    chunks: list[tuple[float, float]] = []
+    start = 0.0
+    while start < duration:
+        end = min(start + chunk_size + overlap, duration)
+        chunks.append((start, end))
+        start += chunk_size
+
+    logger.info(
+        "Dialogue chunked transcription: %d chunks of %ds (+%ds overlap) for %.0fs video",
+        len(chunks), chunk_size, overlap, duration,
+    )
+
+    all_dialogue: list[DialogueLine] = []
+
+    def _process_single_chunk(
+        chunk_idx: int, chunk_start: float, chunk_end: float,
+    ) -> tuple[int, list[DialogueLine]]:
+        logger.info(
+            "[dialogue-chunk %d/%d] transcribing %.0fs–%.0fs",
+            chunk_idx + 1, len(chunks), chunk_start, chunk_end,
+        )
+        result = _transcribe_chunk(
+            file_uri, mime_type, duration, chunk_start, chunk_end,
+            gemini_api_key, http_client,
+        )
+        # Gemini may return the dialogue array directly or wrapped in {"dialogue": [...]}
+        if isinstance(result, list):
+            raw_dialogue = result
+        elif isinstance(result, dict):
+            raw_dialogue = result.get("dialogue", [])
+        else:
+            raw_dialogue = []
+        chunk_lines = _parse_dialogue(raw_dialogue)
+        chunk_lines = [
+            dl for dl in chunk_lines
+            if dl.start_time >= max(0, chunk_start - 5) and dl.end_time <= chunk_end + 5
+        ]
+        logger.info(
+            "[dialogue-chunk %d/%d] got %d lines",
+            chunk_idx + 1, len(chunks), len(chunk_lines),
+        )
+        return chunk_idx, chunk_lines
+
+    with ThreadPoolExecutor(max_workers=_DIALOGUE_PARALLEL_WORKERS) as pool:
+        futures = {
+            pool.submit(_process_single_chunk, i, cs, ce): i
+            for i, (cs, ce) in enumerate(chunks)
+        }
+        for future in as_completed(futures):
+            chunk_idx = futures[future]
+            try:
+                _, chunk_lines = future.result()
+                all_dialogue.extend(chunk_lines)
+            except Exception:
+                cs, ce = chunks[chunk_idx]
+                logger.error(
+                    "[dialogue-chunk %d/%d] failed for %.0fs–%.0fs",
+                    chunk_idx + 1, len(chunks), cs, ce,
+                    exc_info=True,
+                )
+
+    merged = _deduplicate_dialogue(all_dialogue)
+    merged.sort(key=lambda dl: dl.start_time)
+
+    if merged and duration > 0:
+        last_time = max(dl.end_time for dl in merged)
+        coverage_pct = (last_time / duration) * 100
+        logger.info(
+            "Dialogue chunked transcription complete: %d lines, coverage %.0f%% (last=%.0fs / %.0fs)",
+            len(merged), coverage_pct, last_time, duration,
+        )
+        if coverage_pct < 80:
+            logger.warning(
+                "Dialogue coverage is only %.0f%% — some speech may be missing", coverage_pct,
+            )
+
+    return merged
+
+
+def _transcribe_chunk(
+    file_uri: str,
+    mime_type: str,
+    duration: float,
+    chunk_start: float,
+    chunk_end: float,
+    gemini_api_key: str,
+    http_client: HTTPClient,
+) -> dict:
+    """Transcribe a single time window of the video."""
     system_prompt = (
-        "You are a professional transcriptionist. Analyze the audio of the provided "
-        "video and return a JSON object with one key:\n\n"
+        "You are a professional transcriptionist. Transcribe ONLY the speech "
+        f"between {chunk_start:.0f}s and {chunk_end:.0f}s of this video "
+        f"(total duration {duration:.0f}s).\n\n"
+        "Return a JSON object with one key:\n"
         '- "dialogue": an array of speech segments. Each has:\n'
-        '    - "start_time": float, in seconds\n'
-        '    - "end_time": float, in seconds\n'
-        '    - "speaker": string, speaker identifier (e.g. "Speaker 1", "Interviewer", '
-        '"Host") or "" if only one speaker\n'
+        '    - "start_time": float, in seconds (absolute, not relative)\n'
+        '    - "end_time": float, in seconds (absolute, not relative)\n'
+        '    - "speaker": string, speaker identifier (e.g. "Speaker 1", '
+        '"Interviewer", "Host") or "" if only one speaker\n'
         '    - "text": string, the transcribed speech for this segment\n\n'
-        "Transcribe ALL speech in the video. For long videos, break dialogue into "
-        "natural sentence or paragraph boundaries (segments of 5-30 seconds each). "
-        "If there is no speech, return an empty array.\n"
-        "Ensure all timestamps are within the video duration.\n"
-        "Return ONLY valid JSON, no markdown fences or extra text."
+        f"ONLY include speech that occurs between {chunk_start:.0f}s and "
+        f"{chunk_end:.0f}s. Timestamps must be absolute (from video start). "
+        "Break speech into natural sentence boundaries (5-30s segments). "
+        "If there is no speech in this range, return an empty array.\n"
+        "Return ONLY valid JSON."
     )
     user_text = (
-        f"Transcribe all dialogue and speech in this video "
-        f"(duration: {duration:.1f}s, {duration/60:.1f} minutes)."
+        f"Transcribe speech from {chunk_start:.0f}s to {chunk_end:.0f}s "
+        f"of this video (total {duration:.0f}s, {duration/60:.1f} minutes)."
     )
-
-    duration_minutes = duration / 60
-    token_budget = min(65536, max(16384, int(duration_minutes * 800)))
-    call_timeout = max(240, int(duration_minutes * 6))
 
     return _gemini_generate(
         file_uri, mime_type, system_prompt, user_text,
         gemini_api_key, http_client,
-        max_output_tokens=token_budget,
-        timeout=call_timeout,
+        max_output_tokens=16384,
+        timeout=120,
     )
+
+
+def _deduplicate_dialogue(lines: list[DialogueLine]) -> list[DialogueLine]:
+    """Remove near-duplicate dialogue lines from overlapping chunks.
+
+    Two lines are considered duplicates if their time ranges overlap by
+    more than 80% and their text is similar (one contains the other or
+    they share >60% of words).
+    """
+    if not lines:
+        return []
+
+    sorted_lines = sorted(lines, key=lambda dl: (dl.start_time, -len(dl.text)))
+    result: list[DialogueLine] = []
+
+    for line in sorted_lines:
+        is_dup = False
+        for existing in result[-5:]:  # only check recent entries
+            overlap_start = max(line.start_time, existing.start_time)
+            overlap_end = min(line.end_time, existing.end_time)
+            overlap = max(0, overlap_end - overlap_start)
+            line_dur = max(0.1, line.end_time - line.start_time)
+            existing_dur = max(0.1, existing.end_time - existing.start_time)
+
+            if overlap / min(line_dur, existing_dur) > 0.5:
+                line_words = set(line.text.lower().split())
+                existing_words = set(existing.text.lower().split())
+                if line_words and existing_words:
+                    shared = len(line_words & existing_words)
+                    similarity = shared / min(len(line_words), len(existing_words))
+                    if similarity > 0.6:
+                        is_dup = True
+                        break
+        if not is_dup:
+            result.append(line)
+
+    return result
 
 
 def _get_ffmpeg_path() -> str | None:

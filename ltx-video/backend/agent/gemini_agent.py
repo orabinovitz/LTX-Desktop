@@ -36,10 +36,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_MAX_TURNS = 10
+_MAX_TURNS = 20
 """Hard ceiling on agentic loop iterations to prevent runaway calls."""
 
-_GEMINI_MODEL = "gemini-3-flash-preview"
+_GEMINI_MODEL = "gemini-3.1-pro-preview"
 
 _ROLE_MAP: dict[str, str] = {"user": "user", "agent": "model", "assistant": "model", "model": "model"}
 
@@ -160,6 +160,87 @@ clips snap together seamlessly.
 
 This same approach works for "keep only the part where…" (invert: delete \
 the sections before and after instead of the middle).
+
+## Long-Form Content Editing (Raw Footage → Short Cut)
+
+When asked to create a short edit from a long video on a specific topic \
+(e.g. "make a 30-45s clip about X for Twitter"):
+
+### Step 1: Find the topic in the brain
+Use `query_project_brain` with the topic. The brain returns topic segments \
+with source time ranges (e.g. "Technical Improvements [414s–1089s]"). \
+These tell you WHERE in the video each topic lives.
+
+### Step 2: Read the transcript to find the best quotes
+For each matching segment, call `get_transcript_segment` with the time \
+range. Look for:
+- **A strong hook** (surprising stat, bold claim, engaging question) \
+for the opening 3-5 seconds
+- **Key content** (the core explanation, best insight, clearest quote) \
+for the body
+- **A closer** (conclusion, call to action, or punchline) for the ending
+
+### Step 3: Extract specific segments directly to the timeline
+Use `add_clip_to_timeline` with `source_in` and `source_out` to place \
+ONLY the relevant portions. For a 30-45s Twitter/social cut, you \
+typically need **3-5 segments of 6-12 seconds each**. Place them \
+sequentially on the timeline starting at 0s.
+
+Example for a 35s edit:
+- Segment 1 (hook): 0s–8s on timeline, source_in=485, source_out=493
+- Segment 2 (core): 8s–22s on timeline, source_in=950, source_out=964
+- Segment 3 (closer): 22s–35s on timeline, source_in=1000, source_out=1013
+
+### Step 4: Arrange for narrative flow
+Hook first, core content in the middle, closer at the end. \
+Trim dead air from each segment start/end.
+
+### Step 5: Close gaps and polish
+After placing all segments, ensure they butt up against each other \
+with no dead space. Use `trim_clip` to fine-tune in/out points.
+
+### CRITICAL RULES for long-form editing:
+- **NEVER add the entire raw video to the timeline and trim.** \
+Always extract specific segments using source_in/source_out.
+- **For interview footage**, prioritize segments where the speaker is \
+mid-sentence with good energy — NOT pausing, looking away, or \
+in between takes. Use scene importance scores (>= 0.7) and avoid \
+scenes marked as "medium" shot type with low importance.
+- **Multiple segments are required.** A single clip from a 40-minute \
+video is never the right answer for a short social cut. Find 3-5 \
+strong moments and assemble them.
+- **Use the transcript to verify content.** Before adding a segment, \
+confirm via `get_transcript_segment` that the speaker is actually \
+discussing the requested topic in that range.
+
+## MANDATORY for edits from long videos
+When creating a short cut (under 60s) from a long video (over 5min):
+- You MUST call `add_clip_to_timeline` at least 3 times with different \
+source_in/source_out ranges. One clip is NEVER acceptable.
+- You MUST use `get_transcript_segment` to verify content before each add.
+- After adding all clips, use `split_clip` to tighten cuts if needed.
+- Total timeline duration should match the user's requested length.
+- If you find yourself about to finish with only 1 clip on the timeline, \
+STOP — go back and add more segments. This is a hard rule.
+
+## Editorial Blade Cuts (Pacing and Rhythm)
+
+After placing clips on the timeline, use `split_clip` to create editorial \
+cut points that improve pacing — even within continuous dialogue.
+
+Professional editors blade-cut interview footage every 4-8 seconds to:
+- Create visual rhythm and energy
+- Allow re-ordering of phrases for better narrative flow
+- Remove filler words, pauses, or weak moments between strong quotes
+
+Workflow:
+1. Place a segment on the timeline (e.g. a 15s quote).
+2. Use `split_clip` at the exact points where you want cuts.
+3. Delete the weak sections with `delete_clip(ripple=true)`.
+4. The remaining pieces snap together into a tighter edit.
+
+This is the blade/razor tool — the most important tool in professional \
+editing. Use it aggressively to tighten every clip on the timeline.
 
 ## Workflow
 1. Timeline state is already in your context. Only call \
@@ -437,7 +518,7 @@ def _call_gemini(
         "contents": session_contents,
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "tools": [{"functionDeclarations": tools_to_gemini_declarations()}],
-        "generationConfig": {"temperature": 0.5, "maxOutputTokens": 8192},
+        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 16384},
     }
 
     # -- HTTP call -------------------------------------------------------
@@ -450,7 +531,7 @@ def _call_gemini(
                 "x-goog-api-key": api_key,
             },
             json_payload=payload,
-            timeout=60,
+            timeout=300,
         )
     except HttpTimeoutError:
         elapsed = time.monotonic() - t0
@@ -684,7 +765,15 @@ def _handle_query_brain(tool_call: ToolCall) -> ToolResult:
     for project_id in list(brain_module._brains.keys()):
         results = brain_module.query_brain(project_id, query)
         for clip in results:
-            all_results.append(clip.model_dump(mode="json"))
+            entry = clip.model_dump(mode="json")
+            # Include source_in/source_out for topic segments so the
+            # agent can use them directly with add_clip_to_timeline
+            if clip.is_topic_segment and clip.source_in is not None:
+                entry["source_time_range"] = {
+                    "source_in": clip.source_in,
+                    "source_out": clip.source_out,
+                }
+            all_results.append(entry)
 
     return ToolResult(
         call_id=tool_call.call_id,

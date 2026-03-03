@@ -85,8 +85,8 @@ def route_build_brain(
     if not all_metadata:
         return {"status": "no_metadata", "message": "No completed video analyses found."}
 
-    settings = handler.settings.get_settings()
-    api_key = settings.get("gemini_api_key", "")
+    settings = handler.settings.get_settings_snapshot()
+    api_key = settings.gemini_api_key or ""
     if not api_key:
         return {"status": "error", "message": "No Gemini API key configured."}
 

@@ -51,6 +51,9 @@ class BrainClipEntry(BaseModel):
     has_dialogue: bool = False
     key_quotes: list[str] = Field(default_factory=list, description="Max 3 representative quotes")
     importance: float = Field(default=0.5, ge=0.0, le=1.0)
+    source_in: float | None = Field(default=None, description="Source in-point for topic segments")
+    source_out: float | None = Field(default=None, description="Source out-point for topic segments")
+    is_topic_segment: bool = Field(default=False, description="True if this is a virtual topic segment")
 
 
 class BrainTopic(BaseModel):
@@ -210,7 +213,11 @@ def query_brain(project_id: str, query: str) -> list[BrainClipEntry]:
 
 
 def format_brain_for_agent(brain: ProjectBrain) -> str:
-    """Produce a compact text representation for injection into agent context."""
+    """Produce a compact text representation for injection into agent context.
+
+    Includes topic time ranges and segment info so the agent can plan
+    cuts directly without additional tool calls for discovery.
+    """
     lines: list[str] = [f"**Project Brain** (v{brain.version}, {len(brain.clips)} clips)"]
 
     if brain.summary:
@@ -223,6 +230,35 @@ def format_brain_for_agent(brain: ProjectBrain) -> str:
             lines.append(f"  - **{topic.name}** ({clip_count} clips): {topic.description}")
     else:
         lines.append("No topics identified yet.")
+
+    # Include topic segment entries with time ranges
+    topic_segments = [c for c in brain.clips if c.is_topic_segment]
+    if topic_segments:
+        lines.append(f"\n**Topic Segments** ({len(topic_segments)} segments with time ranges):")
+        for seg in topic_segments:
+            time_range = ""
+            if seg.source_in is not None and seg.source_out is not None:
+                time_range = f" [{seg.source_in:.0f}s–{seg.source_out:.0f}s]"
+            quote_str = ""
+            if seg.key_quotes:
+                quote_str = f' | quote: "{seg.key_quotes[0][:80]}"'
+            lines.append(
+                f"  - **{seg.title}** (asset={seg.asset_id}, {seg.duration:.0f}s){time_range}"
+                f"  importance={seg.importance:.1f}{quote_str}"
+            )
+
+    # Include non-topic clips with their key details
+    regular_clips = [c for c in brain.clips if not c.is_topic_segment]
+    if regular_clips:
+        lines.append(f"\n**Source Clips** ({len(regular_clips)}):")
+        for clip in regular_clips:
+            topics_str = ", ".join(clip.topics[:3]) if clip.topics else "none"
+            lines.append(
+                f"  - asset={clip.asset_id} | {clip.duration:.0f}s | topics=[{topics_str}]"
+                f" | importance={clip.importance:.1f}"
+            )
+            if clip.key_quotes:
+                lines.append(f'    top quote: "{clip.key_quotes[0][:100]}"')
 
     return "\n".join(lines)
 
@@ -286,6 +322,31 @@ def _save_brain_to_project_folder(brain: ProjectBrain, project_save_path: str) -
         logger.warning("Failed to save brain to project folder", exc_info=True)
 
 
+_CONCEPT_SYNONYMS: dict[str, list[str]] = {
+    "sound": ["audio", "sound", "voice", "lip sync", "synchronization", "speech", "music"],
+    "audio": ["audio", "sound", "voice", "lip sync", "music", "speech"],
+    "voice": ["voice", "audio", "sound", "speech", "dialogue"],
+    "improvements": ["improvements", "fixes", "enhancements", "better", "improved", "upgraded", "quality"],
+    "quality": ["quality", "improvements", "better", "enhanced", "fidelity"],
+    "video": ["video", "visual", "footage", "clip", "shot"],
+    "latent": ["latent", "latent space", "compression", "encoding"],
+    "prompt": ["prompt", "adherence", "following", "instructions"],
+    "motion": ["motion", "movement", "animation", "ken burns", "dynamic"],
+    "community": ["community", "users", "feedback", "discord", "reddit", "open source"],
+    "future": ["future", "vision", "roadmap", "next", "upcoming", "rendering"],
+    "download": ["download", "downloads", "milestone", "hugging face", "adoption"],
+}
+
+
+def _expand_query_words(query_words: set[str]) -> set[str]:
+    """Expand query words with known synonyms/related concepts."""
+    expanded = set(query_words)
+    for word in query_words:
+        synonyms = _CONCEPT_SYNONYMS.get(word, [])
+        expanded.update(synonyms)
+    return expanded
+
+
 def _relevance_score(
     clip: BrainClipEntry,
     topics: list[BrainTopic],
@@ -295,38 +356,59 @@ def _relevance_score(
     """Score a clip's relevance to a query. Higher = more relevant."""
     score = 0.0
 
+    expanded_words = _expand_query_words(query_words)
+
     desc_lower = clip.description.lower()
     title_lower = clip.title.lower()
 
+    # Exact full-query match in title/description
     if query_lower in desc_lower or query_lower in title_lower:
         score += 3.0
 
-    for word in query_words:
+    # Expanded word matching with substring support
+    for word in expanded_words:
         if word in desc_lower:
-            score += 1.0
+            score += 1.0 if word in query_words else 0.5
         if word in title_lower:
-            score += 1.5
+            score += 1.5 if word in query_words else 0.8
         for topic_name in clip.topics:
-            if word in topic_name.lower():
-                score += 2.0
+            topic_lower = topic_name.lower()
+            if word in topic_lower:
+                score += 2.0 if word in query_words else 1.0
         for quote in clip.key_quotes:
             if word in quote.lower():
                 score += 0.5
 
+    # Substring matching: "audio" matches "audio quality"
+    for word in query_words:
+        if len(word) >= 4:
+            for topic_name in clip.topics:
+                if word in topic_name.lower() and word not in expanded_words:
+                    score += 1.5
+
+    # Brain topic cross-reference
     for topic in topics:
         topic_name_lower = topic.name.lower()
-        if query_lower in topic_name_lower or any(w in topic_name_lower for w in query_words):
+        if query_lower in topic_name_lower or any(w in topic_name_lower for w in expanded_words):
             if clip.asset_id in topic.clip_ids:
                 rank = topic.clip_ids.index(clip.asset_id)
                 score += max(0, 3.0 - rank * 0.3)
 
+    # Importance boost (higher for topic segments with high importance)
     score += clip.importance * 0.5
+    if clip.is_topic_segment and clip.importance >= 0.7:
+        score += 1.0
 
     return score
 
 
 def _metadata_to_clip_entries(all_metadata: list[VideoMetadata]) -> list[BrainClipEntry]:
-    """Convert video metadata into brain clip entries."""
+    """Convert video metadata into brain clip entries.
+
+    For long videos (>5 min) with topics, also generates per-topic segment
+    entries so the brain can match queries to specific time ranges within
+    the video.
+    """
     clips: list[BrainClipEntry] = []
     for meta in all_metadata:
         if not meta.scenes and not meta.summary:
@@ -337,12 +419,9 @@ def _metadata_to_clip_entries(all_metadata: list[VideoMetadata]) -> list[BrainCl
             if meta.scenes else 0.5
         )
 
-        key_quotes: list[str] = []
-        for dl in meta.dialogue[:5]:
-            if dl.text and len(key_quotes) < 3:
-                text = dl.text[:100] + "..." if len(dl.text) > 100 else dl.text
-                key_quotes.append(text)
-
+        # For the parent clip entry, pick representative quotes from
+        # high-importance scenes rather than just the first 3 dialogue lines
+        key_quotes = _extract_best_quotes(meta)
         topic_names = [t.name for t in meta.topics]
 
         clips.append(BrainClipEntry(
@@ -355,7 +434,95 @@ def _metadata_to_clip_entries(all_metadata: list[VideoMetadata]) -> list[BrainCl
             key_quotes=key_quotes,
             importance=avg_importance,
         ))
+
+        # For long videos with topics, generate per-topic segment entries
+        if meta.duration >= 300 and meta.topics:
+            topic_entries = _generate_topic_segment_entries(meta)
+            clips.extend(topic_entries)
+
     return clips
+
+
+def _extract_best_quotes(meta: VideoMetadata) -> list[str]:
+    """Pick up to 5 representative quotes from high-importance scenes."""
+    if not meta.dialogue:
+        return []
+
+    # Find dialogue lines that overlap with high-importance scenes
+    high_importance_ranges: list[tuple[float, float]] = []
+    for scene in meta.scenes:
+        if scene.importance >= 0.7:
+            high_importance_ranges.append((scene.start_time, scene.end_time))
+
+    scored_quotes: list[tuple[float, str, float]] = []
+    for dl in meta.dialogue:
+        if not dl.text or len(dl.text) < 10:
+            continue
+        importance = 0.3
+        for s_start, s_end in high_importance_ranges:
+            if dl.end_time > s_start and dl.start_time < s_end:
+                importance = 0.8
+                break
+        scored_quotes.append((importance, dl.text, dl.start_time))
+
+    scored_quotes.sort(key=lambda x: (-x[0], x[2]))
+    return [
+        (q[:100] + "..." if len(q) > 100 else q)
+        for _, q, _ in scored_quotes[:5]
+    ]
+
+
+def _generate_topic_segment_entries(meta: VideoMetadata) -> list[BrainClipEntry]:
+    """Generate per-topic brain entries for a long video.
+
+    Each topic becomes a virtual clip entry with its time ranges,
+    scene descriptions, and dialogue quotes from that range.
+    """
+    entries: list[BrainClipEntry] = []
+    for topic in meta.topics:
+        if not topic.time_ranges:
+            continue
+
+        t_start = min(r[0] for r in topic.time_ranges)
+        t_end = max(r[1] for r in topic.time_ranges)
+        duration = t_end - t_start
+
+        # Collect scene descriptions within topic range
+        scene_descs: list[str] = []
+        max_importance = 0.0
+        for scene in meta.scenes:
+            if scene.end_time > t_start and scene.start_time < t_end:
+                if scene.description:
+                    scene_descs.append(scene.description)
+                max_importance = max(max_importance, scene.importance)
+
+        # Collect key quotes from dialogue within topic range
+        topic_quotes: list[str] = []
+        for dl in meta.dialogue:
+            if dl.end_time > t_start and dl.start_time < t_end and dl.text:
+                if len(dl.text) >= 15 and len(topic_quotes) < 3:
+                    text = dl.text[:100] + "..." if len(dl.text) > 100 else dl.text
+                    topic_quotes.append(text)
+
+        description = topic.description
+        if scene_descs:
+            description += " | " + " ".join(scene_descs[:3])
+
+        entries.append(BrainClipEntry(
+            asset_id=meta.asset_id,
+            title=topic.name,
+            description=description,
+            duration=duration,
+            topics=[topic.name],
+            has_dialogue=len(topic_quotes) > 0,
+            key_quotes=topic_quotes,
+            importance=max_importance or 0.5,
+            source_in=t_start,
+            source_out=t_end,
+            is_topic_segment=True,
+        ))
+
+    return entries
 
 
 def _format_clips_for_topic_extraction(clips: list[BrainClipEntry]) -> str:
