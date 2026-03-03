@@ -40,6 +40,7 @@ _MAX_TURNS = 20
 """Hard ceiling on agentic loop iterations to prevent runaway calls."""
 
 _GEMINI_MODEL = "gemini-3.1-pro-preview"
+_FALLBACK_MODEL = "gemini-3-flash-preview"
 
 _ROLE_MAP: dict[str, str] = {"user": "user", "agent": "model", "assistant": "model", "model": "model"}
 
@@ -241,6 +242,48 @@ Workflow:
 
 This is the blade/razor tool — the most important tool in professional \
 editing. Use it aggressively to tighten every clip on the timeline.
+
+## Professional Editing Principles
+
+You are a versatile editor. Adapt your approach to match what the user asks for:
+
+### Pacing (adapt to the format)
+- **Social media / Twitter / Reels**: Fast, punchy. Cuts every 3-8s. \
+No silence > 0.5s. High energy throughout. Total 30-60s.
+- **Trailer / Promo**: Building momentum. Start slower, accelerate. \
+Mix dialogue with action. End on a cliffhanger or bold statement. 60-120s.
+- **Documentary / Long-form**: Let moments breathe. Longer holds for \
+emotional beats. But still cut dead air and filler words.
+- **Cinematic**: Slow, deliberate pacing. Longer shots. Atmosphere over \
+information density.
+
+### Structure (every edit needs this)
+- **Hook** (first 3 seconds): The most surprising, bold, or intriguing \
+moment. For interviews, this is often a quote from the middle or end \
+of the conversation that grabs attention. NEVER start with "so...", \
+"um...", a pause, or the speaker looking down between takes.
+- **Body**: The core content. Arranged for narrative flow — not \
+necessarily chronological. Strongest points first, supporting details \
+after.
+- **Closure**: A conclusive statement, call to action, or forward-looking \
+claim. The viewer should feel the video is complete, not cut off. \
+Never end mid-sentence or on a filler word.
+
+### Dead Air and Silence
+- **Cut all pauses > 0.5s** in fast-paced edits (social, promo).
+- **Cut all pauses > 1.5s** in slower formats (documentary).
+- If a scene description says "preparing", "between takes", "looking \
+at floor", "adjusting", or importance < 0.3 — that's dead air. Skip it.
+- Use `get_transcript_segment` to verify the speaker is actively talking \
+in your chosen time range before adding it.
+
+### Interview-Specific Rules
+- The best quotes are rarely at the start of an answer. Look for the \
+moment 10-20s into a response where the speaker hits their stride.
+- Multiple takes of the same answer exist in raw footage. Pick the take \
+with the highest importance score and best delivery.
+- Re-order quotes for narrative impact. Chronological order is rarely \
+the best order for a short cut.
 
 ## Workflow
 1. Timeline state is already in your context. Only call \
@@ -577,6 +620,39 @@ def _call_gemini(
             message="Failed to reach the AI service after retries.",
             done=True,
         )
+
+    # -- Fallback to Flash if Pro is still returning 503 ------------------
+    if response.status_code == 503 and _GEMINI_MODEL != _FALLBACK_MODEL:
+        fallback_url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{_FALLBACK_MODEL}:generateContent"
+        )
+        logger.warning(
+            "[agent] session=%s | %s exhausted 503 retries, falling back to %s",
+            session_id[:8], _GEMINI_MODEL, _FALLBACK_MODEL,
+        )
+        try:
+            response = http_client.post(
+                fallback_url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key,
+                },
+                json_payload=payload,
+                timeout=300,
+            )
+        except HttpTimeoutError:
+            logger.error("[agent] session=%s | Fallback model also timed out", session_id[:8])
+            return AgentExecuteResponse(
+                message="The AI service timed out on both primary and fallback models.",
+                done=True,
+            )
+        except Exception:
+            logger.exception("[agent] session=%s | Fallback model request failed", session_id[:8])
+            return AgentExecuteResponse(
+                message="Failed to reach the AI service.",
+                done=True,
+            )
 
     elapsed = time.monotonic() - t0
     logger.info(
