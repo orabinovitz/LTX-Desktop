@@ -539,6 +539,24 @@ def _format_clips_for_topic_extraction(clips: list[BrainClipEntry]) -> str:
     return "\n".join(lines)
 
 
+def _repair_topic_json(raw: str) -> dict | None:
+    """Attempt to repair truncated JSON from topic extraction."""
+    text = raw.strip()
+    if not text.startswith("{"):
+        return None
+    open_braces = text.count("{") - text.count("}")
+    open_brackets = text.count("[") - text.count("]")
+    if open_braces == 0 and open_brackets == 0:
+        return None
+    patched = text.rstrip().rstrip(",")
+    patched += "]" * max(0, open_brackets)
+    patched += "}" * max(0, open_braces)
+    try:
+        return json.loads(patched)
+    except Exception:
+        return None
+
+
 def _call_gemini_for_topics(
     clip_summaries: str,
     gemini_api_key: str,
@@ -562,45 +580,64 @@ def _call_gemini_for_topics(
 
     user_text = f"Here are the clips in this project:\n\n{clip_summaries}\n\nGroup them by topic."
 
-    gemini_url = f"{_GEMINI_BASE_URL}/{_GEMINI_MODEL}:generateContent"
-    payload: dict[str, Any] = {
-        "contents": [{"role": "user", "parts": [{"text": user_text}]}],
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 4096,
-            "responseMimeType": "application/json",
-        },
-    }
-
-    try:
-        response = http_client.post(
-            gemini_url,
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": gemini_api_key,
+    max_attempts = 2
+    for attempt in range(max_attempts):
+        max_tokens = 8192 if attempt > 0 else 4096
+        gemini_url = f"{_GEMINI_BASE_URL}/{_GEMINI_MODEL}:generateContent"
+        payload: dict[str, Any] = {
+            "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": max_tokens,
+                "responseMimeType": "application/json",
             },
-            json_payload=payload,
-            timeout=60,
-        )
-    except HttpTimeoutError:
-        logger.error("Brain topic extraction timed out")
-        return {"summary": "", "topics": []}
-    except Exception:
-        logger.error("Brain topic extraction failed", exc_info=True)
-        return {"summary": "", "topics": []}
+        }
 
-    if response.status_code != 200:
-        logger.error("Brain Gemini error %d: %s", response.status_code, response.text[:300])
-        return {"summary": "", "topics": []}
+        try:
+            response = http_client.post(
+                gemini_url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": gemini_api_key,
+                },
+                json_payload=payload,
+                timeout=90,
+            )
+        except HttpTimeoutError:
+            logger.error("Brain topic extraction timed out (attempt %d)", attempt + 1)
+            continue
+        except Exception:
+            logger.error("Brain topic extraction failed (attempt %d)", attempt + 1, exc_info=True)
+            continue
 
-    try:
-        body = response.json()
-        text = body["candidates"][0]["content"]["parts"][0]["text"]
-        return json.loads(text)
-    except Exception:
-        logger.error("Failed to parse brain topic response", exc_info=True)
-        return {"summary": "", "topics": []}
+        if response.status_code != 200:
+            logger.error("Brain Gemini error %d: %s", response.status_code, response.text[:300])
+            continue
+
+        try:
+            body = response.json()
+            text = body["candidates"][0]["content"]["parts"][0]["text"]
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Brain topic JSON parse failed (attempt %d, %d chars), trying repair...",
+                    attempt + 1, len(text),
+                )
+                repaired = _repair_topic_json(text)
+                if repaired and repaired.get("topics"):
+                    logger.info("Repaired brain topic JSON: %d topics recovered", len(repaired["topics"]))
+                    return repaired
+                if attempt < max_attempts - 1:
+                    logger.info("Retrying with higher maxOutputTokens...")
+                    continue
+                logger.error("Brain topic JSON repair failed, raw text: %s", text[:500])
+        except Exception:
+            logger.error("Failed to parse brain topic response (attempt %d)", attempt + 1, exc_info=True)
+            continue
+
+    return {"summary": "", "topics": []}
 
 
 def _parse_topic_result(

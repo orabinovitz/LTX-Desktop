@@ -1225,3 +1225,197 @@ def _call_gemini_video(
         file_uri, mime_type, system_prompt, user_text,
         gemini_api_key, http_client, max_output_tokens=4096, timeout=120,
     )
+
+
+# ---------------------------------------------------------------------------
+# Whisper-based transcription (OpenAI API)
+# ---------------------------------------------------------------------------
+
+_WHISPER_CHUNK_MINUTES = 20
+_WHISPER_MAX_FILE_BYTES = 20 * 1024 * 1024  # 20 MB safety margin under 25 MB limit
+
+
+def _extract_audio_mp3(video_path: str, output_path: str) -> str:
+    """Extract the audio track from a video file as mono 16kHz MP3."""
+    ffmpeg = _get_ffmpeg_path()
+    if ffmpeg is None:
+        import shutil
+        ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg not found — required for audio extraction")
+
+    cmd = [
+        ffmpeg, "-y",
+        "-i", video_path,
+        "-vn",
+        "-acodec", "libmp3lame",
+        "-b:a", "64k",
+        "-ar", "16000",
+        "-ac", "1",
+        output_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    if result.returncode != 0:
+        raise RuntimeError(f"Audio extraction failed: {result.stderr[:500]}")
+    return output_path
+
+
+def _split_audio_chunks(
+    audio_path: str, chunk_minutes: int = _WHISPER_CHUNK_MINUTES,
+) -> list[tuple[str, float]]:
+    """Split an audio file into chunks that fit under the Whisper file size limit.
+
+    Returns list of (chunk_path, offset_seconds) tuples.
+    """
+    audio_size = Path(audio_path).stat().st_size
+    if audio_size <= _WHISPER_MAX_FILE_BYTES:
+        return [(audio_path, 0.0)]
+
+    ffmpeg = _get_ffmpeg_path()
+    if ffmpeg is None:
+        import shutil
+        ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg not found")
+
+    probe_cmd = [
+        ffmpeg.replace("ffmpeg", "ffprobe") if "ffmpeg" in ffmpeg else "ffprobe",
+        "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", audio_path,
+    ]
+    try:
+        dur_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+        total_duration = float(dur_result.stdout.strip())
+    except Exception:
+        total_duration = (audio_size / (64000 / 8)) * 1.1
+
+    chunk_duration = chunk_minutes * 60
+    chunks: list[tuple[str, float]] = []
+    offset = 0.0
+    chunk_idx = 0
+    parent = Path(audio_path).parent
+
+    while offset < total_duration:
+        chunk_path = str(parent / f"chunk_{chunk_idx:03d}.mp3")
+        cmd = [
+            ffmpeg, "-y",
+            "-ss", str(offset),
+            "-t", str(chunk_duration),
+            "-i", audio_path,
+            "-acodec", "libmp3lame", "-b:a", "64k", "-ar", "16000", "-ac", "1",
+            chunk_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode != 0:
+            logger.error("Chunk %d split failed: %s", chunk_idx, result.stderr[:300])
+            break
+        if Path(chunk_path).stat().st_size > 0:
+            chunks.append((chunk_path, offset))
+        offset += chunk_duration
+        chunk_idx += 1
+
+    return chunks
+
+
+def _whisper_transcribe_chunk(
+    audio_path: str,
+    openai_api_key: str,
+    prompt: str = "",
+) -> dict:
+    """Call OpenAI Whisper API for a single audio chunk. Returns raw JSON response."""
+    import requests as _requests
+
+    url = "https://api.openai.com/v1/audio/transcriptions"
+    headers = {"Authorization": f"Bearer {openai_api_key}"}
+
+    with open(audio_path, "rb") as f:
+        files = {"file": (Path(audio_path).name, f, "audio/mpeg")}
+        data: dict = {
+            "model": "whisper-1",
+            "response_format": "verbose_json",
+            "timestamp_granularities[]": "segment",
+        }
+        if prompt:
+            data["prompt"] = prompt
+
+        file_size_mb = Path(audio_path).stat().st_size / (1024 * 1024)
+        timeout = max(600, int(file_size_mb * 30))
+        logger.info(
+            "Whisper API call: %s (%.1f MB, timeout=%ds)",
+            Path(audio_path).name, file_size_mb, timeout,
+        )
+        resp = _requests.post(
+            url, headers=headers, files=files, data=data, timeout=timeout,
+        )
+
+    if resp.status_code != 200:
+        logger.error("Whisper API error %d: %s", resp.status_code, resp.text[:500])
+        raise RuntimeError(f"Whisper API error {resp.status_code}: {resp.text[:200]}")
+
+    return resp.json()
+
+
+def whisper_transcribe(
+    video_path: str,
+    openai_api_key: str,
+) -> list[DialogueLine]:
+    """Transcribe a video using OpenAI Whisper with accurate timestamps.
+
+    1. Extracts audio as mono MP3
+    2. Chunks if > 24 MB
+    3. Calls Whisper API per chunk
+    4. Merges segments with offset correction
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        audio_path = str(Path(tmpdir) / "audio.mp3")
+        logger.info("Extracting audio from %s...", Path(video_path).name)
+        _extract_audio_mp3(video_path, audio_path)
+        audio_size = Path(audio_path).stat().st_size
+        logger.info("Audio extracted: %.1f MB", audio_size / (1024 * 1024))
+
+        chunks = _split_audio_chunks(audio_path)
+        logger.info("Whisper transcription: %d chunk(s)", len(chunks))
+
+        all_lines: list[DialogueLine] = []
+        last_text = ""
+
+        for chunk_path, offset in chunks:
+            prompt = last_text[-200:] if last_text else ""
+            try:
+                result = _whisper_transcribe_chunk(chunk_path, openai_api_key, prompt)
+            except Exception:
+                logger.error("Whisper chunk failed (offset=%.0f)", offset, exc_info=True)
+                continue
+
+            segments = result.get("segments", [])
+            logger.info(
+                "  Chunk offset=%.0fs: %d segments, text=%d chars",
+                offset, len(segments), len(result.get("text", "")),
+            )
+
+            for seg in segments:
+                start = seg.get("start", 0.0) + offset
+                end = seg.get("end", 0.0) + offset
+                text = seg.get("text", "").strip()
+                if not text:
+                    continue
+                all_lines.append(DialogueLine(
+                    start_time=round(start, 2),
+                    end_time=round(end, 2),
+                    speaker="",
+                    text=text,
+                ))
+
+            if result.get("text"):
+                last_text = result["text"]
+
+        all_lines.sort(key=lambda dl: dl.start_time)
+        logger.info(
+            "Whisper transcription complete: %d lines, %.0fs-%.0fs",
+            len(all_lines),
+            all_lines[0].start_time if all_lines else 0,
+            all_lines[-1].end_time if all_lines else 0,
+        )
+        return all_lines

@@ -81,3 +81,13 @@ node_modules/
 dist-electron/
 .vite/
 .vscode/
+
+# Video files
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.wmv
+*.flv
+*.m4v

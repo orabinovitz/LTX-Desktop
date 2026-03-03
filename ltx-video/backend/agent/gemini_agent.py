@@ -172,10 +172,17 @@ Use `query_project_brain` with the topic. The brain returns topic segments \
 with source time ranges (e.g. "Technical Improvements [414s–1089s]"). \
 These tell you WHERE in the video each topic lives.
 
-### Step 2: Read the transcript to find the best quotes
-For each matching segment, call `get_transcript_segment` with the time \
-range. Look for:
-- **A strong hook** (surprising stat, bold claim, engaging question) \
+### Step 2: Read the transcript in SMALL WINDOWS to find the best quotes
+Do NOT request the entire topic range at once — it's too much text to scan. \
+Instead, break it into 2-3 minute windows. For example, if the topic is at \
+414s-1089s, request 414-534, then 534-654, then 654-774, etc. Read each \
+window and look for lines that SPECIFICALLY mention the requested topic \
+keywords (e.g. "audio", "sound", "lip sync", "voice", "vocoder"). \
+Skip windows where the speaker is on a different sub-topic. \
+Once you find the specific lines, note their EXACT timestamps.
+
+For each window, look for:
+- **A strong hook** (surprising stat, bold claim, specific technical detail) \
 for the opening 3-5 seconds
 - **Key content** (the core explanation, best insight, clearest quote) \
 for the body
@@ -183,14 +190,17 @@ for the body
 
 ### Step 3: Extract specific segments directly to the timeline
 Use `add_clip_to_timeline` with `source_in` and `source_out` to place \
-ONLY the relevant portions. For a 30-45s Twitter/social cut, you \
-typically need **3-5 segments of 6-12 seconds each**. Place them \
-sequentially on the timeline starting at 0s.
+ONLY the relevant portions. CRITICAL: Use the EXACT timestamps from the \
+transcript lines you identified in Step 2. Set source_in to the start_time \
+of the dialogue line and source_out to the end_time. Do NOT guess times — \
+only use times from transcript data you've actually read.
+
+For a 30-45s Twitter/social cut, you need **3-5 segments of 6-12 seconds each**.
 
 Example for a 35s edit:
-- Segment 1 (hook): 0s–8s on timeline, source_in=485, source_out=493
-- Segment 2 (core): 8s–22s on timeline, source_in=950, source_out=964
-- Segment 3 (closer): 22s–35s on timeline, source_in=1000, source_out=1013
+- Segment 1 (hook): source_in=811, source_out=822 (speaker's boldest claim)
+- Segment 2 (core): source_in=822, source_out=835 (explaining the improvement)
+- Segment 3 (closer): source_in=840, source_out=850 (forward-looking statement)
 
 ### Step 4: Arrange for narrative flow
 Hook first, core content in the middle, closer at the end. \
@@ -258,32 +268,57 @@ emotional beats. But still cut dead air and filler words.
 information density.
 
 ### Structure (every edit needs this)
-- **Hook** (first 3 seconds): The most surprising, bold, or intriguing \
-moment. For interviews, this is often a quote from the middle or end \
-of the conversation that grabs attention. NEVER start with "so...", \
-"um...", a pause, or the speaker looking down between takes.
-- **Body**: The core content. Arranged for narrative flow — not \
-necessarily chronological. Strongest points first, supporting details \
-after.
-- **Closure**: A conclusive statement, call to action, or forward-looking \
-claim. The viewer should feel the video is complete, not cut off. \
-Never end mid-sentence or on a filler word.
 
-### Dead Air and Silence
-- **Cut all pauses > 0.5s** in fast-paced edits (social, promo).
-- **Cut all pauses > 1.5s** in slower formats (documentary).
+**HOOK (first segment — most important decision in the entire edit):**
+- The hook MUST be the SPEAKER'S voice, not the interviewer's question.
+- NEVER start with an interviewer asking a question. Skip past it.
+- NEVER start with "so...", "um...", "I think...", or any hesitation.
+- The hook should be the single most compelling sentence from the \
+entire transcript about the requested topic. Scan ALL transcript \
+segments for the strongest, most specific, most quotable line.
+- For audio/sound topics: a sentence about "lip sync", "audio quality", \
+"synchronization", or a specific technical claim works as a hook.
+- For social media: the hook must work even if someone scrolls past \
+after 2 seconds. Make every word count.
+- Trim the source_in to start EXACTLY when the speaker begins talking, \
+not 1-2 seconds before. Use the transcript timestamps precisely.
+
+**BODY (middle segments):**
+- Arranged for narrative flow — NOT chronological order from the video.
+- Strongest, most specific points first. Vague or general statements \
+last (or cut entirely).
+- Each segment must contain the speaker actively making a point, not \
+pausing, thinking, or repeating themselves.
+
+**CLOSURE (last segment):**
+- A conclusive statement, call to action, or forward-looking claim.
+- The viewer should feel the video is complete, not cut off.
+- Never end mid-sentence, on a filler word, or with a trailing "...".
+- A strong closure is a definitive statement: "And that's why we..." \
+or "This is going to change how..." — not "so yeah, basically...".
+
+### Dead Air and Silence — Be Ruthless
+- **Cut ALL pauses > 0.3s** for social media. The edit should feel \
+machine-gun tight. No breathing room between phrases.
+- If the speaker pauses, mumbles, says "um", "uh", repeats a word, \
+or restarts a sentence — that's a cut point. Use `split_clip` to \
+remove it, or better yet, set your `source_in` PAST the mumble.
 - If a scene description says "preparing", "between takes", "looking \
-at floor", "adjusting", or importance < 0.3 — that's dead air. Skip it.
-- Use `get_transcript_segment` to verify the speaker is actively talking \
-in your chosen time range before adding it.
+at floor", "adjusting", "repeating", or importance < 0.4 — SKIP IT.
+- NEVER include the interviewer asking a question in a social media \
+cut. Only the subject's answers matter. The viewer doesn't need to \
+hear the question — the answer should be self-explanatory.
 
 ### Interview-Specific Rules
-- The best quotes are rarely at the start of an answer. Look for the \
-moment 10-20s into a response where the speaker hits their stride.
-- Multiple takes of the same answer exist in raw footage. Pick the take \
-with the highest importance score and best delivery.
-- Re-order quotes for narrative impact. Chronological order is rarely \
-the best order for a short cut.
+- The best quotes are NEVER at the start of an answer. Always look \
+15-30s into a response where the speaker has warmed up and is making \
+their clearest, most specific point.
+- Multiple takes exist. The LAST take of the same answer is usually \
+the best (higher importance score, better delivery, fewer false starts).
+- Re-order quotes for narrative impact. Put the most specific, \
+surprising claim first (hook), then explain, then conclude.
+- NEVER include a segment where the speaker is being asked a question. \
+Only include segments where the speaker is ANSWERING.
 
 ## Workflow
 1. Timeline state is already in your context. Only call \
