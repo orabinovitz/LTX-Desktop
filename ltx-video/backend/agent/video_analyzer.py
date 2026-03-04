@@ -1231,8 +1231,8 @@ def _call_gemini_video(
 # Whisper-based transcription (OpenAI API)
 # ---------------------------------------------------------------------------
 
-_WHISPER_CHUNK_MINUTES = 20
-_WHISPER_MAX_FILE_BYTES = 20 * 1024 * 1024  # 20 MB safety margin under 25 MB limit
+_WHISPER_CHUNK_MINUTES = 15
+_WHISPER_MAX_FILE_BYTES = 24 * 1024 * 1024  # 24 MB safety margin under 25 MB limit
 
 
 def _extract_audio_mp3(video_path: str, output_path: str) -> str:
@@ -1249,8 +1249,8 @@ def _extract_audio_mp3(video_path: str, output_path: str) -> str:
         "-i", video_path,
         "-vn",
         "-acodec", "libmp3lame",
-        "-b:a", "64k",
-        "-ar", "16000",
+        "-b:a", "128k",
+        "-ar", "44100",
         "-ac", "1",
         output_path,
     ]
@@ -1328,15 +1328,22 @@ def _whisper_transcribe_chunk(
     url = "https://api.openai.com/v1/audio/transcriptions"
     headers = {"Authorization": f"Bearer {openai_api_key}"}
 
+    _DEFAULT_PROMPT = (
+        "Interview about LTX video generation model, discussing technical "
+        "improvements including audio quality, lip sync, VAE, vocoder, and "
+        "model architecture. Speaker: Eran. Technical terms: LTX, Hugging Face, "
+        "latent space, diffusion, prompt adherence, open source, community."
+    )
+
     with open(audio_path, "rb") as f:
         files = {"file": (Path(audio_path).name, f, "audio/mpeg")}
         data: dict = {
             "model": "whisper-1",
             "response_format": "verbose_json",
             "timestamp_granularities[]": "segment",
+            "language": "en",
         }
-        if prompt:
-            data["prompt"] = prompt
+        data["prompt"] = prompt if prompt else _DEFAULT_PROMPT
 
         file_size_mb = Path(audio_path).stat().st_size / (1024 * 1024)
         timeout = max(600, int(file_size_mb * 30))

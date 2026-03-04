@@ -1,7 +1,8 @@
-"""End-to-end edit quality pipeline: agent -> export -> Gemini review.
+"""End-to-end edit quality pipeline: Whisper STT -> segment selection -> agent -> export -> review.
 
-Uses OpenAI Whisper for accurate speech transcription timestamps, and
-Gemini for visual review. Runs iteratively until quality threshold is met.
+Uses OpenAI Whisper for speech transcription (English, high-quality audio),
+three-part segment selection (hook/body/closure) for editorial structure,
+and Gemini for iterative review with segment refinement.
 
 Run:
     cd ltx-video/backend
@@ -14,6 +15,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,14 +26,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent import gemini_agent, video_analyzer, brain as brain_module
-from agent.types import AgentExecuteRequest, TimelineState, ToolResult, VideoMetadata, DialogueLine
+from agent.types import (
+    AgentExecuteRequest, TimelineState, ToolResult, VideoMetadata, DialogueLine,
+)
 from agent.video_analyzer import _upload_file_to_gemini, whisper_transcribe
 from services.http_client.http_client_impl import HTTPClientImpl
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 SETTINGS_FILE = Path.home() / ".ltx-video-studio" / "settings.json"
@@ -39,7 +40,20 @@ ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 ANALYSIS_DIR = Path("/Users/orabinovitz/Projects/LTX-2/ltx-23/.ltx-desktop/analysis/Zeev-Master")
 TEST_VIDEO = Path(__file__).resolve().parent.parent.parent / "Test_Assets" / "Zeev-Master.mp4"
 OUTPUT_DIR = TEST_VIDEO.parent
+WHISPER_CACHE = OUTPUT_DIR / "whisper_transcript.json"
 
+AUDIO_KEYWORDS = [
+    "audio", "sound", "lip sync", "lip-sync", "vocoder", "vae",
+    "voice", "music video", "synchroniz", "dynamic range",
+    "quality of the audio", "treatment of audio", "improve",
+]
+
+_FILLER_STARTS = frozenset(("um", "uh", "so", "like", "and", "but", "or", "well", "yeah", "i mean"))
+
+
+# ---------------------------------------------------------------------------
+# API key loaders
+# ---------------------------------------------------------------------------
 
 def load_gemini_api_key() -> str:
     data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -67,104 +81,435 @@ def get_ffmpeg() -> str:
         import imageio_ffmpeg
         return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
-        result = subprocess.run(["which", "ffmpeg"], capture_output=True, text=True)
-        if result.returncode == 0:
-            return result.stdout.strip()
+        r = subprocess.run(["which", "ffmpeg"], capture_output=True, text=True)
+        if r.returncode == 0:
+            return r.stdout.strip()
         raise RuntimeError("ffmpeg not found")
 
 
 def load_metadata() -> VideoMetadata:
-    meta_file = ANALYSIS_DIR / "metadata.json"
-    data = json.loads(meta_file.read_text(encoding="utf-8"))
+    data = json.loads((ANALYSIS_DIR / "metadata.json").read_text(encoding="utf-8"))
     return VideoMetadata.model_validate(data)
 
 
 # ---------------------------------------------------------------------------
-# Whisper-based transcript
+# Whisper transcript with cache
 # ---------------------------------------------------------------------------
 
-_whisper_cache_path = OUTPUT_DIR / "whisper_transcript.json"
-
-
 def get_whisper_transcript(openai_key: str) -> list[DialogueLine]:
-    """Get Whisper transcript, using a disk cache to avoid re-transcribing."""
-    if _whisper_cache_path.exists():
-        data = json.loads(_whisper_cache_path.read_text(encoding="utf-8"))
+    if WHISPER_CACHE.exists():
+        data = json.loads(WHISPER_CACHE.read_text(encoding="utf-8"))
         lines = [DialogueLine(**d) for d in data]
         if len(lines) >= 20:
             logger.info("Loaded cached Whisper transcript: %d lines", len(lines))
             return lines
 
-    logger.info("Running Whisper transcription on %s...", TEST_VIDEO.name)
+    logger.info("Running Whisper transcription (128kbps/44.1kHz, language=en)...")
     lines = whisper_transcribe(str(TEST_VIDEO), openai_key)
 
-    cache_data = [
-        {"start_time": dl.start_time, "end_time": dl.end_time,
-         "speaker": dl.speaker, "text": dl.text}
-        for dl in lines
-    ]
-    _whisper_cache_path.write_text(
-        json.dumps(cache_data, indent=2, ensure_ascii=False), encoding="utf-8",
+    WHISPER_CACHE.write_text(
+        json.dumps(
+            [{"start_time": d.start_time, "end_time": d.end_time,
+              "speaker": d.speaker, "text": d.text} for d in lines],
+            indent=2, ensure_ascii=False,
+        ),
+        encoding="utf-8",
     )
     logger.info("Whisper transcript cached: %d lines", len(lines))
     return lines
 
 
 # ---------------------------------------------------------------------------
-# Keyword-based segment finder
+# Transcript filter
 # ---------------------------------------------------------------------------
 
-def find_segments_by_keywords(
-    dialogue: list[DialogueLine],
-    keywords: list[str],
-    min_duration: float = 3.0,
-    merge_gap: float = 2.0,
-) -> list[dict]:
-    """Find transcript segments that mention any of the given keywords.
+def filter_transcript(lines: list[DialogueLine]) -> list[DialogueLine]:
+    """Remove non-English fragments, hallucinations, and tiny segments."""
+    filtered: list[DialogueLine] = []
+    prev_text = ""
+    repeat_count = 0
 
-    Returns a list of {start, end, text} dicts with accurate Whisper timestamps.
-    Adjacent matching lines within `merge_gap` seconds are merged into longer segments.
-    """
-    keywords_lower = [k.lower() for k in keywords]
-    matching: list[DialogueLine] = []
-    for dl in dialogue:
-        text_lower = dl.text.lower()
-        if any(kw in text_lower for kw in keywords_lower):
-            matching.append(dl)
+    for dl in lines:
+        text = dl.text.strip()
+        if not text:
+            continue
 
-    if not matching:
+        if dl.end_time - dl.start_time < 2.0:
+            continue
+
+        ascii_chars = sum(1 for c in text if ord(c) < 128 and c.isalpha())
+        total_alpha = sum(1 for c in text if c.isalpha())
+        if total_alpha > 0 and ascii_chars / total_alpha < 0.5:
+            continue
+
+        if text == prev_text:
+            repeat_count += 1
+            if repeat_count >= 2:
+                continue
+        else:
+            repeat_count = 0
+        prev_text = text
+
+        filtered.append(dl)
+
+    logger.info("Transcript filter: %d -> %d lines", len(lines), len(filtered))
+    return filtered
+
+
+# ---------------------------------------------------------------------------
+# Sentence builder
+# ---------------------------------------------------------------------------
+
+def build_sentences(lines: list[DialogueLine], max_gap: float = 2.0) -> list[dict]:
+    """Merge consecutive transcript lines into sentences based on punctuation and gaps."""
+    if not lines:
         return []
 
-    merged: list[dict] = []
-    current = {"start": matching[0].start_time, "end": matching[0].end_time, "text": matching[0].text}
+    sentences: list[dict] = []
+    current = {"start": lines[0].start_time, "end": lines[0].end_time, "text": lines[0].text}
 
-    for dl in matching[1:]:
-        if dl.start_time <= current["end"] + merge_gap:
-            current["end"] = max(current["end"], dl.end_time)
-            current["text"] += " " + dl.text
-        else:
-            if current["end"] - current["start"] >= min_duration:
-                merged.append(current)
+    for dl in lines[1:]:
+        gap = dl.start_time - current["end"]
+        ends_sentence = current["text"].rstrip().endswith((".", "!", "?"))
+
+        if gap > max_gap or ends_sentence:
+            if len(current["text"].split()) >= 3:
+                sentences.append(current)
             current = {"start": dl.start_time, "end": dl.end_time, "text": dl.text}
+        else:
+            current["end"] = dl.end_time
+            current["text"] += " " + dl.text
 
-    if current["end"] - current["start"] >= min_duration:
-        merged.append(current)
+    if len(current["text"].split()) >= 3:
+        sentences.append(current)
 
-    return merged
+    return sentences
 
 
 # ---------------------------------------------------------------------------
-# Stage 1: Run the agent and collect tool calls
+# FIX-1: Three-part segment selection (hook / body / closure)
+# ---------------------------------------------------------------------------
+
+def _base_score(s: dict, keywords: list[str]) -> float:
+    """Keyword relevance + boundary quality score for a sentence."""
+    text_lower = s["text"].lower()
+    kw = sum(2.0 for k in keywords if k in text_lower)
+    if kw == 0:
+        return 0.0
+
+    dur = s["end"] - s["start"]
+    d = 1.0 if 4 <= dur <= 15 else (0.6 if dur < 4 else 0.4)
+
+    word_count = len(s["text"].split())
+    richness = min(word_count / 10, 1.5)
+
+    return kw * d * richness
+
+
+def _is_question(s: dict) -> bool:
+    return s["text"].rstrip().endswith("?") and len(s["text"].split()) < 15
+
+
+def _has_clean_start(s: dict) -> bool:
+    if not s["text"] or not s["text"][0].isupper():
+        return False
+    first_word = s["text"].split()[0].lower()
+    return first_word not in _FILLER_STARTS
+
+
+def _has_clean_end(s: dict) -> bool:
+    return s["text"].rstrip()[-1:] in ".!?"
+
+
+def select_hook(sentences: list[dict], keywords: list[str],
+                exclude_ids: set[int] | None = None) -> dict | None:
+    """Pick the single most compelling opening sentence from the entire transcript.
+
+    Hook criteria (per video-editing-techniques / Murch priority 1-2):
+    - Must be the speaker answering, never the interviewer asking.
+    - Must start with a strong declarative (capital letter, no filler word).
+    - Prefer short, punchy sentences (5-10s) -- attention grab in first 2s.
+    - Highest keyword density wins.
+    """
+    if exclude_ids is None:
+        exclude_ids = set()
+
+    best: dict | None = None
+    best_score = 0.0
+
+    for i, s in enumerate(sentences):
+        if i in exclude_ids:
+            continue
+        if _is_question(s):
+            continue
+
+        base = _base_score(s, keywords)
+        if base <= 0:
+            continue
+
+        hook_mult = 1.0
+
+        if _has_clean_start(s):
+            hook_mult *= 2.5
+        else:
+            hook_mult *= 0.2
+
+        dur = s["end"] - s["start"]
+        if 5 <= dur <= 12:
+            hook_mult *= 1.5
+        elif dur < 5:
+            hook_mult *= 0.8
+        else:
+            hook_mult *= 0.5
+
+        if _has_clean_end(s):
+            hook_mult *= 1.3
+
+        total = base * hook_mult
+        if total > best_score:
+            best_score = total
+            best = {**s, "score": total, "role": "hook", "_idx": i}
+
+    return best
+
+
+def select_body_segments(
+    sentences: list[dict],
+    keywords: list[str],
+    hook: dict | None,
+    closure: dict | None,
+    target_body_duration: float = 30.0,
+    min_spacing: float = 25.0,
+) -> list[dict]:
+    """Select 2-4 on-topic body sentences, avoiding hook/closure and enforcing spacing."""
+    exclude_ids: set[int] = set()
+    if hook and "_idx" in hook:
+        exclude_ids.add(hook["_idx"])
+    if closure and "_idx" in closure:
+        exclude_ids.add(closure["_idx"])
+
+    scored: list[tuple[float, int, dict]] = []
+    for i, s in enumerate(sentences):
+        if i in exclude_ids or _is_question(s):
+            continue
+        base = _base_score(s, keywords)
+        if base <= 0:
+            continue
+
+        body_mult = 1.0
+        if _has_clean_start(s):
+            body_mult *= 1.3
+        if _has_clean_end(s):
+            body_mult *= 1.3
+
+        scored.append((base * body_mult, i, s))
+
+    scored.sort(key=lambda x: -x[0])
+
+    selected: list[dict] = []
+    used_times: list[float] = []
+    total = 0.0
+
+    for sc, idx, s in scored:
+        dur = s["end"] - s["start"]
+        if total + dur > target_body_duration * 1.2:
+            continue
+
+        too_close = any(abs(s["start"] - t) < min_spacing for t in used_times)
+        if too_close:
+            continue
+
+        selected.append({**s, "score": sc, "role": "body", "_idx": idx})
+        used_times.append(s["start"])
+        total += dur
+        if len(selected) >= 4 or total >= target_body_duration:
+            break
+
+    selected.sort(key=lambda x: x["start"])
+    return selected
+
+
+def select_closure(
+    sentences: list[dict],
+    keywords: list[str],
+    exclude_ids: set[int] | None = None,
+) -> dict | None:
+    """Pick the strongest closing sentence: must end with . or !, on-topic, conclusive."""
+    if exclude_ids is None:
+        exclude_ids = set()
+
+    best: dict | None = None
+    best_score = 0.0
+
+    conclusive_words = ["overall", "finally", "so that", "and that", "which means",
+                        "the result", "we've", "we have", "it's going to", "this is"]
+
+    for i, s in enumerate(sentences):
+        if i in exclude_ids or _is_question(s):
+            continue
+        if not _has_clean_end(s):
+            continue
+
+        base = _base_score(s, keywords)
+        if base <= 0:
+            continue
+
+        closure_mult = 1.0
+        text_lower = s["text"].lower()
+        if any(cw in text_lower for cw in conclusive_words):
+            closure_mult *= 1.8
+
+        if _has_clean_start(s):
+            closure_mult *= 1.3
+
+        dur = s["end"] - s["start"]
+        if 5 <= dur <= 15:
+            closure_mult *= 1.2
+
+        total = base * closure_mult
+        if total > best_score:
+            best_score = total
+            best = {**s, "score": total, "role": "closure", "_idx": i}
+
+    return best
+
+
+def compose_edit(
+    hook: dict | None,
+    body: list[dict],
+    closure: dict | None,
+    target_duration: float = 45.0,
+) -> list[dict]:
+    """Assemble hook + body + closure into a time-ordered segment list.
+
+    Validates duration is 25-60s and deduplicates overlaps.
+    """
+    parts: list[dict] = []
+    used_indices: set[int] = set()
+
+    for seg in ([hook] if hook else []) + body + ([closure] if closure else []):
+        if seg is None:
+            continue
+        idx = seg.get("_idx", -1)
+        if idx in used_indices:
+            continue
+        used_indices.add(idx)
+        parts.append(seg)
+
+    parts.sort(key=lambda s: s["start"])
+
+    total = sum(s["end"] - s["start"] for s in parts)
+    if total < 25:
+        logger.warning("Edit too short: %.1fs -- may need more body segments", total)
+    elif total > 60:
+        logger.warning("Edit too long: %.1fs -- trimming weakest body segments", total)
+        while total > 60 and len(parts) > 2:
+            body_parts = [p for p in parts if p.get("role") == "body"]
+            if not body_parts:
+                break
+            weakest = min(body_parts, key=lambda p: p.get("score", 0))
+            parts.remove(weakest)
+            total = sum(s["end"] - s["start"] for s in parts)
+
+    logger.info("Composed edit: %d segments, %.1fs total", len(parts), total)
+    for p in parts:
+        logger.info("  [%s] %.1fs-%.1fs (%.1fs): %s",
+                     p.get("role", "?"), p["start"], p["end"],
+                     p["end"] - p["start"], p["text"][:80])
+
+    return parts
+
+
+# ---------------------------------------------------------------------------
+# FIX-4: Segment refinement based on review feedback
+# ---------------------------------------------------------------------------
+
+def refine_segments(
+    segments: list[dict],
+    review: dict,
+    sentences: list[dict],
+    keywords: list[str],
+    attempt: int,
+) -> list[dict]:
+    """Refine segments based on Gemini review scores.
+
+    On each iteration, make targeted replacements for the weakest dimension.
+    Returns a new segment list (may be identical if no improvement found).
+    """
+    hook_score = review.get("hook_quality", 10)
+    pacing_score = review.get("pacing_quality", 10)
+    closure_score = review.get("closure_quality", 10)
+    silent_gaps = review.get("silent_gaps", [])
+
+    used_ids = {s.get("_idx", -1) for s in segments}
+    refined = list(segments)
+
+    if hook_score < 6 and refined:
+        logger.info("Refine: hook scored %d, replacing...", hook_score)
+        new_hook = select_hook(sentences, keywords, exclude_ids=used_ids)
+        if new_hook:
+            old_hook_indices = [i for i, s in enumerate(refined) if s.get("role") == "hook"]
+            if old_hook_indices:
+                old = refined[old_hook_indices[0]]
+                used_ids.discard(old.get("_idx", -1))
+                refined[old_hook_indices[0]] = new_hook
+                used_ids.add(new_hook["_idx"])
+                logger.info("  Replaced hook: %.1fs -> %.1fs", old["start"], new_hook["start"])
+            else:
+                refined.insert(0, new_hook)
+                used_ids.add(new_hook["_idx"])
+
+    if closure_score < 6 and refined:
+        logger.info("Refine: closure scored %d, replacing...", closure_score)
+        new_closure = select_closure(sentences, keywords, exclude_ids=used_ids)
+        if new_closure:
+            old_closure_indices = [i for i, s in enumerate(refined) if s.get("role") == "closure"]
+            if old_closure_indices:
+                old = refined[old_closure_indices[0]]
+                used_ids.discard(old.get("_idx", -1))
+                refined[old_closure_indices[0]] = new_closure
+                used_ids.add(new_closure["_idx"])
+                logger.info("  Replaced closure: %.1fs -> %.1fs", old["start"], new_closure["start"])
+
+    if pacing_score < 6 and silent_gaps:
+        logger.info("Refine: pacing scored %d with %d gaps, tightening...", pacing_score, len(silent_gaps))
+        for gap in silent_gaps:
+            gap_start = gap.get("start", 0)
+            gap_end = gap.get("end", 0)
+            if gap_end - gap_start < 0.2:
+                continue
+            for i, seg in enumerate(refined):
+                seg_dur_in_edit = seg["end"] - seg["start"]
+                relative_start = gap_start
+                if relative_start < 1.0 and seg_dur_in_edit > 3:
+                    refined[i] = {**seg, "start": seg["start"] + min(gap_end, 1.0)}
+                    logger.info("  Trimmed start of seg %d by %.1fs", i, min(gap_end, 1.0))
+                    break
+
+    refined.sort(key=lambda s: s["start"])
+
+    total = sum(s["end"] - s["start"] for s in refined)
+    while total > 55 and len(refined) > 2:
+        body_parts = [p for p in refined if p.get("role") == "body"]
+        if not body_parts:
+            break
+        weakest = min(body_parts, key=lambda p: p.get("score", 0))
+        refined.remove(weakest)
+        total = sum(s["end"] - s["start"] for s in refined)
+
+    return refined
+
+
+# ---------------------------------------------------------------------------
+# Agent runner
 # ---------------------------------------------------------------------------
 
 def run_agent_edit(
-    meta: VideoMetadata, api_key: str, http_client: HTTPClientImpl,
-    prompt: str,
+    meta: VideoMetadata, api_key: str, http_client: HTTPClientImpl, prompt: str,
 ) -> list[dict]:
-    """Run the agent and return all add_clip_to_timeline calls."""
     video_analyzer._metadata_cache[meta.asset_id] = meta
     brain = brain_module.build_brain("edit-test", [meta], api_key, http_client)
-    logger.info("Brain built: %d clips, %d topics", len(brain.clips), len(brain.topics))
+    logger.info("Brain: %d clips, %d topics", len(brain.clips), len(brain.topics))
 
     request = AgentExecuteRequest(
         prompt=prompt,
@@ -173,212 +518,253 @@ def run_agent_edit(
     )
 
     session_id, response = gemini_agent.execute_prompt(request, api_key, http_client)
-    all_tool_calls: list[dict] = []
-    add_clip_calls: list[dict] = []
+    all_tools: list[dict] = []
+    add_clips: list[dict] = []
 
     def record(resp):
         for tc in resp.tool_calls:
             call = {"tool": tc.tool_name, "args": tc.arguments}
-            all_tool_calls.append(call)
+            all_tools.append(call)
             if tc.tool_name == "add_clip_to_timeline":
-                add_clip_calls.append(call)
+                add_clips.append(call)
 
     record(response)
 
-    max_rounds = 15
-    round_num = 0
-    while not response.done and round_num < max_rounds:
-        round_num += 1
-        mock_results = []
+    for _ in range(15):
+        if response.done:
+            break
+        mocks = []
         for tc in response.tool_calls:
             if tc.tool_name == "get_timeline_state":
-                mock_results.append(ToolResult(
-                    tool_name=tc.tool_name, success=True,
+                mocks.append(ToolResult(tool_name=tc.tool_name, success=True,
                     result={"currentTime": 0, "trackCount": 6, "tracks": [],
-                            "clipCount": len(add_clip_calls), "clips": []},
-                ))
+                            "clipCount": len(add_clips), "clips": []}))
             elif tc.tool_name == "get_project_assets":
-                mock_results.append(ToolResult(
-                    tool_name=tc.tool_name, success=True,
+                mocks.append(ToolResult(tool_name=tc.tool_name, success=True,
                     result={"assetCount": 1, "assets": [{
                         "id": meta.asset_id, "type": "video", "duration": meta.duration,
                         "resolution": list(meta.resolution), "path": str(TEST_VIDEO),
                         "parentAssetId": None, "sourceIn": None, "sourceOut": None, "topics": [],
-                    }]},
-                ))
+                    }]}))
             else:
-                mock_results.append(ToolResult(
-                    tool_name=tc.tool_name, success=True, result={"status": "ok"},
-                ))
-        response = gemini_agent.continue_with_results(session_id, mock_results, api_key, http_client)
+                mocks.append(ToolResult(tool_name=tc.tool_name, success=True,
+                    result={"status": "ok"}))
+        response = gemini_agent.continue_with_results(session_id, mocks, api_key, http_client)
         record(response)
 
-    logger.info("Agent done: %d total tools, %d add_clip calls", len(all_tool_calls), len(add_clip_calls))
-    return add_clip_calls
+    logger.info("Agent: %d tools, %d add_clip calls", len(all_tools), len(add_clips))
+    return add_clips
 
 
 # ---------------------------------------------------------------------------
-# Stage 2: Export via ffmpeg
+# FIX-3: FFmpeg export with output-seeking for frame accuracy
 # ---------------------------------------------------------------------------
 
-def export_edit(clips: list[dict], source_video: Path, output_path: Path) -> Path:
-    """Extract segments and concatenate into a single video."""
+def export_edit(clips: list[dict], source: Path, output: Path) -> Path:
     ffmpeg = get_ffmpeg()
-    segments: list[dict] = []
+    segs: list[dict] = []
+    for c in clips:
+        a = c["args"]
+        si, so = a.get("source_in"), a.get("source_out")
+        if si is not None and so is not None and so > si:
+            segs.append({"in": float(si), "out": float(so)})
 
-    for clip in clips:
-        args = clip["args"]
-        src_in = args.get("source_in")
-        src_out = args.get("source_out")
-        if src_in is not None and src_out is not None and src_out > src_in:
-            segments.append({"source_in": float(src_in), "source_out": float(src_out)})
+    if not segs:
+        raise RuntimeError("No segments with source_in/source_out")
 
-    if not segments:
-        raise RuntimeError("No segments with source_in/source_out found")
-
-    seen = set()
-    unique = []
-    for seg in segments:
-        key = (round(seg["source_in"], 1), round(seg["source_out"], 1))
+    seen: set[tuple[float, float]] = set()
+    unique: list[dict] = []
+    for s in segs:
+        key = (round(s["in"], 1), round(s["out"], 1))
         if key not in seen:
             seen.add(key)
-            unique.append(seg)
-    segments = unique
+            unique.append(s)
+    segs = unique
 
-    logger.info("Exporting %d segments:", len(segments))
-    for i, seg in enumerate(segments):
-        logger.info("  Seg %d: %.1fs-%.1fs (%.1fs)",
-                     i + 1, seg["source_in"], seg["source_out"],
-                     seg["source_out"] - seg["source_in"])
+    logger.info("Exporting %d segments (output-seeking for frame accuracy):", len(segs))
+    for i, s in enumerate(segs):
+        logger.info("  %d: %.1fs-%.1fs (%.1fs)", i + 1, s["in"], s["out"], s["out"] - s["in"])
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        seg_files: list[str] = []
-        for i, seg in enumerate(segments):
-            sf = os.path.join(tmpdir, f"seg_{i:03d}.mp4")
-            cmd = [
+    with tempfile.TemporaryDirectory() as tmp:
+        files: list[str] = []
+        for i, s in enumerate(segs):
+            sf = os.path.join(tmp, f"s{i:03d}.mp4")
+            r = subprocess.run([
                 ffmpeg, "-y",
-                "-ss", str(seg["source_in"]),
-                "-to", str(seg["source_out"]),
-                "-i", str(source_video),
+                "-i", str(source),
+                "-ss", str(s["in"]),
+                "-to", str(s["out"]),
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-c:a", "aac", "-b:a", "128k",
                 "-avoid_negative_ts", "make_zero",
+                "-async", "1",
                 sf,
-            ]
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            ], capture_output=True, text=True, timeout=300)
             if r.returncode != 0:
-                logger.error("FFmpeg seg %d failed: %s", i, r.stderr[:400])
+                logger.error("FFmpeg seg %d failed: %s", i, r.stderr[:500])
                 continue
-            seg_files.append(sf)
+            files.append(sf)
 
-        if not seg_files:
-            raise RuntimeError("All ffmpeg segment extractions failed")
+        if not files:
+            raise RuntimeError("All segment extractions failed")
 
-        concat_file = os.path.join(tmpdir, "concat.txt")
-        with open(concat_file, "w") as f:
-            for sf in seg_files:
+        cl = os.path.join(tmp, "concat.txt")
+        with open(cl, "w") as f:
+            for sf in files:
                 f.write(f"file '{sf}'\n")
 
-        cmd = [
-            ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", concat_file,
+        r = subprocess.run([
+            ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", cl,
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k", str(output_path),
-        ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            str(output),
+        ], capture_output=True, text=True, timeout=300)
         if r.returncode != 0:
-            raise RuntimeError(f"FFmpeg concat failed: {r.stderr[:400]}")
+            raise RuntimeError(f"Concat failed: {r.stderr[:500]}")
 
-    mb = output_path.stat().st_size / (1024 * 1024)
-    logger.info("Exported: %s (%.1f MB)", output_path.name, mb)
-    return output_path
+    logger.info("Exported: %s (%.1f MB)", output.name, output.stat().st_size / 1e6)
+    return output
 
 
 # ---------------------------------------------------------------------------
-# Stage 3: Gemini video review
+# FIX-5: Gemini review with video-editing-techniques criteria
 # ---------------------------------------------------------------------------
 
-def review_edit(
-    video_path: Path, api_key: str, http_client: HTTPClientImpl, topic: str,
-) -> dict:
-    file_uri = _upload_file_to_gemini(str(video_path), api_key, http_client)
+def review_edit(video_path: Path, api_key: str, http: HTTPClientImpl, topic: str) -> dict:
+    file_uri = _upload_file_to_gemini(str(video_path), api_key, http)
     mime = mimetypes.guess_type(str(video_path))[0] or "video/mp4"
 
-    review_prompt = (
-        "You are an extremely critical professional video editor reviewing a short-form "
-        "social media edit intended for Twitter/X. Be harsh -- 5/10 is mediocre and unusable. "
-        "Only give 8+ if the edit genuinely feels professional and ready to post.\n\n"
-        f"The intended topic is: '{topic}'.\n\n"
-        "Watch the entire video carefully and return a JSON object with:\n"
-        '- "hook_quality": int 1-10. First 2s grab attention? '
-        "10=compelling speaker quote. 1=silence/interviewer/mumbling.\n"
-        '- "pacing_quality": int 1-10. Tight social media pacing? '
-        "10=no dead air, punchy cuts. 1=long pauses, filler words.\n"
-        '- "content_relevance": int 1-10. Every second on topic? '
-        "10=all on topic. 1=off topic.\n"
-        '- "closure_quality": int 1-10. Strong ending? '
-        "10=conclusive statement. 1=mid-sentence cutoff.\n"
-        '- "silent_gaps": array of {"start": float, "end": float}\n'
-        '- "irrelevant_sections": array of {"start": float, "end": float, "reason": str}\n'
-        '- "overall_score": int 1-10\n'
+    prompt = (
+        "You are a brutally critical professional video editor reviewing a short-form "
+        "social media edit for Twitter/X. You grade like a harsh film school professor. "
+        "5/10 is mediocre garbage. Only 8+ means it genuinely works as social content.\n\n"
+        f"Topic: '{topic}'.\n\n"
+        "EVALUATION CRITERIA (apply all of these rigorously):\n\n"
+        "HOOK (first 2 seconds are everything for social media):\n"
+        "- Does the speaker's voice start within 0.5 seconds? If there is silence, "
+        "filler, or an interviewer's question at the start, hook = 1-3.\n"
+        "- Is the opening line compelling and specific to the topic? Generic = 4-5.\n"
+        "- Would a viewer scrolling Twitter stop for this? Be honest.\n\n"
+        "PACING (Murch's rhythm criterion):\n"
+        "- Are there any gaps of silence longer than 0.3s between speech segments? "
+        "Each gap drops pacing by 1 point.\n"
+        "- Does the edit feel tight -- like every frame earns its place?\n"
+        "- Are cuts motivated by content (new point, emphasis) or arbitrary?\n"
+        "- Dead air, mumbling, filler words ('um', 'uh', 'so') at cut points = bad pacing.\n\n"
+        "CONTENT RELEVANCE:\n"
+        "- Is every single second about the topic? Off-topic tangents = -2 per tangent.\n"
+        "- Does the speaker provide specific, concrete information?\n\n"
+        "CLOSURE:\n"
+        "- Does the edit end on a complete sentence with a conclusive statement?\n"
+        "- Ending mid-sentence = 1-3. Trailing off = 4-5. Strong finish = 7+.\n\n"
+        "AUDIO CONTINUITY:\n"
+        "- Are there jarring audio changes at cut points (volume shifts, room tone changes)?\n"
+        "- Does the audio flow feel natural across cuts?\n\n"
+        "Return ONLY valid JSON with these fields:\n"
+        '- "hook_quality": int 1-10\n'
+        '- "pacing_quality": int 1-10\n'
+        '- "content_relevance": int 1-10\n'
+        '- "closure_quality": int 1-10\n'
+        '- "audio_continuity": int 1-10\n'
+        '- "silent_gaps": [{"start": float, "end": float}] (timestamps in the exported video)\n'
+        '- "irrelevant_sections": [{"start": float, "end": float, "reason": str}]\n'
+        '- "overall_score": int 1-10 (weighted: hook 30%, pacing 25%, content 20%, closure 15%, audio 10%)\n'
         '- "duration_seconds": float\n'
-        '- "feedback": string, 2-3 sentences of specific improvements.\n'
-        "Return ONLY valid JSON."
+        '- "feedback": string with 3-5 specific, actionable improvements. '
+        'Name exact timestamps where problems occur.\n'
     )
 
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent"
     payload = {
         "contents": [{"role": "user", "parts": [
             {"fileData": {"mimeType": mime, "fileUri": file_uri}},
-            {"text": review_prompt},
+            {"text": prompt},
         ]}],
-        "generationConfig": {
-            "temperature": 0.3, "maxOutputTokens": 4096,
-            "responseMimeType": "application/json",
-        },
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4096,
+                             "responseMimeType": "application/json"},
     }
-    resp = http_client.post(
-        url,
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-        json_payload=payload, timeout=120,
-    )
+    resp = http.post(url, headers={"Content-Type": "application/json",
+                                    "x-goog-api-key": api_key},
+                     json_payload=payload, timeout=180)
     if resp.status_code != 200:
-        logger.error("Review failed: %d %s", resp.status_code, resp.text[:300])
         return {"overall_score": 0, "feedback": f"API error {resp.status_code}"}
 
-    body = resp.json()
     try:
-        text = body["candidates"][0]["content"]["parts"][0]["text"]
+        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
         parsed = json.loads(text)
         if isinstance(parsed, list) and parsed:
             parsed = parsed[0]
-        if isinstance(parsed, dict):
-            return parsed
-    except Exception as exc:
-        logger.error("Review parse failed: %s", exc)
-    return {"overall_score": 0, "feedback": "parse error"}
+        return parsed if isinstance(parsed, dict) else {"overall_score": 0, "feedback": "bad format"}
+    except Exception as e:
+        return {"overall_score": 0, "feedback": str(e)}
 
 
 # ---------------------------------------------------------------------------
-# Feedback builder
+# FIX-4: Actionable feedback builder
 # ---------------------------------------------------------------------------
 
-def _build_feedback_addendum(review: dict) -> str:
+def build_feedback(review: dict) -> str:
     parts = [
-        f"\n\n--- FEEDBACK FROM PREVIOUS ATTEMPT (scored {review.get('overall_score', 0)}/10) ---",
+        f"\n\n--- PREVIOUS ATTEMPT SCORED {review.get('overall_score', 0)}/10 ---",
         f"Hook: {review.get('hook_quality', '?')}/10",
         f"Pacing: {review.get('pacing_quality', '?')}/10",
         f"Content: {review.get('content_relevance', '?')}/10",
         f"Closure: {review.get('closure_quality', '?')}/10",
+        f"Audio: {review.get('audio_continuity', '?')}/10",
     ]
-    if review.get("silent_gaps"):
-        parts.append(f"Silent gaps: {review['silent_gaps']}")
-    if review.get("irrelevant_sections"):
-        for s in review["irrelevant_sections"]:
-            parts.append(f"  Off-topic: {s.get('start', '?')}s-{s.get('end', '?')}s -- {s.get('reason', '')}")
+
     if review.get("feedback"):
-        parts.append(f"Reviewer: {review['feedback']}")
-    parts.append("FIX ALL of these issues. Do NOT repeat the same mistakes.")
+        parts.append(f"Reviewer feedback: {review['feedback']}")
+
+    gaps = review.get("silent_gaps", [])
+    if gaps:
+        gap_str = ", ".join(f"{g.get('start', 0):.1f}s-{g.get('end', 0):.1f}s" for g in gaps[:5])
+        parts.append(f"Silent gaps detected at: {gap_str}")
+        parts.append("ACTION: Tighten source_in on segments that start with silence.")
+
+    irr = review.get("irrelevant_sections", [])
+    if irr:
+        for sec in irr[:3]:
+            parts.append(f"Off-topic at {sec.get('start', 0):.1f}s-{sec.get('end', 0):.1f}s: {sec.get('reason', '?')}")
+
+    hook_q = review.get("hook_quality", 10)
+    if hook_q < 6:
+        parts.append(f"CRITICAL: Hook scored {hook_q}/10. The first segment was REPLACED with a stronger opening.")
+
+    parts.append("Apply these fixes. The segments below have been updated based on this feedback.")
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# FIX-2: Agent prompt with editorial judgment
+# ---------------------------------------------------------------------------
+
+def build_agent_prompt(topic: str, segments: list[dict]) -> str:
+    ts_info = "\n".join(
+        f"  {i+1}. [{s.get('role', 'body').upper()}] {s['start']:.1f}s to {s['end']:.1f}s: "
+        f"\"{s['text'][:120]}\""
+        for i, s in enumerate(segments)
+    )
+
+    return (
+        f"Create a ~45 second edit for Twitter/X about {topic}.\n\n"
+        "I have pre-selected the best segments with verified Whisper timestamps.\n"
+        "Each segment is labeled with its editorial role: HOOK, BODY, or CLOSURE.\n\n"
+        f"SEGMENTS:\n{ts_info}\n\n"
+        "INSTRUCTIONS:\n"
+        "1. Call add_clip_to_timeline for EACH segment above, in order.\n"
+        "2. The FIRST segment is the HOOK. It MUST start at the exact moment the "
+        "speaker's voice begins. If there is any silence or interviewer audio at the "
+        "start, tighten source_in forward by up to 1.0s.\n"
+        "3. The LAST segment is the CLOSURE. It should end cleanly -- tighten "
+        "source_out backward by up to 0.5s if there is trailing silence.\n"
+        "4. For all segments: you MAY adjust source_in forward or source_out backward "
+        "by up to 1.0s to remove filler, silence, or mumbling at boundaries. "
+        "Do NOT skip any segment.\n"
+        "5. The asset_id is available in the brain context.\n"
+        "6. After adding all clips, you are DONE. Summarize briefly and stop."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -388,136 +774,116 @@ def _build_feedback_addendum(review: dict) -> str:
 def main():
     gemini_key = load_gemini_api_key()
     openai_key = load_openai_api_key()
-    http_client = HTTPClientImpl()
+    http = HTTPClientImpl()
     meta = load_metadata()
     topic = "sound/audio improvements in LTX 2.3"
 
-    # --- Step 1: Whisper transcript (accurate timestamps) ---
-    transcript = get_whisper_transcript(openai_key)
-    assert len(transcript) >= 20, f"Whisper transcript too short: {len(transcript)} lines"
-    logger.info("Whisper transcript: %d lines, %.0fs-%.0fs",
-                len(transcript), transcript[0].start_time, transcript[-1].end_time)
+    # --- Step 1: Whisper transcript ---
+    raw_transcript = get_whisper_transcript(openai_key)
+    logger.info("Raw Whisper: %d lines", len(raw_transcript))
 
-    # Update metadata with Whisper dialogue
+    # --- Step 2: Filter transcript ---
+    transcript = filter_transcript(raw_transcript)
+    assert len(transcript) >= 10, f"Filtered transcript too short: {len(transcript)}"
     meta.dialogue = transcript
 
-    # --- Step 2: Find audio-topic segments ---
-    # Use brain topic time ranges (from Gemini's English scene descriptions)
-    # combined with Whisper's accurate timestamps
-    brain_module = __import__("agent.brain", fromlist=["build_brain", "query_brain"])
-    brain = brain_module.build_brain("test", [meta], gemini_key, http_client)
-    results = brain_module.query_brain("test", "audio sound improvements LTX 2.3")
+    # --- Step 3: Build sentences ---
+    sentences = build_sentences(transcript)
+    logger.info("Sentences: %d", len(sentences))
+    for s in sentences[:5]:
+        logger.info("  [%.1fs-%.1fs] %s", s["start"], s["end"], s["text"][:80])
 
-    topic_segments: list[dict] = []
-    if results:
-        for entry in results:
-            if hasattr(entry, "source_in") and entry.source_in is not None:
-                topic_segments.append({
-                    "start": entry.source_in,
-                    "end": entry.source_out or entry.source_in + 60,
-                    "text": entry.description[:200] if entry.description else entry.title,
-                })
+    # --- Step 4: Three-part segment selection ---
+    hook = select_hook(sentences, AUDIO_KEYWORDS)
+    if hook:
+        logger.info("HOOK: [%.1fs-%.1fs] score=%.1f: %s",
+                     hook["start"], hook["end"], hook["score"], hook["text"][:80])
+    else:
+        logger.warning("No hook found!")
 
-    # Also add keyword matches from Whisper transcript
-    audio_keywords = [
-        "audio", "sound", "lip sync", "vocoder", "vae", "voice",
-        "music video", "synchroniz", "dynamic range", "2.3",
-        "improve", "quality", "metallic", "noise",
-    ]
-    keyword_segs = find_segments_by_keywords(transcript, audio_keywords)
-    for seg in keyword_segs:
-        topic_segments.append(seg)
+    hook_ids = {hook["_idx"]} if hook else set()
 
-    # Deduplicate overlapping segments
-    topic_segments.sort(key=lambda s: s["start"])
-    logger.info("Found %d audio-topic segments:", len(topic_segments))
-    for seg in topic_segments:
-        logger.info("  %.1fs-%.1fs (%.1fs): %s",
-                     seg["start"], seg["end"], seg["end"] - seg["start"],
-                     seg["text"][:100])
+    closure = select_closure(sentences, AUDIO_KEYWORDS, exclude_ids=hook_ids)
+    if closure:
+        logger.info("CLOSURE: [%.1fs-%.1fs] score=%.1f: %s",
+                     closure["start"], closure["end"], closure["score"], closure["text"][:80])
+    else:
+        logger.warning("No closure found!")
+
+    hook_dur = (hook["end"] - hook["start"]) if hook else 0
+    closure_dur = (closure["end"] - closure["start"]) if closure else 0
+    body_target = max(45.0 - hook_dur - closure_dur, 15.0)
+
+    body = select_body_segments(sentences, AUDIO_KEYWORDS, hook, closure,
+                                target_body_duration=body_target)
+    logger.info("BODY: %d segments, %.1fs",
+                len(body), sum(s["end"] - s["start"] for s in body))
+
+    topic_segments = compose_edit(hook, body, closure)
 
     if not topic_segments:
-        logger.error("No audio-topic segments found")
+        logger.error("No topic segments found!")
         sys.exit(1)
 
-    timestamp_info = "\n".join(
-        f"  - {seg['start']:.1f}s to {seg['end']:.1f}s: \"{seg['text'][:120]}\""
-        for seg in topic_segments
-    )
-
-    # --- Step 3: Agent iterations ---
+    # --- Step 5: Iterative edit-export-review loop ---
     original_model = gemini_agent._GEMINI_MODEL
     gemini_agent._GEMINI_MODEL = "gemini-3-flash-preview"
-    logger.info("Agent model: gemini-3-flash-preview (fast iteration)")
+    logger.info("Agent model: gemini-3-flash-preview")
 
-    base_prompt = (
-        f"Create an estimated 45 seconds edit for Twitter/X about {topic}.\n\n"
-        "I have accurate transcript timestamps from Whisper. DO NOT use "
-        "query_project_brain or get_transcript_segment -- just add clips directly.\n\n"
-        "VERIFIED TIMESTAMPS (accurate to 0.1s):\n"
-        f"{timestamp_info}\n\n"
-        "INSTRUCTIONS:\n"
-        "1. Call add_clip_to_timeline for each segment. Use source_in/source_out "
-        "from the timestamps above. Pick 3-5 segments totaling ~45 seconds.\n"
-        "2. HOOK: Start with a complete sentence, the speaker's boldest claim.\n"
-        "3. CLOSURE: End with a complete, conclusive sentence.\n"
-        "4. NEVER start or end mid-sentence.\n"
-        "5. NEVER include interviewer speaking (Hebrew interjections).\n"
-        "6. Trim source_in/source_out to exclude pauses at start/end of segments.\n\n"
-        "The asset_id for the video is in the timeline state."
-    )
-
-    max_iterations = 7
+    max_iter = 7
     best_score = 0
     best_output = None
     last_review: dict | None = None
+    current_segments = topic_segments
 
     try:
-        for iteration in range(1, max_iterations + 1):
+        for it in range(1, max_iter + 1):
             logger.info("=" * 60)
-            logger.info("ITERATION %d / %d", iteration, max_iterations)
+            logger.info("ITERATION %d / %d", it, max_iter)
             logger.info("=" * 60)
 
+            base_prompt = build_agent_prompt(topic, current_segments)
             prompt = base_prompt
             if last_review and last_review.get("overall_score", 0) < 8:
-                prompt += _build_feedback_addendum(last_review)
+                prompt += build_feedback(last_review)
 
-            logger.info("--- Stage 1: Agent ---")
+            logger.info("--- Agent ---")
             t0 = time.monotonic()
             try:
-                clips = run_agent_edit(meta, gemini_key, http_client, prompt)
+                clips = run_agent_edit(meta, gemini_key, http, prompt)
             except Exception:
                 logger.exception("Agent failed")
                 continue
             logger.info("Agent: %.1fs, %d clips", time.monotonic() - t0, len(clips))
 
             if len(clips) < 2:
-                logger.warning("< 2 clips, skipping")
+                logger.warning("< 2 clips, skip")
                 continue
 
-            logger.info("--- Stage 2: Export ---")
-            output_path = OUTPUT_DIR / f"edit_output_v{iteration}.mp4"
+            logger.info("--- Export ---")
+            out = OUTPUT_DIR / f"edit_output_v{it}.mp4"
             try:
-                export_edit(clips, TEST_VIDEO, output_path)
+                export_edit(clips, TEST_VIDEO, out)
             except Exception:
                 logger.exception("Export failed")
                 continue
 
-            logger.info("--- Stage 3: Review ---")
+            logger.info("--- Review ---")
             try:
-                review = review_edit(output_path, gemini_key, http_client, topic)
+                review = review_edit(out, gemini_key, http, topic)
             except Exception:
                 logger.exception("Review failed")
                 continue
 
             last_review = review
 
-            logger.info("=== REVIEW (iter %d) ===", iteration)
+            logger.info("=== REVIEW (iter %d) ===", it)
             for k in ["hook_quality", "pacing_quality", "content_relevance",
-                       "closure_quality", "overall_score", "duration_seconds"]:
+                       "closure_quality", "audio_continuity", "overall_score",
+                       "duration_seconds"]:
                 logger.info("  %s: %s", k, review.get(k, "N/A"))
             if review.get("silent_gaps"):
-                logger.info("  Silent gaps: %s", review["silent_gaps"])
+                logger.info("  Gaps: %s", review["silent_gaps"])
             if review.get("irrelevant_sections"):
                 logger.info("  Irrelevant: %s", review["irrelevant_sections"])
             logger.info("  Feedback: %s", review.get("feedback", "N/A"))
@@ -525,23 +891,23 @@ def main():
             score = review.get("overall_score", 0)
             if score > best_score:
                 best_score = score
-                best_output = output_path
-                shutil.copy2(output_path, OUTPUT_DIR / "edit_output.mp4")
+                best_output = out
+                shutil.copy2(out, OUTPUT_DIR / "edit_output.mp4")
 
             if score >= 8:
-                logger.info("=== QUALITY PASSED (score=%d) ===", score)
+                logger.info("=== QUALITY PASSED (%d/10) ===", score)
                 break
-            else:
-                logger.warning("Score %d < 8, retrying with feedback...", score)
+
+            logger.warning("Score %d < 8, refining segments...", score)
+            current_segments = refine_segments(
+                current_segments, review, sentences, AUDIO_KEYWORDS, it
+            )
     finally:
         gemini_agent._GEMINI_MODEL = original_model
 
     logger.info("=" * 60)
-    logger.info("FINAL: best=%d, output=%s", best_score, best_output)
-    if best_score >= 8:
-        logger.info("STATUS: PASS")
-    else:
-        logger.warning("STATUS: BEST EFFORT (%d)", best_score)
+    logger.info("FINAL: best=%d, file=%s", best_score, best_output)
+    logger.info("STATUS: %s", "PASS" if best_score >= 8 else f"BEST EFFORT ({best_score})")
     sys.exit(0 if best_score >= 8 else 1)
 
 
