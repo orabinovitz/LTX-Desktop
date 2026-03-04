@@ -382,6 +382,8 @@ def compose_edit(
 ) -> list[dict]:
     """Assemble hook + body + closure into a time-ordered segment list.
 
+    Adds _BOUNDARY_PAD seconds to each edge to prevent cutting into speech
+    (Whisper timestamps can be ±0.2s imprecise at word boundaries).
     Validates duration is 25-60s and deduplicates overlaps.
     """
     parts: list[dict] = []
@@ -394,9 +396,10 @@ def compose_edit(
         if idx in used_indices:
             continue
         used_indices.add(idx)
-        parts.append(seg)
+        parts.append(_pad_segment(seg))
 
-    parts.sort(key=lambda s: s["start"])
+    _ROLE_ORDER = {"hook": 0, "body": 1, "closure": 2, "?": 1}
+    parts.sort(key=lambda s: (_ROLE_ORDER.get(s.get("role", "?"), 1), s["start"]))
 
     total = sum(s["end"] - s["start"] for s in parts)
     if total < 25:
@@ -424,6 +427,18 @@ def compose_edit(
 # FIX-4: Segment refinement based on review feedback
 # ---------------------------------------------------------------------------
 
+_BOUNDARY_PAD = 0.7
+
+
+def _pad_segment(seg: dict) -> dict:
+    """Apply boundary padding to a segment to prevent cutting into speech."""
+    return {
+        **seg,
+        "start": max(0, seg["start"] - _BOUNDARY_PAD),
+        "end": seg["end"] + _BOUNDARY_PAD,
+    }
+
+
 def refine_segments(
     segments: list[dict],
     review: dict,
@@ -434,12 +449,12 @@ def refine_segments(
     """Refine segments based on Gemini review scores.
 
     On each iteration, make targeted replacements for the weakest dimension.
+    Replacement segments are padded to prevent mid-word cuts.
     Returns a new segment list (may be identical if no improvement found).
     """
     hook_score = review.get("hook_quality", 10)
     pacing_score = review.get("pacing_quality", 10)
     closure_score = review.get("closure_quality", 10)
-    silent_gaps = review.get("silent_gaps", [])
 
     used_ids = {s.get("_idx", -1) for s in segments}
     refined = list(segments)
@@ -448,6 +463,7 @@ def refine_segments(
         logger.info("Refine: hook scored %d, replacing...", hook_score)
         new_hook = select_hook(sentences, keywords, exclude_ids=used_ids)
         if new_hook:
+            new_hook = _pad_segment(new_hook)
             old_hook_indices = [i for i, s in enumerate(refined) if s.get("role") == "hook"]
             if old_hook_indices:
                 old = refined[old_hook_indices[0]]
@@ -463,6 +479,7 @@ def refine_segments(
         logger.info("Refine: closure scored %d, replacing...", closure_score)
         new_closure = select_closure(sentences, keywords, exclude_ids=used_ids)
         if new_closure:
+            new_closure = _pad_segment(new_closure)
             old_closure_indices = [i for i, s in enumerate(refined) if s.get("role") == "closure"]
             if old_closure_indices:
                 old = refined[old_closure_indices[0]]
@@ -471,22 +488,8 @@ def refine_segments(
                 used_ids.add(new_closure["_idx"])
                 logger.info("  Replaced closure: %.1fs -> %.1fs", old["start"], new_closure["start"])
 
-    if pacing_score < 6 and silent_gaps:
-        logger.info("Refine: pacing scored %d with %d gaps, tightening...", pacing_score, len(silent_gaps))
-        for gap in silent_gaps:
-            gap_start = gap.get("start", 0)
-            gap_end = gap.get("end", 0)
-            if gap_end - gap_start < 0.2:
-                continue
-            for i, seg in enumerate(refined):
-                seg_dur_in_edit = seg["end"] - seg["start"]
-                relative_start = gap_start
-                if relative_start < 1.0 and seg_dur_in_edit > 3:
-                    refined[i] = {**seg, "start": seg["start"] + min(gap_end, 1.0)}
-                    logger.info("  Trimmed start of seg %d by %.1fs", i, min(gap_end, 1.0))
-                    break
-
-    refined.sort(key=lambda s: s["start"])
+    _ROLE_ORDER = {"hook": 0, "body": 1, "closure": 2, "?": 1}
+    refined.sort(key=lambda s: (_ROLE_ORDER.get(s.get("role", "?"), 1), s["start"]))
 
     total = sum(s["end"] - s["start"] for s in refined)
     while total > 55 and len(refined) > 2:
@@ -627,6 +630,63 @@ def export_edit(clips: list[dict], source: Path, output: Path) -> Path:
     return output
 
 
+def export_segments_direct(segments: list[dict], source: Path, output: Path) -> Path:
+    """Export directly from precomputed segments, bypassing agent timestamp modifications.
+    
+    Preserves segment order (hook -> body -> closure) from compose_edit.
+    """
+    ffmpeg = get_ffmpeg()
+    segs = [{"in": s["start"], "out": s["end"]} for s in segments if s["end"] > s["start"]]
+
+    if not segs:
+        raise RuntimeError("No segments to export")
+
+    logger.info("Direct export: %d segments (padded, output-seeking):", len(segs))
+    for i, s in enumerate(segs):
+        logger.info("  %d: %.2fs-%.2fs (%.2fs)", i + 1, s["in"], s["out"], s["out"] - s["in"])
+
+    with tempfile.TemporaryDirectory() as tmp:
+        files: list[str] = []
+        for i, s in enumerate(segs):
+            sf = os.path.join(tmp, f"s{i:03d}.mp4")
+            r = subprocess.run([
+                ffmpeg, "-y",
+                "-i", str(source),
+                "-ss", str(s["in"]),
+                "-to", str(s["out"]),
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                "-avoid_negative_ts", "make_zero",
+                "-async", "1",
+                sf,
+            ], capture_output=True, text=True, timeout=300)
+            if r.returncode != 0:
+                logger.error("FFmpeg seg %d failed: %s", i, r.stderr[:500])
+                continue
+            files.append(sf)
+
+        if not files:
+            raise RuntimeError("All segment extractions failed")
+
+        cl = os.path.join(tmp, "concat.txt")
+        with open(cl, "w") as f:
+            for sf in files:
+                f.write(f"file '{sf}'\n")
+
+        r = subprocess.run([
+            ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", cl,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            str(output),
+        ], capture_output=True, text=True, timeout=300)
+        if r.returncode != 0:
+            raise RuntimeError(f"Concat failed: {r.stderr[:500]}")
+
+    logger.info("Exported: %s (%.1f MB)", output.name, output.stat().st_size / 1e6)
+    return output
+
+
 # ---------------------------------------------------------------------------
 # FIX-5: Gemini review with video-editing-techniques criteria
 # ---------------------------------------------------------------------------
@@ -658,6 +718,11 @@ def review_edit(video_path: Path, api_key: str, http: HTTPClientImpl, topic: str
         "CLOSURE:\n"
         "- Does the edit end on a complete sentence with a conclusive statement?\n"
         "- Ending mid-sentence = 1-3. Trailing off = 4-5. Strong finish = 7+.\n\n"
+        "SENTENCE COMPLETENESS (most critical for this review):\n"
+        "- Does EVERY clip start at the beginning of a word? Starting mid-syllable = 1.\n"
+        "- Does EVERY clip end at the end of a complete sentence or phrase? "
+        "Cutting off mid-word or mid-sentence = 1.\n"
+        "- Listen carefully to the first 0.5s and last 0.5s of each clip.\n\n"
         "AUDIO CONTINUITY:\n"
         "- Are there jarring audio changes at cut points (volume shifts, room tone changes)?\n"
         "- Does the audio flow feel natural across cuts?\n\n"
@@ -666,6 +731,7 @@ def review_edit(video_path: Path, api_key: str, http: HTTPClientImpl, topic: str
         '- "pacing_quality": int 1-10\n'
         '- "content_relevance": int 1-10\n'
         '- "closure_quality": int 1-10\n'
+        '- "sentence_completeness": int 1-10 (10=all sentences start and end cleanly, 1=words cut off)\n'
         '- "audio_continuity": int 1-10\n'
         '- "silent_gaps": [{"start": float, "end": float}] (timestamps in the exported video)\n'
         '- "irrelevant_sections": [{"start": float, "end": float, "reason": str}]\n'
@@ -750,20 +816,17 @@ def build_agent_prompt(topic: str, segments: list[dict]) -> str:
     return (
         f"Create a ~45 second edit for Twitter/X about {topic}.\n\n"
         "I have pre-selected the best segments with verified Whisper timestamps.\n"
-        "Each segment is labeled with its editorial role: HOOK, BODY, or CLOSURE.\n\n"
+        "Each segment is labeled with its editorial role: HOOK, BODY, or CLOSURE.\n"
+        "The timestamps include 0.3s safety padding on each side to ensure\n"
+        "complete words are captured. Do NOT trim them further.\n\n"
         f"SEGMENTS:\n{ts_info}\n\n"
         "INSTRUCTIONS:\n"
         "1. Call add_clip_to_timeline for EACH segment above, in order.\n"
-        "2. The FIRST segment is the HOOK. It MUST start at the exact moment the "
-        "speaker's voice begins. If there is any silence or interviewer audio at the "
-        "start, tighten source_in forward by up to 1.0s.\n"
-        "3. The LAST segment is the CLOSURE. It should end cleanly -- tighten "
-        "source_out backward by up to 0.5s if there is trailing silence.\n"
-        "4. For all segments: you MAY adjust source_in forward or source_out backward "
-        "by up to 1.0s to remove filler, silence, or mumbling at boundaries. "
-        "Do NOT skip any segment.\n"
-        "5. The asset_id is available in the brain context.\n"
-        "6. After adding all clips, you are DONE. Summarize briefly and stop."
+        "2. Use the source_in and source_out values EXACTLY as provided.\n"
+        "   These are precision-verified timestamps. Do NOT adjust them.\n"
+        "   Trimming will cut off words mid-syllable.\n"
+        "3. The asset_id is available in the brain context.\n"
+        "4. After adding all clips, you are DONE. Summarize briefly and stop."
     )
 
 
@@ -863,7 +926,7 @@ def main():
             logger.info("--- Export ---")
             out = OUTPUT_DIR / f"edit_output_v{it}.mp4"
             try:
-                export_edit(clips, TEST_VIDEO, out)
+                export_segments_direct(current_segments, TEST_VIDEO, out)
             except Exception:
                 logger.exception("Export failed")
                 continue
@@ -879,8 +942,8 @@ def main():
 
             logger.info("=== REVIEW (iter %d) ===", it)
             for k in ["hook_quality", "pacing_quality", "content_relevance",
-                       "closure_quality", "audio_continuity", "overall_score",
-                       "duration_seconds"]:
+                       "closure_quality", "sentence_completeness",
+                       "audio_continuity", "overall_score", "duration_seconds"]:
                 logger.info("  %s: %s", k, review.get(k, "N/A"))
             if review.get("silent_gaps"):
                 logger.info("  Gaps: %s", review["silent_gaps"])
@@ -894,11 +957,15 @@ def main():
                 best_output = out
                 shutil.copy2(out, OUTPUT_DIR / "edit_output.mp4")
 
-            if score >= 8:
-                logger.info("=== QUALITY PASSED (%d/10) ===", score)
+            completeness = review.get("sentence_completeness", 0)
+            if score >= 8 and completeness >= 7:
+                logger.info("=== QUALITY PASSED (overall=%d, completeness=%d) ===", score, completeness)
                 break
 
-            logger.warning("Score %d < 8, refining segments...", score)
+            if score >= 8 and completeness < 7:
+                logger.warning("Overall %d PASSED but sentence_completeness %d < 7, continuing...", score, completeness)
+
+            logger.warning("Score %d, completeness %d — refining segments...", score, completeness)
             current_segments = refine_segments(
                 current_segments, review, sentences, AUDIO_KEYWORDS, it
             )
