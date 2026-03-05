@@ -91,3 +91,6 @@ dist-electron/
 *.wmv
 *.flv
 *.m4v
+
+# Test video assets (large binaries + generated outputs)
+ltx-video/Test_Assets/
