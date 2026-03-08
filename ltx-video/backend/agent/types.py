@@ -101,6 +101,7 @@ class ToolDefinition(BaseModel):
     description: str = Field(description="What the tool does")
     parameters: list[ToolParameter] = Field(default_factory=list)
     execution_target: ExecutionTarget = Field(default=ExecutionTarget.FRONTEND)
+    category: str = Field(default="core", description="Tool category for knowledge-base routing")
 
 
 # ============================================================

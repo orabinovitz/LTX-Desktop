@@ -34,18 +34,21 @@ def _tool(
     description: str,
     execution_target: ExecutionTarget,
     parameters: list[ToolParameter] | None = None,
+    *,
+    category: str = "core",
 ) -> ToolDefinition:
     return ToolDefinition(
         name=name,
         description=description,
         execution_target=execution_target,
         parameters=parameters or [],
+        category=category,
     )
 
 
-# ---------------------------------------------------------------------------
-# Atomic tools – executed on the frontend (Electron/React)
-# ---------------------------------------------------------------------------
+# ===================================================================
+# CORE — always included in every agent call
+# ===================================================================
 
 get_timeline_state = _tool(
     name="get_timeline_state",
@@ -59,7 +62,25 @@ get_timeline_state = _tool(
         "clip IDs, track indices, and current timing values."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="core",
 )
+
+get_project_assets = _tool(
+    name="get_project_assets",
+    description=(
+        "List every asset in the current project. Each asset includes: id, "
+        "type (video/image/audio/adjustment), path, url, prompt, resolution, "
+        "duration (for videos), thumbnail, and generation parameters. Use "
+        "the returned asset IDs with add_clip_to_timeline or "
+        "get_video_metadata."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="core",
+)
+
+# ===================================================================
+# CLIP EDITING
+# ===================================================================
 
 trim_clip = _tool(
     name="trim_clip",
@@ -76,6 +97,7 @@ trim_clip = _tool(
         "do not call this tool separately for each linked clip."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="clip_editing",
     parameters=[
         _param("clip_id", "string", "Unique identifier of the clip to trim."),
         _param(
@@ -111,6 +133,7 @@ split_clip = _tool(
         "do not call this tool separately for each linked clip."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="clip_editing",
     parameters=[
         _param("clip_id", "string", "Unique identifier of the clip to split."),
         _param(
@@ -133,6 +156,7 @@ delete_clip = _tool(
         "do not call this tool separately for each linked clip."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="clip_editing",
     parameters=[
         _param("clip_id", "string", "Unique identifier of the clip to delete."),
         _param(
@@ -159,6 +183,7 @@ move_clip = _tool(
         "do not call this tool separately for each linked clip."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="clip_editing",
     parameters=[
         _param("clip_id", "string", "Unique identifier of the clip to move."),
         _param(
@@ -190,6 +215,7 @@ add_clip_to_timeline = _tool(
         "segments from long videos."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="clip_editing",
     parameters=[
         _param(
             "asset_id",
@@ -225,72 +251,6 @@ add_clip_to_timeline = _tool(
     ],
 )
 
-set_playhead = _tool(
-    name="set_playhead",
-    description=(
-        "Move the playhead (current time indicator) to an absolute position "
-        "on the timeline. This controls what frame is displayed in the "
-        "preview monitor. Time is in seconds and must be >= 0."
-    ),
-    execution_target=ExecutionTarget.FRONTEND,
-    parameters=[
-        _param(
-            "time",
-            "number",
-            "Absolute timeline position in seconds to move the playhead to.",
-        ),
-    ],
-)
-
-duplicate_timeline = _tool(
-    name="duplicate_timeline",
-    description=(
-        "Create a snapshot (deep copy) of the current active timeline. "
-        "The duplicate is added to the project's timeline list with a new "
-        "ID and an auto-incremented name (e.g. 'Timeline 2'). All tracks, "
-        "clips, effects, and subtitles are preserved. Useful as an undo "
-        "checkpoint before destructive operations or for A/B comparisons."
-    ),
-    execution_target=ExecutionTarget.FRONTEND,
-)
-
-create_timeline = _tool(
-    name="create_timeline",
-    description=(
-        "Create a new empty timeline with default tracks (3 video, 2 audio, "
-        "1 subtitle) in the current project. The new timeline becomes the "
-        "active timeline. Use this when the user wants to start a fresh edit "
-        "from scratch rather than modifying the existing timeline."
-    ),
-    execution_target=ExecutionTarget.FRONTEND,
-    parameters=[
-        _param(
-            "name",
-            "string",
-            "Display name for the new timeline. Defaults to an auto-incremented "
-            "name like 'Timeline 2' if omitted.",
-            required=False,
-        ),
-    ],
-)
-
-rename_timeline = _tool(
-    name="rename_timeline",
-    description=(
-        "Rename the currently active timeline. Use this when the user asks "
-        "to change the timeline name, or after creating/duplicating a timeline "
-        "to give it a meaningful name that reflects its content."
-    ),
-    execution_target=ExecutionTarget.FRONTEND,
-    parameters=[
-        _param(
-            "name",
-            "string",
-            "The new display name for the active timeline.",
-        ),
-    ],
-)
-
 split_at_playhead = _tool(
     name="split_at_playhead",
     description=(
@@ -301,6 +261,7 @@ split_at_playhead = _tool(
         "are handled automatically."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="clip_editing",
 )
 
 flip_clip = _tool(
@@ -312,6 +273,7 @@ flip_clip = _tool(
         "Flipping is a visual transform applied during preview and export."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="clip_editing",
     parameters=[
         _param("clip_id", "string", "Unique identifier of the clip to flip."),
         _param(
@@ -337,6 +299,7 @@ reverse_clip = _tool(
         "duration on the timeline are unchanged."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="clip_editing",
     parameters=[
         _param("clip_id", "string", "Unique identifier of the clip."),
         _param(
@@ -356,6 +319,7 @@ set_clip_speed = _tool(
         "(quadruple). Values between 0.25 and 4 are accepted."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="clip_editing",
     parameters=[
         _param("clip_id", "string", "Unique identifier of the clip."),
         _param(
@@ -365,6 +329,101 @@ set_clip_speed = _tool(
         ),
     ],
 )
+
+duplicate_clip = _tool(
+    name="duplicate_clip",
+    description=(
+        "Create an exact copy of a clip and place it immediately after the "
+        "original on the same track. The duplicate has a new ID but shares "
+        "the same asset, trims, effects, and speed. Linked clips are "
+        "duplicated as a group."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="clip_editing",
+    parameters=[
+        _param("clip_id", "string", "Unique identifier of the clip to duplicate."),
+    ],
+)
+
+# ===================================================================
+# CLIP PROPERTIES
+# ===================================================================
+
+set_clip_volume = _tool(
+    name="set_clip_volume",
+    description=(
+        "Set the audio volume and/or mute state of a clip. Volume is a "
+        "multiplier from 0.0 (silent) to 1.0 (full). Muted clips produce "
+        "no audio regardless of volume level."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="clip_properties",
+    parameters=[
+        _param("clip_id", "string", "Unique identifier of the clip."),
+        _param("volume", "number", "Volume level 0.0–1.0.", required=False),
+        _param("muted", "boolean", "true = mute, false = unmute.", required=False),
+    ],
+)
+
+set_clip_opacity = _tool(
+    name="set_clip_opacity",
+    description=(
+        "Set the visual opacity of a video/image clip. 1.0 is fully opaque "
+        "(default), 0.0 is fully transparent. Clips on higher tracks show "
+        "through to lower tracks when opacity is reduced."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="clip_properties",
+    parameters=[
+        _param("clip_id", "string", "Unique identifier of the clip."),
+        _param("opacity", "number", "Opacity value 0.0–1.0."),
+    ],
+)
+
+link_unlink_clips = _tool(
+    name="link_unlink_clips",
+    description=(
+        "Link or unlink clips so they move and are edited as a group. "
+        "Typically used to pair a video clip with its audio counterpart. "
+        "When linking, provide all clip IDs that should form one group."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="clip_properties",
+    parameters=[
+        _param(
+            "clip_ids",
+            "array",
+            "Array of clip IDs to link or unlink.",
+        ),
+        _param(
+            "action",
+            "string",
+            "'link' to group clips together, 'unlink' to separate them.",
+        ),
+    ],
+)
+
+set_color_correction = _tool(
+    name="set_color_correction",
+    description=(
+        "Adjust color correction properties of a clip: brightness, contrast, "
+        "saturation, and color temperature. All values are relative offsets "
+        "where 0 is no change. Provide only the properties you want to modify."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="clip_properties",
+    parameters=[
+        _param("clip_id", "string", "Unique identifier of the clip."),
+        _param("brightness", "number", "Brightness offset (-100 to 100).", required=False),
+        _param("contrast", "number", "Contrast offset (-100 to 100).", required=False),
+        _param("saturation", "number", "Saturation offset (-100 to 100).", required=False),
+        _param("temperature", "number", "Color temperature offset (-100 to 100).", required=False),
+    ],
+)
+
+# ===================================================================
+# TRANSITIONS
+# ===================================================================
 
 add_dissolve = _tool(
     name="add_dissolve",
@@ -376,6 +435,7 @@ add_dissolve = _tool(
         "To remove a dissolve, set duration to 0."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="transitions",
     parameters=[
         _param(
             "left_clip_id",
@@ -396,21 +456,653 @@ add_dissolve = _tool(
     ],
 )
 
-get_project_assets = _tool(
-    name="get_project_assets",
+# ===================================================================
+# PLAYBACK & NAVIGATION
+# ===================================================================
+
+set_playhead = _tool(
+    name="set_playhead",
     description=(
-        "List every asset in the current project. Each asset includes: id, "
-        "type (video/image/audio/adjustment), path, url, prompt, resolution, "
-        "duration (for videos), thumbnail, and generation parameters. Use "
-        "the returned asset IDs with add_clip_to_timeline or "
-        "get_video_metadata."
+        "Move the playhead (current time indicator) to an absolute position "
+        "on the timeline. This controls what frame is displayed in the "
+        "preview monitor. Time is in seconds and must be >= 0."
     ),
     execution_target=ExecutionTarget.FRONTEND,
+    category="playback",
+    parameters=[
+        _param(
+            "time",
+            "number",
+            "Absolute timeline position in seconds to move the playhead to.",
+        ),
+    ],
 )
 
-# ---------------------------------------------------------------------------
-# Resource tools – executed on the backend (Python / FastAPI)
-# ---------------------------------------------------------------------------
+toggle_playback = _tool(
+    name="toggle_playback",
+    description=(
+        "Play, pause, or toggle timeline playback. By default toggles "
+        "the current state."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="playback",
+    parameters=[
+        _param(
+            "action",
+            "string",
+            "'play', 'pause', or 'toggle' (default). Controls playback state.",
+            required=False,
+        ),
+    ],
+)
+
+step_frame = _tool(
+    name="step_frame",
+    description=(
+        "Step the playhead forward or backward by a number of frames. "
+        "Pauses playback if currently playing."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="playback",
+    parameters=[
+        _param("direction", "string", "'forward' or 'backward'."),
+        _param("frames", "integer", "Number of frames to step (default 1).", required=False),
+    ],
+)
+
+jump_to_edit_point = _tool(
+    name="jump_to_edit_point",
+    description=(
+        "Jump the playhead to the next or previous edit point (cut) on "
+        "the timeline. An edit point is where any clip starts or ends."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="playback",
+    parameters=[
+        _param("direction", "string", "'next' or 'previous'."),
+    ],
+)
+
+set_in_out_points = _tool(
+    name="set_in_out_points",
+    description=(
+        "Set or clear the In and Out point markers on the timeline. These "
+        "markers define a region for playback, export, or 3-point editing. "
+        "Pass null to clear a specific point."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="playback",
+    parameters=[
+        _param("in_point", "number", "In point time in seconds, or null to clear.", required=False),
+        _param("out_point", "number", "Out point time in seconds, or null to clear.", required=False),
+    ],
+)
+
+zoom_to_fit = _tool(
+    name="zoom_to_fit",
+    description=(
+        "Adjust the timeline zoom level. 'fit' scales to show the entire "
+        "timeline. 'zoom_in' and 'zoom_out' step the zoom. 'set_level' "
+        "sets a specific zoom level."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="playback",
+    parameters=[
+        _param("action", "string", "'fit', 'zoom_in', 'zoom_out', or 'set_level'."),
+        _param("level", "number", "Zoom level (only used with 'set_level').", required=False),
+    ],
+)
+
+# ===================================================================
+# TIMELINE MANAGEMENT
+# ===================================================================
+
+duplicate_timeline = _tool(
+    name="duplicate_timeline",
+    description=(
+        "Create a snapshot (deep copy) of the current active timeline. "
+        "The duplicate is added to the project's timeline list with a new "
+        "ID and an auto-incremented name (e.g. 'Timeline 2'). All tracks, "
+        "clips, effects, and subtitles are preserved. Useful as an undo "
+        "checkpoint before destructive operations or for A/B comparisons."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="timeline_mgmt",
+)
+
+create_timeline = _tool(
+    name="create_timeline",
+    description=(
+        "Create a new empty timeline with default tracks (3 video, 2 audio, "
+        "1 subtitle) in the current project. The new timeline becomes the "
+        "active timeline. Use this when the user wants to start a fresh edit "
+        "from scratch rather than modifying the existing timeline."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="timeline_mgmt",
+    parameters=[
+        _param(
+            "name",
+            "string",
+            "Display name for the new timeline. Defaults to an auto-incremented "
+            "name like 'Timeline 2' if omitted.",
+            required=False,
+        ),
+    ],
+)
+
+rename_timeline = _tool(
+    name="rename_timeline",
+    description=(
+        "Rename the currently active timeline. Use this when the user asks "
+        "to change the timeline name, or after creating/duplicating a timeline "
+        "to give it a meaningful name that reflects its content."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="timeline_mgmt",
+    parameters=[
+        _param(
+            "name",
+            "string",
+            "The new display name for the active timeline.",
+        ),
+    ],
+)
+
+undo = _tool(
+    name="undo",
+    description="Undo the last editing action on the timeline.",
+    execution_target=ExecutionTarget.FRONTEND,
+    category="timeline_mgmt",
+)
+
+redo = _tool(
+    name="redo",
+    description="Redo the last undone editing action on the timeline.",
+    execution_target=ExecutionTarget.FRONTEND,
+    category="timeline_mgmt",
+)
+
+# ===================================================================
+# TRACK MANAGEMENT
+# ===================================================================
+
+add_track = _tool(
+    name="add_track",
+    description=(
+        "Add a new track to the timeline. Specify the kind (video, audio, "
+        "or subtitle) and optionally a position index. Video tracks are "
+        "ordered top-to-bottom (higher index = lower layer)."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="track_mgmt",
+    parameters=[
+        _param("kind", "string", "'video', 'audio', or 'subtitle'."),
+        _param("position", "integer", "Insert at this index (default: end).", required=False),
+    ],
+)
+
+delete_track = _tool(
+    name="delete_track",
+    description=(
+        "Delete a track and all clips on it from the timeline. This is "
+        "destructive — all clips on the track are removed."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="track_mgmt",
+    parameters=[
+        _param("track_index", "integer", "Zero-based index of the track to delete."),
+    ],
+)
+
+set_track_state = _tool(
+    name="set_track_state",
+    description=(
+        "Change track state flags: muted, locked, solo, or output enabled. "
+        "Provide only the flags you want to change."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="track_mgmt",
+    parameters=[
+        _param("track_index", "integer", "Zero-based index of the track."),
+        _param("muted", "boolean", "true = mute track audio.", required=False),
+        _param("locked", "boolean", "true = lock track (prevent edits).", required=False),
+        _param("solo", "boolean", "true = solo this audio track.", required=False),
+        _param("enabled", "boolean", "true = show video output, false = hide.", required=False),
+    ],
+)
+
+# ===================================================================
+# ASSET MANAGEMENT
+# ===================================================================
+
+create_subclip_assets = _tool(
+    name="create_subclip_assets",
+    description=(
+        "Create virtual sub-clip assets in the project bin from a list of "
+        "sub-clip definitions. Each sub-clip references a parent video asset "
+        "and has specific source in/out points, a title, and topic tags. "
+        "Sub-clips appear in the bin organized by their first topic tag."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[
+        ToolParameter(
+            name="subclips",
+            type="array",
+            description="Array of sub-clip definitions.",
+            items={
+                "type": "object",
+                "properties": {
+                    "parent_asset_id": {"type": "string", "description": "ID of the parent video asset"},
+                    "source_in": {"type": "number", "description": "Source in-point in seconds"},
+                    "source_out": {"type": "number", "description": "Source out-point in seconds"},
+                    "title": {"type": "string", "description": "Sub-clip title"},
+                    "description": {"type": "string", "description": "Sub-clip description"},
+                    "topics": {"type": "array", "description": "Topic tags", "items": {"type": "string"}},
+                },
+                "required": ["parent_asset_id", "source_in", "source_out", "title", "description"],
+            },
+        ),
+    ],
+)
+
+import_media = _tool(
+    name="import_media",
+    description=(
+        "Open a native file picker dialog to import media into the project. "
+        "The imported file is copied to the project asset folder and a new "
+        "asset is created. Returns the new asset_id."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[
+        _param(
+            "file_type",
+            "string",
+            "Filter for 'video', 'image', 'audio', or 'any' (default).",
+            required=False,
+        ),
+    ],
+)
+
+delete_asset = _tool(
+    name="delete_asset",
+    description="Remove an asset from the project. Does not delete clips already on the timeline.",
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[
+        _param("asset_id", "string", "ID of the asset to delete."),
+    ],
+)
+
+organize_asset = _tool(
+    name="organize_asset",
+    description=(
+        "Organize an asset by setting its bin and/or toggling its favorite status."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[
+        _param("asset_id", "string", "ID of the asset."),
+        _param("bin", "string", "Bin name to move asset to.", required=False),
+        _param("favorite", "boolean", "true = favorite, false = unfavorite.", required=False),
+    ],
+)
+
+set_active_take = _tool(
+    name="set_active_take",
+    description=(
+        "Switch the active take for an asset that has multiple takes "
+        "(generated variations). The active take is used when the asset "
+        "is added to the timeline."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[
+        _param("asset_id", "string", "ID of the asset."),
+        _param("take_index", "integer", "Zero-based index of the take to activate."),
+    ],
+)
+
+regenerate_asset = _tool(
+    name="regenerate_asset",
+    description=(
+        "Create a new take for an existing generated asset by re-running "
+        "generation with its stored parameters. The new take is added to "
+        "the asset's take list. Returns the new take index."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[
+        _param("asset_id", "string", "ID of the asset to regenerate."),
+    ],
+)
+
+# ===================================================================
+# GENERATION
+# ===================================================================
+
+generate_video = _tool(
+    name="generate_video",
+    description=(
+        "Generate a new video using AI. Supports three modes: "
+        "'text_to_video' (from prompt only), 'image_to_video' (animate an "
+        "image — requires image_asset_id), 'audio_to_video' (from audio — "
+        "requires audio_asset_id). The generated video is saved as a new "
+        "project asset. This is a long-running operation (20-120 seconds)."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="generation",
+    parameters=[
+        _param("prompt", "string", "Text description of the desired video content."),
+        _param(
+            "mode",
+            "string",
+            "'text_to_video', 'image_to_video', or 'audio_to_video'.",
+        ),
+        _param("image_asset_id", "string", "Asset ID of the input image (for image_to_video).", required=False),
+        _param("audio_asset_id", "string", "Asset ID of the input audio (for audio_to_video).", required=False),
+        _param("duration", "integer", "Video duration in seconds (5-20).", required=False),
+        _param("resolution", "string", "e.g. '720p', '1080p' (default).", required=False),
+        _param("fps", "integer", "Frames per second (default 24).", required=False),
+        _param("aspect_ratio", "string", "'16:9' (default) or '9:16'.", required=False),
+        _param("model", "string", "'fast' or 'pro' (default based on settings).", required=False),
+        _param("camera_motion", "string", "Camera motion preset (e.g. 'static', 'dolly_in').", required=False),
+    ],
+)
+
+generate_image = _tool(
+    name="generate_image",
+    description=(
+        "Generate a new image using AI from a text prompt. The generated "
+        "image is saved as a new project asset. Returns the asset_id. "
+        "Use this when you need a still image for compositing, thumbnails, "
+        "or as input for image-to-video generation."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="generation",
+    parameters=[
+        _param("prompt", "string", "Text description of the desired image."),
+        _param("resolution", "string", "'1080p', '1440p', or '2048p'.", required=False),
+        _param("aspect_ratio", "string", "'1:1', '16:9', '9:16', '4:3', '3:4', '21:9'.", required=False),
+        _param("num_variations", "integer", "Number of image variations (1-4, default 1).", required=False),
+    ],
+)
+
+retake_section = _tool(
+    name="retake_section",
+    description=(
+        "Regenerate a portion of an existing video. Specify the video asset, "
+        "start time, duration, and a new prompt for the section. The result "
+        "is saved as a new asset or take."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="generation",
+    parameters=[
+        _param("video_asset_id", "string", "Asset ID of the video to retake from."),
+        _param("start_time", "number", "Start time in seconds within the video."),
+        _param("duration", "number", "Duration of the section to retake (minimum 2 seconds)."),
+        _param("prompt", "string", "New prompt describing the desired content for this section."),
+        _param(
+            "mode",
+            "string",
+            "'replace_audio_and_video' (default), 'replace_video', or 'replace_audio'.",
+            required=False,
+        ),
+    ],
+)
+
+cancel_generation = _tool(
+    name="cancel_generation",
+    description="Cancel any in-progress video or image generation.",
+    execution_target=ExecutionTarget.FRONTEND,
+    category="generation",
+)
+
+get_generation_status = _tool(
+    name="get_generation_status",
+    description=(
+        "Check whether a generation is currently in progress and its "
+        "completion percentage. Returns status, phase, and progress."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="generation",
+)
+
+fill_timeline_gap = _tool(
+    name="fill_timeline_gap",
+    description=(
+        "AI-generate content to fill a gap in the timeline. Automatically "
+        "suggests a prompt based on neighboring clips if none provided, "
+        "generates the content, and places the result in the gap."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="generation",
+    parameters=[
+        _param("gap_start_time", "number", "Start time of the gap in seconds."),
+        _param("gap_duration", "number", "Duration of the gap in seconds."),
+        _param("track_index", "integer", "Track index where the gap is."),
+        _param(
+            "mode",
+            "string",
+            "'text_to_video', 'image_to_video', or 'text_to_image'.",
+        ),
+        _param("prompt", "string", "Optional prompt. If omitted, AI suggests one.", required=False),
+    ],
+)
+
+suggest_prompt = _tool(
+    name="suggest_prompt",
+    description=(
+        "Ask the AI to suggest a generation prompt based on context. Useful "
+        "for filling gaps or generating content that matches the surrounding "
+        "clips. Returns a suggested prompt string."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    category="generation",
+    parameters=[
+        _param("before_prompt", "string", "Prompt/description of the clip before.", required=False),
+        _param("after_prompt", "string", "Prompt/description of the clip after.", required=False),
+        _param("mode", "string", "'text_to_video', 'image_to_video', or 'text_to_image'."),
+        _param("duration", "number", "Target duration in seconds.", required=False),
+    ],
+)
+
+# ===================================================================
+# SUBTITLES
+# ===================================================================
+
+add_subtitle = _tool(
+    name="add_subtitle",
+    description=(
+        "Add a subtitle clip to a subtitle track at the specified time. "
+        "The subtitle will display the given text during playback and export."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="subtitles",
+    parameters=[
+        _param("track_index", "integer", "Index of the subtitle track."),
+        _param("start_time", "number", "Start time in seconds."),
+        _param("duration", "number", "Duration in seconds."),
+        _param("text", "string", "Subtitle text content."),
+    ],
+)
+
+edit_subtitle = _tool(
+    name="edit_subtitle",
+    description=(
+        "Edit an existing subtitle clip's text, start time, or duration. "
+        "Provide only the fields you want to change."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="subtitles",
+    parameters=[
+        _param("clip_id", "string", "Unique identifier of the subtitle clip."),
+        _param("text", "string", "New subtitle text.", required=False),
+        _param("start_time", "number", "New start time in seconds.", required=False),
+        _param("duration", "number", "New duration in seconds.", required=False),
+    ],
+)
+
+set_subtitle_style = _tool(
+    name="set_subtitle_style",
+    description=(
+        "Set the visual style for a subtitle track. All subtitles on the "
+        "track share the same style."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="subtitles",
+    parameters=[
+        _param("track_index", "integer", "Index of the subtitle track."),
+        _param("font_family", "string", "Font family name.", required=False),
+        _param("font_size", "integer", "Font size in pixels.", required=False),
+        _param("color", "string", "Text color as hex (e.g. '#FFFFFF').", required=False),
+        _param("background_color", "string", "Background color as hex.", required=False),
+        _param("position", "string", "'bottom', 'top', or 'center'.", required=False),
+    ],
+)
+
+import_export_srt = _tool(
+    name="import_export_srt",
+    description=(
+        "Import subtitles from an SRT file or export the current subtitles "
+        "to SRT format."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="subtitles",
+    parameters=[
+        _param("action", "string", "'import' or 'export'."),
+        _param("track_index", "integer", "Subtitle track index (for export).", required=False),
+    ],
+)
+
+# ===================================================================
+# EXPORT
+# ===================================================================
+
+export_timeline = _tool(
+    name="export_timeline",
+    description=(
+        "Render and export the timeline to a video file. Uses the current "
+        "project settings or the provided overrides. Returns the output "
+        "file path when complete."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="export",
+    parameters=[
+        _param("format", "string", "Output format, e.g. 'mp4' (default).", required=False),
+        _param("resolution", "string", "Export resolution override.", required=False),
+        _param("fps", "integer", "Export FPS override.", required=False),
+    ],
+)
+
+export_fcpxml = _tool(
+    name="export_fcpxml",
+    description="Export the timeline as Final Cut Pro 7 XML for use in other NLEs.",
+    execution_target=ExecutionTarget.FRONTEND,
+    category="export",
+)
+
+# ===================================================================
+# EDIT OPERATIONS (3-point editing)
+# ===================================================================
+
+insert_edit = _tool(
+    name="insert_edit",
+    description=(
+        "Perform a 3-point insert edit: place source material at the "
+        "playhead, pushing existing clips to the right to make room. "
+        "Optionally specify source in/out points."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="editing_ops",
+    parameters=[
+        _param("asset_id", "string", "ID of the source asset."),
+        _param("source_in", "number", "Source in-point in seconds.", required=False),
+        _param("source_out", "number", "Source out-point in seconds.", required=False),
+    ],
+)
+
+overwrite_edit = _tool(
+    name="overwrite_edit",
+    description=(
+        "Perform a 3-point overwrite edit: place source material at the "
+        "playhead, replacing whatever is currently there."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="editing_ops",
+    parameters=[
+        _param("asset_id", "string", "ID of the source asset."),
+        _param("source_in", "number", "Source in-point in seconds.", required=False),
+        _param("source_out", "number", "Source out-point in seconds.", required=False),
+    ],
+)
+
+# ===================================================================
+# SELECTION & UI
+# ===================================================================
+
+select_clips = _tool(
+    name="select_clips",
+    description=(
+        "Select or deselect specific clips on the timeline. Use mode 'set' "
+        "to replace the current selection, 'add' to add to it, or 'remove' "
+        "to deselect specific clips."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="selection_ui",
+    parameters=[
+        ToolParameter(
+            name="clip_ids",
+            type="array",
+            description="Array of clip IDs to select/deselect.",
+            items={"type": "string"},
+        ),
+        _param("mode", "string", "'set', 'add', or 'remove'."),
+    ],
+)
+
+deselect_all = _tool(
+    name="deselect_all",
+    description="Clear the current clip selection on the timeline.",
+    execution_target=ExecutionTarget.FRONTEND,
+    category="selection_ui",
+)
+
+toggle_snap = _tool(
+    name="toggle_snap",
+    description=(
+        "Enable or disable timeline snapping. When enabled, clips snap to "
+        "edit points, playhead, and other clip edges during drag operations."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="selection_ui",
+    parameters=[
+        _param("enabled", "boolean", "true = enable snapping, false = disable.", required=False),
+    ],
+)
+
+set_active_tool = _tool(
+    name="set_active_tool",
+    description=(
+        "Switch the active editing tool on the timeline toolbar. This "
+        "changes how click/drag interactions behave."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="selection_ui",
+    parameters=[
+        _param(
+            "tool",
+            "string",
+            "'selection', 'blade', 'ripple_trim', 'roll_trim', 'slip', 'slide', or 'track_select'.",
+        ),
+    ],
+)
+
+# ===================================================================
+# ANALYSIS — backend resource tools
+# ===================================================================
 
 get_video_metadata = _tool(
     name="get_video_metadata",
@@ -423,6 +1115,7 @@ get_video_metadata = _tool(
         "must have been previously imported into the project."
     ),
     execution_target=ExecutionTarget.BACKEND,
+    category="analysis",
     parameters=[
         _param(
             "asset_id",
@@ -442,6 +1135,7 @@ query_project_brain = _tool(
         "request. The brain is a pre-built index — this call is instant."
     ),
     execution_target=ExecutionTarget.BACKEND,
+    category="analysis",
     parameters=[
         _param(
             "query",
@@ -461,6 +1155,7 @@ get_transcript_segment = _tool(
         "before deciding whether to include it in an edit."
     ),
     execution_target=ExecutionTarget.BACKEND,
+    category="analysis",
     parameters=[
         _param(
             "asset_id",
@@ -491,6 +1186,7 @@ decompose_video = _tool(
         "individual segments."
     ),
     execution_target=ExecutionTarget.BACKEND,
+    category="analysis",
     parameters=[
         _param(
             "asset_id",
@@ -501,63 +1197,80 @@ decompose_video = _tool(
 )
 
 # ---------------------------------------------------------------------------
-# Frontend tool for sub-clip creation
-# ---------------------------------------------------------------------------
-
-create_subclip_assets = _tool(
-    name="create_subclip_assets",
-    description=(
-        "Create virtual sub-clip assets in the project bin from a list of "
-        "sub-clip definitions. Each sub-clip references a parent video asset "
-        "and has specific source in/out points, a title, and topic tags. "
-        "Sub-clips appear in the bin organized by their first topic tag."
-    ),
-    execution_target=ExecutionTarget.FRONTEND,
-    parameters=[
-        ToolParameter(
-            name="subclips",
-            type="array",
-            description="Array of sub-clip definitions.",
-            items={
-                "type": "object",
-                "properties": {
-                    "parent_asset_id": {"type": "string", "description": "ID of the parent video asset"},
-                    "source_in": {"type": "number", "description": "Source in-point in seconds"},
-                    "source_out": {"type": "number", "description": "Source out-point in seconds"},
-                    "title": {"type": "string", "description": "Sub-clip title"},
-                    "description": {"type": "string", "description": "Sub-clip description"},
-                    "topics": {"type": "array", "description": "Topic tags", "items": {"type": "string"}},
-                },
-                "required": ["parent_asset_id", "source_in", "source_out", "title", "description"],
-            },
-        ),
-    ],
-)
-
-# ---------------------------------------------------------------------------
 # Public registry
 # ---------------------------------------------------------------------------
 
 ALL_TOOLS: list[ToolDefinition] = [
-    # Atomic (frontend)
+    # Core (always included)
     get_timeline_state,
+    get_project_assets,
+    # Clip editing
     trim_clip,
     split_clip,
     delete_clip,
     move_clip,
     add_clip_to_timeline,
-    set_playhead,
-    duplicate_timeline,
-    create_timeline,
-    rename_timeline,
     split_at_playhead,
     flip_clip,
     reverse_clip,
     set_clip_speed,
+    duplicate_clip,
+    # Clip properties
+    set_clip_volume,
+    set_clip_opacity,
+    link_unlink_clips,
+    set_color_correction,
+    # Transitions
     add_dissolve,
-    get_project_assets,
+    # Playback & navigation
+    set_playhead,
+    toggle_playback,
+    step_frame,
+    jump_to_edit_point,
+    set_in_out_points,
+    zoom_to_fit,
+    # Timeline management
+    duplicate_timeline,
+    create_timeline,
+    rename_timeline,
+    undo,
+    redo,
+    # Track management
+    add_track,
+    delete_track,
+    set_track_state,
+    # Asset management
     create_subclip_assets,
-    # Resource (backend)
+    import_media,
+    delete_asset,
+    organize_asset,
+    set_active_take,
+    regenerate_asset,
+    # Generation
+    generate_video,
+    generate_image,
+    retake_section,
+    cancel_generation,
+    get_generation_status,
+    fill_timeline_gap,
+    suggest_prompt,
+    # Subtitles
+    add_subtitle,
+    edit_subtitle,
+    set_subtitle_style,
+    import_export_srt,
+    # Export
+    export_timeline,
+    export_fcpxml,
+    # Edit operations
+    insert_edit,
+    overwrite_edit,
+    # Selection & UI
+    select_clips,
+    deselect_all,
+    toggle_snap,
+    set_active_tool,
+    # Analysis (backend)
     get_video_metadata,
     query_project_brain,
     get_transcript_segment,

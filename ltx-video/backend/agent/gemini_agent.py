@@ -13,8 +13,15 @@ import logging
 import time
 import uuid
 from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Any
 
+from agent.tool_knowledge_base import (
+    build_category_catalog,
+    build_workflow_recipes,
+    classify_intent,
+    get_tools_for_categories,
+)
 from agent.tool_registry import TOOLS_BY_NAME, tools_to_gemini_declarations
 from agent.types import (
     AgentExecuteRequest,
@@ -333,6 +340,60 @@ individual operations.
 6. Execute edits in logical order. After trims/deletes, close gaps.
 7. Summarize what you did and why — then STOP. Trust tool results.
 
+## Content Generation
+
+You can generate new content using AI:
+
+### Text-to-Video (T2V)
+Call `generate_video(mode='text_to_video', prompt=...)` to create a video \
+from a text description. Write detailed, specific prompts that describe the \
+scene, camera movement, lighting, and action.
+
+### Image-to-Video (I2V)
+First generate an image with `generate_image(prompt=...)`, then animate it \
+with `generate_video(mode='image_to_video', image_asset_id=<id>, prompt=...)`. \
+The I2V prompt should describe the motion/animation, not the static scene.
+
+### Audio-to-Video (A2V)
+Call `generate_video(mode='audio_to_video', audio_asset_id=<id>, prompt=...)` \
+to generate a video synced to audio.
+
+### Text-to-Image (T2I)
+Call `generate_image(prompt=...)` to create still images for compositing, \
+thumbnails, or as I2V input.
+
+### Retake
+Call `retake_section(video_asset_id=..., start_time=..., duration=..., prompt=...)` \
+to regenerate a portion of an existing video.
+
+### Multi-step Generation Workflow
+When asked to "generate an image of X and animate it doing Y":
+1. `generate_image(prompt=<detailed description of the subject>)` → asset_id
+2. `generate_video(mode='image_to_video', image_asset_id=<asset_id>, prompt=<motion description>)` → video asset_id
+3. `add_clip_to_timeline(asset_id=<video_asset_id>, track_index=0, start_time=...)` to place it
+
+Generation is a long-running operation (20-120 seconds). The tool blocks \
+until complete and returns the new asset_id.
+
+### Generation Prompts
+Write generation prompts like a cinematographer:
+- Describe the SCENE (what's visible, environment, lighting)
+- Describe the ACTION (movement, gestures, events)
+- Describe the CAMERA (angle, movement, focal length)
+- Be specific: "A golden retriever running through autumn leaves in a park, \
+golden hour lighting, handheld camera following the dog" beats "a dog running".
+
+## Track & Clip Management
+
+Beyond basic editing, you can:
+- Add/delete tracks with `add_track` / `delete_track`
+- Mute, lock, solo tracks with `set_track_state`
+- Set clip volume, opacity, color correction
+- Link/unlink clips for synchronized editing
+- Add subtitles with `add_subtitle`
+- Export the timeline with `export_timeline`
+- Undo/redo with `undo` / `redo`
+
 ## Response Style
 - Be concise and professional. Brief editorial reasoning, then action.
 - After edits, give a short summary and finish immediately.
@@ -347,16 +408,23 @@ individual operations.
 _MAX_SESSIONS = 50
 _SESSION_TTL_SECONDS = 1800  # 30 minutes
 
-_sessions: OrderedDict[str, tuple[float, list[dict[str, Any]]]] = OrderedDict()
-"""Maps session IDs to (last_access_time, contents) tuples."""
+@dataclass
+class _SessionData:
+    contents: list[dict[str, Any]]
+    scoped_categories: list[str]
+    last_access: float
+
+
+_sessions: OrderedDict[str, _SessionData] = OrderedDict()
+"""Maps session IDs to session data."""
 
 
 def _evict_stale_sessions() -> None:
     """Remove sessions older than TTL and enforce max session count."""
     now = time.monotonic()
     stale = [
-        sid for sid, (ts, _) in _sessions.items()
-        if now - ts > _SESSION_TTL_SECONDS
+        sid for sid, sd in _sessions.items()
+        if now - sd.last_access > _SESSION_TTL_SECONDS
     ]
     for sid in stale:
         del _sessions[sid]
@@ -365,26 +433,37 @@ def _evict_stale_sessions() -> None:
         logger.info("Evicted oldest session %s (at capacity)", evicted_id[:8])
 
 
-def _get_session(session_id: str) -> list[dict[str, Any]] | None:
-    """Get session contents, updating access time. Returns None if not found."""
+def _get_session(session_id: str) -> _SessionData | None:
+    """Get session data, updating access time. Returns None if not found."""
     if session_id not in _sessions:
         return None
-    ts, contents = _sessions[session_id]
-    _sessions[session_id] = (time.monotonic(), contents)
+    sd = _sessions[session_id]
+    sd.last_access = time.monotonic()
     _sessions.move_to_end(session_id)
-    return contents
+    return sd
 
 
-def _set_session(session_id: str, contents: list[dict[str, Any]]) -> None:
+def _set_session(
+    session_id: str,
+    contents: list[dict[str, Any]],
+    *,
+    scoped_categories: list[str] | None = None,
+) -> None:
     """Create or update a session."""
-    _sessions[session_id] = (time.monotonic(), contents)
+    existing = _sessions.get(session_id)
+    cats = scoped_categories or (existing.scoped_categories if existing else [])
+    _sessions[session_id] = _SessionData(
+        contents=contents,
+        scoped_categories=cats,
+        last_access=time.monotonic(),
+    )
 
 
-def create_session() -> str:
+def create_session(*, scoped_categories: list[str] | None = None) -> str:
     """Create a new conversation session and return its UUID."""
     _evict_stale_sessions()
     session_id = uuid.uuid4().hex
-    _set_session(session_id, [])
+    _set_session(session_id, [], scoped_categories=scoped_categories or [])
     logger.info("Created agent session %s (total: %d)", session_id, len(_sessions))
     return session_id
 
@@ -410,6 +489,16 @@ def execute_prompt(
     frontend tool calls that the caller must execute and feed back via
     :func:`continue_with_results`.
     """
+    # Classify intent to scope tools for this request
+    scoped_categories = classify_intent(request.prompt)
+    scoped_tools = get_tools_for_categories(scoped_categories)
+    logger.info(
+        "[agent] intent classification: %s → %d tools from %s",
+        request.prompt[:80],
+        len(scoped_tools),
+        scoped_categories,
+    )
+
     # Reuse existing session when available so full Gemini history
     # (including function calls / results) is preserved.
     existing = (
@@ -419,8 +508,11 @@ def execute_prompt(
     if existing:
         session_id = request.session_id  # type: ignore[assignment]
         logger.info("Reusing existing session %s", session_id)
+        sd = _get_session(session_id)
+        if sd is not None:
+            sd.scoped_categories = scoped_categories
     else:
-        session_id = create_session()
+        session_id = create_session(scoped_categories=scoped_categories)
 
     # -- Build context text from timeline state --------------------------
     context_parts: list[str] = []
@@ -471,18 +563,16 @@ def execute_prompt(
     }
 
     if existing:
-        # Append new user message to existing conversation
-        session_contents = _get_session(session_id)
-        if session_contents is not None:
-            session_contents.append(user_message)
+        sd = _get_session(session_id)
+        if sd is not None:
+            sd.contents.append(user_message)
     else:
-        # New session — seed with any prior text history as fallback
         contents: list[dict[str, Any]] = []
         for msg in request.conversation_history:
             gemini_role = _ROLE_MAP.get(msg.role, "user")
             contents.append({"role": gemini_role, "parts": [{"text": msg.content}]})
         contents.append(user_message)
-        _set_session(session_id, contents)
+        _set_session(session_id, contents, scoped_categories=scoped_categories)
 
     logger.info(
         "[agent] session=%s | execute_prompt: %.120s",
@@ -513,23 +603,21 @@ def continue_with_results(
 
     Raises ``KeyError`` if the session does not exist.
     """
-    session_contents = _get_session(session_id)
-    if session_contents is None:
+    sd = _get_session(session_id)
+    if sd is None:
         raise KeyError(f"Unknown session: {session_id}")
 
-    # Append function responses into the conversation
     function_response_parts: list[dict[str, Any]] = []
     for tr in tool_results:
         payload: dict[str, Any] = (
             {"result": tr.result} if tr.success else {"error": tr.error or "unknown error"}
         )
-        # Use tool_name for the Gemini function response name; fall back to call_id
         fn_name = tr.tool_name or tr.call_id or "unknown"
         function_response_parts.append(
             {"functionResponse": {"name": fn_name, "response": payload}}
         )
 
-    session_contents.append(
+    sd.contents.append(
         {"role": "function", "parts": function_response_parts}
     )
 
@@ -589,14 +677,14 @@ def _call_gemini(
         f"{_GEMINI_MODEL}:generateContent"
     )
 
-    session_contents = _get_session(session_id)
-    if session_contents is None:
+    sd = _get_session(session_id)
+    if sd is None:
         return AgentExecuteResponse(
             message="Session expired or not found.",
             done=True,
         )
 
-    num_messages = len(session_contents)
+    num_messages = len(sd.contents)
     logger.info(
         "[agent] session=%s turn=%d | calling %s | %d messages",
         session_id[:8],
@@ -605,10 +693,27 @@ def _call_gemini(
         num_messages,
     )
 
+    # Use scoped tools when available, fall back to all tools
+    scoped_tools = (
+        get_tools_for_categories(sd.scoped_categories)
+        if sd.scoped_categories
+        else None
+    )
+    tool_declarations = tools_to_gemini_declarations(scoped_tools)
+
+    # Build dynamic system prompt with category catalog
+    dynamic_prompt = SYSTEM_PROMPT
+    if sd.scoped_categories:
+        catalog = build_category_catalog(sd.scoped_categories)
+        recipes = build_workflow_recipes(sd.scoped_categories)
+        dynamic_prompt = SYSTEM_PROMPT + "\n\n" + catalog
+        if recipes:
+            dynamic_prompt += "\n\n" + recipes
+
     payload: dict[str, Any] = {
-        "contents": session_contents,
-        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-        "tools": [{"functionDeclarations": tools_to_gemini_declarations()}],
+        "contents": sd.contents,
+        "systemInstruction": {"parts": [{"text": dynamic_prompt}]},
+        "tools": [{"functionDeclarations": tool_declarations}],
         "generationConfig": {"temperature": 0.4, "maxOutputTokens": 16384},
     }
 
@@ -727,9 +832,9 @@ def _call_gemini(
         )
 
     # Append the model turn to history
-    session_contents = _get_session(session_id)
-    if session_contents is not None:
-        session_contents.append({"role": "model", "parts": parts})
+    sd_model = _get_session(session_id)
+    if sd_model is not None:
+        sd_model.contents.append({"role": "model", "parts": parts})
 
     # -- Separate text from function calls --------------------------------
     text_fragments: list[str] = []
@@ -803,9 +908,9 @@ def _call_gemini(
                 {"functionResponse": {"name": tr.call_id, "response": payload_inner}}
             )
 
-        session_contents_be = _get_session(session_id)
-        if session_contents_be is not None:
-            session_contents_be.append(
+        sd_be = _get_session(session_id)
+        if sd_be is not None:
+            sd_be.contents.append(
                 {"role": "function", "parts": fn_response_parts}
             )
 
@@ -843,6 +948,7 @@ def _execute_backend_tool(tool_call: ToolCall) -> ToolResult:
         "query_project_brain": _handle_query_brain,
         "get_transcript_segment": _handle_get_transcript_segment,
         "decompose_video": _handle_decompose_video,
+        "suggest_prompt": _handle_suggest_prompt,
     }
 
     try:
@@ -1015,6 +1121,38 @@ def _handle_decompose_video(tool_call: ToolCall) -> ToolResult:
             "asset_id": asset_id,
             "subclips": subclips,
             "count": len(subclips),
+        },
+    )
+
+
+def _handle_suggest_prompt(tool_call: ToolCall) -> ToolResult:
+    """Handle the ``suggest_prompt`` backend tool."""
+    before_prompt = tool_call.arguments.get("before_prompt", "")
+    after_prompt = tool_call.arguments.get("after_prompt", "")
+    mode = tool_call.arguments.get("mode", "text_to_video")
+    duration = tool_call.arguments.get("duration")
+
+    suggestion_parts: list[str] = []
+    if before_prompt:
+        suggestion_parts.append(f"Previous clip: {before_prompt}")
+    if after_prompt:
+        suggestion_parts.append(f"Next clip: {after_prompt}")
+    suggestion_parts.append(f"Mode: {mode}")
+    if duration:
+        suggestion_parts.append(f"Target duration: {duration}s")
+
+    suggested = (
+        f"A smooth transition scene connecting "
+        f"{'the previous and next clips' if before_prompt and after_prompt else 'to the surrounding content'}. "
+        f"{'Based on: ' + before_prompt[:100] if before_prompt else 'Creative establishing shot'}."
+    )
+
+    return ToolResult(
+        call_id=tool_call.call_id,
+        success=True,
+        result={
+            "suggested_prompt": suggested,
+            "context": " | ".join(suggestion_parts),
         },
     )
 

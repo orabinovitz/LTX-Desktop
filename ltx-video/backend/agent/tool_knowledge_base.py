@@ -1,0 +1,370 @@
+"""Category-based tool knowledge base with intent classification.
+
+Organizes tools into semantic categories and provides an intent classifier
+that selects only the relevant tool categories for a given user prompt.
+This keeps the Gemini function-calling payload focused (15-25 tools
+instead of 60+) which improves tool selection accuracy and reduces
+token cost.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+from .tool_registry import ALL_TOOLS, TOOLS_BY_NAME
+from .types import ToolDefinition
+
+
+@dataclass(frozen=True)
+class WorkflowRecipe:
+    """A common multi-tool workflow pattern shown in the system prompt."""
+
+    name: str
+    description: str
+    steps: list[str]
+
+
+@dataclass(frozen=True)
+class ToolCategory:
+    """A logical grouping of related tools."""
+
+    name: str
+    display_name: str
+    description: str
+    keywords: list[str]
+    tool_names: list[str]
+    depends_on: list[str] = field(default_factory=list)
+    workflows: list[WorkflowRecipe] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Category definitions
+# ---------------------------------------------------------------------------
+
+CATEGORIES: dict[str, ToolCategory] = {
+    "core": ToolCategory(
+        name="core",
+        display_name="Core",
+        description="Read timeline state and project assets",
+        keywords=[],
+        tool_names=["get_timeline_state", "get_project_assets"],
+    ),
+    "clip_editing": ToolCategory(
+        name="clip_editing",
+        display_name="Clip Editing",
+        description="Trim, split, delete, move, duplicate, speed, flip, and reverse clips",
+        keywords=[
+            "trim", "cut", "split", "delete", "remove", "move", "duplicate",
+            "speed", "slow", "fast", "flip", "reverse", "clip", "shorten",
+            "lengthen", "extend", "crop", "razor", "blade", "rearrange",
+            "reorder", "swap", "shift", "nudge", "ripple",
+        ],
+        tool_names=[
+            "trim_clip", "split_clip", "delete_clip", "move_clip",
+            "add_clip_to_timeline", "split_at_playhead", "flip_clip",
+            "reverse_clip", "set_clip_speed", "duplicate_clip",
+        ],
+        workflows=[
+            WorkflowRecipe(
+                name="cut_and_rearrange",
+                description="Cut, trim, and rearrange clips on the timeline",
+                steps=[
+                    "get_timeline_state",
+                    "split_clip at cut points",
+                    "delete_clip(ripple=true) to remove unwanted sections",
+                    "move_clip to rearrange remaining clips",
+                ],
+            ),
+        ],
+    ),
+    "clip_properties": ToolCategory(
+        name="clip_properties",
+        display_name="Clip Properties",
+        description="Volume, opacity, color correction, and clip linking",
+        keywords=[
+            "volume", "opacity", "transparent", "mute", "unmute", "loud",
+            "quiet", "color", "brightness", "contrast", "saturation",
+            "temperature", "warm", "cool", "link", "unlink", "correction",
+        ],
+        tool_names=[
+            "set_clip_volume", "set_clip_opacity",
+            "link_unlink_clips", "set_color_correction",
+        ],
+    ),
+    "transitions": ToolCategory(
+        name="transitions",
+        display_name="Transitions",
+        description="Add dissolves and transitions between clips",
+        keywords=[
+            "dissolve", "transition", "fade", "wipe", "cross", "blend",
+            "crossfade",
+        ],
+        tool_names=["add_dissolve"],
+    ),
+    "playback": ToolCategory(
+        name="playback",
+        display_name="Playback & Navigation",
+        description="Play, pause, step frames, jump to edits, zoom timeline",
+        keywords=[
+            "play", "pause", "stop", "step", "frame", "navigate", "zoom",
+            "fit", "jump", "scrub", "seek", "forward", "backward", "rewind",
+            "preview", "in point", "out point", "mark",
+        ],
+        tool_names=[
+            "set_playhead", "toggle_playback", "step_frame",
+            "jump_to_edit_point", "set_in_out_points", "zoom_to_fit",
+        ],
+    ),
+    "timeline_mgmt": ToolCategory(
+        name="timeline_mgmt",
+        display_name="Timeline Management",
+        description="Create, duplicate, rename timelines; undo/redo",
+        keywords=[
+            "timeline", "new timeline", "duplicate timeline", "rename",
+            "undo", "redo", "revert", "history", "snapshot", "backup",
+        ],
+        tool_names=[
+            "duplicate_timeline", "create_timeline", "rename_timeline",
+            "undo", "redo",
+        ],
+    ),
+    "track_mgmt": ToolCategory(
+        name="track_mgmt",
+        display_name="Track Management",
+        description="Add, delete, mute, lock, and solo tracks",
+        keywords=[
+            "track", "add track", "new track", "delete track", "remove track",
+            "mute track", "lock", "solo", "enable", "disable", "hide track",
+            "show track", "audio track", "video track",
+        ],
+        tool_names=["add_track", "delete_track", "set_track_state"],
+    ),
+    "asset_mgmt": ToolCategory(
+        name="asset_mgmt",
+        display_name="Asset Management",
+        description="Import, delete, organize assets; manage takes and sub-clips",
+        keywords=[
+            "import", "asset", "bin", "favorite", "take", "organize",
+            "media", "file", "browse", "sub-clip", "subclip",
+        ],
+        tool_names=[
+            "create_subclip_assets", "import_media", "delete_asset",
+            "organize_asset", "set_active_take", "regenerate_asset",
+        ],
+    ),
+    "generation": ToolCategory(
+        name="generation",
+        display_name="Content Generation",
+        description="Generate videos (T2V/I2V/A2V), images, retakes, and fill gaps",
+        keywords=[
+            "generate", "create video", "create image", "make", "produce",
+            "animate", "render", "image to video", "text to video",
+            "audio to video", "t2v", "i2v", "a2v", "t2i",
+            "retake", "regenerate", "fill gap", "suggest prompt",
+            "ai generate", "synthesize",
+        ],
+        tool_names=[
+            "generate_video", "generate_image", "retake_section",
+            "cancel_generation", "get_generation_status",
+            "fill_timeline_gap", "suggest_prompt",
+        ],
+        depends_on=["asset_mgmt"],
+        workflows=[
+            WorkflowRecipe(
+                name="image_then_animate",
+                description="Generate an image then animate it to video",
+                steps=[
+                    "generate_image(prompt=...) -> returns asset_id",
+                    "generate_video(mode='image_to_video', image_asset_id=<asset_id>, prompt=...)",
+                    "add_clip_to_timeline(asset_id=<video_asset_id>, ...)",
+                ],
+            ),
+            WorkflowRecipe(
+                name="generate_and_place",
+                description="Generate a video and place it on the timeline",
+                steps=[
+                    "generate_video(mode='text_to_video', prompt=...)",
+                    "add_clip_to_timeline(asset_id=<result>, track_index=0, start_time=...)",
+                ],
+            ),
+            WorkflowRecipe(
+                name="fill_gap",
+                description="AI-fill a gap in the timeline",
+                steps=[
+                    "fill_timeline_gap(gap_start_time=..., gap_duration=..., track_index=..., mode=...)",
+                ],
+            ),
+        ],
+    ),
+    "subtitles": ToolCategory(
+        name="subtitles",
+        display_name="Subtitles",
+        description="Add, edit, and style subtitles; import/export SRT",
+        keywords=[
+            "subtitle", "caption", "srt", "text overlay", "text on screen",
+            "title", "lower third",
+        ],
+        tool_names=[
+            "add_subtitle", "edit_subtitle", "set_subtitle_style",
+            "import_export_srt",
+        ],
+        workflows=[
+            WorkflowRecipe(
+                name="add_subtitles",
+                description="Add subtitles to the timeline",
+                steps=[
+                    "add_track(kind='subtitle') if no subtitle track exists",
+                    "add_subtitle(track_index=..., start_time=..., duration=..., text=...) for each subtitle",
+                    "set_subtitle_style(track_index=..., font_family=..., font_size=..., color=...)",
+                ],
+            ),
+        ],
+    ),
+    "export": ToolCategory(
+        name="export",
+        display_name="Export",
+        description="Render timeline to video file or export as FCP XML",
+        keywords=[
+            "export", "render", "publish", "fcp", "xml", "final cut",
+            "save video", "output", "encode",
+        ],
+        tool_names=["export_timeline", "export_fcpxml"],
+    ),
+    "editing_ops": ToolCategory(
+        name="editing_ops",
+        display_name="Edit Operations",
+        description="3-point insert and overwrite edits",
+        keywords=[
+            "insert edit", "overwrite", "3-point", "three point",
+            "source monitor", "insert at playhead",
+        ],
+        tool_names=["insert_edit", "overwrite_edit"],
+    ),
+    "selection_ui": ToolCategory(
+        name="selection_ui",
+        display_name="Selection & UI",
+        description="Select clips, toggle snap, switch editing tools",
+        keywords=[
+            "select", "deselect", "snap", "snapping", "magnet",
+            "tool", "blade tool", "selection tool", "ripple tool",
+        ],
+        tool_names=[
+            "select_clips", "deselect_all", "toggle_snap", "set_active_tool",
+        ],
+    ),
+    "analysis": ToolCategory(
+        name="analysis",
+        display_name="Analysis & Intelligence",
+        description="Video metadata, project brain search, transcripts, decomposition",
+        keywords=[
+            "analyze", "analyse", "metadata", "transcript", "brain",
+            "decompose", "search", "find clip", "scene", "dialogue",
+            "topic", "content", "what happens",
+        ],
+        tool_names=[
+            "get_video_metadata", "query_project_brain",
+            "get_transcript_segment", "decompose_video",
+        ],
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# Intent classifier
+# ---------------------------------------------------------------------------
+
+_WORD_BOUNDARY = re.compile(r"\b")
+
+
+def classify_intent(user_prompt: str) -> list[str]:
+    """Classify a user prompt into relevant tool categories.
+
+    Returns a list of category names. Always includes 'core'.
+    Falls back to ALL categories if nothing matches.
+    """
+    prompt_lower = user_prompt.lower()
+    matched: set[str] = set()
+
+    for cat_name, cat in CATEGORIES.items():
+        if cat_name == "core":
+            continue
+        for keyword in cat.keywords:
+            if keyword in prompt_lower:
+                matched.add(cat_name)
+                break
+
+    # Resolve dependencies
+    extra: set[str] = set()
+    for cat_name in matched:
+        cat = CATEGORIES[cat_name]
+        for dep in cat.depends_on:
+            extra.add(dep)
+    matched |= extra
+
+    # Fallback: if nothing matched, include everything
+    if not matched:
+        matched = {name for name in CATEGORIES if name != "core"}
+
+    matched.add("core")
+    return sorted(matched)
+
+
+def get_tools_for_categories(category_names: list[str]) -> list[ToolDefinition]:
+    """Return the deduplicated list of tools for the given categories."""
+    seen: set[str] = set()
+    tools: list[ToolDefinition] = []
+    for cat_name in category_names:
+        cat = CATEGORIES.get(cat_name)
+        if cat is None:
+            continue
+        for tool_name in cat.tool_names:
+            if tool_name in seen:
+                continue
+            seen.add(tool_name)
+            tool = TOOLS_BY_NAME.get(tool_name)
+            if tool is not None:
+                tools.append(tool)
+    return tools
+
+
+def get_tools_for_prompt(user_prompt: str) -> list[ToolDefinition]:
+    """Classify intent and return only the tools relevant to the prompt."""
+    categories = classify_intent(user_prompt)
+    return get_tools_for_categories(categories)
+
+
+# ---------------------------------------------------------------------------
+# System prompt helpers
+# ---------------------------------------------------------------------------
+
+def build_category_catalog(category_names: list[str]) -> str:
+    """Build a compact tool catalog section for the system prompt.
+
+    Only includes the active categories so the model knows what's available.
+    """
+    lines: list[str] = ["## Available Tool Categories\n"]
+    for cat_name in sorted(category_names):
+        cat = CATEGORIES.get(cat_name)
+        if cat is None:
+            continue
+        tool_list = ", ".join(f"`{t}`" for t in cat.tool_names)
+        lines.append(f"### {cat.display_name}\n{cat.description}\nTools: {tool_list}\n")
+
+    return "\n".join(lines)
+
+
+def build_workflow_recipes(category_names: list[str]) -> str:
+    """Build workflow recipe section for included categories."""
+    recipes: list[str] = []
+    for cat_name in category_names:
+        cat = CATEGORIES.get(cat_name)
+        if cat is None:
+            continue
+        for wf in cat.workflows:
+            steps = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(wf.steps))
+            recipes.append(f"**{wf.name}** — {wf.description}\n{steps}")
+
+    if not recipes:
+        return ""
+    return "## Workflow Recipes\n\n" + "\n\n".join(recipes)
