@@ -773,6 +773,7 @@ export function VideoEditor() {
     addClipToTimeline,
     setCurrentTime,
     setClips,
+    setTracks,
     currentProjectId,
     activeTimelineId: activeTimeline?.id,
     duplicateTimeline,
@@ -780,6 +781,15 @@ export function VideoEditor() {
     renameTimeline,
     getMaxClipDuration,
     addAsset,
+    deleteAsset,
+    assetSavePath: currentProject?.assetSavePath,
+    selectedClipIds: [...selectedClipIds],
+    setSelectedClipIds: (ids: string[]) => setSelectedClipIds(new Set(ids)),
+    undo: handleUndo,
+    redo: handleRedo,
+    togglePlayback: () => setIsPlaying((p) => !p),
+    snapEnabled,
+    setSnapEnabled,
   });
   const executeBackendTool = useCallback(
     async (call: { tool_name: string; arguments: Record<string, unknown> }) => {

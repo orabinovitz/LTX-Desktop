@@ -260,11 +260,40 @@ CATEGORIES: dict[str, ToolCategory] = {
         keywords=[
             "analyze", "analyse", "metadata", "transcript", "brain",
             "decompose", "search", "find clip", "scene", "dialogue",
-            "topic", "content", "what happens",
+            "topic", "content", "what happens", "full transcript",
         ],
         tool_names=[
             "get_video_metadata", "query_project_brain",
             "get_transcript_segment", "decompose_video",
+            "get_full_transcript",
+        ],
+    ),
+    "review": ToolCategory(
+        name="review",
+        display_name="Edit Quality Review",
+        description="Review and score the quality of timeline edits, get structural feedback",
+        keywords=[
+            "review", "quality", "score", "evaluate", "check edit",
+            "improve edit", "feedback", "refine", "iterate", "polish",
+            "hook", "pacing", "closure", "structure",
+        ],
+        tool_names=[
+            "review_edit_quality", "review_edit_structure",
+        ],
+        depends_on=["clip_editing", "analysis"],
+        workflows=[
+            WorkflowRecipe(
+                name="iterative_edit",
+                description="Make an edit, review quality, and iterate to improve",
+                steps=[
+                    "get_full_transcript(asset_id) to read all dialogue",
+                    "Select segments and add_clip_to_timeline x N",
+                    "get_timeline_state() to see what's placed",
+                    "review_edit_quality(topic, edit_transcript) to score",
+                    "If score < 8: adjust clips based on feedback, re-review",
+                    "review_edit_structure(edit_transcript, topic) for deeper analysis",
+                ],
+            ),
         ],
     ),
 }

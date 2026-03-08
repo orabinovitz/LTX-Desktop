@@ -49,6 +49,9 @@ _MAX_TURNS = 20
 _GEMINI_MODEL = "gemini-3.1-pro-preview"
 _FALLBACK_MODEL = "gemini-3-flash-preview"
 
+_active_api_key: str = ""
+_active_http_client: HTTPClient | None = None
+
 _ROLE_MAP: dict[str, str] = {"user": "user", "agent": "model", "assistant": "model", "model": "model"}
 
 SYSTEM_PROMPT = """\
@@ -394,6 +397,47 @@ Beyond basic editing, you can:
 - Export the timeline with `export_timeline`
 - Undo/redo with `undo` / `redo`
 
+## Iterative Edit Quality (Long-Form to Short-Form)
+
+When creating a short edit from long-form content (e.g. "make a 45s edit \
+about audio improvements from this 40-minute interview"):
+
+### Step 1: Read the full transcript
+Call `get_full_transcript(asset_id)` to get ALL dialogue as sentences with \
+precise timestamps. This is far more efficient than guessing time ranges. \
+You get ~200-400 sentences to scan for the best material.
+
+### Step 2: Select segments intelligently
+Pick 3-6 segments that together tell a tight, self-contained story:
+- **Hook** (first 2-5s): The single most compelling sentence. No filler, \
+no questions, no "um" or "so". The speaker must be mid-point, not warming up.
+- **Body** (20-35s): Concrete details, specific information, strongest quotes.
+- **Closure** (3-8s): A conclusive, forward-looking statement. Not mid-sentence.
+
+Use `add_clip_to_timeline` with `source_in` and `source_out` for each segment.
+
+### Step 3: Review and iterate
+After placing clips, reconstruct the edit transcript from the placed segments \
+and call `review_edit_quality(topic, edit_transcript)`. Check the scores:
+- If `overall_score >= 8` and `sentence_completeness >= 7`: the edit is good.
+- If not: read the feedback, adjust clips (delete weak segments, add stronger \
+ones, trim to fix sentence boundaries), and review again.
+- Do up to 2 automatic revisions. If still below threshold, deliver the best \
+version and explain what could be improved.
+
+### Step 4 (optional): Deep structure review
+Call `review_edit_structure(edit_transcript, topic)` for detailed narrative \
+analysis: arc strength, transition quality, information density, and per-segment \
+issues. Use this for high-stakes edits.
+
+### Critical Rules for Long-Form Editing:
+- ALWAYS use `get_full_transcript` first — never guess time ranges
+- ALWAYS start and end segments on complete sentences
+- NEVER include interviewer questions in social media cuts
+- NEVER start with filler words: "um", "so", "and", "like"
+- Total duration must match the user's requested length (±5s)
+- Review your edit before declaring it done
+
 ## Response Style
 - Be concise and professional. Brief editorial reasoning, then action.
 - After edits, give a short summary and finish immediately.
@@ -489,6 +533,10 @@ def execute_prompt(
     frontend tool calls that the caller must execute and feed back via
     :func:`continue_with_results`.
     """
+    global _active_api_key, _active_http_client  # noqa: PLW0603
+    _active_api_key = gemini_api_key
+    _active_http_client = http_client
+
     # Classify intent to scope tools for this request
     scoped_categories = classify_intent(request.prompt)
     scoped_tools = get_tools_for_categories(scoped_categories)
@@ -603,6 +651,10 @@ def continue_with_results(
 
     Raises ``KeyError`` if the session does not exist.
     """
+    global _active_api_key, _active_http_client  # noqa: PLW0603
+    _active_api_key = gemini_api_key
+    _active_http_client = http_client
+
     sd = _get_session(session_id)
     if sd is None:
         raise KeyError(f"Unknown session: {session_id}")
@@ -949,6 +1001,9 @@ def _execute_backend_tool(tool_call: ToolCall) -> ToolResult:
         "get_transcript_segment": _handle_get_transcript_segment,
         "decompose_video": _handle_decompose_video,
         "suggest_prompt": _handle_suggest_prompt,
+        "get_full_transcript": _handle_get_full_transcript,
+        "review_edit_quality": _handle_review_edit_quality,
+        "review_edit_structure": _handle_review_edit_structure,
     }
 
     try:
@@ -1155,6 +1210,253 @@ def _handle_suggest_prompt(tool_call: ToolCall) -> ToolResult:
             "context": " | ".join(suggestion_parts),
         },
     )
+
+
+def _build_sentences(dialogue: list[Any], max_gap: float = 2.0) -> list[dict[str, Any]]:
+    """Merge consecutive dialogue lines into sentences based on punctuation and gaps."""
+    if not dialogue:
+        return []
+
+    sentences: list[dict[str, Any]] = []
+    current = {
+        "start": dialogue[0].start_time,
+        "end": dialogue[0].end_time,
+        "text": dialogue[0].text,
+    }
+
+    for dl in dialogue[1:]:
+        gap = dl.start_time - current["end"]
+        ends_sentence = current["text"].rstrip().endswith((".", "!", "?"))
+
+        if gap > max_gap or ends_sentence:
+            if len(current["text"].split()) >= 3:
+                sentences.append(current)
+            current = {"start": dl.start_time, "end": dl.end_time, "text": dl.text}
+        else:
+            current["end"] = dl.end_time
+            current["text"] += " " + dl.text
+
+    if len(current["text"].split()) >= 3:
+        sentences.append(current)
+
+    return sentences
+
+
+def _handle_get_full_transcript(tool_call: ToolCall) -> ToolResult:
+    """Return the complete dialogue transcript with sentence boundaries."""
+    asset_id = tool_call.arguments.get("asset_id", "")
+    if not asset_id:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error="Missing required argument: asset_id",
+        )
+
+    meta = video_analyzer.get_metadata(asset_id)
+    if meta is None:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error=f"No metadata for asset '{asset_id}'. The video may not have been analyzed yet.",
+        )
+
+    sentences = _build_sentences(meta.dialogue)
+
+    return ToolResult(
+        call_id=tool_call.call_id,
+        success=True,
+        result={
+            "asset_id": asset_id,
+            "total_duration": meta.duration,
+            "line_count": len(sentences),
+            "sentences": [
+                {
+                    "index": i,
+                    "start": round(s["start"], 1),
+                    "end": round(s["end"], 1),
+                    "duration": round(s["end"] - s["start"], 1),
+                    "text": s["text"],
+                }
+                for i, s in enumerate(sentences)
+            ],
+        },
+    )
+
+
+def _handle_review_edit_quality(tool_call: ToolCall) -> ToolResult:
+    """Evaluate edit quality by analyzing the transcript text with Gemini."""
+    topic = tool_call.arguments.get("topic", "")
+    edit_transcript = tool_call.arguments.get("edit_transcript", "")
+    target_duration = tool_call.arguments.get("target_duration", 45)
+
+    if not edit_transcript:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error="Missing required argument: edit_transcript",
+        )
+
+    if not _active_api_key or not _active_http_client:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error="No active Gemini API key available for review.",
+        )
+
+    rubric_prompt = (
+        "You are a professional video editor reviewing a short-form edit. "
+        "Score each dimension 1-10 and provide specific feedback.\n\n"
+        f"TOPIC: {topic or 'General'}\n"
+        f"TARGET DURATION: {target_duration}s\n\n"
+        f"EDIT TRANSCRIPT:\n{edit_transcript}\n\n"
+        "Score these dimensions:\n"
+        "- hook_quality: Does the first sentence grab attention? No filler, no questions.\n"
+        "- pacing_quality: Are segments tight? No dead air, no unnecessary repetition.\n"
+        "- content_relevance: Is every sentence on-topic and informative?\n"
+        "- closure_quality: Does the edit end on a complete, conclusive thought?\n"
+        "- sentence_completeness: Are all sentences complete? No mid-word cuts, no fragments.\n"
+        "- overall_score: Weighted average (hook 30%, pacing 20%, content 20%, closure 15%, sentences 15%).\n\n"
+        "Return ONLY valid JSON:\n"
+        '{"hook_quality": N, "pacing_quality": N, "content_relevance": N, '
+        '"closure_quality": N, "sentence_completeness": N, "overall_score": N, '
+        '"feedback": ["specific issue 1", "specific issue 2", ...]}'
+    )
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{_GEMINI_MODEL}:generateContent"
+    )
+    payload: dict[str, Any] = {
+        "contents": [{"role": "user", "parts": [{"text": rubric_prompt}]}],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 4096,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    import json as _json
+
+    try:
+        resp = _active_http_client.post(
+            url,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": _active_api_key,
+            },
+            json_payload=payload,
+            timeout=60,
+        )
+        if resp.status_code != 200:
+            return ToolResult(
+                call_id=tool_call.call_id,
+                success=False,
+                error=f"Gemini review API error: {resp.status_code}",
+            )
+
+        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        scores = _json.loads(text)
+
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=True,
+            result=scores,
+        )
+    except Exception as exc:
+        logger.exception("review_edit_quality failed")
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error=f"Review failed: {exc}",
+        )
+
+
+def _handle_review_edit_structure(tool_call: ToolCall) -> ToolResult:
+    """Analyze the narrative structure of a timeline edit with Gemini."""
+    edit_transcript = tool_call.arguments.get("edit_transcript", "")
+    topic = tool_call.arguments.get("topic", "")
+
+    if not edit_transcript:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error="Missing required argument: edit_transcript",
+        )
+
+    if not _active_api_key or not _active_http_client:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error="No active Gemini API key available for review.",
+        )
+
+    structure_prompt = (
+        "You are a professional editor analyzing the narrative structure of a short-form edit.\n\n"
+        f"TOPIC: {topic or 'General'}\n\n"
+        f"EDIT TRANSCRIPT:\n{edit_transcript}\n\n"
+        "Analyze the structure and score each dimension 1-10:\n"
+        "- narrative_arc: Does it have setup → development → resolution?\n"
+        "- opening_effectiveness: Does the first sentence work as a standalone hook?\n"
+        "- topic_coherence: Does every sentence serve the topic?\n"
+        "- transition_quality: Do segments flow logically?\n"
+        "- closure_strength: Does the final sentence feel conclusive?\n"
+        "- sentence_integrity: Are all sentences complete (no fragments)?\n"
+        "- information_density: Is there filler or repetition?\n"
+        "- structure_score: Overall weighted score.\n\n"
+        "Also provide:\n"
+        "- story_summary: 1-2 sentence summary of the edit\n"
+        "- segment_analysis: Array of {role, text, issues} for each segment\n"
+        "- recommendations: Array of 3-5 specific improvements\n\n"
+        "Return ONLY valid JSON."
+    )
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{_GEMINI_MODEL}:generateContent"
+    )
+    payload: dict[str, Any] = {
+        "contents": [{"role": "user", "parts": [{"text": structure_prompt}]}],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 8192,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    import json as _json
+
+    try:
+        resp = _active_http_client.post(
+            url,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": _active_api_key,
+            },
+            json_payload=payload,
+            timeout=60,
+        )
+        if resp.status_code != 200:
+            return ToolResult(
+                call_id=tool_call.call_id,
+                success=False,
+                error=f"Gemini structure review API error: {resp.status_code}",
+            )
+
+        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        result = _json.loads(text)
+
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=True,
+            result=result,
+        )
+    except Exception as exc:
+        logger.exception("review_edit_structure failed")
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error=f"Structure review failed: {exc}",
+        )
 
 
 # ---------------------------------------------------------------------------

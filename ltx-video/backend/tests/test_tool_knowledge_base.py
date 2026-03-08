@@ -64,7 +64,7 @@ class TestToolRegistryCompleteness:
                 )
 
     def test_total_tool_count(self) -> None:
-        assert len(ALL_TOOLS) == 60, f"Expected 60 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 63, f"Expected 63 tools, got {len(ALL_TOOLS)}"
 
 
 class TestIntentClassification:
@@ -280,3 +280,157 @@ class TestSystemPromptHelpers:
     def test_unknown_category_handled(self) -> None:
         catalog = build_category_catalog(["nonexistent"])
         assert "## Available Tool Categories" in catalog
+
+    def test_review_category_in_catalog(self) -> None:
+        catalog = build_category_catalog(["review"])
+        assert "Edit Quality Review" in catalog
+        assert "review_edit_quality" in catalog
+
+    def test_recipes_for_review(self) -> None:
+        recipes = build_workflow_recipes(["review"])
+        assert "iterative_edit" in recipes
+
+
+class TestNewToolsIntegration:
+    """Tests for the 3 new tools: get_full_transcript, review_edit_quality, review_edit_structure."""
+
+    def test_get_full_transcript_exists(self) -> None:
+        assert "get_full_transcript" in TOOLS_BY_NAME
+        tool = TOOLS_BY_NAME["get_full_transcript"]
+        assert tool.category == "analysis"
+        assert tool.execution_target.value == "backend"
+
+    def test_review_edit_quality_exists(self) -> None:
+        assert "review_edit_quality" in TOOLS_BY_NAME
+        tool = TOOLS_BY_NAME["review_edit_quality"]
+        assert tool.category == "review"
+        assert tool.execution_target.value == "backend"
+
+    def test_review_edit_structure_exists(self) -> None:
+        assert "review_edit_structure" in TOOLS_BY_NAME
+        tool = TOOLS_BY_NAME["review_edit_structure"]
+        assert tool.category == "review"
+        assert tool.execution_target.value == "backend"
+
+    def test_review_category_exists(self) -> None:
+        assert "review" in CATEGORIES
+        cat = CATEGORIES["review"]
+        assert "review_edit_quality" in cat.tool_names
+        assert "review_edit_structure" in cat.tool_names
+
+    def test_review_category_depends_on_clip_editing_and_analysis(self) -> None:
+        cat = CATEGORIES["review"]
+        assert "clip_editing" in cat.depends_on
+        assert "analysis" in cat.depends_on
+
+    def test_review_intent_classification(self) -> None:
+        cats = classify_intent("review the quality of my edit")
+        assert "review" in cats
+
+    def test_review_intent_includes_dependencies(self) -> None:
+        cats = classify_intent("review the edit quality")
+        assert "review" in cats
+        assert "clip_editing" in cats
+        assert "analysis" in cats
+
+    def test_full_transcript_intent_classification(self) -> None:
+        cats = classify_intent("get the full transcript")
+        assert "analysis" in cats
+
+    def test_iterate_intent_classification(self) -> None:
+        cats = classify_intent("improve the edit and iterate on quality")
+        assert "review" in cats
+
+    def test_feedback_intent_classification(self) -> None:
+        cats = classify_intent("give me feedback on this edit")
+        assert "review" in cats
+
+    def test_polish_intent_classification(self) -> None:
+        cats = classify_intent("polish this edit")
+        assert "review" in cats
+
+    def test_complex_long_form_edit_request(self) -> None:
+        cats = classify_intent(
+            "make a 45 second edit about audio improvements from this video "
+            "and review the quality"
+        )
+        assert "review" in cats
+        assert "analysis" in cats
+        assert "core" in cats
+
+    def test_review_tools_in_selection(self) -> None:
+        tools = get_tools_for_categories(["review"])
+        names = {t.name for t in tools}
+        assert "review_edit_quality" in names
+        assert "review_edit_structure" in names
+
+    def test_analysis_includes_get_full_transcript(self) -> None:
+        tools = get_tools_for_categories(["analysis"])
+        names = {t.name for t in tools}
+        assert "get_full_transcript" in names
+        assert "get_video_metadata" in names
+
+    def test_get_full_transcript_handler_exists(self) -> None:
+        from agent.gemini_agent import _handle_get_full_transcript
+        assert callable(_handle_get_full_transcript)
+
+    def test_review_edit_quality_handler_exists(self) -> None:
+        from agent.gemini_agent import _handle_review_edit_quality
+        assert callable(_handle_review_edit_quality)
+
+    def test_review_edit_structure_handler_exists(self) -> None:
+        from agent.gemini_agent import _handle_review_edit_structure
+        assert callable(_handle_review_edit_structure)
+
+    def test_sentence_builder(self) -> None:
+        from agent.gemini_agent import _build_sentences
+        from agent.types import DialogueLine
+
+        lines = [
+            DialogueLine(start_time=0.0, end_time=2.0, text="Hello there everyone."),
+            DialogueLine(start_time=2.5, end_time=5.0, text="This is a test of the system."),
+            DialogueLine(start_time=5.5, end_time=8.0, text="It should merge lines"),
+            DialogueLine(start_time=8.2, end_time=10.0, text="that are close together."),
+            DialogueLine(start_time=15.0, end_time=18.0, text="But not across big gaps."),
+        ]
+        sentences = _build_sentences(lines)
+        assert len(sentences) >= 3
+        assert sentences[0]["text"] == "Hello there everyone."
+        assert sentences[1]["text"] == "This is a test of the system."
+        assert "merge lines" in sentences[2]["text"]
+
+    def test_get_full_transcript_handler_missing_asset(self) -> None:
+        from agent.gemini_agent import _handle_get_full_transcript
+        from agent.types import ToolCall
+
+        tc = ToolCall(tool_name="get_full_transcript", arguments={"asset_id": "nonexistent"})
+        result = _handle_get_full_transcript(tc)
+        assert not result.success
+        assert "not have been analyzed" in (result.error or "")
+
+    def test_get_full_transcript_handler_missing_arg(self) -> None:
+        from agent.gemini_agent import _handle_get_full_transcript
+        from agent.types import ToolCall
+
+        tc = ToolCall(tool_name="get_full_transcript", arguments={})
+        result = _handle_get_full_transcript(tc)
+        assert not result.success
+        assert "asset_id" in (result.error or "")
+
+    def test_review_edit_quality_handler_missing_transcript(self) -> None:
+        from agent.gemini_agent import _handle_review_edit_quality
+        from agent.types import ToolCall
+
+        tc = ToolCall(tool_name="review_edit_quality", arguments={"topic": "test"})
+        result = _handle_review_edit_quality(tc)
+        assert not result.success
+        assert "edit_transcript" in (result.error or "")
+
+    def test_review_edit_structure_handler_missing_transcript(self) -> None:
+        from agent.gemini_agent import _handle_review_edit_structure
+        from agent.types import ToolCall
+
+        tc = ToolCall(tool_name="review_edit_structure", arguments={"topic": "test"})
+        result = _handle_review_edit_structure(tc)
+        assert not result.success
+        assert "edit_transcript" in (result.error or "")

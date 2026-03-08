@@ -1196,6 +1196,87 @@ decompose_video = _tool(
     ],
 )
 
+# ===================================================================
+# REVIEW — edit quality evaluation tools
+# ===================================================================
+
+get_full_transcript = _tool(
+    name="get_full_transcript",
+    description=(
+        "Return the complete dialogue transcript for an analyzed video asset "
+        "with lines merged into sentences. Use this BEFORE making edits from "
+        "long-form content — it gives you the full text with precise timestamps "
+        "so you can select the best segments. Much more efficient than calling "
+        "get_transcript_segment repeatedly with guessed time ranges."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    category="analysis",
+    parameters=[
+        _param(
+            "asset_id",
+            "string",
+            "ID of the video asset (must have been analyzed first).",
+        ),
+    ],
+)
+
+review_edit_quality = _tool(
+    name="review_edit_quality",
+    description=(
+        "Evaluate the quality of the current timeline edit by analyzing the "
+        "transcript text of placed clips. Returns scores for hook quality, "
+        "pacing, content relevance, closure, sentence completeness, and an "
+        "overall score with specific feedback for improvement. Use this after "
+        "placing clips to check quality, then iterate based on the feedback."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    category="review",
+    parameters=[
+        _param(
+            "topic",
+            "string",
+            "The topic/theme of the edit (e.g. 'audio improvements in LTX 2.3').",
+        ),
+        _param(
+            "edit_transcript",
+            "string",
+            "The concatenated transcript text of clips on the timeline, in order. "
+            "Include timestamps: '[0.0s-5.2s] First sentence. [5.2s-10.0s] Second...'",
+        ),
+        _param(
+            "target_duration",
+            "number",
+            "Target duration of the edit in seconds.",
+            required=False,
+        ),
+    ],
+)
+
+review_edit_structure = _tool(
+    name="review_edit_structure",
+    description=(
+        "Analyze the narrative structure of a timeline edit: hook/body/closure "
+        "arc, sentence integrity, information density, and topic coherence. "
+        "Returns a structure score with per-segment analysis and actionable "
+        "recommendations. Use after review_edit_quality for deeper structural "
+        "analysis, especially for long-form to short-form edits."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    category="review",
+    parameters=[
+        _param(
+            "edit_transcript",
+            "string",
+            "The concatenated transcript text of the edit, with timestamps.",
+        ),
+        _param(
+            "topic",
+            "string",
+            "The topic/theme of the edit.",
+        ),
+    ],
+)
+
 # ---------------------------------------------------------------------------
 # Public registry
 # ---------------------------------------------------------------------------
@@ -1275,6 +1356,10 @@ ALL_TOOLS: list[ToolDefinition] = [
     query_project_brain,
     get_transcript_segment,
     decompose_video,
+    get_full_transcript,
+    # Review (backend)
+    review_edit_quality,
+    review_edit_structure,
 ]
 
 TOOLS_BY_NAME: dict[str, ToolDefinition] = {tool.name: tool for tool in ALL_TOOLS}
