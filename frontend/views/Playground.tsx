@@ -129,17 +129,22 @@ export function Playground() {
           const p = args.prompt as string
           if (!p) return fail('Missing prompt')
           try {
-            await generateRef.current(p, null, {
+            const videoSettings = {
               model: ((args.model as string) ?? 'fast') as 'fast' | 'pro',
               duration: args.duration ? Number(args.duration) : 5,
-              videoResolution: (args.resolution as string) ?? '540p',
+              videoResolution: (args.resolution as string) ?? '1080p',
               fps: args.fps ? Number(args.fps) : 24,
               audio: true,
               cameraMotion: (args.camera_motion as string) ?? 'none',
               imageResolution: '1080p',
               imageAspectRatio: '16:9',
               imageSteps: 4,
-            })
+              aspectRatio: (args.aspect_ratio as string) ?? '16:9',
+            }
+            const sanitized = shouldVideoGenerateWithLtxApi
+              ? sanitizeForcedApiVideoSettings(videoSettings)
+              : videoSettings
+            await generateRef.current(p, null, sanitized)
             return ok({ note: 'Video generation started' })
           } catch (e) {
             return fail(e instanceof Error ? e.message : String(e))
@@ -177,7 +182,7 @@ export function Playground() {
           return fail(`Tool "${tool_name}" is not available in Playground`)
       }
     },
-    [],
+    [shouldVideoGenerateWithLtxApi],
   )
 
   useEffect(() => {

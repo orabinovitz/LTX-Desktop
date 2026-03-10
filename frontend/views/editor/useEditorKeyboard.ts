@@ -92,6 +92,7 @@ export function useEditorKeyboard(params: UseEditorKeyboardParams) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if ((e.target as HTMLElement)?.closest?.('[data-agent-prompt-box]')) return
       if (refs.isKbEditorOpenRef.current) return
 
       const context = contextRef.current

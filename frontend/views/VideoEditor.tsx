@@ -75,7 +75,7 @@ const TRACK_FWD_ONE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(TRACK
 
 export function VideoEditor() {
   const { 
-    currentProject, currentProjectId, addAsset, deleteAsset, updateAsset,
+    currentProject, currentProjectId, currentTab, addAsset, deleteAsset, updateAsset,
     addTakeToAsset, deleteTakeFromAsset, setAssetActiveTake,
     addTimeline, deleteTimeline, renameTimeline, duplicateTimeline,
     setActiveTimeline, updateTimeline, getActiveTimeline,
@@ -584,6 +584,10 @@ export function VideoEditor() {
   })
 
   useEffect(() => {
+    if (currentTab !== 'video-editor') {
+      unregisterExecutor('editor')
+      return
+    }
     const executor: AgentViewExecutor = {
       viewContext: 'editor',
       executeTool,
@@ -598,7 +602,7 @@ export function VideoEditor() {
     }
     registerExecutor(executor)
     return () => unregisterExecutor('editor')
-  }, [executeTool, currentProjectId, registerExecutor, unregisterExecutor, restoreSnapshot])
+  }, [executeTool, currentProjectId, currentTab, registerExecutor, unregisterExecutor, restoreSnapshot])
 
   // Trigger background video analysis for newly imported video assets
   const analyzedAssetIds = useRef<Set<string>>(new Set())

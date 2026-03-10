@@ -264,6 +264,7 @@ export function useGeneration(): UseGenerationReturn {
       if (progressInterval) {
         clearInterval(progressInterval)
       }
+      setState(prev => prev.isGenerating ? { ...prev, isGenerating: false } : prev)
     }
   }, [])
 
@@ -450,6 +451,8 @@ export function useGeneration(): UseGenerationReturn {
           error: error instanceof Error ? error.message : 'Unknown error',
         }))
       }
+    } finally {
+      setState(prev => prev.isGenerating ? { ...prev, isGenerating: false } : prev)
     }
   }, [appSettings.hasFalApiKey, forceApiGenerations, refreshSettings])
 

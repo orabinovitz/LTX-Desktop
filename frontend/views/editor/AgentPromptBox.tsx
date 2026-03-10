@@ -187,6 +187,7 @@ export function AgentPromptBox({
 
   return (
     <div
+      data-agent-prompt-box
       className="fixed bottom-24 right-6 z-50 flex w-96 flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
       style={{ maxHeight: "60vh" }}
       onKeyDown={(e) => e.stopPropagation()}

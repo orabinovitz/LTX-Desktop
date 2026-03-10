@@ -52,10 +52,6 @@ interface GenerationResult {
   url: string;
 }
 
-const VIDEO_TIMEOUT_MS = 300_000;
-// const _IMAGE_TIMEOUT_MS = 60_000;
-const POLL_INTERVAL_MS = 500;
-
 const IMAGE_SHORT_SIDE: Record<string, number> = {
   "1080p": 1080,
   "1440p": 1440,
@@ -85,30 +81,6 @@ function getImageDimensions(
 
 async function getBackendUrl(): Promise<string> {
   return window.electronAPI.getBackendUrl();
-}
-
-async function pollUntilComplete(
-  backendUrl: string,
-  timeoutMs: number,
-  signal?: AbortSignal,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (signal?.aborted) throw new Error("Generation cancelled");
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    try {
-      const res = await fetch(`${backendUrl}/api/generation/progress`, { signal });
-      if (!res.ok) continue;
-      const data: GenerationProgress = await res.json();
-      if (data.status === "complete" || data.phase === "complete") return;
-      if (data.status === "error" || data.status === "failed") {
-        throw new Error("Generation failed on the backend");
-      }
-    } catch (e) {
-      if (signal?.aborted) throw new Error("Generation cancelled");
-    }
-  }
-  throw new Error("Generation timed out");
 }
 
 export async function agentGenerateVideo(
@@ -148,12 +120,12 @@ export async function agentGenerateVideo(
     throw new Error(err.error || `Generation request failed (${response.status})`);
   }
 
-  await pollUntilComplete(backendUrl, VIDEO_TIMEOUT_MS, signal);
+  const result = await response.json();
 
-  const resultRes = await fetch(`${backendUrl}/api/generation/progress`, { signal });
-  const resultData = await resultRes.json();
+  if (result.status === "cancelled") throw new Error("Generation was cancelled");
+  if (result.error) throw new Error(result.error);
 
-  const videoPath: string = resultData.video_path || resultData.result?.video_path || "";
+  const videoPath: string = result.video_path || "";
   if (!videoPath) throw new Error("Generation completed but no video path returned");
 
   const videoUrl = videoPath.startsWith("/")
@@ -274,11 +246,12 @@ export async function agentRetakeSection(
     throw new Error(err.error || `Retake failed (${response.status})`);
   }
 
-  await pollUntilComplete(backendUrl, VIDEO_TIMEOUT_MS, signal);
+  const result = await response.json();
 
-  const resultRes = await fetch(`${backendUrl}/api/generation/progress`, { signal });
-  const resultData = await resultRes.json();
-  const videoPath: string = resultData.video_path || resultData.result?.video_path || "";
+  if (result.status === "cancelled") throw new Error("Retake was cancelled");
+  if (result.error) throw new Error(result.error);
+
+  const videoPath: string = result.video_path || "";
   if (!videoPath) throw new Error("Retake completed but no video path returned");
 
   const videoUrl = videoPath.startsWith("/")
