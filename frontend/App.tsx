@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, AlertCircle, Settings, FileText } from 'lucide-react'
+import { Loader2, AlertCircle, Settings, FileText, Bot } from 'lucide-react'
 import { backendFetch } from './lib/backend'
 import { ProjectProvider, useProjects } from './contexts/ProjectContext'
 import { KeyboardShortcutsProvider } from './contexts/KeyboardShortcutsContext'
 import { AppSettingsProvider, useAppSettings } from './contexts/AppSettingsContext'
+import { AgentProvider, useAgentContext } from './contexts/AgentContext'
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal'
+import { AgentPromptBox } from './views/editor/AgentPromptBox'
+import { useGlobalAgentShortcut } from './hooks/useGlobalAgentShortcut'
 import { useBackend } from './hooks/use-backend'
 import { logger } from './lib/logger'
 import { Home } from './views/Home'
@@ -24,6 +27,16 @@ function AppContent() {
   const { currentView } = useProjects()
   const { status, processStatus, isLoading: backendLoading, error: backendError } = useBackend()
   const { settings, saveLtxApiKey, saveFalApiKey, forceApiGenerations, isLoaded, runtimePolicyLoaded } = useAppSettings()
+  const {
+    agentOpen,
+    setAgentOpen,
+    messages: agentMessages,
+    isProcessing: agentProcessing,
+    sendAgentPrompt,
+    activeExecutor,
+  } = useAgentContext()
+
+  useGlobalAgentShortcut()
 
   const [pythonReady, setPythonReady] = useState<boolean | null>(null)
   const [backendStarted, setBackendStarted] = useState(false)
@@ -440,6 +453,26 @@ function AppContent() {
     <div className="relative h-screen w-screen">
       {renderView()}
 
+      {!agentOpen && (
+        <button
+          onClick={() => setAgentOpen(true)}
+          className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition-all hover:bg-blue-500 hover:shadow-xl active:scale-95"
+          title="Open AI Agent (⌘ Space)"
+        >
+          <Bot className="h-5 w-5" />
+        </button>
+      )}
+
+      <AgentPromptBox
+        isOpen={agentOpen}
+        onClose={() => setAgentOpen(false)}
+        messages={agentMessages}
+        isProcessing={agentProcessing}
+        onSend={sendAgentPrompt}
+        onUndo={activeExecutor?.onUndo}
+        canUndo={activeExecutor?.canUndo ?? false}
+      />
+
       {showGlobalControls && (
         <div className="fixed top-[18px] right-3 z-50 flex items-center gap-1">
           <button
@@ -525,8 +558,10 @@ export default function App() {
     <ProjectProvider>
       <KeyboardShortcutsProvider>
         <AppSettingsProvider>
-          <AppContent />
-          <KeyboardShortcutsModal />
+          <AgentProvider>
+            <AppContent />
+            <KeyboardShortcutsModal />
+          </AgentProvider>
         </AppSettingsProvider>
       </KeyboardShortcutsProvider>
     </ProjectProvider>

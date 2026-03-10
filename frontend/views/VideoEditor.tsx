@@ -55,6 +55,9 @@ import { useTimelineDrag } from './editor/useTimelineDrag'
 import { useContextMenuEffects } from './editor/useContextMenuEffects'
 import { buildMenuDefinitions } from './editor/buildMenuDefinitions'
 import { usePlaybackEngine } from './editor/usePlaybackEngine'
+import { useAgentExecutor } from './editor/useAgentExecutor'
+import { useAgentContext, type AgentViewExecutor } from '../contexts/AgentContext'
+import { triggerVideoAnalysis } from '../hooks/use-agent'
 import { GapGenerationModal } from './editor/GapGenerationModal'
 import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
 import { I2vGenerationModal } from './editor/I2vGenerationModal'
@@ -538,7 +541,76 @@ export function VideoEditor() {
   
   // Keep assetsRef in sync (declared after assets to avoid forward-reference)
   useEffect(() => { assetsRef.current = assets }, [assets])
-  
+
+  // ---------------------------------------------------------------------------
+  // Agent executor — registers this editor view with the global AgentContext
+  // ---------------------------------------------------------------------------
+  const { registerExecutor, unregisterExecutor } = useAgentContext()
+
+  const agentGetMaxClipDuration = useCallback((clip: TimelineClip) => {
+    if (!clip.asset) return Infinity
+    const usableMedia = (clip.asset.duration ?? 60) - clip.trimStart - clip.trimEnd
+    return Math.max(0.5, usableMedia / clip.speed)
+  }, [])
+
+  const { executeTool, restoreSnapshot } = useAgentExecutor({
+    clipsRef,
+    tracksRef,
+    assetsRef,
+    currentTimeRef: playbackTimeRef,
+    splitClipAtPlayhead,
+    removeClip,
+    updateClip,
+    addClipToTimeline,
+    setCurrentTime,
+    setClips,
+    setTracks,
+    currentProjectId,
+    activeTimelineId: activeTimeline?.id,
+    duplicateTimeline,
+    addProjectTimeline: addTimeline,
+    renameTimeline,
+    getMaxClipDuration: agentGetMaxClipDuration,
+    addAsset,
+    deleteAsset,
+    assetSavePath: currentProject?.assetSavePath,
+    selectedClipIds: [...selectedClipIds],
+    setSelectedClipIds: (ids: string[]) => setSelectedClipIds(new Set(ids)),
+    undo: handleUndo,
+    redo: handleRedo,
+    togglePlayback: () => setIsPlaying(p => !p),
+    snapEnabled,
+    setSnapEnabled,
+  })
+
+  useEffect(() => {
+    const executor: AgentViewExecutor = {
+      viewContext: 'editor',
+      executeTool,
+      getTimelineState: () => ({
+        clips: clipsRef.current ?? [],
+        trackCount: (tracksRef.current ?? []).length,
+        currentTime: playbackTimeRef.current ?? 0,
+      }),
+      projectId: currentProjectId ?? null,
+      canUndo: true,
+      onUndo: () => restoreSnapshot(),
+    }
+    registerExecutor(executor)
+    return () => unregisterExecutor('editor')
+  }, [executeTool, currentProjectId, registerExecutor, unregisterExecutor, restoreSnapshot])
+
+  // Trigger background video analysis for newly imported video assets
+  const analyzedAssetIds = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    for (const asset of assets) {
+      if (asset.type === 'video' && asset.path && !analyzedAssetIds.current.has(asset.id)) {
+        analyzedAssetIds.current.add(asset.id)
+        void triggerVideoAnalysis(asset.id, asset.path, currentProject?.assetSavePath)
+      }
+    }
+  }, [assets, currentProject?.assetSavePath])
+
   // Compute bins from assets
   const bins = useMemo(() => {
     const binSet = new Set<string>()

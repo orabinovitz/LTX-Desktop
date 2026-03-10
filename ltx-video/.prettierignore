@@ -1,8 +1,0 @@
-dist/
-dist-electron/
-release/
-node_modules/
-backend/
-models/
-scripts/
-*.md

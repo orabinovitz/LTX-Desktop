@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Sparkles, Trash2, Square, ImageIcon, ArrowLeft, Scissors } from 'lucide-react'
 import { logger } from '../lib/logger'
 import { ImageUploader } from '../components/ImageUploader'
@@ -21,6 +21,9 @@ import { fileUrlToPath } from '../lib/url-to-path'
 import { sanitizeForcedApiVideoSettings } from '../lib/api-video-options'
 import { RetakePanel } from '../components/RetakePanel'
 import { ICLoraPanel, CONDITIONING_TYPES, type ICLoraConditioningType } from '../components/ICLoraPanel'
+import { useAgentContext } from '../contexts/AgentContext'
+import type { ToolResult } from './editor/useAgentExecutor'
+import { agentCancelGeneration, agentGetGenerationStatus } from './editor/agentGenerationHelper'
 
 const DEFAULT_SETTINGS: GenerationSettings = {
   model: 'fast',
@@ -105,6 +108,89 @@ export function Playground() {
     icLoraError,
     icLoraResult,
   } = useIcLora()
+
+  // ---------------------------------------------------------------------------
+  // Agent executor — lightweight, generation-only tools for Playground
+  // ---------------------------------------------------------------------------
+  const { registerExecutor, unregisterExecutor } = useAgentContext()
+  const generateRef = useRef(generate)
+  generateRef.current = generate
+  const generateImageRef = useRef(generateImage)
+  generateImageRef.current = generateImage
+
+  const playgroundExecuteTool = useCallback(
+    async (toolCall: { tool_name: string; arguments: Record<string, unknown> }): Promise<ToolResult> => {
+      const { tool_name, arguments: args } = toolCall
+      const ok = (result: unknown): ToolResult => ({ tool_name, success: true, result, error: null })
+      const fail = (error: string): ToolResult => ({ tool_name, success: false, result: null, error })
+
+      switch (tool_name) {
+        case 'generate_video': {
+          const p = args.prompt as string
+          if (!p) return fail('Missing prompt')
+          try {
+            await generateRef.current(p, null, {
+              model: ((args.model as string) ?? 'fast') as 'fast' | 'pro',
+              duration: args.duration ? Number(args.duration) : 5,
+              videoResolution: (args.resolution as string) ?? '540p',
+              fps: args.fps ? Number(args.fps) : 24,
+              audio: true,
+              cameraMotion: (args.camera_motion as string) ?? 'none',
+              imageResolution: '1080p',
+              imageAspectRatio: '16:9',
+              imageSteps: 4,
+            })
+            return ok({ note: 'Video generation started' })
+          } catch (e) {
+            return fail(e instanceof Error ? e.message : String(e))
+          }
+        }
+        case 'generate_image': {
+          const p = args.prompt as string
+          if (!p) return fail('Missing prompt')
+          try {
+            await generateImageRef.current(p, {
+              model: 'fast',
+              duration: 5,
+              videoResolution: '540p',
+              fps: 24,
+              audio: true,
+              cameraMotion: 'none',
+              imageResolution: (args.resolution as string) ?? '1080p',
+              imageAspectRatio: (args.aspect_ratio as string) ?? '16:9',
+              imageSteps: 4,
+            })
+            return ok({ note: 'Image generation started' })
+          } catch (e) {
+            return fail(e instanceof Error ? e.message : String(e))
+          }
+        }
+        case 'cancel_generation': {
+          await agentCancelGeneration()
+          return ok({ cancelled: true })
+        }
+        case 'get_generation_status': {
+          const s = await agentGetGenerationStatus()
+          return ok(s)
+        }
+        default:
+          return fail(`Tool "${tool_name}" is not available in Playground`)
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    registerExecutor({
+      viewContext: 'playground',
+      executeTool: playgroundExecuteTool,
+      getTimelineState: () => null,
+      projectId: null,
+      canUndo: false,
+      onUndo: () => {},
+    })
+    return () => unregisterExecutor('playground')
+  }, [playgroundExecuteTool, registerExecutor, unregisterExecutor])
 
   const [retakeInput, setRetakeInput] = useState({
     videoUrl: null as string | null,

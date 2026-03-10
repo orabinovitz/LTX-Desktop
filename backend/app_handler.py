@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from state.app_settings import AppSettings
 from handlers import (
+    AgentHandler,
     DownloadHandler,
     GenerationHandler,
     HealthHandler,
@@ -213,6 +214,12 @@ class AppHandler:
             text_handler=self.text,
             video_processor=video_processor,
             config=config,
+        )
+
+        self.agent = AgentHandler(
+            state=self.state,
+            lock=self._lock,
+            http=http,
         )
 
         self.downloads.cleanup_downloading_dir()

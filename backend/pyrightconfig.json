@@ -5,6 +5,7 @@
   "venvPath": ".",
   "venv": ".venv",
   "exclude": [
+    "agent",
     "tests",
     "services/depth_processor_pipeline/depth_anything_v2",
     ".venv",
