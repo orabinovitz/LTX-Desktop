@@ -804,11 +804,27 @@ generate_video = _tool(
         ),
         _param("image_asset_id", "string", "Asset ID of the input image (for image_to_video).", required=False),
         _param("audio_asset_id", "string", "Asset ID of the input audio (for audio_to_video).", required=False),
-        _param("duration", "integer", "Video duration in seconds (5-20).", required=False),
+        _param(
+            "duration", "integer",
+            "Video duration in seconds. Allowed values depend on model: "
+            "fast model: 6, 8, 10, 12, 14, 16, 18, or 20 seconds. "
+            "pro model: 6, 8, or 10 seconds only. "
+            "Choose duration based on content: 6s for quick shots, 8-10s for standard scenes, "
+            "12-16s for extended scenes, 18-20s for long continuous shots.",
+            required=False,
+        ),
         _param("resolution", "string", "e.g. '720p', '1080p' (default).", required=False),
         _param("fps", "integer", "Frames per second (default 24).", required=False),
         _param("aspect_ratio", "string", "'16:9' (default) or '9:16'.", required=False),
-        _param("model", "string", "'fast' or 'pro' (default based on settings).", required=False),
+        _param(
+            "model", "string",
+            "'fast' or 'pro'. Choose based on content: "
+            "pro = higher quality, better for complex scenes, cinematic shots, detailed motion (max 10s). "
+            "fast = good quality, supports up to 20 seconds, better for simple content, talking heads, "
+            "landscapes, or when longer duration is needed. "
+            "If duration > 10s, you MUST use 'fast'. For short complex shots, prefer 'pro'.",
+            required=False,
+        ),
         _param("camera_motion", "string", "Camera motion preset (e.g. 'static', 'dolly_in').", required=False),
     ],
 )

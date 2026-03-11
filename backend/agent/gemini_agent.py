@@ -472,6 +472,30 @@ identify and tighten the weakest clips, then re-review.
 7. **Structure matters**: open strong (hook), build through the middle, close with impact.
 """
 
+_GENERATION_MODE_APPENDIX = """\
+## Video Generation: Model and Duration Selection
+
+When generating videos, choose model and duration intelligently:
+
+**Model selection:**
+- Use **pro** for: cinematic shots, complex motion, detailed scenes, high-quality short clips (max 10s)
+- Use **fast** for: simple content, landscapes, talking heads, any video > 10 seconds
+
+**Duration selection (pick the CLOSEST valid value):**
+- pro model: 6, 8, or 10 seconds only
+- fast model: 6, 8, 10, 12, 14, 16, 18, or 20 seconds
+
+**Guidelines:**
+- Quick action/reaction shot: 6s (pro)
+- Standard scene: 8-10s (pro for quality, fast if simple)
+- Extended scene or monologue: 12-16s (fast only)
+- Long continuous shot: 18-20s (fast only)
+- If user says "long" or "extended": use fast, 16-20s
+- If user says "cinematic" or "high quality": use pro, 8-10s
+- If user doesn't specify: default to fast, 8s
+- NEVER use duration=5. The minimum valid duration is 6.
+"""
+
 # ---------------------------------------------------------------------------
 # Session storage
 # ---------------------------------------------------------------------------
@@ -821,6 +845,8 @@ def _call_gemini(
             dynamic_prompt += "\n\n" + recipes
         if "clip_editing" in sd.scoped_categories:
             dynamic_prompt += "\n\n" + _EDITING_MODE_APPENDIX
+        if "generation" in sd.scoped_categories:
+            dynamic_prompt += "\n\n" + _GENERATION_MODE_APPENDIX
 
     payload: dict[str, Any] = {
         "contents": sd.contents,

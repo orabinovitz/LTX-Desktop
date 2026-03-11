@@ -101,7 +101,7 @@ export async function agentGenerateVideo(
     duration: String(params.duration ?? 5),
     resolution: params.resolution ?? "1080p",
     fps: String(params.fps ?? 24),
-    audio: "false",
+    audio: "true",
     cameraMotion: params.cameraMotion ?? "none",
     aspectRatio: params.aspectRatio ?? "16:9",
   };
@@ -150,7 +150,7 @@ export async function agentGenerateVideo(
       duration: params.duration ?? 5,
       resolution: params.resolution ?? '1080p',
       fps: params.fps ?? 24,
-      audio: false,
+      audio: true,
       cameraMotion: params.cameraMotion ?? 'none',
     },
   });
@@ -298,7 +298,7 @@ export async function agentRetakeSection(
       duration: params.duration,
       resolution: '1080p',
       fps: 24,
-      audio: false,
+      audio: true,
       cameraMotion: 'none',
       retakeVideoPath: params.videoPath,
       retakeStartTime: params.startTime,
