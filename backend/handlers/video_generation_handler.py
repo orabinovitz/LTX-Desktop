@@ -376,9 +376,6 @@ class VideoGenerationHandler(StateHandlerBase):
         return self.config.outputs_dir / f"ltx2_video_{timestamp}_{self._make_generation_id()}.mp4"
 
     def _generate_forced_api(self, req: GenerateVideoRequest) -> GenerateVideoResponse:
-        if self._generation.is_generation_running():
-            raise HTTPError(409, "Generation already in progress")
-
         generation_id = self._make_generation_id()
         self._generation.start_api_generation(generation_id)
 

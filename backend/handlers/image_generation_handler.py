@@ -40,9 +40,6 @@ class ImageGenerationHandler(StateHandlerBase):
         self._zit_api_client = zit_api_client
 
     def generate(self, req: GenerateImageRequest) -> GenerateImageResponse:
-        if self._generation.is_generation_running():
-            raise HTTPError(409, "Generation already in progress")
-
         width = (req.width // 16) * 16
         height = (req.height // 16) * 16
         num_images = max(1, min(12, req.numImages))
@@ -64,6 +61,9 @@ class ImageGenerationHandler(StateHandlerBase):
                 seed=seed,
                 num_images=num_images,
             )
+
+        if self._generation.is_generation_running():
+            raise HTTPError(409, "Generation already in progress")
 
         try:
             self._pipelines.load_zit_to_gpu()

@@ -215,18 +215,54 @@ export function useAgent() {
             ]);
           }
 
-          // Execute frontend tool calls
-          const results: ToolResult[] = [];
-          for (const tc of response.tool_calls) {
-            const toolStart = performance.now();
-            const result = await executeTool(tc);
+          // Execute frontend tool calls -- parallel for generation tools, sequential otherwise
+          const PARALLEL_SAFE_TOOLS = new Set([
+            "generate_image", "generate_video", "get_project_assets",
+            "get_generation_status", "get_video_metadata", "cancel_generation",
+            "delete_asset", "toggle_favorite",
+          ]);
+          const allParallelSafe = response.tool_calls.every(
+            (tc) => PARALLEL_SAFE_TOOLS.has(tc.tool_name),
+          );
+
+          let results: ToolResult[];
+          if (allParallelSafe && response.tool_calls.length > 1) {
+            const batchStart = performance.now();
             console.log(
-              "[agent]   tool %s → %s (%.0fms)",
-              tc.tool_name,
-              result.success ? "ok" : `FAIL: ${result.error}`,
-              performance.now() - toolStart,
+              "[agent]   executing %d tool(s) in PARALLEL: %s",
+              response.tool_calls.length,
+              response.tool_calls.map((tc) => tc.tool_name).join(", "),
             );
-            results.push(result);
+            results = await Promise.all(
+              response.tool_calls.map(async (tc) => {
+                const toolStart = performance.now();
+                const result = await executeTool(tc);
+                console.log(
+                  "[agent]   tool %s → %s (%.0fms)",
+                  tc.tool_name,
+                  result.success ? "ok" : `FAIL: ${result.error}`,
+                  performance.now() - toolStart,
+                );
+                return result;
+              }),
+            );
+            console.log(
+              "[agent]   parallel batch done in %.0fms",
+              performance.now() - batchStart,
+            );
+          } else {
+            results = [];
+            for (const tc of response.tool_calls) {
+              const toolStart = performance.now();
+              const result = await executeTool(tc);
+              console.log(
+                "[agent]   tool %s → %s (%.0fms)",
+                tc.tool_name,
+                result.success ? "ok" : `FAIL: ${result.error}`,
+                performance.now() - toolStart,
+              );
+              results.push(result);
+            }
           }
 
           const allSucceeded = results.every((r) => r.success);

@@ -45,9 +45,6 @@ class GenerationHandler(StateHandlerBase):
 
     @with_state_lock
     def start_api_generation(self, generation_id: str) -> None:
-        if self.is_generation_running():
-            raise RuntimeError("Generation already in progress")
-
         self.state.api_generation = GenerationRunning(
             id=generation_id,
             progress=GenerationProgress(phase="", progress=0, current_step=None, total_steps=None),
