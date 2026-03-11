@@ -447,6 +447,31 @@ issues. Use this for high-stakes edits.
 - Use seconds for all time references.
 """
 
+_EDITING_MODE_APPENDIX = """\
+## CRITICAL: Active Editing Rules
+
+When editing clips on a timeline, you MUST follow these rules — they override \
+any tendency to simply place clips at full length.
+
+1. **NEVER leave clips at their original full length.** Every clip MUST be trimmed.
+2. **For EVERY clip** you add or that's already on the timeline:
+   - Call get_video_metadata(asset_id) to understand its scenes and importance scores.
+   - Identify the strongest scene(s) (importance > 0.7).
+   - Calculate trim_start_delta and trim_end_delta to keep ONLY the best segment.
+   - Call trim_clip with those deltas. Do NOT skip this step.
+3. **Vary clip durations** for professional pacing:
+   - Fast/energetic edit: 2-5s per clip
+   - Medium/documentary: 4-8s per clip
+   - Slow/cinematic: 6-15s per clip
+   - NEVER have all clips the same length — that's not editing.
+4. **Shot type determines duration**: wide/aerial shots get 5-8s, medium shots 4-6s, \
+close-ups 2-4s, action 2-3s. Use shot_type from metadata.
+5. **After ALL edits**, call review_edit_quality to score the edit. If score < 7, \
+identify and tighten the weakest clips, then re-review.
+6. **Close all gaps** after trimming — use move_clip to slide clips left.
+7. **Structure matters**: open strong (hook), build through the middle, close with impact.
+"""
+
 # ---------------------------------------------------------------------------
 # Session storage
 # ---------------------------------------------------------------------------
@@ -794,6 +819,8 @@ def _call_gemini(
         dynamic_prompt = SYSTEM_PROMPT + "\n\n" + catalog
         if recipes:
             dynamic_prompt += "\n\n" + recipes
+        if "clip_editing" in sd.scoped_categories:
+            dynamic_prompt += "\n\n" + _EDITING_MODE_APPENDIX
 
     payload: dict[str, Any] = {
         "contents": sd.contents,
