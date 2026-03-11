@@ -32,6 +32,8 @@ function AppContent() {
     setAgentOpen,
     messages: agentMessages,
     isProcessing: agentProcessing,
+    progress: agentProgress,
+    setCollapsed: setAgentCollapsed,
     sendAgentPrompt,
     activeExecutor,
   } = useAgentContext()
@@ -468,6 +470,8 @@ function AppContent() {
         onClose={() => setAgentOpen(false)}
         messages={agentMessages}
         isProcessing={agentProcessing}
+        progress={agentProgress}
+        onSetCollapsed={setAgentCollapsed}
         onSend={sendAgentPrompt}
         onUndo={activeExecutor?.onUndo}
         canUndo={activeExecutor?.canUndo ?? false}

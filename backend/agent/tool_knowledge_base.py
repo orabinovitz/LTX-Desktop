@@ -124,6 +124,19 @@ CATEGORIES: dict[str, ToolCategory] = {
                     "review_edit_quality to verify the edit is tight and well-paced",
                 ],
             ),
+            WorkflowRecipe(
+                name="compilation_edit",
+                description="Edit a collection of clips into an organic, well-paced compilation with professional rhythm",
+                steps=[
+                    "Analyze ALL clips: get_video_metadata for each to understand shot_type, importance, scenes",
+                    "Plan shot order and durations using the rhythm curve: establish (5-10s wide) → build (3-6s medium) → detail (2-4s close) → breathe (6-10s wide) → climax (1.5-3s rapid) → resolve (5-10s calm)",
+                    "Verify: no adjacent clips within 30% duration of each other. Replan if needed.",
+                    "Place clips with add_clip_to_timeline in your planned order",
+                    "Trim EACH clip: get_video_metadata → find best scene → trim_clip to planned duration",
+                    "Close all gaps: move_clip to make clips contiguous",
+                    "review_edit_quality to score. If score < 7, re-trim weakest clips and re-review",
+                ],
+            ),
         ],
     ),
     "clip_properties": ToolCategory(

@@ -412,10 +412,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
           if (c.type === 'adjustment' || c.type === 'text' || c.type === 'image') continue
           if (next < c.startTime || next >= c.startTime + c.duration) continue
           if (trks[c.trackIndex]?.enabled === false) continue
-          // For video clips: only play audio if there's a linked audio clip on the timeline.
-          // If the video was added without a linked audio clip (e.g. audio tracks were unpatched),
-          // its embedded audio should not play.
-          if (c.type === 'video' && (!c.linkedClipIds || !c.linkedClipIds.some(lid => allClips.some(ac => ac.id === lid && ac.type === 'audio')))) continue
+          if (c.type === 'video') continue
           activeAudioIds.add(c.id)
         }
         

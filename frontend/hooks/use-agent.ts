@@ -4,8 +4,17 @@ import type {
   ToolCall,
   ToolResult,
 } from "../views/editor/useAgentExecutor";
+import { useAgentProgress } from "./useAgentProgress";
+import {
+  parsePlanToTasks,
+  groupToolCalls,
+  mapGroupsToTasks,
+  resetTaskIdCounter,
+} from "../lib/parse-plan";
+import type { AgentProgress, AgentTask } from "../types/agent-progress";
 
 export type { ToolCall };
+export type { AgentProgress };
 
 // --- Types matching backend Pydantic models ---
 
@@ -49,6 +58,12 @@ export interface ChatMessage {
   content: string;
   toolCalls?: ToolCall[];
   isExecuting?: boolean;
+}
+
+export type OnToolProgress = (progress: number, detail?: string) => void;
+
+export interface ExecuteToolFn {
+  (toolCall: ToolCall, onProgress?: OnToolProgress): Promise<ToolResult>;
 }
 
 // --- Helper to build timeline state from React state ---
@@ -125,13 +140,16 @@ export function useAgent() {
   const conversationRef = useRef<AgentMessage[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
+  const progressActions = useAgentProgress();
+  const { progress } = progressActions;
+
   const sendPrompt = useCallback(
     async (
       prompt: string,
       clips: TimelineClip[],
       trackCount: number,
       currentTime: number,
-      executeTool: (toolCall: ToolCall) => Promise<ToolResult>,
+      executeTool: ExecuteToolFn,
       projectId?: string | null,
       viewContext?: "editor" | "genspace" | "playground",
       assetsContext?: Record<string, unknown> | null,
@@ -140,6 +158,9 @@ export function useAgent() {
       abortRef.current?.abort();
       abortRef.current = new AbortController();
       const { signal } = abortRef.current;
+
+      resetTaskIdCounter();
+      progressActions.startSession();
 
       setMessages((prev) => [...prev, { role: "user", content: prompt }]);
       conversationRef.current.push({ role: "user", content: prompt });
@@ -160,6 +181,8 @@ export function useAgent() {
           trackCount,
           currentTime,
         );
+
+        progressActions.setThinking("Sending request to AI...");
 
         const res = await fetch(`${backendUrl}/api/agent/execute`, {
           method: "POST",
@@ -191,10 +214,16 @@ export function useAgent() {
           sessionIdRef.current = response.session_id;
         }
 
+        if (response.done) {
+          progressActions.endSession();
+        }
+
         // Agentic loop
         let turns = 0;
+        let currentTasks: AgentTask[] = [];
         while (!response.done && turns < 10) {
           turns++;
+          progressActions.incrementTurn();
           const turnStart = performance.now();
           console.log(
             "[agent] turn %d — %d tool call(s): %s",
@@ -203,7 +232,16 @@ export function useAgent() {
             response.tool_calls.map((tc) => tc.tool_name).join(", "),
           );
 
+          // Parse plan into tasks + reasoning on the first turn that has one
           if (response.plan) {
+            progressActions.setThinking("Planning your edit...");
+            const parsed = parsePlanToTasks(response.plan);
+            currentTasks = parsed.tasks;
+            if (parsed.reasoning) {
+              progressActions.setReasoning(parsed.reasoning);
+            }
+            progressActions.setPlan(currentTasks);
+
             setMessages((prev) => [
               ...prev,
               {
@@ -215,57 +253,123 @@ export function useAgent() {
             ]);
           }
 
-          // Execute frontend tool calls -- parallel for generation tools, sequential otherwise
+          // Group tool calls by name
+          const groups = groupToolCalls(response.tool_calls);
+          const groupTaskMap = mapGroupsToTasks(groups, currentTasks);
+
+          // Resolve task IDs for each group (match or create ad-hoc)
+          for (let gi = 0; gi < groups.length; gi++) {
+            if (!groupTaskMap.has(gi)) {
+              const adHocTask: AgentTask = {
+                id: `adhoc-${gi}-t${turns}`,
+                label: groups[gi].label,
+                status: "pending",
+              };
+              progressActions.addAdHocTask(adHocTask);
+              groupTaskMap.set(gi, adHocTask.id);
+            }
+          }
+
+          // Execute tool calls group by group
           const PARALLEL_SAFE_TOOLS = new Set([
-            "generate_image", "generate_video", "get_project_assets",
-            "get_generation_status", "get_video_metadata", "cancel_generation",
-            "delete_asset", "toggle_favorite",
+            "generate_image",
+            "generate_video",
+            "get_project_assets",
+            "get_generation_status",
+            "get_video_metadata",
+            "cancel_generation",
+            "delete_asset",
+            "toggle_favorite",
           ]);
-          const allParallelSafe = response.tool_calls.every(
-            (tc) => PARALLEL_SAFE_TOOLS.has(tc.tool_name),
+
+          const results: ToolResult[] = new Array(
+            response.tool_calls.length,
           );
 
-          let results: ToolResult[];
-          if (allParallelSafe && response.tool_calls.length > 1) {
-            const batchStart = performance.now();
-            console.log(
-              "[agent]   executing %d tool(s) in PARALLEL: %s",
-              response.tool_calls.length,
-              response.tool_calls.map((tc) => tc.tool_name).join(", "),
+          for (let gi = 0; gi < groups.length; gi++) {
+            const group = groups[gi];
+            const taskId = groupTaskMap.get(gi)!;
+            const count = group.indices.length;
+            const isParallel =
+              PARALLEL_SAFE_TOOLS.has(group.toolName) && count > 1;
+
+            progressActions.startTask(
+              taskId,
+              count > 1 ? `0/${count} complete` : undefined,
             );
-            results = await Promise.all(
-              response.tool_calls.map(async (tc) => {
-                const toolStart = performance.now();
-                const result = await executeTool(tc);
-                console.log(
-                  "[agent]   tool %s → %s (%.0fms)",
-                  tc.tool_name,
-                  result.success ? "ok" : `FAIL: ${result.error}`,
-                  performance.now() - toolStart,
-                );
-                return result;
-              }),
-            );
-            console.log(
-              "[agent]   parallel batch done in %.0fms",
-              performance.now() - batchStart,
-            );
-          } else {
-            results = [];
-            for (const tc of response.tool_calls) {
+
+            let completedInGroup = 0;
+
+            const executeOne = async (toolIdx: number) => {
+              const tc = response.tool_calls[toolIdx];
               const toolStart = performance.now();
-              const result = await executeTool(tc);
+              const onProgress: OnToolProgress = (p, detail) => {
+                const groupDetail =
+                  count > 1
+                    ? `${completedInGroup}/${count} complete`
+                    : detail;
+                progressActions.updateTaskProgress(taskId, p, groupDetail);
+              };
+              const result = await executeTool(tc, onProgress);
               console.log(
                 "[agent]   tool %s → %s (%.0fms)",
                 tc.tool_name,
                 result.success ? "ok" : `FAIL: ${result.error}`,
                 performance.now() - toolStart,
               );
-              results.push(result);
+              results[toolIdx] = result;
+              completedInGroup++;
+              if (count > 1) {
+                const avgProgress = Math.round(
+                  (completedInGroup / count) * 100,
+                );
+                progressActions.updateTaskProgress(
+                  taskId,
+                  avgProgress,
+                  `${completedInGroup}/${count} complete`,
+                );
+              }
+              return result;
+            };
+
+            if (isParallel) {
+              console.log(
+                "[agent]   executing group '%s' (%d calls) in PARALLEL",
+                group.toolName,
+                count,
+              );
+              const groupResults = await Promise.all(
+                group.indices.map(executeOne),
+              );
+              const allOk = groupResults.every((r) => r.success);
+              if (allOk) {
+                progressActions.completeTask(taskId);
+              } else {
+                const firstErr = groupResults.find((r) => !r.success);
+                progressActions.failTask(
+                  taskId,
+                  firstErr?.error ?? "Unknown error",
+                );
+              }
+            } else {
+              let groupFailed = false;
+              for (const idx of group.indices) {
+                const result = await executeOne(idx);
+                if (!result.success && !groupFailed) {
+                  groupFailed = true;
+                  progressActions.failTask(
+                    taskId,
+                    result.error ?? "Unknown error",
+                  );
+                }
+              }
+              if (!groupFailed) {
+                progressActions.completeTask(taskId);
+              }
             }
           }
 
-          const allSucceeded = results.every((r) => r.success);
+          const allSucceeded = results.every((r) => r?.success);
           if (allSucceeded) {
             setMessages((prev) => {
               const updated = [...prev];
@@ -282,6 +386,8 @@ export function useAgent() {
             });
           }
 
+          progressActions.setThinking("Continuing conversation...");
+
           console.log(
             "[agent] turn %d tools done, sending results back...",
             turns,
@@ -290,7 +396,7 @@ export function useAgent() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              tool_results: results,
+              tool_results: results.filter(Boolean),
               session_id: sessionIdRef.current,
             }),
             signal,
@@ -316,9 +422,14 @@ export function useAgent() {
           turns,
         );
 
+        progressActions.endSession();
+
         setMessages((prev) => {
           const updated = [...prev];
-          if (updated.length > 0 && updated[updated.length - 1].isExecuting) {
+          if (
+            updated.length > 0 &&
+            updated[updated.length - 1].isExecuting
+          ) {
             updated[updated.length - 1] = {
               role: "agent",
               content: finalText,
@@ -331,22 +442,29 @@ export function useAgent() {
         });
         conversationRef.current.push({ role: "agent", content: finalText });
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof DOMException && err.name === "AbortError") {
+          progressActions.reset();
+          return;
+        }
         const errorMsg = err instanceof Error ? err.message : "Unknown error";
         console.error(
           "[agent] error after %.1fs:",
           (performance.now() - t0) / 1000,
           errorMsg,
         );
+        progressActions.endSession(errorMsg);
         setMessages((prev) => [
           ...prev,
-          { role: "agent", content: "Something went wrong. Please try again." },
+          {
+            role: "agent",
+            content: "Something went wrong. Please try again.",
+          },
         ]);
       } finally {
         setIsProcessing(false);
       }
     },
-    [],
+    [progressActions],
   );
 
   const clearChat = useCallback(() => {
@@ -354,7 +472,15 @@ export function useAgent() {
     setMessages([]);
     conversationRef.current = [];
     sessionIdRef.current = null;
-  }, []);
+    progressActions.reset();
+  }, [progressActions]);
 
-  return { messages, isProcessing, sendPrompt, clearChat };
+  return {
+    messages,
+    isProcessing,
+    sendPrompt,
+    clearChat,
+    progress,
+    setCollapsed: progressActions.setCollapsed,
+  };
 }

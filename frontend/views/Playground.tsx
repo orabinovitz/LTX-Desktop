@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { Sparkles, Trash2, Square, ImageIcon, ArrowLeft, Scissors } from 'lucide-react'
 import { logger } from '../lib/logger'
 import { ImageUploader } from '../components/ImageUploader'
@@ -185,7 +185,7 @@ export function Playground() {
     [shouldVideoGenerateWithLtxApi],
   )
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     registerExecutor({
       viewContext: 'playground',
       executeTool: playgroundExecuteTool,

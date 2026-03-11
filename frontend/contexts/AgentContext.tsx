@@ -6,7 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { useAgent, type ChatMessage } from "../hooks/use-agent";
+import { useAgent, type ChatMessage, type OnToolProgress } from "../hooks/use-agent";
+import type { AgentProgress } from "../types/agent-progress";
 import type { ToolCall, ToolResult } from "../views/editor/useAgentExecutor";
 import type { TimelineClip } from "../types/project";
 
@@ -14,7 +15,7 @@ export type ViewContext = "editor" | "genspace" | "playground";
 
 export interface AgentViewExecutor {
   viewContext: ViewContext;
-  executeTool: (toolCall: ToolCall) => Promise<ToolResult>;
+  executeTool: (toolCall: ToolCall, onProgress?: OnToolProgress) => Promise<ToolResult>;
   getTimelineState: () => {
     clips: TimelineClip[];
     trackCount: number;
@@ -31,6 +32,8 @@ interface AgentContextValue {
   setAgentOpen: React.Dispatch<React.SetStateAction<boolean>>;
   messages: ChatMessage[];
   isProcessing: boolean;
+  progress: AgentProgress;
+  setCollapsed: (value: boolean) => void;
   sendAgentPrompt: (prompt: string) => void;
   clearChat: () => void;
   registerExecutor: (executor: AgentViewExecutor) => void;
@@ -42,7 +45,8 @@ const AgentContext = createContext<AgentContextValue | null>(null);
 
 export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [agentOpen, setAgentOpen] = useState(false);
-  const { messages, isProcessing, sendPrompt, clearChat } = useAgent();
+  const { messages, isProcessing, sendPrompt, clearChat, progress, setCollapsed } =
+    useAgent();
   const executorRef = useRef<AgentViewExecutor | null>(null);
 
   const registerExecutor = useCallback((executor: AgentViewExecutor) => {
@@ -88,6 +92,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       setAgentOpen,
       messages,
       isProcessing,
+      progress,
+      setCollapsed,
       sendAgentPrompt,
       clearChat,
       registerExecutor,
@@ -98,6 +104,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       agentOpen,
       messages,
       isProcessing,
+      progress,
+      setCollapsed,
       sendAgentPrompt,
       clearChat,
       registerExecutor,

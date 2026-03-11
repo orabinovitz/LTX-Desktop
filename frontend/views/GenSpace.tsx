@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import {
   Trash2, Download, Image, Video, X,
   Heart, Film, Volume2, VolumeX, Sparkles,
@@ -1049,7 +1049,7 @@ export function GenSpace() {
     [currentProjectId, addAsset, deleteAsset, toggleFavorite, shouldVideoGenerateWithLtxApi],
   )
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (currentTab !== 'gen-space') {
       unregisterExecutor('genspace')
       return

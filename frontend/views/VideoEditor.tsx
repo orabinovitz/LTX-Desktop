@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
 import {
   Plus, Trash2,
   ZoomIn, ZoomOut, Maximize2,
@@ -583,7 +583,7 @@ export function VideoEditor() {
     setSnapEnabled,
   })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (currentTab !== 'video-editor') {
       unregisterExecutor('editor')
       return

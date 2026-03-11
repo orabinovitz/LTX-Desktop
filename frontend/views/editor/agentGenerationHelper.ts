@@ -8,6 +8,7 @@
 
 import type { Asset } from "../../types/project";
 import { copyToAssetFolder } from "../../lib/asset-copy";
+import type { OnToolProgress } from "../../hooks/use-agent";
 
 interface GenerationProgress {
   status: string;
@@ -83,6 +84,40 @@ async function getBackendUrl(): Promise<string> {
   return window.electronAPI.getBackendUrl();
 }
 
+function startProgressPolling(
+  onProgress: OnToolProgress | undefined,
+  signal?: AbortSignal,
+): () => void {
+  if (!onProgress) return () => {};
+
+  const intervalId = setInterval(async () => {
+    if (signal?.aborted) {
+      clearInterval(intervalId);
+      return;
+    }
+    try {
+      const status = await agentGetGenerationStatus();
+      if (status.isGenerating) {
+        const phaseLabel =
+          status.phase === "loading_model"
+            ? "Loading model..."
+            : status.phase === "encoding_text"
+              ? "Encoding text..."
+              : status.phase === "inference"
+                ? "Generating..."
+                : status.phase === "downloading_output"
+                  ? "Downloading..."
+                  : status.phase;
+        onProgress(status.progress, phaseLabel);
+      }
+    } catch {
+      // Polling failure is non-fatal
+    }
+  }, 500);
+
+  return () => clearInterval(intervalId);
+}
+
 export async function agentGenerateVideo(
   params: VideoGenerationParams,
   addAsset: (
@@ -92,8 +127,10 @@ export async function agentGenerateVideo(
   projectId: string,
   _assetSavePath?: string | undefined | null,
   signal?: AbortSignal,
+  onProgress?: OnToolProgress,
 ): Promise<GenerationResult> {
   const backendUrl = await getBackendUrl();
+  const stopPolling = startProgressPolling(onProgress, signal);
 
   const body: Record<string, unknown> = {
     prompt: params.prompt,
@@ -108,12 +145,20 @@ export async function agentGenerateVideo(
   if (params.imagePath) body.imagePath = params.imagePath;
   if (params.audioPath) body.audioPath = params.audioPath;
 
-  const response = await fetch(`${backendUrl}/api/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${backendUrl}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    stopPolling();
+    throw e;
+  }
+
+  stopPolling();
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
@@ -172,25 +217,35 @@ export async function agentGenerateImage(
   projectId: string,
   _assetSavePath?: string | undefined | null,
   signal?: AbortSignal,
+  onProgress?: OnToolProgress,
 ): Promise<GenerationResult> {
   const backendUrl = await getBackendUrl();
+  const stopPolling = startProgressPolling(onProgress, signal);
   const { width, height } = getImageDimensions(
     params.resolution ?? "1080p",
     params.aspectRatio ?? "16:9",
   );
 
-  const response = await fetch(`${backendUrl}/api/generate-image`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      prompt: params.prompt,
-      width,
-      height,
-      numSteps: 8,
-      numImages: params.numVariations ?? 1,
-    }),
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${backendUrl}/api/generate-image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: params.prompt,
+        width,
+        height,
+        numSteps: 8,
+        numImages: params.numVariations ?? 1,
+      }),
+      signal,
+    });
+  } catch (e) {
+    stopPolling();
+    throw e;
+  }
+
+  stopPolling();
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
@@ -247,21 +302,31 @@ export async function agentRetakeSection(
   projectId: string,
   _assetSavePath?: string | undefined | null,
   signal?: AbortSignal,
+  onProgress?: OnToolProgress,
 ): Promise<GenerationResult> {
   const backendUrl = await getBackendUrl();
+  const stopPolling = startProgressPolling(onProgress, signal);
 
-  const response = await fetch(`${backendUrl}/api/retake`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      video_path: params.videoPath,
-      start_time: params.startTime,
-      duration: params.duration,
-      prompt: params.prompt,
-      mode: params.mode ?? "replace_audio_and_video",
-    }),
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${backendUrl}/api/retake`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        video_path: params.videoPath,
+        start_time: params.startTime,
+        duration: params.duration,
+        prompt: params.prompt,
+        mode: params.mode ?? "replace_audio_and_video",
+      }),
+      signal,
+    });
+  } catch (e) {
+    stopPolling();
+    throw e;
+  }
+
+  stopPolling();
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));

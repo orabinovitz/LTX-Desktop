@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback, Fragment } from "react";
 import { X, Send, Loader2, Bot, Undo2, Mic, Phone } from "lucide-react";
 import type { LiveAgentStatus } from "../../hooks/use-live-agent";
 import type { ToolCall, ChatMessage } from "../../hooks/use-agent";
+import type { AgentProgress } from "../../types/agent-progress";
+import { TaskProgressView } from "../../components/TaskProgressView";
 
 export type { ChatMessage };
 
@@ -10,6 +12,8 @@ interface AgentPromptBoxProps {
   onClose: () => void;
   messages: ChatMessage[];
   isProcessing: boolean;
+  progress: AgentProgress;
+  onSetCollapsed: (value: boolean) => void;
   onSend: (prompt: string) => void;
   onUndo?: () => void;
   canUndo?: boolean;
@@ -121,6 +125,8 @@ export function AgentPromptBox({
   onClose,
   messages,
   isProcessing,
+  progress,
+  onSetCollapsed,
   onSend,
   onUndo,
   canUndo = false,
@@ -149,7 +155,7 @@ export function AgentPromptBox({
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isProcessing]);
+  }, [messages, isProcessing, progress]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -180,8 +186,10 @@ export function AgentPromptBox({
 
   if (!isOpen) return null;
 
-  const showThinking =
+  const showProgressView = progress.phase !== "idle";
+  const showOldThinking =
     isProcessing &&
+    !showProgressView &&
     messages.length > 0 &&
     messages[messages.length - 1].role === "user";
 
@@ -362,7 +370,11 @@ export function AgentPromptBox({
               </div>
             ))}
 
-            {showThinking && (
+            {showProgressView && (
+              <TaskProgressView progress={progress} onSetCollapsed={onSetCollapsed} />
+            )}
+
+            {showOldThinking && (
               <div className="flex justify-start">
                 <div className="flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2 text-xs text-zinc-400">
                   <Loader2 className="h-3 w-3 animate-spin" />

@@ -6,6 +6,7 @@ import type {
   Timeline,
   TransitionType,
 } from "../../types/project";
+import type { OnToolProgress } from "../../hooks/use-agent";
 import {
   agentGenerateVideo,
   agentGenerateImage,
@@ -797,7 +798,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   // =======================================================================
 
   const handleGenerateVideo = useCallback(
-    async (args: Record<string, unknown>): Promise<ToolResult> => {
+    async (args: Record<string, unknown>, onProgress?: OnToolProgress): Promise<ToolResult> => {
       if (!currentProjectId) return fail("generate_video", "No active project");
       const prompt = args.prompt as string;
       if (!prompt) return fail("generate_video", "Missing prompt");
@@ -834,6 +835,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           },
           addAsset, currentProjectId, assetSavePath,
           generationAbortRef.current.signal,
+          onProgress,
         );
         return ok("generate_video", result);
       } catch (e) {
@@ -844,7 +846,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   );
 
   const handleGenerateImage = useCallback(
-    async (args: Record<string, unknown>): Promise<ToolResult> => {
+    async (args: Record<string, unknown>, onProgress?: OnToolProgress): Promise<ToolResult> => {
       if (!currentProjectId) return fail("generate_image", "No active project");
       const prompt = args.prompt as string;
       if (!prompt) return fail("generate_image", "Missing prompt");
@@ -860,6 +862,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           },
           addAsset, currentProjectId, assetSavePath,
           generationAbortRef.current.signal,
+          onProgress,
         );
         return ok("generate_image", result);
       } catch (e) {
@@ -870,7 +873,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   );
 
   const handleRetakeSection = useCallback(
-    async (args: Record<string, unknown>): Promise<ToolResult> => {
+    async (args: Record<string, unknown>, onProgress?: OnToolProgress): Promise<ToolResult> => {
       if (!currentProjectId) return fail("retake_section", "No active project");
       const videoAssetId = args.video_asset_id as string;
       if (!videoAssetId) return fail("retake_section", "Missing video_asset_id");
@@ -891,6 +894,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           },
           addAsset, currentProjectId, assetSavePath,
           generationAbortRef.current.signal,
+          onProgress,
         );
         return ok("retake_section", result);
       } catch (e) {
@@ -1114,7 +1118,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   // =======================================================================
 
   const executeTool = useCallback(
-    async (call: ToolCall): Promise<ToolResult> => {
+    async (call: ToolCall, onProgress?: OnToolProgress): Promise<ToolResult> => {
       const t0 = performance.now();
       try {
         const args = sanitizeArgs(call.arguments);
@@ -1167,9 +1171,9 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           case "set_active_take": return handleSetActiveTake(safe.arguments);
           case "regenerate_asset": return handleRegenerateAsset(safe.arguments);
           // Generation
-          case "generate_video": return await handleGenerateVideo(safe.arguments);
-          case "generate_image": return await handleGenerateImage(safe.arguments);
-          case "retake_section": return await handleRetakeSection(safe.arguments);
+          case "generate_video": return await handleGenerateVideo(safe.arguments, onProgress);
+          case "generate_image": return await handleGenerateImage(safe.arguments, onProgress);
+          case "retake_section": return await handleRetakeSection(safe.arguments, onProgress);
           case "cancel_generation": return await handleCancelGeneration();
           case "get_generation_status": return await handleGetGenerationStatus();
           case "fill_timeline_gap": return await handleFillTimelineGap(safe.arguments);

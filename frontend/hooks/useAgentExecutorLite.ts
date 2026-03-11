@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import type { Asset } from "../types/project";
 import type { ToolResult } from "../views/editor/useAgentExecutor";
+import type { OnToolProgress } from "./use-agent";
 import {
   agentGenerateVideo,
   agentGenerateImage,
@@ -56,7 +57,7 @@ export function useAgentExecutorLite(deps: AgentExecutorLiteDeps) {
     async (toolCall: {
       tool_name: string;
       arguments: Record<string, unknown>;
-    }): Promise<ToolResult> => {
+    }, onProgress?: OnToolProgress): Promise<ToolResult> => {
       const { tool_name, arguments: args } = toolCall;
 
       switch (tool_name) {
@@ -215,6 +216,7 @@ export function useAgentExecutorLite(deps: AgentExecutorLiteDeps) {
               currentProjectId,
               assetSavePath,
               generationAbortRef.current.signal,
+              onProgress,
             );
             return ok("generate_video", result);
           } catch (e) {
@@ -246,6 +248,7 @@ export function useAgentExecutorLite(deps: AgentExecutorLiteDeps) {
               currentProjectId,
               assetSavePath,
               generationAbortRef.current.signal,
+              onProgress,
             );
             return ok("generate_image", result);
           } catch (e) {
@@ -285,6 +288,7 @@ export function useAgentExecutorLite(deps: AgentExecutorLiteDeps) {
               currentProjectId,
               assetSavePath,
               generationAbortRef.current.signal,
+              onProgress,
             );
             return ok("retake_section", result);
           } catch (e) {
