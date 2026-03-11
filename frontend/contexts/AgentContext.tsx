@@ -9,7 +9,8 @@ import {
 import { useAgent, type ChatMessage, type OnToolProgress } from "../hooks/use-agent";
 import type { AgentProgress } from "../types/agent-progress";
 import type { ToolCall, ToolResult } from "../views/editor/useAgentExecutor";
-import type { TimelineClip } from "../types/project";
+import type { TimelineClip, ProjectTab } from "../types/project";
+import { useProjects } from "./ProjectContext";
 
 export type ViewContext = "editor" | "genspace" | "playground";
 
@@ -43,11 +44,38 @@ interface AgentContextValue {
 
 const AgentContext = createContext<AgentContextValue | null>(null);
 
+const VALID_TABS = new Set<ProjectTab>(["gen-space", "video-editor"]);
+
+function waitForExecutorSwitch(
+  executorRef: React.MutableRefObject<AgentViewExecutor | null>,
+  targetView: ViewContext,
+  timeoutMs = 500,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      if (executorRef.current?.viewContext === targetView) {
+        resolve(true);
+        return;
+      }
+      if (Date.now() - start > timeoutMs) {
+        resolve(false);
+        return;
+      }
+      setTimeout(check, 20);
+    };
+    setTimeout(check, 30);
+  });
+}
+
 export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [agentOpen, setAgentOpen] = useState(false);
   const { messages, isProcessing, sendPrompt, clearChat, progress, setCollapsed } =
     useAgent();
   const executorRef = useRef<AgentViewExecutor | null>(null);
+  const { setCurrentTab } = useProjects();
+  const setCurrentTabRef = useRef(setCurrentTab);
+  setCurrentTabRef.current = setCurrentTab;
 
   const registerExecutor = useCallback((executor: AgentViewExecutor) => {
     executorRef.current = executor;
@@ -58,6 +86,33 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       executorRef.current = null;
     }
   }, []);
+
+  const handleSwitchView = useCallback(
+    async (tc: ToolCall): Promise<ToolResult> => {
+      const targetView = tc.arguments?.target_view as string | undefined;
+      if (!targetView || !VALID_TABS.has(targetView as ProjectTab)) {
+        return {
+          tool_name: tc.tool_name,
+          success: false,
+          result: null,
+          error: `Invalid target_view: "${targetView}". Must be "gen-space" or "video-editor".`,
+        };
+      }
+      setCurrentTabRef.current(targetView as ProjectTab);
+      const expectedExecutor: ViewContext =
+        targetView === "video-editor" ? "editor" : "genspace";
+      const switched = await waitForExecutorSwitch(executorRef, expectedExecutor);
+      return {
+        tool_name: tc.tool_name,
+        success: switched,
+        result: switched
+          ? { switched_to: targetView, view_context: expectedExecutor }
+          : null,
+        error: switched ? null : `Timed out waiting for ${targetView} executor to register.`,
+      };
+    },
+    [],
+  );
 
   const sendAgentPrompt = useCallback(
     (prompt: string) => {
@@ -70,6 +125,22 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         result: null,
       });
 
+      const baseExecuteTool = executor?.executeTool ?? noopExecuteTool;
+
+      const wrappedExecuteTool = async (
+        tc: ToolCall,
+        onProgress?: OnToolProgress,
+      ): Promise<ToolResult> => {
+        if (tc.tool_name === "switch_view") {
+          return handleSwitchView(tc);
+        }
+        const currentExecutor = executorRef.current;
+        if (currentExecutor) {
+          return currentExecutor.executeTool(tc, onProgress);
+        }
+        return baseExecuteTool(tc, onProgress);
+      };
+
       const viewCtx = executor?.getViewContext?.() ?? null;
 
       sendPrompt(
@@ -77,13 +148,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         timelineState?.clips ?? [],
         timelineState?.trackCount ?? 0,
         timelineState?.currentTime ?? 0,
-        executor?.executeTool ?? noopExecuteTool,
+        wrappedExecuteTool,
         executor?.projectId ?? null,
         executor?.viewContext,
         viewCtx,
       );
     },
-    [sendPrompt],
+    [sendPrompt, handleSwitchView],
   );
 
   const value = useMemo<AgentContextValue>(

@@ -756,11 +756,19 @@ def execute_prompt(
     user_text_parts: list[str] = []
     if view_ctx != "editor":
         view_label = {"genspace": "Gen Space (asset gallery)", "playground": "Playground (standalone generation)"}.get(view_ctx, view_ctx)
-        user_text_parts.append(
-            f"## Active View\nYou are assisting in the **{view_label}** view. "
-            "Timeline editing tools are not available. "
-            "Focus on generation, asset management, and content analysis."
-        )
+        if view_ctx == "genspace":
+            user_text_parts.append(
+                f"## Active View\nYou are currently in the **{view_label}** view. "
+                "Generation and asset tools work here. If the user's request requires "
+                "timeline or editing operations (create_timeline, add_clip_to_timeline, "
+                "trim_clip, etc.), call switch_view('video-editor') FIRST, then proceed "
+                "with the editing tools in the next step."
+            )
+        else:
+            user_text_parts.append(
+                f"## Active View\nYou are assisting in the **{view_label}** view. "
+                "Focus on generation."
+            )
     if context_parts:
         user_text_parts.append(
             "## Current View Context\n" + "\n\n".join(context_parts)

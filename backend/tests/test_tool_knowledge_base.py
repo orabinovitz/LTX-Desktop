@@ -67,7 +67,7 @@ class TestToolRegistryCompleteness:
                 )
 
     def test_total_tool_count(self) -> None:
-        assert len(ALL_TOOLS) == 63, f"Expected 63 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 64, f"Expected 64 tools, got {len(ALL_TOOLS)}"
 
 
 class TestIntentClassification:
@@ -221,7 +221,8 @@ class TestToolSelection:
         names = {t.name for t in tools}
         assert "get_timeline_state" in names
         assert "get_project_assets" in names
-        assert len(names) == 2
+        assert "switch_view" in names
+        assert len(names) == 3
 
     def test_clip_editing_includes_core_separately(self) -> None:
         tools = get_tools_for_categories(["core", "clip_editing"])
@@ -450,12 +451,13 @@ class TestViewContextFiltering:
     def test_genspace_allows_only_allowed_categories(self) -> None:
         all_cats = sorted(CATEGORIES.keys())
         filtered = filter_categories_for_view(all_cats, "genspace")
-        assert set(filtered) == {"core", "generation", "asset_mgmt", "analysis"}
-        assert "clip_editing" not in filtered
+        assert set(filtered) == {
+            "core", "generation", "asset_mgmt", "analysis",
+            "clip_editing", "timeline_mgmt", "track_mgmt",
+        }
         assert "playback" not in filtered
         assert "subtitles" not in filtered
         assert "export" not in filtered
-        assert "timeline_mgmt" not in filtered
 
     def test_playground_allows_only_generation(self) -> None:
         all_cats = sorted(CATEGORIES.keys())

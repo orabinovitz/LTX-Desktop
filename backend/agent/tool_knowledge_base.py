@@ -48,7 +48,7 @@ CATEGORIES: dict[str, ToolCategory] = {
         display_name="Core",
         description="Read timeline state and project assets",
         keywords=[],
-        tool_names=["get_timeline_state", "get_project_assets"],
+        tool_names=["get_timeline_state", "get_project_assets", "switch_view"],
     ),
     "clip_editing": ToolCategory(
         name="clip_editing",
@@ -366,7 +366,7 @@ CATEGORIES: dict[str, ToolCategory] = {
 
 ALLOWED_CATEGORIES_BY_VIEW: dict[str, set[str]] = {
     "editor": set(CATEGORIES.keys()),
-    "genspace": {"core", "generation", "asset_mgmt", "analysis"},
+    "genspace": {"core", "generation", "asset_mgmt", "analysis", "clip_editing", "timeline_mgmt", "track_mgmt"},
     "playground": {"generation"},
 }
 

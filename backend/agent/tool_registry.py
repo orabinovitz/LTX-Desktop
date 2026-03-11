@@ -78,6 +78,26 @@ get_project_assets = _tool(
     category="core",
 )
 
+switch_view = _tool(
+    name="switch_view",
+    description=(
+        "Switch the user's current view/tab. Use this when you need to perform "
+        "operations that require a different view. For example, if you're in Gen Space "
+        "and need to create a timeline or add clips, call switch_view('video-editor') first. "
+        "After switching, the next tool calls will execute in the new view context. "
+        "ALWAYS call this BEFORE any tool that belongs to a different view."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="core",
+    parameters=[
+        _param(
+            "target_view",
+            "string",
+            "The view to switch to: 'gen-space' or 'video-editor'.",
+        ),
+    ],
+)
+
 # ===================================================================
 # CLIP EDITING
 # ===================================================================
@@ -1302,6 +1322,7 @@ ALL_TOOLS: list[ToolDefinition] = [
     # Core (always included)
     get_timeline_state,
     get_project_assets,
+    switch_view,
     # Clip editing
     trim_clip,
     split_clip,
