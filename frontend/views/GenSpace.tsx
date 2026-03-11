@@ -28,7 +28,12 @@ import { ICLoraPanel, CONDITIONING_TYPES } from '../components/ICLoraPanel'
 import { FreeApiKeyBubble } from '../components/FreeApiKeyBubble'
 import { useAgentContext } from '../contexts/AgentContext'
 import type { ToolResult } from './editor/useAgentExecutor'
-import { agentCancelGeneration, agentGetGenerationStatus } from './editor/agentGenerationHelper'
+import {
+  agentGenerateImage,
+  agentGenerateVideo,
+  agentCancelGeneration,
+  agentGetGenerationStatus,
+} from './editor/agentGenerationHelper'
 
 // Asset card with hover overlays
 function AssetCard({
@@ -937,12 +942,14 @@ export function GenSpace() {
   // Agent executor — GenSpace-specific (generation + asset management, no timeline)
   // ---------------------------------------------------------------------------
   const { registerExecutor, unregisterExecutor } = useAgentContext()
-  const generateRef = useRef(generate)
-  generateRef.current = generate
-  const generateImageRef = useRef(generateImage)
-  generateImageRef.current = generateImage
-  const resetRef = useRef(reset)
-  resetRef.current = reset
+  const currentProjectRef = useRef(currentProject)
+  currentProjectRef.current = currentProject
+  const modeRef = useRef(mode)
+  modeRef.current = mode
+  const promptRef = useRef(prompt)
+  promptRef.current = prompt
+  const selectedAssetRef = useRef(selectedAsset)
+  selectedAssetRef.current = selectedAsset
 
   const genspaceExecuteTool = useCallback(
     async (toolCall: { tool_name: string; arguments: Record<string, unknown> }): Promise<ToolResult> => {
@@ -952,10 +959,10 @@ export function GenSpace() {
 
       switch (tool_name) {
         case 'get_project_assets': {
-          const assets = currentProject?.assets ?? []
+          const projectAssets = currentProjectRef.current?.assets ?? []
           return ok({
-            assetCount: assets.length,
-            assets: assets.map((a) => ({
+            assetCount: projectAssets.length,
+            assets: projectAssets.map((a) => ({
               id: a.id, type: a.type, prompt: a.prompt,
               duration: a.duration ?? null, resolution: a.resolution,
               path: a.path, favorite: a.favorite ?? false,
@@ -968,32 +975,30 @@ export function GenSpace() {
         case 'generate_video': {
           const p = args.prompt as string
           if (!p) return fail('Missing prompt')
-          let imagePath: string | null = null
+          if (!currentProjectId) return fail('No active project')
+          let imagePath: string | undefined
           if (args.image_asset_id) {
-            const projectAssets = currentProject?.assets ?? []
+            const projectAssets = currentProjectRef.current?.assets ?? []
             const img = projectAssets.find(a => a.id === args.image_asset_id)
             if (!img) return fail(`Image asset not found: ${args.image_asset_id}`)
             imagePath = img.path
           }
-          agentPromptRef.current = p
           try {
-            const videoSettings = {
-              model: ((args.model as string) ?? 'fast') as 'fast' | 'pro',
-              duration: args.duration ? Number(args.duration) : 5,
-              videoResolution: (args.resolution as string) ?? '1080p',
-              fps: args.fps ? Number(args.fps) : 24,
-              audio: true,
-              cameraMotion: (args.camera_motion as string) ?? 'none',
-              imageResolution: '1080p',
-              imageAspectRatio: '16:9',
-              imageSteps: 4,
-              aspectRatio: (args.aspect_ratio as string) ?? '16:9',
-            }
-            const sanitized = shouldVideoGenerateWithLtxApi
-              ? sanitizeForcedApiVideoSettings(videoSettings, { hasAudio: !!imagePath })
-              : videoSettings
-            await generateRef.current(p, imagePath, sanitized)
-            return ok({ note: imagePath ? 'Image-to-video generation started' : 'Video generation started' })
+            const result = await agentGenerateVideo(
+              {
+                prompt: p,
+                mode: imagePath ? 'image_to_video' : 'text_to_video',
+                imagePath,
+                duration: args.duration ? Number(args.duration) : 5,
+                resolution: shouldVideoGenerateWithLtxApi ? '1080p' : ((args.resolution as string) ?? '1080p'),
+                fps: args.fps ? Number(args.fps) : 24,
+                aspectRatio: (args.aspect_ratio as string) ?? '16:9',
+                model: (args.model as string) ?? 'fast',
+                cameraMotion: (args.camera_motion as string) ?? 'none',
+              },
+              addAsset, currentProjectId,
+            )
+            return ok(result)
           } catch (e) {
             return fail(e instanceof Error ? e.message : String(e))
           }
@@ -1001,20 +1006,18 @@ export function GenSpace() {
         case 'generate_image': {
           const p = args.prompt as string
           if (!p) return fail('Missing prompt')
-          agentPromptRef.current = p
+          if (!currentProjectId) return fail('No active project')
           try {
-            await generateImageRef.current(p, {
-              model: 'fast',
-              duration: 5,
-              videoResolution: '540p',
-              fps: 24,
-              audio: true,
-              cameraMotion: 'none',
-              imageResolution: (args.resolution as string) ?? '1080p',
-              imageAspectRatio: (args.aspect_ratio as string) ?? '16:9',
-              imageSteps: 4,
-            })
-            return ok({ note: 'Image generation started' })
+            const result = await agentGenerateImage(
+              {
+                prompt: p,
+                resolution: (args.resolution as string) ?? '1080p',
+                aspectRatio: (args.aspect_ratio as string) ?? '16:9',
+                numVariations: args.num_variations ? Number(args.num_variations) : undefined,
+              },
+              addAsset, currentProjectId,
+            )
+            return ok(result)
           } catch (e) {
             return fail(e instanceof Error ? e.message : String(e))
           }
@@ -1043,7 +1046,7 @@ export function GenSpace() {
           return fail(`Tool "${tool_name}" is not available in Gen Space`)
       }
     },
-    [currentProject, currentProjectId, deleteAsset, toggleFavorite, shouldVideoGenerateWithLtxApi],
+    [currentProjectId, addAsset, deleteAsset, toggleFavorite, shouldVideoGenerateWithLtxApi],
   )
 
   useEffect(() => {
@@ -1055,6 +1058,24 @@ export function GenSpace() {
       viewContext: 'genspace',
       executeTool: genspaceExecuteTool,
       getTimelineState: () => null,
+      getViewContext: () => {
+        const allAssets = currentProjectRef.current?.assets ?? []
+        const generatedAssets = allAssets.filter(a => a.generationParams)
+        return {
+          generationMode: modeRef.current,
+          promptBarText: promptRef.current,
+          selectedAssetId: selectedAssetRef.current?.id ?? null,
+          visibleAssets: generatedAssets
+            .sort((a, b) => b.createdAt - a.createdAt)
+            .slice(0, 20)
+            .map(a => ({
+              id: a.id,
+              type: a.type,
+              prompt: a.prompt,
+              createdAt: a.createdAt,
+            })),
+        }
+      },
       projectId: currentProjectId ?? null,
       canUndo: false,
       onUndo: () => {},

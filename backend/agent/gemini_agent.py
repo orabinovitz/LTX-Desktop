@@ -618,6 +618,10 @@ def execute_prompt(
         if project_brain is not None:
             context_parts.append(brain_module.format_brain_for_agent(project_brain))
 
+    # Inject assets/view context from GenSpace or other non-editor views
+    if request.assets_context:
+        context_parts.append(_format_assets_context(request.assets_context))
+
     # -- Build the user message ------------------------------------------
     user_text_parts: list[str] = []
     if view_ctx != "editor":
@@ -629,7 +633,7 @@ def execute_prompt(
         )
     if context_parts:
         user_text_parts.append(
-            "## Current Editor Context\n" + "\n\n".join(context_parts)
+            "## Current View Context\n" + "\n\n".join(context_parts)
         )
     user_text_parts.append(f"## User Request\n{request.prompt}")
 
@@ -1491,6 +1495,37 @@ def _handle_review_edit_structure(tool_call: ToolCall) -> ToolResult:
 # ---------------------------------------------------------------------------
 # Context formatters
 # ---------------------------------------------------------------------------
+
+
+def _format_assets_context(ctx: dict[str, object]) -> str:
+    """Format the GenSpace assets/view context for the LLM user message."""
+    lines: list[str] = []
+
+    gen_mode = ctx.get("generationMode", "unknown")
+    prompt_bar = ctx.get("promptBarText", "")
+    selected_id = ctx.get("selectedAssetId")
+    visible = ctx.get("visibleAssets", [])
+
+    lines.append(f"**Generation mode**: {gen_mode}")
+    if prompt_bar:
+        lines.append(f"**Prompt bar**: \"{prompt_bar}\"")
+    if selected_id:
+        lines.append(f"**Selected asset**: {selected_id}")
+
+    if isinstance(visible, list) and visible:
+        lines.append(f"**Visible assets** ({len(visible)}, most recent first):")
+        for asset in visible:
+            if not isinstance(asset, dict):
+                continue
+            a_id = asset.get("id", "?")
+            a_type = asset.get("type", "?")
+            a_prompt = asset.get("prompt", "")
+            prompt_preview = a_prompt[:80] if a_prompt else "(no prompt)"
+            lines.append(f"  - {a_id}: {a_type}, prompt \"{prompt_preview}\"")
+    else:
+        lines.append("**Visible assets**: (none)")
+
+    return "\n".join(lines)
 
 
 def _format_timeline_context(state: TimelineState) -> str:

@@ -20,6 +20,7 @@ export interface AgentViewExecutor {
     trackCount: number;
     currentTime: number;
   } | null;
+  getViewContext?: () => Record<string, unknown> | null;
   projectId: string | null;
   canUndo: boolean;
   onUndo: () => void;
@@ -65,6 +66,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         result: null,
       });
 
+      const viewCtx = executor?.getViewContext?.() ?? null;
+
       sendPrompt(
         prompt,
         timelineState?.clips ?? [],
@@ -73,6 +76,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         executor?.executeTool ?? noopExecuteTool,
         executor?.projectId ?? null,
         executor?.viewContext,
+        viewCtx,
       );
     },
     [sendPrompt],

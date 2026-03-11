@@ -173,6 +173,7 @@ class AgentExecuteRequest(BaseModel):
 
     prompt: str = Field(description="User's natural-language instruction", max_length=10000)
     timeline_state: TimelineState | None = None
+    assets_context: dict[str, object] | None = Field(default=None, description="Structured view context from the active UI (GenSpace assets, mode, etc.)")
     conversation_history: list[AgentMessage] = Field(default_factory=list)
     session_id: str | None = Field(default=None, description="Existing session to continue conversation in")
     project_id: str | None = Field(default=None, description="Project ID for brain context lookup")

@@ -134,6 +134,7 @@ export function useAgent() {
       executeTool: (toolCall: ToolCall) => Promise<ToolResult>,
       projectId?: string | null,
       viewContext?: "editor" | "genspace" | "playground",
+      assetsContext?: Record<string, unknown> | null,
     ) => {
       setIsProcessing(true);
       abortRef.current?.abort();
@@ -168,6 +169,7 @@ export function useAgent() {
             ...(clips.length > 0 ? { timeline_state: timelineState } : {}),
             ...(projectId ? { project_id: projectId } : {}),
             ...(viewContext ? { view_context: viewContext } : {}),
+            ...(assetsContext ? { assets_context: assetsContext } : {}),
             ...(sessionIdRef.current
               ? { session_id: sessionIdRef.current }
               : { conversation_history: conversationRef.current }),

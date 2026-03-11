@@ -99,7 +99,7 @@ export async function agentGenerateVideo(
     prompt: params.prompt,
     model: params.model ?? "fast",
     duration: String(params.duration ?? 5),
-    resolution: params.resolution ?? "720p",
+    resolution: params.resolution ?? "1080p",
     fps: String(params.fps ?? 24),
     audio: "false",
     cameraMotion: params.cameraMotion ?? "none",
@@ -141,8 +141,18 @@ export async function agentGenerateVideo(
     path: finalPath,
     url: finalUrl,
     prompt: params.prompt,
-    resolution: params.resolution ?? "720p",
+    resolution: params.resolution ?? "1080p",
     duration: params.duration ?? 5,
+    generationParams: {
+      mode: params.imagePath ? 'image-to-video' : 'text-to-video',
+      prompt: params.prompt,
+      model: params.model ?? 'fast',
+      duration: params.duration ?? 5,
+      resolution: params.resolution ?? '1080p',
+      fps: params.fps ?? 24,
+      audio: false,
+      cameraMotion: params.cameraMotion ?? 'none',
+    },
   });
 
   return {
@@ -206,6 +216,18 @@ export async function agentGenerateImage(
     url: finalUrl,
     prompt: params.prompt,
     resolution: `${width}x${height}`,
+    generationParams: {
+      mode: 'text-to-image',
+      prompt: params.prompt,
+      model: 'fast',
+      duration: 0,
+      resolution: `${width}x${height}`,
+      fps: 0,
+      audio: false,
+      cameraMotion: 'none',
+      imageAspectRatio: params.aspectRatio ?? '16:9',
+      imageSteps: 8,
+    },
   });
 
   return {
@@ -267,8 +289,22 @@ export async function agentRetakeSection(
     path: finalPath,
     url: finalUrl,
     prompt: params.prompt,
-    resolution: "720p",
+    resolution: "1080p",
     duration: params.duration,
+    generationParams: {
+      mode: 'retake' as const,
+      prompt: params.prompt,
+      model: 'fast',
+      duration: params.duration,
+      resolution: '1080p',
+      fps: 24,
+      audio: false,
+      cameraMotion: 'none',
+      retakeVideoPath: params.videoPath,
+      retakeStartTime: params.startTime,
+      retakeDuration: params.duration,
+      retakeMode: params.mode ?? 'replace_audio_and_video',
+    },
   });
 
   return {
