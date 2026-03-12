@@ -1,4 +1,12 @@
-import { Loader2, Check, X, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  Loader2,
+  Check,
+  X,
+  ChevronDown,
+  ChevronRight,
+  Ban,
+  GitBranch,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AgentProgress, AgentTask } from "@/types/agent-progress";
 
@@ -49,13 +57,61 @@ function TaskStatusIcon({ status }: { status: AgentTask["status"] }) {
           <X className="h-2.5 w-2.5 text-red-400" />
         </div>
       );
+    case "cancelled":
+      return (
+        <div className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-zinc-500/20 transition-all duration-300">
+          <Ban className="h-2.5 w-2.5 text-zinc-500" />
+        </div>
+      );
   }
 }
 
-function TaskItem({ task }: { task: AgentTask }) {
+function SkillBadge({ name }: { name: string }) {
+  return (
+    <span className="inline-flex items-center rounded-sm bg-violet-500/15 px-1.5 py-0.5 text-[9px] font-medium text-violet-400">
+      {name}
+    </span>
+  );
+}
+
+function DependencyIndicator({ deps, allTasks }: { deps: string[]; allTasks: AgentTask[] }) {
+  if (!deps || deps.length === 0) return null;
+
+  const depTasks = deps
+    .map((id) => allTasks.find((t) => t.id === id))
+    .filter(Boolean) as AgentTask[];
+
+  const allResolved = depTasks.every(
+    (t) => t.status === "completed" || t.status === "failed" || t.status === "cancelled",
+  );
+
+  if (allResolved) return null;
+
+  const waitingOn = depTasks
+    .filter((t) => t.status !== "completed" && t.status !== "failed" && t.status !== "cancelled")
+    .map((t) => t.label);
+
+  return (
+    <div className="mt-0.5 flex items-center gap-1 text-[9px] text-zinc-600">
+      <GitBranch className="h-2.5 w-2.5" />
+      <span>Waiting on: {waitingOn.join(", ")}</span>
+    </div>
+  );
+}
+
+function TaskItem({
+  task,
+  allTasks,
+  isOrchestrated,
+}: {
+  task: AgentTask;
+  allTasks: AgentTask[];
+  isOrchestrated: boolean;
+}) {
   const isActive = task.status === "in_progress";
   const isFailed = task.status === "failed";
   const isDone = task.status === "completed";
+  const isCancelled = task.status === "cancelled";
   const elapsed = useElapsedTime(task.startedAt ?? 0, task.completedAt);
 
   return (
@@ -67,7 +123,9 @@ function TaskItem({ task }: { task: AgentTask }) {
             ? "bg-red-500/5"
             : isDone
               ? "opacity-70"
-              : ""
+              : isCancelled
+                ? "opacity-40"
+                : ""
       }`}
     >
       <div className="mt-[1px]">
@@ -81,9 +139,11 @@ function TaskItem({ task }: { task: AgentTask }) {
                 ? "text-zinc-500 line-through decoration-zinc-700"
                 : isFailed
                   ? "text-red-400"
-                  : isActive
-                    ? "font-medium text-zinc-100"
-                    : "text-zinc-400"
+                  : isCancelled
+                    ? "text-zinc-600 line-through decoration-zinc-700"
+                    : isActive
+                      ? "font-medium text-zinc-100"
+                      : "text-zinc-400"
             }`}
           >
             {task.label}
@@ -95,13 +155,23 @@ function TaskItem({ task }: { task: AgentTask }) {
           )}
         </div>
 
+        {isOrchestrated && task.skillName && (
+          <div className="mt-1">
+            <SkillBadge name={task.skillName} />
+          </div>
+        )}
+
+        {isOrchestrated && task.dependsOn && task.status === "pending" && (
+          <DependencyIndicator deps={task.dependsOn} allTasks={allTasks} />
+        )}
+
         {task.detail && isActive && (
           <p className="mt-0.5 text-[10px] text-zinc-500 transition-opacity duration-200">
             {task.detail}
           </p>
         )}
 
-        {task.error && isFailed && (
+        {task.error && (isFailed || isCancelled) && (
           <p className="mt-0.5 text-[10px] text-red-400/70">{task.error}</p>
         )}
 
@@ -113,6 +183,19 @@ function TaskItem({ task }: { task: AgentTask }) {
                 width: `${Math.min(100, Math.max(0, task.progress))}%`,
               }}
             />
+          </div>
+        )}
+
+        {task.subtasks && task.subtasks.length > 0 && (
+          <div className="mt-1.5 space-y-0.5 border-l border-zinc-800 pl-2.5">
+            {task.subtasks.map((sub) => (
+              <TaskItem
+                key={sub.id}
+                task={sub}
+                allTasks={allTasks}
+                isOrchestrated={isOrchestrated}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -148,11 +231,15 @@ export function TaskProgressView({
 }: TaskProgressViewProps) {
   const collapsed = progress.collapsed;
   const isFinished = progress.phase === "done" || progress.phase === "error";
+  const isOrchestrated = progress.isOrchestrated ?? false;
   const completedCount = progress.tasks.filter(
     (t) => t.status === "completed",
   ).length;
   const failedCount = progress.tasks.filter(
     (t) => t.status === "failed",
+  ).length;
+  const cancelledCount = progress.tasks.filter(
+    (t) => t.status === "cancelled",
   ).length;
   const totalCount = progress.tasks.length;
   const totalElapsed = useElapsedTime(
@@ -160,7 +247,6 @@ export function TaskProgressView({
     isFinished ? Date.now() : undefined,
   );
 
-  // Auto-collapse after completion with delay
   const autoCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (isFinished && !collapsed) {
@@ -180,12 +266,22 @@ export function TaskProgressView({
 
   const showTasks = !collapsed && progress.tasks.length > 0;
 
+  const summaryLabel = (() => {
+    if (isFinished) {
+      const parts: string[] = [];
+      if (completedCount > 0) parts.push(`${completedCount} done`);
+      if (failedCount > 0) parts.push(`${failedCount} failed`);
+      if (cancelledCount > 0) parts.push(`${cancelledCount} cancelled`);
+      return parts.join(", ") || `${completedCount}/${totalCount} completed`;
+    }
+    return `${completedCount}/${totalCount} tasks`;
+  })();
+
   return (
     <div
       className="space-y-2 transition-all duration-300"
       data-testid="task-progress-view"
     >
-      {/* Reasoning block -- agent's thinking preamble */}
       {progress.reasoning && !isFinished && (
         <div className="px-2.5" data-testid="reasoning-block">
           <p className="text-[11px] italic leading-relaxed text-zinc-500">
@@ -194,15 +290,12 @@ export function TaskProgressView({
         </div>
       )}
 
-      {/* Thinking line (shown before tasks appear or between turns) */}
       {progress.thinkingLine && !isFinished && (
         <ThinkingPulse text={progress.thinkingLine} />
       )}
 
-      {/* Task list */}
       {progress.tasks.length > 0 && (
         <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/60 transition-all duration-300">
-          {/* Header with collapse toggle */}
           <button
             onClick={() => onSetCollapsed(!collapsed)}
             className="flex w-full items-center gap-1.5 px-3 py-2 text-left transition-colors hover:bg-zinc-800/40"
@@ -216,17 +309,16 @@ export function TaskProgressView({
               )}
             </div>
 
-            {/* Summary bar */}
             <div className="flex flex-1 items-center gap-2">
+              {isOrchestrated && (
+                <span className="rounded-sm bg-violet-500/15 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wider text-violet-400">
+                  Multi-Agent
+                </span>
+              )}
               <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                {isFinished
-                  ? failedCount > 0
-                    ? `${completedCount} done, ${failedCount} failed`
-                    : `${completedCount}/${totalCount} completed`
-                  : `${completedCount}/${totalCount} tasks`}
+                {summaryLabel}
               </span>
 
-              {/* Mini progress bar in header */}
               {!isFinished && totalCount > 0 && (
                 <div className="h-1 flex-1 overflow-hidden rounded-full bg-zinc-800">
                   <div
@@ -246,31 +338,33 @@ export function TaskProgressView({
             )}
           </button>
 
-          {/* Task items with smooth height transition */}
           <div
             className={`transition-all duration-300 ease-in-out ${
               showTasks
-                ? "max-h-[500px] opacity-100"
+                ? "max-h-[600px] opacity-100"
                 : "max-h-0 overflow-hidden opacity-0"
             }`}
           >
-            <div className="space-y-0.5 px-1.5 pb-2">
+            <div className="space-y-0.5 overflow-y-auto px-1.5 pb-2" style={{ maxHeight: "400px" }}>
               {progress.tasks.map((task) => (
-                <TaskItem key={task.id} task={task} />
+                <TaskItem
+                  key={task.id}
+                  task={task}
+                  allTasks={progress.tasks}
+                  isOrchestrated={isOrchestrated}
+                />
               ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* Error banner */}
       {progress.phase === "error" && progress.error && (
         <div className="rounded-md border border-red-900/30 bg-red-900/10 px-3 py-2 text-[11px] text-red-400">
           {progress.error}
         </div>
       )}
 
-      {/* Completion summary (shown when done and no tasks / all tasks done) */}
       {isFinished && totalCount === 0 && !progress.error && (
         <div className="flex items-center gap-2 px-2.5">
           <Check className="h-3 w-3 text-emerald-400" />

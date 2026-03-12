@@ -7,10 +7,12 @@ import {
   useState,
 } from "react";
 import { useAgent, type ChatMessage, type OnToolProgress } from "../hooks/use-agent";
+import { useOrchestratedAgent } from "../hooks/use-orchestrated-agent";
 import type { AgentProgress } from "../types/agent-progress";
 import type { ToolCall, ToolResult } from "../views/editor/useAgentExecutor";
 import type { TimelineClip, ProjectTab } from "../types/project";
 import { useProjects } from "./ProjectContext";
+import { logger } from "../lib/logger";
 
 type ViewContext = "editor" | "genspace" | "playground";
 
@@ -72,10 +74,34 @@ function waitForExecutorSwitch(
   });
 }
 
+async function classifyComplexity(
+  prompt: string,
+): Promise<"simple" | "orchestrated"> {
+  try {
+    const backendUrl = await window.electronAPI.getBackendUrl();
+    const res = await fetch(
+      `${backendUrl}/api/agent/classify-complexity?prompt=${encodeURIComponent(prompt)}`,
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return data.complexity === "orchestrated" ? "orchestrated" : "simple";
+    }
+  } catch {
+    logger.warn("[agent-context] complexity classification failed, defaulting to simple");
+  }
+  return "simple";
+}
+
 export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [agentOpen, setAgentOpen] = useState(false);
-  const { messages, isProcessing, sendPrompt, clearChat, progress, setCollapsed } =
-    useAgent();
+
+  const simpleAgent = useAgent();
+  const orchestratedAgent = useOrchestratedAgent();
+
+  const [activeMode, setActiveMode] = useState<"simple" | "orchestrated">("simple");
+
+  const activeAgent = activeMode === "orchestrated" ? orchestratedAgent : simpleAgent;
+
   const executorRef = useRef<AgentViewExecutor | null>(null);
   const { setCurrentTab } = useProjects();
   const setCurrentTabRef = useRef(setCurrentTab);
@@ -119,7 +145,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   );
 
   const sendAgentPrompt = useCallback(
-    (prompt: string) => {
+    async (prompt: string) => {
       const executor = executorRef.current;
       const timelineState = executor?.getTimelineState();
       const noopExecuteTool = async (tc: ToolCall): Promise<ToolResult> => ({
@@ -147,19 +173,42 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
       const viewCtx = executor?.getViewContext?.() ?? null;
 
-      sendPrompt(
-        prompt,
-        timelineState?.clips ?? [],
-        timelineState?.trackCount ?? 0,
-        timelineState?.currentTime ?? 0,
-        wrappedExecuteTool,
-        executor?.projectId ?? null,
-        executor?.viewContext,
-        viewCtx,
-      );
+      const complexity = await classifyComplexity(prompt);
+      setActiveMode(complexity);
+
+      if (complexity === "orchestrated") {
+        logger.info("[agent-context] routing to orchestrated agent");
+        orchestratedAgent.sendPrompt(
+          prompt,
+          timelineState?.clips ?? [],
+          timelineState?.trackCount ?? 0,
+          timelineState?.currentTime ?? 0,
+          wrappedExecuteTool,
+          executor?.projectId ?? null,
+          executor?.viewContext,
+          viewCtx,
+        );
+      } else {
+        simpleAgent.sendPrompt(
+          prompt,
+          timelineState?.clips ?? [],
+          timelineState?.trackCount ?? 0,
+          timelineState?.currentTime ?? 0,
+          wrappedExecuteTool,
+          executor?.projectId ?? null,
+          executor?.viewContext,
+          viewCtx,
+        );
+      }
     },
-    [sendPrompt, handleSwitchView],
+    [simpleAgent, orchestratedAgent, handleSwitchView],
   );
+
+  const clearChat = useCallback(() => {
+    simpleAgent.clearChat();
+    orchestratedAgent.clearChat();
+    setActiveMode("simple");
+  }, [simpleAgent, orchestratedAgent]);
 
   const dispatch = useMemo<AgentDispatchValue>(
     () => ({
@@ -175,13 +224,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const state = useMemo<AgentStateValue>(
     () => ({
       agentOpen,
-      messages,
-      isProcessing,
-      progress,
-      setCollapsed,
+      messages: activeAgent.messages,
+      isProcessing: activeAgent.isProcessing,
+      progress: activeAgent.progress,
+      setCollapsed: activeAgent.setCollapsed,
       activeExecutor: executorRef.current,
     }),
-    [agentOpen, messages, isProcessing, progress, setCollapsed],
+    [agentOpen, activeAgent.messages, activeAgent.isProcessing, activeAgent.progress, activeAgent.setCollapsed],
   );
 
   return (

@@ -171,6 +171,7 @@ export function useAgentProgress() {
 
   return {
     progress,
+    update,
     startSession,
     setThinking,
     setReasoning,

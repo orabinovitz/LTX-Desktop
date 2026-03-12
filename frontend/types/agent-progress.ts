@@ -1,13 +1,16 @@
 export interface AgentTask {
   id: string;
   label: string;
-  status: "pending" | "in_progress" | "completed" | "failed";
+  status: "pending" | "in_progress" | "completed" | "failed" | "cancelled";
   subtasks?: AgentTask[];
   progress?: number;
   detail?: string;
   startedAt?: number;
   completedAt?: number;
   error?: string;
+  skillId?: string;
+  skillName?: string;
+  dependsOn?: string[];
 }
 
 export interface AgentProgress {
@@ -20,6 +23,7 @@ export interface AgentProgress {
   startedAt: number;
   collapsed: boolean;
   error?: string;
+  isOrchestrated?: boolean;
 }
 
 export const INITIAL_PROGRESS: AgentProgress = {
@@ -31,4 +35,27 @@ export const INITIAL_PROGRESS: AgentProgress = {
   turnCount: 0,
   startedAt: 0,
   collapsed: true,
+  isOrchestrated: false,
 };
+
+// Types matching the backend OrchestrateResponse
+
+export interface OrchestrateTaskInfo {
+  id: string;
+  description: string;
+  skill_id: string | null;
+  skill_name: string | null;
+  depends_on: string[];
+  status: string;
+  error: string | null;
+}
+
+export interface OrchestrateResponse {
+  session_id: string;
+  status: string;
+  tasks: OrchestrateTaskInfo[];
+  current_task_id: string | null;
+  tool_calls: Array<{ tool_name: string; arguments: Record<string, unknown>; call_id?: string }>;
+  message: string;
+  done: boolean;
+}

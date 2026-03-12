@@ -13,6 +13,9 @@ from agent.types import (
     DecomposeVideoResponse,
     LiveConfigResponse,
     LiveTokenResponse,
+    OrchestrateContinueRequest,
+    OrchestrateRequest,
+    OrchestrateResponse,
     SubClipInfo,
 )
 from app_handler import AppHandler
@@ -119,6 +122,37 @@ def route_decompose_video(
         for sc in subclip_defs
     ]
     return DecomposeVideoResponse(subclips=subclips)
+
+
+# ------------------------------------------------------------------
+# Orchestrated multi-agent endpoints
+# ------------------------------------------------------------------
+
+
+@router.post("/agent/orchestrate", response_model=OrchestrateResponse)
+def route_orchestrate(
+    req: OrchestrateRequest,
+    handler: AppHandler = Depends(get_state_service),
+) -> OrchestrateResponse:
+    return handler.agent.orchestrate(req)
+
+
+@router.post("/agent/orchestrate/continue", response_model=OrchestrateResponse)
+def route_orchestrate_continue(
+    req: OrchestrateContinueRequest,
+    handler: AppHandler = Depends(get_state_service),
+) -> OrchestrateResponse:
+    return handler.agent.orchestrate_continue(req)
+
+
+@router.get("/agent/classify-complexity")
+def route_classify_complexity(
+    prompt: str,
+    handler: AppHandler = Depends(get_state_service),
+) -> dict[str, str]:
+    """Classify whether a prompt needs orchestration or the simple agent."""
+    complexity = handler.agent.classify_request_complexity(prompt)
+    return {"complexity": complexity}
 
 
 @router.post("/agent/live-token", response_model=LiveTokenResponse)

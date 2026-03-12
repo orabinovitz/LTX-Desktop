@@ -20,6 +20,9 @@ from agent.types import (
     AnalyzeVideoResponse,
     LiveConfigResponse,
     LiveTokenResponse,
+    OrchestrateContinueRequest,
+    OrchestrateRequest,
+    OrchestrateResponse,
     VideoMetadata,
 )
 from agent.brain import ProjectBrain
@@ -72,6 +75,47 @@ class AgentHandler(StateHandlerBase):
             http_client=self._http,
             updated_context=request.updated_context,
         )
+
+    # ------------------------------------------------------------------
+    # Orchestrated multi-agent execution
+    # ------------------------------------------------------------------
+
+    def orchestrate(self, request: OrchestrateRequest) -> OrchestrateResponse:
+        """Decompose a complex request into tasks and begin orchestrated execution."""
+        api_key = self._state.app_settings.gemini_api_key
+        if not api_key:
+            return OrchestrateResponse(
+                message="Gemini API key not configured. Set it in Settings.",
+                done=True,
+                status="error",
+            )
+
+        from agent.orchestration.orchestrator import Orchestrator
+        orch = Orchestrator(api_key=api_key, http_client=self._http)
+        return orch.start(request)
+
+    def orchestrate_continue(self, request: OrchestrateContinueRequest) -> OrchestrateResponse:
+        """Continue an orchestrated session with tool execution results."""
+        api_key = self._state.app_settings.gemini_api_key
+        if not api_key:
+            return OrchestrateResponse(
+                message="Gemini API key not configured.",
+                done=True,
+                status="error",
+            )
+
+        from agent.orchestration.orchestrator import Orchestrator
+        orch = Orchestrator(api_key=api_key, http_client=self._http)
+        return orch.continue_with_results(
+            session_id=request.session_id,
+            tool_results=request.tool_results,
+            updated_context=request.updated_context,
+        )
+
+    def classify_request_complexity(self, prompt: str) -> str:
+        """Classify whether a request needs orchestration or the simple agent."""
+        from agent.orchestration.complexity_router import classify_complexity
+        return classify_complexity(prompt)
 
     def analyze_video(self, request: AnalyzeVideoRequest) -> AnalyzeVideoResponse:
         """Start background video analysis."""

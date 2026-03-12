@@ -236,6 +236,180 @@ class DecomposeVideoResponse(BaseModel):
 
 
 # ============================================================
+# Skill System
+# ============================================================
+
+
+class SkillDescriptor(BaseModel):
+    """Lightweight summary of a skill, used for routing decisions.
+
+    Kept small (~100 tokens) so the full catalog fits in the
+    orchestrator's context window alongside the user prompt.
+    """
+
+    id: str = Field(description="Unique skill identifier (e.g. 'marketing-editor')")
+    name: str = Field(description="Human-readable display name")
+    description: str = Field(description="What this skill does and when to use it (~1-2 sentences)")
+    tool_categories: list[str] = Field(default_factory=list, description="Tool categories this skill needs access to")
+    trigger_keywords: list[str] = Field(default_factory=list, description="Keywords that suggest this skill is relevant")
+
+
+class SkillContent(BaseModel):
+    """Full skill definition loaded only when a sub-agent is about to execute."""
+
+    descriptor: SkillDescriptor
+    system_prompt: str = Field(description="Domain-specific system prompt for the sub-agent")
+    tool_overrides: list[str] | None = Field(
+        default=None,
+        description="Specific tool names to include (overrides category-based selection)",
+    )
+    references: dict[str, str] = Field(
+        default_factory=dict,
+        description="Reference files: {filename: content}. Loaded from references/ subdirectory.",
+    )
+
+
+# ============================================================
+# Orchestration
+# ============================================================
+
+
+class TaskStatus(str, Enum):
+    """Lifecycle state of a single task in the execution DAG."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class TaskNode(BaseModel):
+    """A single unit of work in the orchestration DAG."""
+
+    id: str = Field(description="Unique task identifier within the DAG")
+    description: str = Field(description="What this task accomplishes")
+    skill_id: str | None = Field(default=None, description="Matched skill, or None for brain fallback")
+    depends_on: list[str] = Field(default_factory=list, description="Task IDs that must complete first")
+    status: TaskStatus = Field(default=TaskStatus.PENDING)
+    tool_categories: list[str] = Field(default_factory=list, description="Which tool categories this task needs")
+    context_requirements: list[str] = Field(
+        default_factory=list,
+        description="What context data this task needs (e.g. 'timeline_state', 'asset_metadata')",
+    )
+    result_summary: str = Field(default="", description="Compressed output from sub-agent after completion")
+    error: str | None = Field(default=None, description="Error message if task failed")
+    retry_count: int = Field(default=0, description="Number of times this task has been retried")
+
+
+class TaskDAG(BaseModel):
+    """Directed acyclic graph of tasks produced by the planner."""
+
+    tasks: list[TaskNode] = Field(default_factory=list)
+    original_prompt: str = Field(default="", description="The user's original request")
+
+    def get_ready_tasks(self) -> list[TaskNode]:
+        """Return tasks whose dependencies are all completed."""
+        completed_ids = {t.id for t in self.tasks if t.status == TaskStatus.COMPLETED}
+        return [
+            t for t in self.tasks
+            if t.status == TaskStatus.PENDING
+            and all(dep in completed_ids for dep in t.depends_on)
+        ]
+
+    def is_complete(self) -> bool:
+        """True when every task is completed, failed, or cancelled."""
+        terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
+        return all(t.status in terminal for t in self.tasks)
+
+    def get_task(self, task_id: str) -> TaskNode | None:
+        for t in self.tasks:
+            if t.id == task_id:
+                return t
+        return None
+
+
+class OrchestratorStatus(str, Enum):
+    """High-level phase of an orchestration session."""
+
+    PLANNING = "planning"
+    EXECUTING = "executing"
+    AWAITING_TOOL_RESULTS = "awaiting_tool_results"
+    REVIEWING = "reviewing"
+    DONE = "done"
+    ERROR = "error"
+
+
+class SubAgentContext(BaseModel):
+    """Context payload assembled for a sub-agent execution."""
+
+    task: TaskNode
+    timeline_context: str | None = None
+    assets_context: str | None = None
+    prior_task_results: dict[str, str] = Field(
+        default_factory=dict,
+        description="Summaries from completed dependency tasks: {task_id: summary}",
+    )
+    project_id: str | None = None
+    view_context: str = "editor"
+
+
+class SubAgentResult(BaseModel):
+    """Output from a sub-agent execution."""
+
+    task_id: str
+    success: bool = True
+    tool_calls: list[ToolCall] = Field(default_factory=list, description="Frontend tool calls to execute")
+    backend_tool_results: list[ToolResult] = Field(default_factory=list, description="Already-executed backend tool results")
+    message: str = Field(default="", description="Summary for orchestrator")
+    error: str | None = None
+
+
+class OrchestrateRequest(BaseModel):
+    """Request to start or continue an orchestrated multi-agent execution."""
+
+    prompt: str = Field(description="User's natural-language instruction", max_length=10000)
+    timeline_state: TimelineState | None = None
+    assets_context: dict[str, object] | None = None
+    conversation_history: list[AgentMessage] = Field(default_factory=list, max_length=100)
+    session_id: str | None = None
+    project_id: str | None = None
+    view_context: ViewContext = Field(default=ViewContext.EDITOR)
+
+
+class OrchestrateTaskInfo(BaseModel):
+    """Serialized task info sent to the frontend for progress display."""
+
+    id: str
+    description: str
+    skill_id: str | None = None
+    skill_name: str | None = None
+    depends_on: list[str] = Field(default_factory=list)
+    status: str
+    error: str | None = None
+
+
+class OrchestrateResponse(BaseModel):
+    """Response from the orchestrator to the frontend."""
+
+    session_id: str = Field(default="")
+    status: str = Field(default="planning", description="Current orchestrator phase")
+    tasks: list[OrchestrateTaskInfo] = Field(default_factory=list, description="Full task list with statuses")
+    current_task_id: str | None = Field(default=None, description="Task currently being executed")
+    tool_calls: list[ToolCall] = Field(default_factory=list, description="Frontend tool calls to execute")
+    message: str = Field(default="", description="Message to display to the user")
+    done: bool = Field(default=False)
+
+
+class OrchestrateContinueRequest(BaseModel):
+    """Follow-up request carrying tool results back to the orchestrator."""
+
+    session_id: str
+    tool_results: list[ToolResult] = Field(default_factory=list)
+    updated_context: str | None = None
+
+
+# ============================================================
 # Live API
 # ============================================================
 
