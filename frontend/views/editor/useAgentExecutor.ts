@@ -6,6 +6,7 @@ import type {
   Timeline,
   TransitionType,
 } from "../../types/project";
+import { logger } from "../../lib/logger";
 import type { OnToolProgress } from "../../hooks/use-agent";
 import {
   agentGenerateVideo,
@@ -22,6 +23,7 @@ import {
 export interface ToolCall {
   tool_name: string;
   arguments: Record<string, unknown>;
+  call_id?: string;
 }
 
 export interface ToolResult {
@@ -29,6 +31,7 @@ export interface ToolResult {
   success: boolean;
   result: unknown;
   error: string | null;
+  call_id?: string;
 }
 
 export interface AgentExecutorDeps {
@@ -621,7 +624,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     if (!currentProjectId || !activeTimelineId)
       return fail("duplicate_timeline", "No active project or timeline");
     const clips = clipsRef.current ?? [];
-    snapshotRef.current = JSON.parse(JSON.stringify(clips));
+    snapshotRef.current = structuredClone(clips);
     const newTimeline = duplicateTimeline(currentProjectId, activeTimelineId);
     if (!newTimeline) return fail("duplicate_timeline", "Failed to duplicate timeline");
     return ok("duplicate_timeline", { newTimelineId: newTimeline.id, newTimelineName: newTimeline.name, snapshotClipCount: clips.length });
@@ -1197,13 +1200,10 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
             return fail(safe.tool_name, `Unknown tool: ${safe.tool_name}`);
         }
       } catch (err) {
-        console.error(
-          "[agent-exec] %s threw after %.0fms:",
-          call.tool_name,
-          performance.now() - t0,
-          err,
-        );
-        return fail(call.tool_name, err instanceof Error ? err.message : String(err));
+        const elapsed = Math.round(performance.now() - t0);
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error(`[agent-exec] ${call.tool_name} threw after ${elapsed}ms: ${msg}`);
+        return fail(call.tool_name, msg);
       }
     },
     [

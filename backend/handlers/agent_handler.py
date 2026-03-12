@@ -7,7 +7,9 @@ from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Any, cast
 
+from agent import brain as brain_module
 from agent import gemini_agent, video_analyzer
+from agent.scene_decomposer import decompose_to_scenes
 from agent.tool_registry import tools_to_gemini_declarations
 from agent.types import (
     AgentContinueRequest,
@@ -20,6 +22,8 @@ from agent.types import (
     LiveTokenResponse,
     VideoMetadata,
 )
+from agent.brain import ProjectBrain
+from agent.scene_decomposer import SubClipDefinition
 from handlers.base import StateHandlerBase
 from services.http_client.http_client import HTTPClient, HttpTimeoutError
 from state.app_state_types import AppState
@@ -91,6 +95,46 @@ class AgentHandler(StateHandlerBase):
         """Get cached video metadata."""
         return video_analyzer.get_metadata(asset_id)
 
+    def get_brain(self, project_id: str) -> ProjectBrain | None:
+        """Get the project brain summary."""
+        return brain_module.get_brain(project_id)
+
+    def build_brain(self, project_id: str, project_save_path: str | None = None) -> str:
+        """Trigger a brain build from all analyzed video metadata.
+
+        Returns a status string: 'building', 'no_metadata', or 'error'.
+        """
+        all_metadata = video_analyzer.get_all_complete_metadata()
+        if not all_metadata:
+            return "no_metadata"
+
+        api_key = self._state.app_settings.gemini_api_key or ""
+        if not api_key:
+            return "error"
+
+        brain_module.schedule_brain_build(
+            project_id, all_metadata, api_key, self._http, project_save_path,
+        )
+        return "building"
+
+    def mark_brain_dirty(self, project_id: str) -> None:
+        """Notify the brain that scenes have been decomposed."""
+        brain_module.mark_dirty(project_id)
+
+    def decompose_video(self, asset_id: str) -> tuple[list[SubClipDefinition], str | None]:
+        """Decompose an analyzed video into scene-based sub-clips.
+
+        Returns (subclips, error). If error is not None, subclips is empty.
+        """
+        metadata = video_analyzer.get_metadata(asset_id)
+        if metadata is None:
+            return [], f"No analysis found for asset {asset_id}. Analyze the video first."
+        if metadata.analysis_status != AnalysisStatus.COMPLETE:
+            return [], f"Video analysis is not complete (status: {metadata.analysis_status.value})."
+        if not metadata.scenes:
+            return [], "Video has no detected scenes to decompose."
+        return decompose_to_scenes(metadata), None
+
     def create_live_token(self) -> LiveTokenResponse | None:
         """Mint a short-lived ephemeral token for client-side Live API access."""
         api_key = self._state.app_settings.gemini_api_key
@@ -132,7 +176,7 @@ class AgentHandler(StateHandlerBase):
                 timeout=15,
             )
         except HttpTimeoutError:
-            logger.error("Ephemeral token request timed out")
+            logger.error("Ephemeral token request timed out", exc_info=True)
             return None
         except Exception:
             logger.error("Ephemeral token request failed", exc_info=True)

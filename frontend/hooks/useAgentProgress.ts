@@ -186,5 +186,3 @@ export function useAgentProgress() {
     reset,
   };
 }
-
-export type AgentProgressActions = ReturnType<typeof useAgentProgress>;

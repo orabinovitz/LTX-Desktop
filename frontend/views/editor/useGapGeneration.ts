@@ -6,7 +6,7 @@ import { copyToAssetFolder } from '../../lib/asset-copy'
 import { backendFetch } from '../../lib/backend'
 import { fileUrlToPath } from '../../lib/url-to-path'
 
-export interface UseGapGenerationParams {
+interface UseGapGenerationParams {
   clips: TimelineClip[]
   tracks: Track[]
   setClips: React.Dispatch<React.SetStateAction<TimelineClip[]>>
@@ -484,7 +484,7 @@ export function useGapGeneration({
           if (errStr.includes('api_key') || errStr.includes('gemini') || errStr.includes('no api key') || errStr.includes('api key')) {
             isApiKeyError = true
           }
-        } catch {}
+        } catch { /* best-effort cleanup */ }
         if (isApiKeyError) setGapSuggestionNoApiKey(true)
         else setGapSuggestionError(true)
       } else {

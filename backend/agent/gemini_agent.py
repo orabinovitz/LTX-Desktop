@@ -9,10 +9,12 @@ execution.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
@@ -51,8 +53,6 @@ _MAX_TURNS = 20
 _GEMINI_MODEL = "gemini-3.1-pro-preview"
 _FALLBACK_MODEL = "gemini-3-flash-preview"
 
-_active_api_key: str = ""
-_active_http_client: HTTPClient | None = None
 
 _ROLE_MAP: dict[str, str] = {"user": "user", "agent": "model", "assistant": "model", "model": "model"}
 
@@ -677,10 +677,6 @@ def execute_prompt(
     frontend tool calls that the caller must execute and feed back via
     :func:`continue_with_results`.
     """
-    global _active_api_key, _active_http_client  # noqa: PLW0603
-    _active_api_key = gemini_api_key
-    _active_http_client = http_client
-
     # Classify intent to scope tools for this request, filtered by view
     view_ctx = request.view_context.value if request.view_context else "editor"
     scoped_categories = classify_intent(request.prompt)
@@ -729,20 +725,17 @@ def execute_prompt(
             if meta is not None:
                 context_parts.append(_format_video_metadata(meta))
 
-    # Inject project brain summary — lazy-build if none exists yet
+    # Inject project brain summary — schedule async build if none exists yet
     if request.project_id:
         project_brain = brain_module.get_brain(request.project_id)
         if project_brain is None:
-            all_meta = [
-                m for m in video_analyzer._metadata_cache.values()
-                if m.analysis_status.value == "complete"
-            ]
+            all_meta = video_analyzer.get_all_complete_metadata()
             if all_meta and gemini_api_key:
                 logger.info(
-                    "No brain for project %s — building synchronously from %d analyses",
+                    "No brain for project %s — scheduling background build from %d analyses",
                     request.project_id[:8], len(all_meta),
                 )
-                project_brain = brain_module.build_brain(
+                brain_module.schedule_brain_build(
                     request.project_id, all_meta, gemini_api_key, http_client,
                 )
         if project_brain is not None:
@@ -821,10 +814,6 @@ def continue_with_results(
 
     Raises ``KeyError`` if the session does not exist.
     """
-    global _active_api_key, _active_http_client  # noqa: PLW0603
-    _active_api_key = gemini_api_key
-    _active_http_client = http_client
-
     sd = _get_session(session_id)
     if sd is None:
         raise KeyError(f"Unknown session: {session_id}")
@@ -969,7 +958,7 @@ def _call_gemini(
             time.sleep(wait)
         except HttpTimeoutError:
             elapsed = time.monotonic() - t0
-            logger.error("[agent] session=%s | Gemini timed out after %.1fs", session_id[:8], elapsed)
+            logger.error("[agent] session=%s | Gemini timed out after %.1fs", session_id[:8], elapsed, exc_info=True)
             return AgentExecuteResponse(
                 message="The AI service timed out. Please try again.",
                 done=True,
@@ -1009,7 +998,7 @@ def _call_gemini(
                 timeout=300,
             )
         except HttpTimeoutError:
-            logger.error("[agent] session=%s | Fallback model also timed out", session_id[:8])
+            logger.error("[agent] session=%s | Fallback model also timed out", session_id[:8], exc_info=True)
             return AgentExecuteResponse(
                 message="The AI service timed out on both primary and fallback models.",
                 done=True,
@@ -1117,11 +1106,18 @@ def _call_gemini(
             done=True,
         )
 
-    # -- Execute backend tools inline ------------------------------------
+    # -- Execute backend tools inline (parallel when multiple) ------------
     if backend_tool_calls:
-        backend_results = [
-            _execute_backend_tool(tc) for tc in backend_tool_calls
-        ]
+        if len(backend_tool_calls) == 1:
+            backend_results = [
+                _execute_backend_tool(backend_tool_calls[0], api_key=api_key, http_client=http_client, session_id=session_id)
+            ]
+        else:
+            with ThreadPoolExecutor(max_workers=min(4, len(backend_tool_calls))) as pool:
+                backend_results = list(pool.map(
+                    lambda tc: _execute_backend_tool(tc, api_key=api_key, http_client=http_client, session_id=session_id),
+                    backend_tool_calls,
+                ))
 
         # Feed results back into conversation
         fn_response_parts: list[dict[str, Any]] = []
@@ -1166,19 +1162,31 @@ def _call_gemini(
 # ---------------------------------------------------------------------------
 
 
-def _execute_backend_tool(tool_call: ToolCall) -> ToolResult:
+def _execute_backend_tool(
+    tool_call: ToolCall,
+    *,
+    api_key: str,
+    http_client: HTTPClient,
+    session_id: str,
+) -> ToolResult:
     """Execute a backend-side tool and return the result."""
     logger.info("Executing backend tool: %s(%s)", tool_call.tool_name, tool_call.arguments)
 
-    handlers = {
+    def _review_quality(tc: ToolCall) -> ToolResult:
+        return _handle_review_edit_quality(tc, api_key=api_key, http_client=http_client)
+
+    def _review_structure(tc: ToolCall) -> ToolResult:
+        return _handle_review_edit_structure(tc, api_key=api_key, http_client=http_client)
+
+    handlers: dict[str, Any] = {
         "get_video_metadata": _handle_get_video_metadata,
         "query_project_brain": _handle_query_brain,
         "get_transcript_segment": _handle_get_transcript_segment,
         "decompose_video": _handle_decompose_video,
         "suggest_prompt": _handle_suggest_prompt,
         "get_full_transcript": _handle_get_full_transcript,
-        "review_edit_quality": _handle_review_edit_quality,
-        "review_edit_structure": _handle_review_edit_structure,
+        "review_edit_quality": _review_quality,
+        "review_edit_structure": _review_structure,
     }
 
     try:
@@ -1192,7 +1200,8 @@ def _execute_backend_tool(tool_call: ToolCall) -> ToolResult:
         return handler(tool_call)
     except Exception as exc:
         logger.error(
-            "Backend tool '%s' raised an exception", tool_call.tool_name, exc_info=True
+            "[agent] session=%s | Backend tool '%s' raised an exception",
+            session_id[:8], tool_call.tool_name, exc_info=True,
         )
         return ToolResult(
             call_id=tool_call.call_id,
@@ -1239,7 +1248,7 @@ def _handle_query_brain(tool_call: ToolCall) -> ToolResult:
 
     # Search across all project brains (we don't know project_id in the tool call)
     all_results: list[dict] = []
-    for project_id in list(brain_module._brains.keys()):
+    for project_id in brain_module.get_all_project_ids():
         results = brain_module.query_brain(project_id, query)
         for clip in results:
             entry = clip.model_dump(mode="json")
@@ -1458,27 +1467,82 @@ def _handle_get_full_transcript(tool_call: ToolCall) -> ToolResult:
     )
 
 
-def _handle_review_edit_quality(tool_call: ToolCall) -> ToolResult:
+def _gemini_review_call(
+    prompt: str,
+    tool_call: ToolCall,
+    *,
+    api_key: str,
+    http_client: HTTPClient,
+    label: str,
+    max_output_tokens: int = 4096,
+) -> ToolResult:
+    """Shared helper for Gemini-based review tool calls (quality + structure)."""
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{_GEMINI_MODEL}:generateContent"
+    )
+    payload: dict[str, Any] = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": max_output_tokens,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    t0 = time.monotonic()
+    try:
+        resp = http_client.post(
+            url,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            },
+            json_payload=payload,
+            timeout=60,
+        )
+        if resp.status_code != 200:
+            return ToolResult(
+                call_id=tool_call.call_id,
+                success=False,
+                error=f"Gemini {label} API error: {resp.status_code}",
+            )
+
+        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        result = json.loads(text)
+        logger.info("%s completed in %.1fs", label, time.monotonic() - t0)
+
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=True,
+            result=result,
+        )
+    except Exception as exc:
+        logger.error("%s failed after %.1fs (call_id=%s)", label, time.monotonic() - t0, tool_call.call_id, exc_info=True)
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error=f"{label} failed: {exc}",
+        )
+
+
+def _handle_review_edit_quality(
+    tool_call: ToolCall,
+    *,
+    api_key: str,
+    http_client: HTTPClient,
+) -> ToolResult:
     """Evaluate edit quality by analyzing the transcript text with Gemini."""
     topic = tool_call.arguments.get("topic", "")
     edit_transcript = tool_call.arguments.get("edit_transcript", "")
     target_duration = tool_call.arguments.get("target_duration", 45)
 
     if not edit_transcript:
-        return ToolResult(
-            call_id=tool_call.call_id,
-            success=False,
-            error="Missing required argument: edit_transcript",
-        )
+        return ToolResult(call_id=tool_call.call_id, success=False, error="Missing required argument: edit_transcript")
+    if not api_key or not http_client:
+        return ToolResult(call_id=tool_call.call_id, success=False, error="No active Gemini API key available for review.")
 
-    if not _active_api_key or not _active_http_client:
-        return ToolResult(
-            call_id=tool_call.call_id,
-            success=False,
-            error="No active Gemini API key available for review.",
-        )
-
-    rubric_prompt = (
+    prompt = (
         "You are a professional video editor reviewing a short-form edit. "
         "Score each dimension 1-10 and provide specific feedback.\n\n"
         f"TOPIC: {topic or 'General'}\n"
@@ -1496,76 +1560,25 @@ def _handle_review_edit_quality(tool_call: ToolCall) -> ToolResult:
         '"closure_quality": N, "sentence_completeness": N, "overall_score": N, '
         '"feedback": ["specific issue 1", "specific issue 2", ...]}'
     )
-
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{_GEMINI_MODEL}:generateContent"
-    )
-    payload: dict[str, Any] = {
-        "contents": [{"role": "user", "parts": [{"text": rubric_prompt}]}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 4096,
-            "responseMimeType": "application/json",
-        },
-    }
-
-    import json as _json
-
-    try:
-        resp = _active_http_client.post(
-            url,
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": _active_api_key,
-            },
-            json_payload=payload,
-            timeout=60,
-        )
-        if resp.status_code != 200:
-            return ToolResult(
-                call_id=tool_call.call_id,
-                success=False,
-                error=f"Gemini review API error: {resp.status_code}",
-            )
-
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        scores = _json.loads(text)
-
-        return ToolResult(
-            call_id=tool_call.call_id,
-            success=True,
-            result=scores,
-        )
-    except Exception as exc:
-        logger.error("review_edit_quality failed", exc_info=True)
-        return ToolResult(
-            call_id=tool_call.call_id,
-            success=False,
-            error=f"Review failed: {exc}",
-        )
+    return _gemini_review_call(prompt, tool_call, api_key=api_key, http_client=http_client, label="review_edit_quality", max_output_tokens=4096)
 
 
-def _handle_review_edit_structure(tool_call: ToolCall) -> ToolResult:
+def _handle_review_edit_structure(
+    tool_call: ToolCall,
+    *,
+    api_key: str,
+    http_client: HTTPClient,
+) -> ToolResult:
     """Analyze the narrative structure of a timeline edit with Gemini."""
     edit_transcript = tool_call.arguments.get("edit_transcript", "")
     topic = tool_call.arguments.get("topic", "")
 
     if not edit_transcript:
-        return ToolResult(
-            call_id=tool_call.call_id,
-            success=False,
-            error="Missing required argument: edit_transcript",
-        )
+        return ToolResult(call_id=tool_call.call_id, success=False, error="Missing required argument: edit_transcript")
+    if not api_key or not http_client:
+        return ToolResult(call_id=tool_call.call_id, success=False, error="No active Gemini API key available for review.")
 
-    if not _active_api_key or not _active_http_client:
-        return ToolResult(
-            call_id=tool_call.call_id,
-            success=False,
-            error="No active Gemini API key available for review.",
-        )
-
-    structure_prompt = (
+    prompt = (
         "You are a professional editor analyzing the narrative structure of a short-form edit.\n\n"
         f"TOPIC: {topic or 'General'}\n\n"
         f"EDIT TRANSCRIPT:\n{edit_transcript}\n\n"
@@ -1584,54 +1597,7 @@ def _handle_review_edit_structure(tool_call: ToolCall) -> ToolResult:
         "- recommendations: Array of 3-5 specific improvements\n\n"
         "Return ONLY valid JSON."
     )
-
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{_GEMINI_MODEL}:generateContent"
-    )
-    payload: dict[str, Any] = {
-        "contents": [{"role": "user", "parts": [{"text": structure_prompt}]}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 8192,
-            "responseMimeType": "application/json",
-        },
-    }
-
-    import json as _json
-
-    try:
-        resp = _active_http_client.post(
-            url,
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": _active_api_key,
-            },
-            json_payload=payload,
-            timeout=60,
-        )
-        if resp.status_code != 200:
-            return ToolResult(
-                call_id=tool_call.call_id,
-                success=False,
-                error=f"Gemini structure review API error: {resp.status_code}",
-            )
-
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        result = _json.loads(text)
-
-        return ToolResult(
-            call_id=tool_call.call_id,
-            success=True,
-            result=result,
-        )
-    except Exception as exc:
-        logger.error("review_edit_structure failed", exc_info=True)
-        return ToolResult(
-            call_id=tool_call.call_id,
-            success=False,
-            error=f"Structure review failed: {exc}",
-        )
+    return _gemini_review_call(prompt, tool_call, api_key=api_key, http_client=http_client, label="review_edit_structure", max_output_tokens=8192)
 
 
 # ---------------------------------------------------------------------------

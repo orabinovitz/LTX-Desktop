@@ -83,49 +83,4 @@ export function generateThumbnail(
   })
 }
 
-/**
- * Batch-generate thumbnails for multiple video URLs.
- * Returns a map of videoUrl → blobUrl for all that succeeded.
- * Failures are silently skipped (the caller can fall back to the original URL).
- *
- * Limits concurrency to avoid overwhelming the browser's media decoder.
- */
-export async function generateThumbnailsBatch(
-  videoUrls: string[],
-  concurrency = 3,
-): Promise<Map<string, string>> {
-  const results = new Map<string, string>()
-  const queue = [...videoUrls]
-
-  const worker = async () => {
-    while (queue.length > 0) {
-      const url = queue.shift()!
-      try {
-        const thumb = await generateThumbnail(url)
-        results.set(url, thumb)
-      } catch {
-        // skip – caller will fall back to original url
-      }
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, () => worker()))
-  return results
-}
-
-/**
- * Look up a cached thumbnail. Returns undefined if not yet generated.
- */
-export function getCachedThumbnail(videoUrl: string): string | undefined {
-  return thumbnailCache.get(videoUrl)
-}
-
-/**
- * Warm the cache for a single URL (fire-and-forget).
- * Safe to call multiple times – subsequent calls are no-ops.
- */
-export function warmThumbnail(videoUrl: string): void {
-  if (thumbnailCache.has(videoUrl)) return
-  generateThumbnail(videoUrl).catch(() => {})
-}
 

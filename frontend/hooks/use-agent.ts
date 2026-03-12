@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { logger } from "../lib/logger";
 import type { TimelineClip } from "../types/project";
 import type {
   ToolCall,
@@ -15,6 +16,17 @@ import type { AgentProgress, AgentTask } from "../types/agent-progress";
 
 export type { ToolCall };
 export type { AgentProgress };
+
+const PARALLEL_SAFE_TOOLS = new Set([
+  "generate_image",
+  "generate_video",
+  "get_project_assets",
+  "get_generation_status",
+  "get_video_metadata",
+  "cancel_generation",
+  "delete_asset",
+  "toggle_favorite",
+]);
 
 // --- Types matching backend Pydantic models ---
 
@@ -41,7 +53,7 @@ interface TimelineState {
 }
 
 interface AgentMessage {
-  role: "user" | "agent";
+  role: "user" | "assistant";
   content: string;
 }
 
@@ -62,7 +74,7 @@ export interface ChatMessage {
 
 export type OnToolProgress = (progress: number, detail?: string) => void;
 
-export interface ExecuteToolFn {
+interface ExecuteToolFn {
   (toolCall: ToolCall, onProgress?: OnToolProgress): Promise<ToolResult>;
 }
 
@@ -125,8 +137,8 @@ export async function triggerVideoAnalysis(
       const data = await res.json();
       return data.status === "analyzing";
     }
-  } catch (err) {
-    console.warn("Video analysis trigger failed:", err);
+  } catch {
+    // Analysis is best-effort; failure is non-fatal
   }
   return false;
 }
@@ -166,7 +178,6 @@ export function useAgent() {
       conversationRef.current.push({ role: "user", content: prompt });
 
       const t0 = performance.now();
-      console.log("[agent] sending prompt:", prompt.slice(0, 120));
 
       try {
         const backendUrl = await window.electronAPI.getBackendUrl();
@@ -175,13 +186,6 @@ export function useAgent() {
           trackCount,
           currentTime,
         );
-        console.log(
-          "[agent] timeline context: %d clips, %d tracks, playhead=%.1fs",
-          clips.length,
-          trackCount,
-          currentTime,
-        );
-
         progressActions.setThinking("Sending request to AI...");
 
         const res = await fetch(`${backendUrl}/api/agent/execute`, {
@@ -203,13 +207,6 @@ export function useAgent() {
         if (!res.ok) throw new Error(`Agent API error: ${res.status}`);
         let response: AgentResponse = await res.json();
 
-        console.log(
-          "[agent] initial response in %.1fs — done=%s, tools=%d",
-          (performance.now() - t0) / 1000,
-          response.done,
-          response.tool_calls?.length ?? 0,
-        );
-
         if (response.session_id) {
           sessionIdRef.current = response.session_id;
         }
@@ -224,13 +221,6 @@ export function useAgent() {
         while (!response.done && turns < 10) {
           turns++;
           progressActions.incrementTurn();
-          const turnStart = performance.now();
-          console.log(
-            "[agent] turn %d — %d tool call(s): %s",
-            turns,
-            response.tool_calls.length,
-            response.tool_calls.map((tc) => tc.tool_name).join(", "),
-          );
 
           // Parse plan into tasks + reasoning on the first turn that has one
           if (response.plan) {
@@ -270,18 +260,6 @@ export function useAgent() {
             }
           }
 
-          // Execute tool calls group by group
-          const PARALLEL_SAFE_TOOLS = new Set([
-            "generate_image",
-            "generate_video",
-            "get_project_assets",
-            "get_generation_status",
-            "get_video_metadata",
-            "cancel_generation",
-            "delete_asset",
-            "toggle_favorite",
-          ]);
-
           const results: ToolResult[] = new Array(
             response.tool_calls.length,
           );
@@ -302,7 +280,6 @@ export function useAgent() {
 
             const executeOne = async (toolIdx: number) => {
               const tc = response.tool_calls[toolIdx];
-              const toolStart = performance.now();
               const onProgress: OnToolProgress = (p, detail) => {
                 const groupDetail =
                   count > 1
@@ -311,12 +288,6 @@ export function useAgent() {
                 progressActions.updateTaskProgress(taskId, p, groupDetail);
               };
               const result = await executeTool(tc, onProgress);
-              console.log(
-                "[agent]   tool %s → %s (%.0fms)",
-                tc.tool_name,
-                result.success ? "ok" : `FAIL: ${result.error}`,
-                performance.now() - toolStart,
-              );
               results[toolIdx] = result;
               completedInGroup++;
               if (count > 1) {
@@ -333,11 +304,6 @@ export function useAgent() {
             };
 
             if (isParallel) {
-              console.log(
-                "[agent]   executing group '%s' (%d calls) in PARALLEL",
-                group.toolName,
-                count,
-              );
               const groupResults = await Promise.all(
                 group.indices.map(executeOne),
               );
@@ -388,10 +354,6 @@ export function useAgent() {
 
           progressActions.setThinking("Continuing conversation...");
 
-          console.log(
-            "[agent] turn %d tools done, sending results back...",
-            turns,
-          );
           const contRes = await fetch(`${backendUrl}/api/agent/continue`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -405,22 +367,9 @@ export function useAgent() {
           if (!contRes.ok)
             throw new Error(`Agent continue error: ${contRes.status}`);
           response = await contRes.json();
-          console.log(
-            "[agent] turn %d complete in %.1fs — done=%s, next_tools=%d",
-            turns,
-            (performance.now() - turnStart) / 1000,
-            response.done,
-            response.tool_calls?.length ?? 0,
-          );
         }
 
-        const totalElapsed = (performance.now() - t0) / 1000;
         const finalText = response.message || response.plan || "Done.";
-        console.log(
-          "[agent] finished in %.1fs after %d turn(s)",
-          totalElapsed,
-          turns,
-        );
 
         progressActions.endSession();
 
@@ -440,18 +389,14 @@ export function useAgent() {
           }
           return updated;
         });
-        conversationRef.current.push({ role: "agent", content: finalText });
+        conversationRef.current.push({ role: "assistant", content: finalText });
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           progressActions.reset();
           return;
         }
         const errorMsg = err instanceof Error ? err.message : "Unknown error";
-        console.error(
-          "[agent] error after %.1fs:",
-          (performance.now() - t0) / 1000,
-          errorMsg,
-        );
+        logger.error(`[agent] error after ${((performance.now() - t0) / 1000).toFixed(1)}s: ${errorMsg}`);
         progressActions.endSession(errorMsg);
         setMessages((prev) => [
           ...prev,

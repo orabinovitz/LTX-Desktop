@@ -12,7 +12,7 @@ import type { ToolCall, ToolResult } from "../views/editor/useAgentExecutor";
 import type { TimelineClip, ProjectTab } from "../types/project";
 import { useProjects } from "./ProjectContext";
 
-export type ViewContext = "editor" | "genspace" | "playground";
+type ViewContext = "editor" | "genspace" | "playground";
 
 export interface AgentViewExecutor {
   viewContext: ViewContext;
@@ -28,21 +28,25 @@ export interface AgentViewExecutor {
   onUndo: () => void;
 }
 
-interface AgentContextValue {
-  agentOpen: boolean;
+interface AgentDispatchValue {
   setAgentOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  messages: ChatMessage[];
-  isProcessing: boolean;
-  progress: AgentProgress;
-  setCollapsed: (value: boolean) => void;
   sendAgentPrompt: (prompt: string) => void;
   clearChat: () => void;
   registerExecutor: (executor: AgentViewExecutor) => void;
   unregisterExecutor: (viewContext: ViewContext) => void;
+}
+
+interface AgentStateValue {
+  agentOpen: boolean;
+  messages: ChatMessage[];
+  isProcessing: boolean;
+  progress: AgentProgress;
+  setCollapsed: (value: boolean) => void;
   activeExecutor: AgentViewExecutor | null;
 }
 
-const AgentContext = createContext<AgentContextValue | null>(null);
+const AgentDispatchContext = createContext<AgentDispatchValue | null>(null);
+const AgentStateContext = createContext<AgentStateValue | null>(null);
 
 const VALID_TABS = new Set<ProjectTab>(["gen-space", "video-editor"]);
 
@@ -157,42 +161,52 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     [sendPrompt, handleSwitchView],
   );
 
-  const value = useMemo<AgentContextValue>(
+  const dispatch = useMemo<AgentDispatchValue>(
+    () => ({
+      setAgentOpen,
+      sendAgentPrompt,
+      clearChat,
+      registerExecutor,
+      unregisterExecutor,
+    }),
+    [setAgentOpen, sendAgentPrompt, clearChat, registerExecutor, unregisterExecutor],
+  );
+
+  const state = useMemo<AgentStateValue>(
     () => ({
       agentOpen,
-      setAgentOpen,
       messages,
       isProcessing,
       progress,
       setCollapsed,
-      sendAgentPrompt,
-      clearChat,
-      registerExecutor,
-      unregisterExecutor,
       activeExecutor: executorRef.current,
     }),
-    [
-      agentOpen,
-      messages,
-      isProcessing,
-      progress,
-      setCollapsed,
-      sendAgentPrompt,
-      clearChat,
-      registerExecutor,
-      unregisterExecutor,
-    ],
+    [agentOpen, messages, isProcessing, progress, setCollapsed],
   );
 
   return (
-    <AgentContext.Provider value={value}>{children}</AgentContext.Provider>
+    <AgentDispatchContext.Provider value={dispatch}>
+      <AgentStateContext.Provider value={state}>{children}</AgentStateContext.Provider>
+    </AgentDispatchContext.Provider>
   );
 }
 
-export function useAgentContext(): AgentContextValue {
-  const ctx = useContext(AgentContext);
+export function useAgentDispatch(): AgentDispatchValue {
+  const ctx = useContext(AgentDispatchContext);
   if (!ctx) {
-    throw new Error("useAgentContext must be used within an AgentProvider");
+    throw new Error("useAgentDispatch must be used within an AgentProvider");
   }
   return ctx;
+}
+
+export function useAgentState(): AgentStateValue {
+  const ctx = useContext(AgentStateContext);
+  if (!ctx) {
+    throw new Error("useAgentState must be used within an AgentProvider");
+  }
+  return ctx;
+}
+
+export function useAgentContext(): AgentDispatchValue & AgentStateValue {
+  return { ...useAgentDispatch(), ...useAgentState() };
 }

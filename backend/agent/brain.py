@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 _GEMINI_MODEL = "gemini-3-flash-preview"
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 _DISK_CACHE_DIR = Path.home() / ".ltx-desktop" / "brain-cache"
-_DEBOUNCE_SECONDS = 30
 
 
 # ---------------------------------------------------------------------------
@@ -83,13 +82,17 @@ class ProjectBrain(BaseModel):
 
 _brains: dict[str, ProjectBrain] = {}
 _brain_lock = threading.Lock()
-_pending_updates: dict[str, float] = {}  # project_id -> scheduled_time
-_debounce_timer: threading.Timer | None = None
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+
+def get_all_project_ids() -> list[str]:
+    """Return IDs of all projects with a brain in memory."""
+    with _brain_lock:
+        return list(_brains.keys())
 
 
 def get_brain(project_id: str) -> ProjectBrain | None:
@@ -264,12 +267,12 @@ def format_brain_for_agent(brain: ProjectBrain) -> str:
 
 
 def mark_dirty(project_id: str) -> None:
-    """Flag a brain as needing a rebuild. Schedules a debounced background update."""
+    """Flag a brain as needing a rebuild (rebuilt lazily on next agent prompt)."""
     with _brain_lock:
         brain = _brains.get(project_id)
         if brain is not None:
             brain.dirty = True
-    _schedule_debounced_update(project_id)
+            logger.info("Brain marked dirty for project %s", project_id[:8])
 
 
 def schedule_brain_build(
@@ -539,22 +542,7 @@ def _format_clips_for_topic_extraction(clips: list[BrainClipEntry]) -> str:
     return "\n".join(lines)
 
 
-def _repair_topic_json(raw: str) -> dict | None:
-    """Attempt to repair truncated JSON from topic extraction."""
-    text = raw.strip()
-    if not text.startswith("{"):
-        return None
-    open_braces = text.count("{") - text.count("}")
-    open_brackets = text.count("[") - text.count("]")
-    if open_braces == 0 and open_brackets == 0:
-        return None
-    patched = text.rstrip().rstrip(",")
-    patched += "]" * max(0, open_brackets)
-    patched += "}" * max(0, open_braces)
-    try:
-        return json.loads(patched)
-    except Exception:
-        return None
+from agent.json_repair import repair_simple_json as _repair_topic_json
 
 
 def _call_gemini_for_topics(
@@ -605,10 +593,14 @@ def _call_gemini_for_topics(
                 timeout=90,
             )
         except HttpTimeoutError:
-            logger.error("Brain topic extraction timed out (attempt %d)", attempt + 1)
+            logger.error("Brain topic extraction timed out (attempt %d)", attempt + 1, exc_info=True)
+            if attempt < max_attempts - 1:
+                time.sleep(5 * (attempt + 1))
             continue
         except Exception:
             logger.error("Brain topic extraction failed (attempt %d)", attempt + 1, exc_info=True)
+            if attempt < max_attempts - 1:
+                time.sleep(5 * (attempt + 1))
             continue
 
         if response.status_code != 200:
@@ -658,7 +650,7 @@ def _parse_topic_result(
                 clip_ids=clip_ids,
             ))
         except Exception:
-            logger.warning("Skipping unparseable topic: %s", t)
+            logger.warning("Skipping unparseable topic: %s", t, exc_info=True)
 
     return topics
 
@@ -681,12 +673,11 @@ def _background_build(
         )
     except Exception:
         logger.error("Background brain build failed for %s", project_id[:8], exc_info=True)
-
-
-def _schedule_debounced_update(project_id: str) -> None:
-    """Schedule a debounced brain update (no-op if no API key available)."""
-    _pending_updates[project_id] = time.time() + _DEBOUNCE_SECONDS
-    logger.debug("Brain update scheduled for %s in %ds", project_id[:8], _DEBOUNCE_SECONDS)
+        with _brain_lock:
+            if project_id not in _brains:
+                _brains[project_id] = ProjectBrain(
+                    project_id=project_id, dirty=True,
+                )
 
 
 # ---------------------------------------------------------------------------

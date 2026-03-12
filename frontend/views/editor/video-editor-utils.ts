@@ -12,7 +12,7 @@ import { DEFAULT_COLOR_CORRECTION } from '../../types/project'
 
 export type ToolType = 'select' | 'trackForward' | 'blade' | 'slip' | 'slide' | 'ripple' | 'roll'
 
-export type ToolDef = { id: ToolType; icon: any; label: string; actionId: ActionId }
+type ToolDef = { id: ToolType; icon: any; label: string; actionId: ActionId }
 
 export const PRIMARY_TOOLS: ToolDef[] = [
   { id: 'select', icon: MousePointer2, label: 'Selection Tool', actionId: 'tool.select' },
@@ -29,7 +29,7 @@ export const TRIM_TOOLS: ToolDef[] = [
 
 // ── Color Labels (Premiere-style) ────────────────────────────────────
 
-export interface ColorLabelDef {
+interface ColorLabelDef {
   id: string
   label: string
   color: string      // Tailwind-friendly hex for rendering
@@ -78,7 +78,7 @@ export const DEFAULT_DISSOLVE_DURATION = 0.5
 
 // ── Resizable layout constants ───────────────────────────────────────
 
-export const LAYOUT_STORAGE_KEY = 'ltx-video-editor-layout'
+const LAYOUT_STORAGE_KEY = 'ltx-video-editor-layout'
 
 export interface EditorLayout {
   leftPanelWidth: number   // px
@@ -210,7 +210,7 @@ export function saveLayout(layout: EditorLayout) {
 
 // ── Layout presets ──────────────────────────────────────────────────
 
-export const LAYOUT_PRESETS_KEY = 'ltx-video-editor-layout-presets'
+const LAYOUT_PRESETS_KEY = 'ltx-video-editor-layout-presets'
 
 export interface LayoutPreset {
   id: string
@@ -429,7 +429,7 @@ export function getClipEffectStyles(clip: TimelineClip, timeInClip?: number): Re
 // ── Effect Mask Utilities ──────────────────────────────────────────────
 
 /** Get the CSS filter string for a single effect */
-export function getSingleEffectFilter(fx: ClipEffect): string {
+function getSingleEffectFilter(fx: ClipEffect): string {
   if (!fx.enabled) return ''
   const p = fx.params
   const filters: string[] = []
@@ -493,7 +493,7 @@ export function getSingleEffectFilter(fx: ClipEffect): string {
 }
 
 /** Build CSS mask-image string from an EffectMask */
-export function buildMaskImageValue(mask: EffectMask): string {
+function buildMaskImageValue(mask: EffectMask): string {
   const { shape, x, y, width, height, feather, invert, rotation } = mask
 
   // Ellipse without rotation: use CSS radial-gradient (simpler, more reliable)
@@ -531,7 +531,7 @@ export function buildMaskImageValue(mask: EffectMask): string {
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
 }
 
-export interface MaskedEffectOverlay {
+interface MaskedEffectOverlay {
   effectId: string
   filterCSS: string
   maskImageValue: string
@@ -556,7 +556,7 @@ export function getMaskedEffectOverlays(clip: TimelineClip): MaskedEffectOverlay
   return overlays
 }
 
-export function getWipeClipPath(type: TransitionType, progress: number, isIn: boolean): string {
+function getWipeClipPath(type: TransitionType, progress: number, isIn: boolean): string {
   const p = Math.max(0, Math.min(1, progress)) * 100
   switch (type) {
     case 'wipe-left':

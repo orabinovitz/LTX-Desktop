@@ -89,6 +89,7 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle('show-item-in-folder', async (_event, filePath: string) => {
     const { shell } = await import('electron')
+    validatePath(filePath, getAllowedRoots())
     shell.showItemInFolder(filePath)
   })
 
@@ -163,6 +164,7 @@ export function registerFileHandlers(): void {
   })
 
   ipcMain.handle('search-directory-for-files', async (_event, dir: string, filenames: string[]) => {
+    validatePath(dir, getAllowedRoots())
     return searchDirectoryForFiles(dir, filenames)
   })
 
@@ -207,9 +209,11 @@ export function registerFileHandlers(): void {
   })
 
   ipcMain.handle('check-files-exist', async (_event, filePaths: string[]) => {
+    const roots = getAllowedRoots()
     const results: Record<string, boolean> = {}
     for (const p of filePaths) {
       try {
+        validatePath(p, roots)
         results[p] = fs.existsSync(p)
       } catch {
         results[p] = false

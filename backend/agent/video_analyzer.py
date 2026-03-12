@@ -19,6 +19,7 @@ import re
 import subprocess
 import threading
 import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -31,8 +32,18 @@ logger = logging.getLogger(__name__)
 # In-memory cache
 # ---------------------------------------------------------------------------
 
-_metadata_cache: dict[str, VideoMetadata] = {}
+_MAX_METADATA_CACHE_SIZE = 200
+_metadata_cache: OrderedDict[str, VideoMetadata] = OrderedDict()
 _cache_lock = threading.Lock()
+
+
+def _cache_put(asset_id: str, meta: VideoMetadata) -> None:
+    """Insert/update an entry in the metadata cache, evicting LRU if full. Caller must hold _cache_lock."""
+    _metadata_cache[asset_id] = meta
+    _metadata_cache.move_to_end(asset_id)
+    while len(_metadata_cache) > _MAX_METADATA_CACHE_SIZE:
+        evicted_id, _ = _metadata_cache.popitem(last=False)
+        logger.debug("Evicted metadata cache entry: %s", evicted_id)
 
 # Limit concurrent analyses to avoid memory pressure from large file uploads
 _analysis_semaphore = threading.Semaphore(2)
@@ -56,8 +67,9 @@ _DIALOGUE_CHUNK_SECONDS = 120  # 2 minutes per transcription chunk (keeps output
 _DIALOGUE_CHUNK_OVERLAP = 10   # seconds of overlap to catch boundary speech
 _DIALOGUE_PARALLEL_WORKERS = 5  # concurrent Gemini API calls for dialogue chunks
 
-# Callbacks invoked when an analysis completes successfully.
-# Signature: callback(asset_id: str, metadata: VideoMetadata)
+# Callbacks invoked when an analysis finishes (success or failure).
+# Signature: callback(asset_id: str, metadata: VideoMetadata | None)
+# metadata is None when analysis failed.
 _on_analysis_complete_callbacks: list = []
 
 
@@ -66,7 +78,7 @@ def on_analysis_complete(callback) -> None:
     _on_analysis_complete_callbacks.append(callback)
 
 
-def _notify_analysis_complete(asset_id: str, metadata: VideoMetadata) -> None:
+def _notify_analysis_complete(asset_id: str, metadata: VideoMetadata | None) -> None:
     for cb in _on_analysis_complete_callbacks:
         try:
             cb(asset_id, metadata)
@@ -159,7 +171,7 @@ def _recover_from_project_files(
                     logger.info("Recovered summary from project folder for %s", meta.asset_id)
                     _save_to_disk(file_path, meta)
     except Exception:
-        logger.debug("Could not recover from project files for %s", file_path, exc_info=True)
+        logger.warning("Could not recover from project files for %s", file_path, exc_info=True)
 
 
 def _sanitize_filename(name: str) -> str:
@@ -248,7 +260,7 @@ def get_metadata(asset_id: str) -> VideoMetadata | None:
 def get_all_complete_metadata() -> list[VideoMetadata]:
     """Return all metadata entries with a complete analysis status."""
     with _cache_lock:
-        return list(_metadata_cache.values())
+        return [m for m in _metadata_cache.values() if m.analysis_status == AnalysisStatus.COMPLETE]
 
 
 def get_structural_metadata(file_path: str) -> dict[str, float | tuple[int, int]]:
@@ -328,8 +340,8 @@ def analyze_video_background(
         if project_save_path and (not cached.topics or not cached.summary):
             _recover_from_project_files(cached, file_path, project_save_path)
         with _cache_lock:
-            _metadata_cache[asset_id] = cached
-        logger.info("Loaded analysis from disk cache for %s", asset_id)
+            _cache_put(asset_id, cached)
+        logger.debug("Loaded analysis from disk cache for %s", asset_id)
         if project_save_path:
             _save_to_project_folder(file_path, cached, project_save_path)
         return False
@@ -343,13 +355,13 @@ def analyze_video_background(
         return False
 
     with _cache_lock:
-        _metadata_cache[asset_id] = VideoMetadata(
+        _cache_put(asset_id, VideoMetadata(
             asset_id=asset_id,
             duration=0.0,
             resolution=(0, 0),
             fps=0.0,
             analysis_status=AnalysisStatus.PENDING,
-        )
+        ))
 
     thread = threading.Thread(
         target=_run_analysis,
@@ -409,6 +421,7 @@ def _run_analysis(
             entry = _metadata_cache.get(asset_id)
             if entry is not None:
                 entry.analysis_status = AnalysisStatus.FAILED
+        _notify_analysis_complete(asset_id, None)
     finally:
         _analysis_semaphore.release()
 
@@ -479,15 +492,18 @@ def _run_multipass_analysis(
     file_uri = _upload_file_to_gemini(file_path, gemini_api_key, http_client)
     mime_type = mimetypes.guess_type(file_path)[0] or "video/mp4"
 
-    # Pass 1 — Summary + topics
-    t0 = time.monotonic()
-    summary_result = _multipass_summary(file_uri, mime_type, duration, gemini_api_key, http_client)
-    logger.info("[multipass] pass 1 (summary+topics) took %.1fs for %s", time.monotonic() - t0, asset_id)
+    # Pass 1 (summary+topics) and Pass 2 (scenes) are independent — run in parallel
+    t0_parallel = time.monotonic()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        summary_future = pool.submit(_multipass_summary, file_uri, mime_type, duration, gemini_api_key, http_client)
+        scene_future = pool.submit(_multipass_scenes, file_uri, mime_type, duration, gemini_api_key, http_client)
+        summary_result = summary_future.result()
+        scene_result = scene_future.result()
+    logger.info("[multipass] passes 1+2 (parallel) took %.1fs for %s", time.monotonic() - t0_parallel, asset_id)
 
     summary: str = summary_result.get("summary", "")
     topics = _parse_topics(summary_result.get("topics", []))
 
-    # Retry pass 1 with higher token budget if results are empty
     if not summary or not topics:
         logger.warning(
             "Pass 1 returned empty results for %s (summary=%d chars, topics=%d) — retrying with higher budget",
@@ -504,11 +520,6 @@ def _run_multipass_analysis(
         retry_topics = _parse_topics(summary_result.get("topics", []))
         if retry_topics:
             topics = retry_topics
-
-    # Pass 2 — Scene segmentation
-    t0 = time.monotonic()
-    scene_result = _multipass_scenes(file_uri, mime_type, duration, gemini_api_key, http_client)
-    logger.info("[multipass] pass 2 (scenes) took %.1fs for %s", time.monotonic() - t0, asset_id)
 
     scenes = _parse_scenes(scene_result.get("scenes", []))
 
@@ -575,7 +586,7 @@ def _parse_scenes(raw: list) -> list[SceneSegment]:
         try:
             scenes.append(SceneSegment.model_validate(s))
         except Exception:
-            logger.warning("Skipping unparseable scene segment: %s", s)
+            logger.warning("Skipping unparseable scene segment: %s", s, exc_info=True)
     return scenes
 
 
@@ -585,7 +596,7 @@ def _parse_dialogue(raw: list) -> list[DialogueLine]:
         try:
             dialogue.append(DialogueLine.model_validate(d))
         except Exception:
-            logger.warning("Skipping unparseable dialogue line: %s", d)
+            logger.warning("Skipping unparseable dialogue line: %s", d, exc_info=True)
     return dialogue
 
 
@@ -595,7 +606,7 @@ def _parse_topics(raw: list) -> list[TopicTag]:
         try:
             topics.append(TopicTag.model_validate(t))
         except Exception:
-            logger.warning("Skipping unparseable topic tag: %s", t)
+            logger.warning("Skipping unparseable topic tag: %s", t, exc_info=True)
     return topics
 
 
@@ -604,43 +615,7 @@ def _parse_topics(raw: list) -> list[TopicTag]:
 # ---------------------------------------------------------------------------
 
 
-def _repair_truncated_json(text: str) -> dict:
-    """Attempt to salvage valid data from truncated JSON output.
-
-    Gemini may hit its output-token limit and return JSON that is cut off
-    mid-object.  This function tries progressively less precise strategies
-    to recover whatever complete entries exist.
-    """
-    # Already valid — nothing to do
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # Strategy: find the last complete object in an array (last "}," or "}\n")
-    # and close the surrounding structures.
-    last_complete = -1
-    for m in re.finditer(r'\}\s*,', text):
-        last_complete = m.start() + 1  # position right after the '}'
-
-    if last_complete == -1:
-        # Try a lone "}" that might be the last complete entry before truncation
-        for m in re.finditer(r'\}', text):
-            last_complete = m.start() + 1
-
-    if last_complete > 0:
-        truncated = text[:last_complete]
-        # Count open brackets to figure out how to close
-        open_brackets = truncated.count('[') - truncated.count(']')
-        open_braces = truncated.count('{') - truncated.count('}')
-        suffix = ']' * max(0, open_brackets) + '}' * max(0, open_braces)
-        try:
-            return json.loads(truncated + suffix)
-        except json.JSONDecodeError:
-            pass
-
-    logger.warning("Could not repair truncated JSON (%d chars)", len(text))
-    return {}
+from agent.json_repair import repair_truncated_json as _repair_truncated_json
 
 
 def _gemini_generate(

@@ -2,14 +2,14 @@ import { app } from 'electron'
 import fs from 'fs'
 import path from 'path'
 
-export interface AppState {
+interface AppState {
   analyticsEnabled?: boolean
   installationId?: string
   projectAssetsPath?: string
   [key: string]: unknown
 }
 
-export function getAppStatePath(): string {
+function getAppStatePath(): string {
   return path.join(app.getPath('userData'), 'app_state.json')
 }
 
@@ -43,10 +43,20 @@ export function getProjectAssetsPath(): string {
   return defaultPath
 }
 
+const BLOCKED_ROOTS = new Set(
+  process.platform === 'win32'
+    ? ['c:\\', 'c:\\windows', 'c:\\program files', 'c:\\program files (x86)', 'c:\\programdata']
+    : ['/', '/etc', '/usr', '/bin', '/sbin', '/var', '/tmp', '/lib', '/System', '/Library', '/private'],
+)
+
 export function setProjectAssetsPath(p: string): void {
-  const resolvedPath = path.resolve(p)
-  cachedProjectAssetsPath = resolvedPath
+  const resolved = path.resolve(p)
+  const normalized = process.platform === 'win32' ? resolved.toLowerCase() : resolved
+  if (BLOCKED_ROOTS.has(normalized) || normalized === path.sep) {
+    throw new Error(`Cannot set project assets path to a system directory: ${p}`)
+  }
+  cachedProjectAssetsPath = resolved
   const state = readAppState()
-  state.projectAssetsPath = resolvedPath
+  state.projectAssetsPath = resolved
   writeAppState(state)
 }

@@ -15,9 +15,6 @@ from agent.types import (
     LiveTokenResponse,
     SubClipInfo,
 )
-from agent import brain as brain_module
-from agent import video_analyzer
-from agent.scene_decomposer import decompose_to_scenes
 from app_handler import AppHandler
 from state import get_state_service
 
@@ -66,7 +63,7 @@ def route_get_brain(
     handler: AppHandler = Depends(get_state_service),
 ) -> dict[str, object]:
     """Get the project brain summary."""
-    b = brain_module.get_brain(project_id)
+    b = handler.agent.get_brain(project_id)
     if b is None:
         return {"status": "not_found"}
     result: dict[str, object] = b.model_dump(mode="json")
@@ -80,22 +77,13 @@ def route_build_brain(
     handler: AppHandler = Depends(get_state_service),
 ) -> dict[str, str]:
     """Trigger a brain build from all analyzed video metadata."""
-    all_metadata = [
-        m for m in video_analyzer.get_all_complete_metadata()
-        if m.analysis_status.value == "complete"
-    ]
-    if not all_metadata:
-        return {"status": "no_metadata", "message": "No completed video analyses found."}
-
-    settings = handler.settings.get_settings_snapshot()
-    api_key = settings.gemini_api_key or ""
-    if not api_key:
-        return {"status": "error", "message": "No Gemini API key configured."}
-
-    brain_module.schedule_brain_build(
-        project_id, all_metadata, api_key, handler.http, project_save_path,
-    )
-    return {"status": "building", "message": "Brain build started in background."}
+    status = handler.agent.build_brain(project_id, project_save_path)
+    messages = {
+        "building": "Brain build started in background.",
+        "no_metadata": "No completed video analyses found.",
+        "error": "No Gemini API key configured.",
+    }
+    return {"status": status, "message": messages.get(status, "")}
 
 
 @router.post("/agent/brain/{project_id}/notify-decomposition")
@@ -104,7 +92,7 @@ def route_notify_decomposition(
     handler: AppHandler = Depends(get_state_service),
 ) -> dict[str, str]:
     """Notify the brain that scenes have been decomposed (marks dirty)."""
-    brain_module.mark_dirty(project_id)
+    handler.agent.mark_brain_dirty(project_id)
     return {"status": "ok"}
 
 
@@ -114,15 +102,9 @@ def route_decompose_video(
     handler: AppHandler = Depends(get_state_service),
 ) -> DecomposeVideoResponse:
     """Decompose an analyzed video into scene-based sub-clips."""
-    metadata = video_analyzer.get_metadata(asset_id)
-    if metadata is None:
-        return DecomposeVideoResponse(error=f"No analysis found for asset {asset_id}. Analyze the video first.")
-    if metadata.analysis_status.value != "complete":
-        return DecomposeVideoResponse(error=f"Video analysis is not complete (status: {metadata.analysis_status.value}).")
-    if not metadata.scenes:
-        return DecomposeVideoResponse(error="Video has no detected scenes to decompose.")
-
-    subclip_defs = decompose_to_scenes(metadata)
+    subclip_defs, error = handler.agent.decompose_video(asset_id)
+    if error:
+        return DecomposeVideoResponse(error=error)
     subclips = [
         SubClipInfo(
             parent_asset_id=sc.parent_asset_id,

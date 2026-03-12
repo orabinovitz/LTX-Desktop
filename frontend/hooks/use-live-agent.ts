@@ -7,6 +7,7 @@ import {
   Session,
 } from "@google/genai/web";
 import { AudioPlaybackQueue } from "../lib/audio-playback";
+import { logger } from "../lib/logger";
 import type { ToolCall, ToolResult } from "../views/editor/useAgentExecutor";
 
 // Worklet URL resolved by Vite at build time
@@ -58,7 +59,7 @@ interface GeminiLiveMessage {
 
 export type LiveAgentStatus = "idle" | "connecting" | "connected" | "error";
 
-export interface UseLiveAgentReturn {
+interface UseLiveAgentReturn {
   status: LiveAgentStatus;
   isSpeaking: boolean;
   connect: () => Promise<void>;
@@ -119,8 +120,8 @@ export function useLiveAgent(
     if (sessionRef.current) {
       try {
         sessionRef.current.close();
-      } catch (e) {
-        console.warn("[live-agent] session.close() failed:", e);
+      } catch {
+        // Best-effort cleanup
       }
       sessionRef.current = null;
     }
@@ -178,7 +179,7 @@ export function useLiveAgent(
     try {
       sessionRef.current.sendToolResponse({ functionResponses });
     } catch (e) {
-      console.error("[live-agent] failed to send tool response:", e);
+      logger.error(`[live-agent] failed to send tool response: ${e}`);
     }
 
     const anyMutating = fcs.some((fc) => !READ_ONLY_TOOLS.has(fc.name));
@@ -189,8 +190,8 @@ export function useLiveAgent(
           turns: [{ role: "user", parts: [{ text: updatedContext }] }],
           turnComplete: true,
         });
-      } catch (e) {
-        console.warn("[live-agent] failed to send updated context:", e);
+      } catch {
+        // Best-effort context update
       }
     }
   }, []);
@@ -257,9 +258,6 @@ export function useLiveAgent(
       }
 
       if (message.toolCall) {
-        const names =
-          message.toolCall.functionCalls?.map((fc) => fc.name) ?? [];
-        console.log("[live-agent] toolCall received:", names.join(", "));
         enqueueToolCall(message.toolCall);
       }
     },
@@ -330,12 +328,6 @@ export function useLiveAgent(
       source.connect(workletNode);
 
       step = "wsConnect";
-      console.log(
-        "[live-agent] connecting with token len:",
-        tokenData.token.length,
-        "model:",
-        config.model,
-      );
       const ai = new GoogleGenAI({
         apiKey: tokenData.token,
         httpOptions: { apiVersion: "v1alpha" },
@@ -361,7 +353,6 @@ export function useLiveAgent(
         },
         callbacks: {
           onopen: () => {
-            console.log("[live-agent] connected");
             setStatus("connected");
           },
           onmessage: (message) => {
@@ -374,19 +365,11 @@ export function useLiveAgent(
                 : typeof e === "string"
                   ? e
                   : JSON.stringify(e);
-            console.error("[live-agent] onerror:", detail);
+            logger.error(`[live-agent] onerror: ${detail}`);
             setError(`[ws] ${detail}`);
             setStatus("error");
           },
-          onclose: (e: unknown) => {
-            const closeEvt = e as
-              | { code?: number; reason?: string }
-              | undefined;
-            console.log(
-              "[live-agent] onclose:",
-              closeEvt?.code,
-              closeEvt?.reason,
-            );
+          onclose: () => {
             cleanupAudio();
             setStatus("idle");
             setIsSpeaking(false);
@@ -398,10 +381,6 @@ export function useLiveAgent(
 
       step = "sendContext";
       const contextText = getTimelineContextRef.current();
-      console.log(
-        "[live-agent] sending initial context, length:",
-        contextText.length,
-      );
       session.sendClientContent({
         turns: [{ role: "user", parts: [{ text: contextText }] }],
         turnComplete: true,
@@ -416,12 +395,12 @@ export function useLiveAgent(
           sessionRef.current.sendRealtimeInput({
             audio: { data: base64, mimeType: "audio/pcm;rate=16000" },
           });
-        } catch (e) {
-          console.warn("[live-agent] sendRealtimeInput failed:", e);
+        } catch {
+          // Best-effort audio send
         }
       };
     } catch (err) {
-      console.error(`[live-agent] FAILED at step="${step}":`, err);
+      logger.error(`[live-agent] FAILED at step="${step}": ${err}`);
       setError(`Voice connection failed at ${step}. Please try again.`);
       setStatus("error");
       cleanupAudio();
@@ -434,8 +413,8 @@ export function useLiveAgent(
       if (sessionRef.current) {
         try {
           sessionRef.current.close();
-        } catch (e) {
-          console.warn("[live-agent] cleanup session.close() failed:", e);
+        } catch {
+          // Best-effort cleanup
         }
       }
       cleanupAudio();

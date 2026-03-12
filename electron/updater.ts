@@ -3,7 +3,7 @@ import { logger } from './logger';
 import { preDownloadPythonForUpdate } from './python-setup';
 import { getMainWindow } from './window';
 
-export type UpdateChannel = 'latest' | 'beta' | 'alpha'
+type UpdateChannel = 'latest' | 'beta' | 'alpha'
 
 export function initAutoUpdater(
   channel: UpdateChannel = 'latest'

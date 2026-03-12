@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { formatTimeRemaining } from '../lib/utils'
 
 interface PythonSetupProps {
   onReady: () => void
@@ -18,13 +19,6 @@ const formatBytes = (bytes: number): string => {
   const sizes = ['B', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
-}
-
-const formatTimeRemaining = (seconds: number): string => {
-  if (!seconds || !isFinite(seconds) || seconds <= 0) return '--'
-  if (seconds < 60) return `${Math.round(seconds)}s`
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
-  return `${Math.round(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`
 }
 
 export function PythonSetup({ onReady }: PythonSetupProps) {

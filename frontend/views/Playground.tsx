@@ -21,7 +21,7 @@ import { fileUrlToPath } from '../lib/url-to-path'
 import { sanitizeForcedApiVideoSettings } from '../lib/api-video-options'
 import { RetakePanel } from '../components/RetakePanel'
 import { ICLoraPanel, CONDITIONING_TYPES, type ICLoraConditioningType } from '../components/ICLoraPanel'
-import { useAgentContext } from '../contexts/AgentContext'
+import { useAgentDispatch } from '../contexts/AgentContext'
 import type { ToolResult } from './editor/useAgentExecutor'
 import { agentCancelGeneration, agentGetGenerationStatus } from './editor/agentGenerationHelper'
 
@@ -112,7 +112,7 @@ export function Playground() {
   // ---------------------------------------------------------------------------
   // Agent executor — lightweight, generation-only tools for Playground
   // ---------------------------------------------------------------------------
-  const { registerExecutor, unregisterExecutor } = useAgentContext()
+  const { registerExecutor, unregisterExecutor } = useAgentDispatch()
   const generateRef = useRef(generate)
   generateRef.current = generate
   const generateImageRef = useRef(generateImage)

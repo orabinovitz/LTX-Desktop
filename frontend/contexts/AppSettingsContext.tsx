@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { backendFetch, resetBackendCredentials } from '../lib/backend'
 
-export interface InferenceSettings {
+interface InferenceSettings {
   steps: number
   useUpscaler: boolean
 }
 
-export interface FastModelSettings {
+interface FastModelSettings {
   useUpscaler: boolean
 }
 
@@ -28,7 +28,7 @@ export interface AppSettings {
   modelsDir: string
 }
 
-export const DEFAULT_APP_SETTINGS: AppSettings = {
+const DEFAULT_APP_SETTINGS: AppSettings = {
   useTorchCompile: false,
   loadOnStartup: true,
   hasLtxApiKey: false,

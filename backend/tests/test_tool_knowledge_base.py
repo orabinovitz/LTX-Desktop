@@ -426,7 +426,7 @@ class TestNewToolsIntegration:
         from agent.types import ToolCall
 
         tc = ToolCall(tool_name="review_edit_quality", arguments={"topic": "test"})
-        result = _handle_review_edit_quality(tc)
+        result = _handle_review_edit_quality(tc, api_key="", http_client=None)
         assert not result.success
         assert "edit_transcript" in (result.error or "")
 
@@ -435,7 +435,7 @@ class TestNewToolsIntegration:
         from agent.types import ToolCall
 
         tc = ToolCall(tool_name="review_edit_structure", arguments={"topic": "test"})
-        result = _handle_review_edit_structure(tc)
+        result = _handle_review_edit_structure(tc, api_key="", http_client=None)
         assert not result.success
         assert "edit_transcript" in (result.error or "")
 

@@ -164,18 +164,6 @@ export interface EffectMask {
   rotation: number // rotation in degrees
 }
 
-export const DEFAULT_EFFECT_MASK: EffectMask = {
-  enabled: false,
-  shape: 'ellipse',
-  x: 50,
-  y: 50,
-  width: 40,
-  height: 40,
-  feather: 20,
-  invert: false,
-  rotation: 0,
-}
-
 export interface ClipEffect {
   id: string
   type: EffectType

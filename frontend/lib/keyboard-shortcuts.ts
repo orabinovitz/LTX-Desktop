@@ -434,7 +434,7 @@ function codeToKey(code: string): string {
 }
 
 /** Check if a keyboard event matches a key combo */
-export function eventMatchesCombo(e: KeyboardEvent, combo: KeyCombo): boolean {
+function eventMatchesCombo(e: KeyboardEvent, combo: KeyCombo): boolean {
   // On Mac, Option (alt) remaps e.key to special characters (e.g. Option+I → 'Dead', Option+O → 'ø').
   // Use the physical key code instead when alt is involved so shortcuts still resolve correctly.
   const key = (combo.alt && e.altKey) ? codeToKey(e.code) : e.key.toLowerCase()

@@ -2,9 +2,9 @@ import { useCallback, useState } from 'react'
 import { backendFetch } from '../lib/backend'
 import { logger } from '../lib/logger'
 
-export type RetakeMode = 'replace_audio_and_video' | 'replace_video' | 'replace_audio'
+type RetakeMode = 'replace_audio_and_video' | 'replace_video' | 'replace_audio'
 
-export interface RetakeSubmitParams {
+interface RetakeSubmitParams {
   videoPath: string
   startTime: number
   duration: number
@@ -12,7 +12,7 @@ export interface RetakeSubmitParams {
   mode: RetakeMode
 }
 
-export interface RetakeResult {
+interface RetakeResult {
   videoPath: string
   videoUrl: string
 }

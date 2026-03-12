@@ -130,7 +130,7 @@ export function AgentPromptBox({
   onSend,
   onUndo,
   canUndo = false,
-  voiceStatus = "disconnected" as LiveAgentStatus,
+  voiceStatus = "idle" as LiveAgentStatus,
   voiceIsSpeaking = false,
   voiceError = null,
   voiceToolCalls = [],

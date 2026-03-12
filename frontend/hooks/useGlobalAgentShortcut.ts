@@ -1,12 +1,12 @@
 import { useEffect } from "react";
-import { useAgentContext } from "../contexts/AgentContext";
+import { useAgentDispatch } from "../contexts/AgentContext";
 
 /**
  * Listens for the agent shortcut (Ctrl+Space or Ctrl+/) globally
  * and toggles the agent prompt box open/closed.
  */
 export function useGlobalAgentShortcut() {
-  const { setAgentOpen } = useAgentContext();
+  const { setAgentOpen } = useAgentDispatch();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

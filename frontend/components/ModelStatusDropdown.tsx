@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Loader2, CheckCircle2, Download, Clock, ChevronDown, AlertCircle } from 'lucide-react'
 import { backendFetch } from '../lib/backend'
 import { logger } from '../lib/logger'
+import { formatTimeRemaining } from '../lib/utils'
 
 interface ModelInfo {
   name: string
@@ -118,13 +119,12 @@ export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps
     return `${(bytes / 1e3).toFixed(1)} KB`
   }
 
-  // Format time remaining
-  const formatTimeRemaining = (bytesRemaining: number, speedMbps: number): string => {
+  // Format time remaining from bytes + speed (delegates to shared util)
+  const formatEta = (bytesRemaining: number, speedMbps: number): string => {
     if (speedMbps <= 0) return 'Calculating...'
-    const secondsRemaining = (bytesRemaining / 1e6) / speedMbps
-    if (secondsRemaining < 60) return `${Math.ceil(secondsRemaining)}s`
-    if (secondsRemaining < 3600) return `${Math.ceil(secondsRemaining / 60)}m`
-    return `${(secondsRemaining / 3600).toFixed(1)}h`
+    const speedBytesPerSec = speedMbps * 1024 * 1024
+    const secondsRemaining = bytesRemaining / speedBytesPerSec
+    return formatTimeRemaining(secondsRemaining)
   }
 
   // Get status label
@@ -240,7 +240,7 @@ export function ModelStatusDropdown({ className = '' }: ModelStatusDropdownProps
                 <div className="flex items-center gap-2">
                   <Clock className="h-3 w-3" />
                   <span>
-                    {formatTimeRemaining(
+                    {formatEta(
                       downloadProgress.totalBytes - downloadProgress.downloadedBytes,
                       downloadProgress.speedMbps
                     )}

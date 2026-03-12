@@ -13,7 +13,7 @@ export function resetTaskIdCounter(): void {
 // Plan parsing
 // ---------------------------------------------------------------------------
 
-export interface ParsedPlan {
+interface ParsedPlan {
   reasoning: string;
   tasks: AgentTask[];
 }
@@ -143,11 +143,11 @@ function toolToGroupLabel(toolName: string, count: number): string {
 // Tool call grouping
 // ---------------------------------------------------------------------------
 
-export interface ToolCallLike {
+interface ToolCallLike {
   tool_name: string;
 }
 
-export interface ToolGroup {
+interface ToolGroup {
   toolName: string;
   indices: number[];
   label: string;

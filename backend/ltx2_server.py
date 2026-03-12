@@ -222,23 +222,6 @@ admin_token = os.environ.get("LTX_ADMIN_TOKEN", "")
 app = create_app(handler=handler, allowed_origins=DEFAULT_ALLOWED_ORIGINS, auth_token=auth_token, admin_token=admin_token)
 
 
-def precache_model_files(model_dir: Path) -> int:
-    if not model_dir.exists():
-        return 0
-    total_bytes = 0
-    for f in model_dir.rglob("*"):
-        if f.is_file() and f.suffix in (".safetensors", ".bin", ".pt", ".pth", ".onnx", ".model"):
-            try:
-                size = f.stat().st_size
-                with open(f, "rb") as fh:
-                    while fh.read(8 * 1024 * 1024):
-                        pass
-                total_bytes += size
-            except Exception:
-                logger.warning("Failed to precache model file: %s", f, exc_info=True)
-    return total_bytes
-
-
 def background_warmup() -> None:
     handler.health.default_warmup()
 

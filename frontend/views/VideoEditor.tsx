@@ -56,7 +56,7 @@ import { useContextMenuEffects } from './editor/useContextMenuEffects'
 import { buildMenuDefinitions } from './editor/buildMenuDefinitions'
 import { usePlaybackEngine } from './editor/usePlaybackEngine'
 import { useAgentExecutor } from './editor/useAgentExecutor'
-import { useAgentContext, type AgentViewExecutor } from '../contexts/AgentContext'
+import { useAgentDispatch, type AgentViewExecutor } from '../contexts/AgentContext'
 import { triggerVideoAnalysis } from '../hooks/use-agent'
 import { GapGenerationModal } from './editor/GapGenerationModal'
 import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
@@ -545,7 +545,7 @@ export function VideoEditor() {
   // ---------------------------------------------------------------------------
   // Agent executor — registers this editor view with the global AgentContext
   // ---------------------------------------------------------------------------
-  const { registerExecutor, unregisterExecutor } = useAgentContext()
+  const { registerExecutor, unregisterExecutor } = useAgentDispatch()
 
   const agentGetMaxClipDuration = useCallback((clip: TimelineClip) => {
     if (!clip.asset) return Infinity

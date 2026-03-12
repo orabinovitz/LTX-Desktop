@@ -24,7 +24,7 @@ export interface ParsedMediaRef {
   relinkedPath?: string  // user-provided relinked path
 }
 
-export interface ParsedClip {
+interface ParsedClip {
   name: string
   mediaRefId: string     // references a ParsedMediaRef
   trackIndex: number
@@ -887,7 +887,7 @@ function parseFcpXml(doc: Document): ParsedTimeline | null {
 // Public API
 // ═══════════════════════════════════════════════════════════════════════════
 
-export type ImportFormat = 'fcp7xml' | 'fcpxml' | 'aaf' | 'unknown'
+type ImportFormat = 'fcp7xml' | 'fcpxml' | 'aaf' | 'unknown'
 
 export function detectFormat(content: string, filename: string): ImportFormat {
   const ext = filename.split('.').pop()?.toLowerCase() || ''

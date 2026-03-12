@@ -26,7 +26,7 @@ import { logger } from '../lib/logger'
 import { RetakePanel } from '../components/RetakePanel'
 import { ICLoraPanel, CONDITIONING_TYPES } from '../components/ICLoraPanel'
 import { FreeApiKeyBubble } from '../components/FreeApiKeyBubble'
-import { useAgentContext } from '../contexts/AgentContext'
+import { useAgentDispatch } from '../contexts/AgentContext'
 import type { ToolResult } from './editor/useAgentExecutor'
 import {
   agentGenerateImage,
@@ -941,7 +941,7 @@ export function GenSpace() {
   // ---------------------------------------------------------------------------
   // Agent executor — GenSpace-specific (generation + asset management, no timeline)
   // ---------------------------------------------------------------------------
-  const { registerExecutor, unregisterExecutor } = useAgentContext()
+  const { registerExecutor, unregisterExecutor } = useAgentDispatch()
   const currentProjectRef = useRef(currentProject)
   currentProjectRef.current = currentProject
   const modeRef = useRef(mode)

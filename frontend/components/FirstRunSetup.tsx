@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { backendFetch } from '../lib/backend'
 import { logger } from '../lib/logger'
+import { formatTimeRemaining } from '../lib/utils'
 import './FirstRunSetup.css'
 
 interface LaunchGateProps {
@@ -72,14 +73,6 @@ export function LaunchGate({
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
   }
 
-  // Format time remaining
-  const formatTimeRemaining = (seconds: number): string => {
-    if (!seconds || !isFinite(seconds) || seconds <= 0) return '--'
-    if (seconds < 60) return `${Math.round(seconds)}s`
-    if (seconds < 3600) return `${Math.round(seconds / 60)}m`
-    return `${Math.round(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`
-  }
-
   // Calculate ETA based on speed and remaining bytes
   const getTimeRemaining = (): string => {
     if (!downloadProgress || downloadProgress.speed_bytes_per_sec <= 0) return '--'
@@ -129,7 +122,6 @@ export function LaunchGate({
           logger.error(`Failed to get models path: ${e}`)
         }
 
-        // TODO: Get actual available space
         setAvailableSpace('1.8 TB')
       } catch (e) {
         logger.error(`Init error: ${e}`)

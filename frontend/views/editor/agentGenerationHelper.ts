@@ -80,8 +80,11 @@ function getImageDimensions(
   return { width: shortSide, height: Math.round(shortSide / ratio) };
 }
 
+let _cachedBackendUrl: string | null = null;
 async function getBackendUrl(): Promise<string> {
-  return window.electronAPI.getBackendUrl();
+  if (_cachedBackendUrl) return _cachedBackendUrl;
+  _cachedBackendUrl = await window.electronAPI.getBackendUrl();
+  return _cachedBackendUrl;
 }
 
 function startProgressPolling(
@@ -382,7 +385,10 @@ export async function agentRetakeSection(
 
 export async function agentCancelGeneration(): Promise<void> {
   const backendUrl = await getBackendUrl();
-  await fetch(`${backendUrl}/api/generate/cancel`, { method: "POST" });
+  const res = await fetch(`${backendUrl}/api/generate/cancel`, { method: "POST" });
+  if (!res.ok) {
+    throw new Error(`Cancel request failed: ${res.status}`);
+  }
 }
 
 export async function agentGetGenerationStatus(): Promise<{
