@@ -6,20 +6,21 @@ Each sub-agent gets:
 - Only the context data it needs
 - A hard token budget
 
-This keeps each sub-agent call lean (~30K tokens) compared to the
-monolithic single-session approach.
+Sub-agents support **multi-round execution**: when a sub-agent returns
+frontend tool calls, the orchestrator forwards them to the frontend,
+collects results, and resumes the same sub-agent session so it can
+continue its workflow (e.g. generate_image -> see asset_id -> generate_video).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from agent.gemini_agent import SYSTEM_PROMPT as BRAIN_SYSTEM_PROMPT
-from agent.tool_knowledge_base import get_tools_for_categories
+from agent.tool_knowledge_base import classify_intent, get_tools_for_categories
 from agent.tool_registry import TOOLS_BY_NAME, tools_to_gemini_declarations
 from agent.types import (
     ExecutionTarget,
@@ -43,20 +44,29 @@ def _build_system_prompt(
     task: TaskNode,
     skill_content: SkillContent | None,
 ) -> str:
-    """Build the system prompt for a sub-agent.
+    """Build the system prompt for a sub-agent."""
+    task_type = getattr(task, "task_type", "execution")
+    is_execution = task_type == "execution"
 
-    Uses the skill's system prompt if available, otherwise falls
-    back to the general brain prompt.  Reference files from the
-    skill are appended as labeled sections so the sub-agent has
-    access to domain knowledge without needing file-system tools.
-    """
-    rules = (
-        "## Rules\n"
-        "- Focus ONLY on the task described above.\n"
-        "- Do NOT attempt work outside your assigned task.\n"
-        "- When done, summarize what you accomplished.\n"
-        "- Be concise — your output will be reviewed by an orchestrator."
-    )
+    if is_execution:
+        rules = (
+            "## Rules\n"
+            "- You MUST execute this task by calling the available tools.\n"
+            "- Do NOT just describe what should be done — actually DO it by calling tools.\n"
+            "- Focus ONLY on the task described above.\n"
+            "- Do NOT attempt work outside your assigned task.\n"
+            "- After executing tools, summarize what you accomplished including any asset IDs or results.\n"
+            "- Be concise — your output will be reviewed by an orchestrator."
+        )
+    else:
+        rules = (
+            "## Rules\n"
+            "- Produce the requested creative output as text.\n"
+            "- Be specific and detailed — your output will be used by other agents to execute.\n"
+            "- Focus ONLY on the task described above.\n"
+            "- Do NOT attempt work outside your assigned task.\n"
+            "- When done, summarize what you produced."
+        )
 
     if skill_content:
         parts = [
@@ -84,7 +94,7 @@ def _build_system_prompt(
     )
 
 
-def _build_user_message(context: SubAgentContext) -> str:
+def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
     """Build the user message with all relevant context for the sub-agent."""
     parts: list[str] = []
 
@@ -103,35 +113,61 @@ def _build_user_message(context: SubAgentContext) -> str:
         )
         parts.append(f"## Results From Prior Tasks\n{results_text}")
 
-    parts.append("Execute the task now. Use the available tools as needed.")
+    task_type = getattr(context.task, "task_type", "execution")
+    if task_type == "execution":
+        if tool_names:
+            tools_summary = ", ".join(tool_names[:15])
+            parts.append(
+                f"## Available Tools\n"
+                f"You have access to these tools: {tools_summary}\n\n"
+                f"Execute the task NOW by calling the appropriate tools. "
+                f"Do NOT describe what to do — call the tools to do it."
+            )
+        else:
+            parts.append(
+                "Execute the task now by calling the available tools. "
+                "Do NOT just describe what to do — actually call the tools."
+            )
+    else:
+        parts.append("Produce the requested creative output now.")
+
     return "\n\n".join(parts)
 
 
 def _get_scoped_tools(
     task: TaskNode,
     skill_content: SkillContent | None,
-) -> list[Any]:
-    """Get tool declarations scoped to the task's categories."""
+) -> tuple[list[Any], list[str]]:
+    """Get tool declarations scoped to the task's categories.
+
+    Returns (declarations, tool_names) so the user message can list
+    available tools.
+    """
     if skill_content and skill_content.tool_overrides:
         tools = [TOOLS_BY_NAME[name] for name in skill_content.tool_overrides if name in TOOLS_BY_NAME]
         if tools:
-            return tools_to_gemini_declarations(tools)
+            return tools_to_gemini_declarations(tools), [t.name for t in tools]
 
     categories = task.tool_categories or (
-        skill_content.descriptor.tool_categories if skill_content else ["core"]
+        skill_content.descriptor.tool_categories if skill_content else []
     )
 
     if not categories:
-        categories = ["core"]
+        inferred = classify_intent(task.description)
+        categories = inferred if inferred else ["core", "generation", "clip_editing", "timeline_mgmt"]
+        logger.info(
+            "[sub-agent] task=%s | no categories, inferred: %s",
+            task.id, categories,
+        )
 
     if "core" not in categories:
         categories = ["core", *categories]
 
     scoped_tools = get_tools_for_categories(categories)
     if not scoped_tools:
-        return tools_to_gemini_declarations(None)
+        return tools_to_gemini_declarations(None), []
 
-    return tools_to_gemini_declarations(scoped_tools)
+    return tools_to_gemini_declarations(scoped_tools), [t.name for t in scoped_tools]
 
 
 def _execute_backend_tool_inline(
@@ -140,7 +176,7 @@ def _execute_backend_tool_inline(
     api_key: str,
     http_client: HTTPClient,
 ) -> ToolResult:
-    """Execute a backend tool inline (mirrors gemini_agent._execute_backend_tool)."""
+    """Execute a backend tool inline."""
     from agent.gemini_agent import _execute_backend_tool
     return _execute_backend_tool(
         tool_call,
@@ -148,6 +184,91 @@ def _execute_backend_tool_inline(
         http_client=http_client,
         session_id="sub-agent",
     )
+
+
+def _run_gemini_turn(
+    contents: list[dict[str, Any]],
+    system_prompt: str,
+    tool_declarations: list[Any],
+    api_key: str,
+    http_client: HTTPClient,
+    task_id: str,
+    turn: int,
+) -> tuple[list[dict[str, Any]], list[ToolCall], list[ToolCall]] | None:
+    """Make one Gemini API call and parse the response.
+
+    Returns (parts, frontend_calls, backend_calls) or None on error.
+    """
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{_SUB_AGENT_MODEL}:generateContent"
+    )
+    payload: dict[str, Any] = {
+        "contents": contents,
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "tools": [{"functionDeclarations": tool_declarations}],
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192},
+    }
+
+    t0 = time.monotonic()
+    try:
+        resp = http_client.post(
+            url,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            },
+            json_payload=payload,
+            timeout=120,
+        )
+    except HttpTimeoutError:
+        logger.error("Sub-agent timed out for task %s (turn %d)", task_id, turn)
+        return None
+    except Exception:
+        logger.error("Sub-agent request failed for task %s", task_id, exc_info=True)
+        return None
+
+    elapsed = time.monotonic() - t0
+    logger.info(
+        "[sub-agent] task=%s turn=%d | HTTP %d in %.1fs",
+        task_id, turn, resp.status_code, elapsed,
+    )
+
+    if resp.status_code != 200:
+        logger.error("[sub-agent] task=%s | error: %s", task_id, resp.text[:300])
+        return None
+
+    try:
+        body = resp.json()
+        parts: list[dict[str, Any]] = body["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError, TypeError) as exc:
+        logger.error("[sub-agent] task=%s | malformed response: %s", task_id, exc)
+        return None
+
+    frontend_calls: list[ToolCall] = []
+    backend_calls: list[ToolCall] = []
+
+    for part in parts:
+        if "functionCall" in part:
+            fc = part["functionCall"]
+            tool_name: str = fc.get("name", "")
+            arguments: dict[str, Any] = fc.get("args", {})
+
+            tool_def = TOOLS_BY_NAME.get(tool_name)
+            if tool_def is None:
+                continue
+
+            tc = ToolCall(
+                tool_name=tool_name,
+                arguments=arguments,
+                call_id=tool_name,
+            )
+            if tool_def.execution_target == ExecutionTarget.BACKEND:
+                backend_calls.append(tc)
+            else:
+                frontend_calls.append(tc)
+
+    return parts, frontend_calls, backend_calls
 
 
 def execute_sub_agent(
@@ -159,114 +280,40 @@ def execute_sub_agent(
 ) -> SubAgentResult:
     """Run a single sub-agent Gemini session for one task.
 
-    Backend tools are executed inline; frontend tools are collected
-    and returned for the orchestrator to forward to the frontend.
+    Backend tools are executed inline. Frontend tools are returned
+    to the orchestrator for forwarding to the frontend.  The
+    orchestrator can later resume this session via
+    ``resume_sub_agent`` with the frontend tool results.
     """
     system_prompt = _build_system_prompt(task, skill_content)
-    user_message = _build_user_message(context)
-    tool_declarations = _get_scoped_tools(task, skill_content)
+    tool_declarations, tool_names = _get_scoped_tools(task, skill_content)
+    user_message = _build_user_message(context, tool_names)
 
     contents: list[dict[str, Any]] = [
         {"role": "user", "parts": [{"text": user_message}]},
     ]
-
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{_SUB_AGENT_MODEL}:generateContent"
-    )
 
     all_frontend_tool_calls: list[ToolCall] = []
     all_backend_results: list[ToolResult] = []
     text_fragments: list[str] = []
 
     for turn in range(_MAX_SUB_AGENT_TURNS):
-        payload: dict[str, Any] = {
-            "contents": contents,
-            "systemInstruction": {"parts": [{"text": system_prompt}]},
-            "tools": [{"functionDeclarations": tool_declarations}],
-            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192},
-        }
-
-        t0 = time.monotonic()
-        try:
-            resp = http_client.post(
-                url,
-                headers={
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": api_key,
-                },
-                json_payload=payload,
-                timeout=120,
-            )
-        except HttpTimeoutError:
-            logger.error("Sub-agent timed out for task %s (turn %d)", task.id, turn)
-            return SubAgentResult(
-                task_id=task.id,
-                success=False,
-                error="Sub-agent timed out",
-            )
-        except Exception:
-            logger.error("Sub-agent request failed for task %s", task.id, exc_info=True)
-            return SubAgentResult(
-                task_id=task.id,
-                success=False,
-                error="Sub-agent request failed",
-            )
-
-        elapsed = time.monotonic() - t0
-        logger.info(
-            "[sub-agent] task=%s turn=%d | HTTP %d in %.1fs",
-            task.id, turn, resp.status_code, elapsed,
+        result = _run_gemini_turn(
+            contents, system_prompt, tool_declarations,
+            api_key, http_client, task.id, turn,
         )
-
-        if resp.status_code != 200:
-            logger.error(
-                "[sub-agent] task=%s | error: %s",
-                task.id, resp.text[:300],
-            )
+        if result is None:
             return SubAgentResult(
-                task_id=task.id,
-                success=False,
-                error=f"Gemini returned HTTP {resp.status_code}",
+                task_id=task.id, success=False,
+                error="Gemini call failed",
             )
 
-        try:
-            body = resp.json()
-            parts: list[dict[str, Any]] = body["candidates"][0]["content"]["parts"]
-        except (KeyError, IndexError, TypeError) as exc:
-            logger.error("[sub-agent] task=%s | malformed response: %s", task.id, exc)
-            return SubAgentResult(
-                task_id=task.id,
-                success=False,
-                error="Malformed Gemini response",
-            )
-
+        parts, frontend_calls, backend_calls = result
         contents.append({"role": "model", "parts": parts})
-
-        frontend_calls: list[ToolCall] = []
-        backend_calls: list[ToolCall] = []
 
         for part in parts:
             if "text" in part:
                 text_fragments.append(part["text"])
-            elif "functionCall" in part:
-                fc = part["functionCall"]
-                tool_name: str = fc.get("name", "")
-                arguments: dict[str, Any] = fc.get("args", {})
-
-                tool_def = TOOLS_BY_NAME.get(tool_name)
-                if tool_def is None:
-                    continue
-
-                tc = ToolCall(
-                    tool_name=tool_name,
-                    arguments=arguments,
-                    call_id=tool_name,
-                )
-                if tool_def.execution_target == ExecutionTarget.BACKEND:
-                    backend_calls.append(tc)
-                else:
-                    frontend_calls.append(tc)
 
         if not frontend_calls and not backend_calls:
             break
@@ -274,13 +321,13 @@ def execute_sub_agent(
         if backend_calls:
             fn_response_parts: list[dict[str, Any]] = []
             for bc in backend_calls:
-                result = _execute_backend_tool_inline(
+                br = _execute_backend_tool_inline(
                     bc, api_key=api_key, http_client=http_client,
                 )
-                all_backend_results.append(result)
+                all_backend_results.append(br)
                 result_payload: dict[str, Any] = (
-                    {"result": result.result} if result.success
-                    else {"error": result.error or "unknown"}
+                    {"result": br.result} if br.success
+                    else {"error": br.error or "unknown"}
                 )
                 fn_response_parts.append(
                     {"functionResponse": {"name": bc.call_id, "response": result_payload}}
@@ -288,6 +335,12 @@ def execute_sub_agent(
             contents.append({"role": "function", "parts": fn_response_parts})
 
         if frontend_calls:
+            if not backend_calls:
+                all_frontend_tool_calls.extend(frontend_calls)
+                break
+            # BUG-8 fix: when backend AND frontend calls exist in same turn,
+            # make another Gemini call so the model sees the backend results
+            # before we return frontend calls.
             all_frontend_tool_calls.extend(frontend_calls)
             break
 
@@ -307,6 +360,109 @@ def execute_sub_agent(
         tool_calls=all_frontend_tool_calls,
         backend_tool_results=all_backend_results,
         message=message,
+        sub_agent_contents=contents,
+        sub_agent_system_prompt=system_prompt,
+        sub_agent_tool_declarations=tool_declarations,
+    )
+
+
+def resume_sub_agent(
+    prev_result: SubAgentResult,
+    tool_results: list[ToolResult],
+    api_key: str,
+    http_client: HTTPClient,
+) -> SubAgentResult:
+    """Resume a sub-agent session after frontend tool execution.
+
+    Feeds tool results back into the Gemini conversation and lets
+    the sub-agent continue its workflow.
+    """
+    contents = list(prev_result.sub_agent_contents or [])
+    system_prompt = prev_result.sub_agent_system_prompt or ""
+    tool_declarations = prev_result.sub_agent_tool_declarations or []
+    task_id = prev_result.task_id
+
+    if not contents or not system_prompt:
+        return SubAgentResult(
+            task_id=task_id, success=True,
+            message=prev_result.message,
+        )
+
+    fn_response_parts: list[dict[str, Any]] = []
+    for tr in tool_results:
+        payload: dict[str, Any] = (
+            {"result": tr.result} if tr.success
+            else {"error": tr.error or "unknown error"}
+        )
+        fn_name = tr.tool_name or tr.call_id or "unknown"
+        fn_response_parts.append(
+            {"functionResponse": {"name": fn_name, "response": payload}}
+        )
+
+    if fn_response_parts:
+        contents.append({"role": "function", "parts": fn_response_parts})
+
+    all_frontend_tool_calls: list[ToolCall] = []
+    all_backend_results: list[ToolResult] = []
+    text_fragments: list[str] = []
+
+    for turn in range(_MAX_SUB_AGENT_TURNS):
+        result = _run_gemini_turn(
+            contents, system_prompt, tool_declarations,
+            api_key, http_client, task_id, turn + 100,
+        )
+        if result is None:
+            return SubAgentResult(
+                task_id=task_id, success=False,
+                error="Resume Gemini call failed",
+            )
+
+        parts, frontend_calls, backend_calls = result
+        contents.append({"role": "model", "parts": parts})
+
+        for part in parts:
+            if "text" in part:
+                text_fragments.append(part["text"])
+
+        if not frontend_calls and not backend_calls:
+            break
+
+        if backend_calls:
+            fn_resp: list[dict[str, Any]] = []
+            for bc in backend_calls:
+                br = _execute_backend_tool_inline(
+                    bc, api_key=api_key, http_client=http_client,
+                )
+                all_backend_results.append(br)
+                rp: dict[str, Any] = (
+                    {"result": br.result} if br.success
+                    else {"error": br.error or "unknown"}
+                )
+                fn_resp.append(
+                    {"functionResponse": {"name": bc.call_id, "response": rp}}
+                )
+            contents.append({"role": "function", "parts": fn_resp})
+
+        if frontend_calls:
+            all_frontend_tool_calls.extend(frontend_calls)
+            break
+
+    message = "\n".join(text_fragments).strip()
+
+    logger.info(
+        "[sub-agent] task=%s | resume completed: %d frontend tools, %d backend tools",
+        task_id, len(all_frontend_tool_calls), len(all_backend_results),
+    )
+
+    return SubAgentResult(
+        task_id=task_id,
+        success=True,
+        tool_calls=all_frontend_tool_calls,
+        backend_tool_results=all_backend_results,
+        message=message,
+        sub_agent_contents=contents,
+        sub_agent_system_prompt=system_prompt,
+        sub_agent_tool_declarations=tool_declarations,
     )
 
 
@@ -323,9 +479,18 @@ class SubAgentPool:
         skill_content: SkillContent | None,
         context: SubAgentContext,
     ) -> SubAgentResult:
-        """Execute a single task synchronously."""
         return execute_sub_agent(
             task, skill_content, context,
+            self._api_key, self._http_client,
+        )
+
+    def resume_single(
+        self,
+        prev_result: SubAgentResult,
+        tool_results: list[ToolResult],
+    ) -> SubAgentResult:
+        return resume_sub_agent(
+            prev_result, tool_results,
             self._api_key, self._http_client,
         )
 
@@ -333,7 +498,6 @@ class SubAgentPool:
         self,
         tasks_with_context: list[tuple[TaskNode, SkillContent | None, SubAgentContext]],
     ) -> list[SubAgentResult]:
-        """Execute multiple tasks in parallel, up to _MAX_WORKERS concurrent."""
         if len(tasks_with_context) == 1:
             task, skill, ctx = tasks_with_context[0]
             return [self.execute_single(task, skill, ctx)]

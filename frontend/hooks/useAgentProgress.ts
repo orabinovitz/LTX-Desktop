@@ -157,6 +157,7 @@ export function useAgentProgress() {
         tasks,
         phase: error ? "error" : "done",
         currentTaskId: null,
+        completedAt: Date.now(),
         error,
       };
       progressRef.current = next;

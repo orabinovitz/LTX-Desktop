@@ -284,6 +284,14 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class TaskType(str, Enum):
+    """Whether a task produces text or executes tools."""
+
+    CREATIVE = "creative"
+    EXECUTION = "execution"
+    REVIEW = "review"
+
+
 class TaskNode(BaseModel):
     """A single unit of work in the orchestration DAG."""
 
@@ -292,6 +300,7 @@ class TaskNode(BaseModel):
     skill_id: str | None = Field(default=None, description="Matched skill, or None for brain fallback")
     depends_on: list[str] = Field(default_factory=list, description="Task IDs that must complete first")
     status: TaskStatus = Field(default=TaskStatus.PENDING)
+    task_type: TaskType = Field(default=TaskType.EXECUTION, description="Whether this task produces text or calls tools")
     tool_categories: list[str] = Field(default_factory=list, description="Which tool categories this task needs")
     context_requirements: list[str] = Field(
         default_factory=list,
@@ -363,6 +372,12 @@ class SubAgentResult(BaseModel):
     backend_tool_results: list[ToolResult] = Field(default_factory=list, description="Already-executed backend tool results")
     message: str = Field(default="", description="Summary for orchestrator")
     error: str | None = None
+    sub_agent_contents: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Gemini conversation history for resuming the sub-agent session",
+    )
+    sub_agent_system_prompt: str = Field(default="", description="System prompt for resuming")
+    sub_agent_tool_declarations: list[Any] = Field(default_factory=list, description="Tool declarations for resuming")
 
 
 class OrchestrateRequest(BaseModel):

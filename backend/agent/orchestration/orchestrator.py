@@ -4,8 +4,11 @@ Decomposes complex requests into a DAG of tasks, dispatches them
 to specialized sub-agents (or the general brain), reviews results,
 and loops until all tasks are complete.
 
-Session state is held in memory with TTL-based eviction, mirroring
-the existing ``gemini_agent.py`` session pattern.
+Supports multi-round sub-agent execution: when a sub-agent returns
+frontend tool calls, the orchestrator preserves the sub-agent session
+and resumes it after the frontend executes the tools.
+
+Session state is held in memory with TTL-based eviction.
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ from agent.types import (
     TaskDAG,
     TaskNode,
     TaskStatus,
+    TaskType,
     ToolCall,
     ToolResult,
 )
@@ -44,14 +48,11 @@ from services.http_client.http_client import HTTPClient
 logger = logging.getLogger(__name__)
 
 _MAX_SESSIONS = 20
-_SESSION_TTL_SECONDS = 1800  # 30 min
+_SESSION_TTL_SECONDS = 1800
 _MAX_RETRIES_PER_TASK = 1
-_MAX_DAG_TASKS = 10
+_MAX_DAG_TASKS = 12
+_MAX_REVIEW_ITERATIONS = 2
 
-
-# ---------------------------------------------------------------------------
-# Session storage
-# ---------------------------------------------------------------------------
 
 @dataclass
 class OrchestratorSession:
@@ -59,12 +60,14 @@ class OrchestratorSession:
     dag: TaskDAG
     status: OrchestratorStatus
     pending_tool_calls: list[ToolCall] = field(default_factory=list)
-    pending_task_id: str | None = None
+    pending_task_ids: list[str] = field(default_factory=list)
+    active_sub_agent_results: dict[str, SubAgentResult] = field(default_factory=dict)
     timeline_context: str | None = None
     assets_context: str | None = None
     project_id: str | None = None
     view_context: str = "editor"
     last_access: float = field(default_factory=time.monotonic)
+    review_iteration_count: dict[str, int] = field(default_factory=dict)
 
 
 _sessions: OrderedDict[str, OrchestratorSession] = OrderedDict()
@@ -86,10 +89,6 @@ def _get_session(session_id: str) -> OrchestratorSession | None:
         _sessions.move_to_end(session_id)
     return s
 
-
-# ---------------------------------------------------------------------------
-# Response builders
-# ---------------------------------------------------------------------------
 
 def _task_to_info(task: TaskNode, registry: SkillRegistry) -> OrchestrateTaskInfo:
     skill_name: str | None = None
@@ -117,20 +116,17 @@ def _build_response(
     message: str = "",
     done: bool = False,
 ) -> OrchestrateResponse:
+    current_task_id = session.pending_task_ids[0] if session.pending_task_ids else None
     return OrchestrateResponse(
         session_id=session.id,
         status=session.status.value,
         tasks=[_task_to_info(t, registry) for t in session.dag.tasks],
-        current_task_id=session.pending_task_id,
+        current_task_id=current_task_id,
         tool_calls=tool_calls or [],
         message=message,
         done=done,
     )
 
-
-# ---------------------------------------------------------------------------
-# Orchestrator
-# ---------------------------------------------------------------------------
 
 class Orchestrator:
     """Central coordinator for multi-agent task execution."""
@@ -148,11 +144,9 @@ class Orchestrator:
         self._pool = SubAgentPool(api_key, http_client)
 
     def classify_request(self, prompt: str) -> RequestComplexity:
-        """Decide if a request should use orchestration or the simple agent."""
         return classify_complexity(prompt)
 
     def start(self, request: OrchestrateRequest) -> OrchestrateResponse:
-        """Decompose the request into a DAG and begin execution."""
         _evict_stale_sessions()
 
         session_id = uuid.uuid4().hex
@@ -174,10 +168,6 @@ class Orchestrator:
         )
 
         if len(dag.tasks) > _MAX_DAG_TASKS:
-            logger.warning(
-                "Planner produced %d tasks (max %d) — truncating",
-                len(dag.tasks), _MAX_DAG_TASKS,
-            )
             dag.tasks = dag.tasks[:_MAX_DAG_TASKS]
 
         session = OrchestratorSession(
@@ -195,7 +185,7 @@ class Orchestrator:
             "[orchestrator] session=%s | DAG has %d task(s): %s",
             session_id[:8],
             len(dag.tasks),
-            [t.id for t in dag.tasks],
+            [(t.id, t.task_type.value) for t in dag.tasks],
         )
 
         return self._execute_next(session)
@@ -206,7 +196,6 @@ class Orchestrator:
         tool_results: list[ToolResult],
         updated_context: str | None = None,
     ) -> OrchestrateResponse:
-        """Process frontend tool results and continue execution."""
         session = _get_session(session_id)
         if session is None:
             return OrchestrateResponse(
@@ -219,42 +208,109 @@ class Orchestrator:
         if updated_context:
             session.timeline_context = updated_context
 
-        task_id = session.pending_task_id
-        if task_id:
-            task = session.dag.get_task(task_id)
-            if task:
-                all_succeeded = all(r.success for r in tool_results)
-                if all_succeeded:
-                    task.status = TaskStatus.COMPLETED
-                    task.result_summary = self._summarize_results(tool_results)
-                    logger.info("[orchestrator] session=%s | task %s completed", session_id[:8], task_id)
-                else:
-                    failed = [r for r in tool_results if not r.success]
-                    error_msg = "; ".join(r.error or "unknown" for r in failed)
-                    if task.retry_count < _MAX_RETRIES_PER_TASK:
-                        task.retry_count += 1
-                        task.status = TaskStatus.PENDING
-                        task.error = f"Retrying ({task.retry_count}): {error_msg}"
-                        logger.info(
-                            "[orchestrator] session=%s | task %s failed, retrying (%d/%d)",
-                            session_id[:8], task_id, task.retry_count, _MAX_RETRIES_PER_TASK,
-                        )
-                    else:
-                        task.status = TaskStatus.FAILED
-                        task.error = error_msg
-                        self._cancel_dependents(session.dag, task_id)
-                        logger.warning(
-                            "[orchestrator] session=%s | task %s failed permanently: %s",
-                            session_id[:8], task_id, error_msg,
-                        )
+        if not tool_results:
+            session.pending_task_ids = []
+            session.pending_tool_calls = []
+            return self._execute_next(session)
 
-        session.pending_task_id = None
+        pending_ids = list(session.pending_task_ids)
+        has_active_sub_agents = bool(session.active_sub_agent_results)
+
+        if has_active_sub_agents and pending_ids:
+            return self._resume_active_sub_agents(session, tool_results)
+
+        for task_id in pending_ids:
+            task = session.dag.get_task(task_id)
+            if not task:
+                continue
+            all_succeeded = all(r.success for r in tool_results)
+            if all_succeeded:
+                task.status = TaskStatus.COMPLETED
+                task.result_summary = self._summarize_results(tool_results)
+                logger.info("[orchestrator] session=%s | task %s completed", session_id[:8], task_id)
+            else:
+                failed = [r for r in tool_results if not r.success]
+                error_msg = "; ".join(r.error or "unknown" for r in failed)
+                if task.retry_count < _MAX_RETRIES_PER_TASK:
+                    task.retry_count += 1
+                    task.status = TaskStatus.PENDING
+                    task.error = f"Retrying ({task.retry_count}): {error_msg}"
+                else:
+                    task.status = TaskStatus.FAILED
+                    task.error = error_msg
+                    self._cancel_dependents(session.dag, task_id)
+
+        session.pending_task_ids = []
         session.pending_tool_calls = []
+        session.active_sub_agent_results = {}
 
         return self._execute_next(session)
 
+    def _resume_active_sub_agents(
+        self,
+        session: OrchestratorSession,
+        tool_results: list[ToolResult],
+    ) -> OrchestrateResponse:
+        """Resume sub-agent sessions with frontend tool results."""
+        all_frontend_calls: list[ToolCall] = []
+        new_pending_ids: list[str] = []
+        new_active_results: dict[str, SubAgentResult] = {}
+
+        for task_id in session.pending_task_ids:
+            prev_result = session.active_sub_agent_results.get(task_id)
+            if not prev_result:
+                task = session.dag.get_task(task_id)
+                if task:
+                    task.status = TaskStatus.COMPLETED
+                    task.result_summary = self._summarize_results(tool_results)
+                continue
+
+            resumed = self._pool.resume_single(prev_result, tool_results)
+
+            task = session.dag.get_task(task_id)
+            if not task:
+                continue
+
+            if not resumed.success:
+                if task.retry_count < _MAX_RETRIES_PER_TASK:
+                    task.retry_count += 1
+                    task.status = TaskStatus.PENDING
+                    task.error = f"Resume error: {resumed.error}"
+                else:
+                    task.status = TaskStatus.FAILED
+                    task.error = resumed.error
+                    self._cancel_dependents(session.dag, task.id)
+                continue
+
+            if resumed.tool_calls:
+                all_frontend_calls.extend(resumed.tool_calls)
+                new_pending_ids.append(task_id)
+                new_active_results[task_id] = resumed
+                task.status = TaskStatus.RUNNING
+            else:
+                task.status = TaskStatus.COMPLETED
+                task.result_summary = resumed.message
+                logger.info(
+                    "[orchestrator] session=%s | task %s completed after resume",
+                    session.id[:8], task_id,
+                )
+
+        if all_frontend_calls:
+            session.status = OrchestratorStatus.AWAITING_TOOL_RESULTS
+            session.pending_tool_calls = all_frontend_calls
+            session.pending_task_ids = new_pending_ids
+            session.active_sub_agent_results = new_active_results
+            return _build_response(
+                session, self._registry,
+                tool_calls=all_frontend_calls,
+            )
+
+        session.pending_task_ids = []
+        session.pending_tool_calls = []
+        session.active_sub_agent_results = {}
+        return self._execute_next(session)
+
     def _execute_next(self, session: OrchestratorSession) -> OrchestrateResponse:
-        """Find ready tasks and dispatch the next batch."""
         if session.dag.is_complete():
             session.status = OrchestratorStatus.DONE
             summary = self._build_final_summary(session)
@@ -325,7 +381,8 @@ class Orchestrator:
         results = self._pool.execute_parallel(tasks_to_dispatch)
 
         all_frontend_calls: list[ToolCall] = []
-        first_pending_task_id: str | None = None
+        pending_task_ids: list[str] = []
+        active_sub_agent_results: dict[str, SubAgentResult] = {}
 
         for result in results:
             task = session.dag.get_task(result.task_id)
@@ -345,17 +402,20 @@ class Orchestrator:
 
             if result.tool_calls:
                 all_frontend_calls.extend(result.tool_calls)
-                if first_pending_task_id is None:
-                    first_pending_task_id = result.task_id
+                pending_task_ids.append(result.task_id)
+                active_sub_agent_results[result.task_id] = result
                 task.status = TaskStatus.RUNNING
             else:
                 task.status = TaskStatus.COMPLETED
                 task.result_summary = result.message
+                if task.task_type == TaskType.REVIEW:
+                    self._handle_review_result(session, task, result.message)
 
         if all_frontend_calls:
             session.status = OrchestratorStatus.AWAITING_TOOL_RESULTS
             session.pending_tool_calls = all_frontend_calls
-            session.pending_task_id = first_pending_task_id
+            session.pending_task_ids = pending_task_ids
+            session.active_sub_agent_results = active_sub_agent_results
             return _build_response(
                 session, self._registry,
                 tool_calls=all_frontend_calls,
@@ -363,8 +423,59 @@ class Orchestrator:
 
         return self._execute_next(session)
 
+    def _handle_review_result(
+        self,
+        session: OrchestratorSession,
+        review_task: TaskNode,
+        review_message: str,
+    ) -> None:
+        """Process a review task's output and potentially add corrective tasks."""
+        review_key = review_task.id
+        iteration = session.review_iteration_count.get(review_key, 0)
+
+        if iteration >= _MAX_REVIEW_ITERATIONS:
+            logger.info(
+                "[orchestrator] session=%s | review %s hit max iterations (%d), proceeding",
+                session.id[:8], review_key, _MAX_REVIEW_ITERATIONS,
+            )
+            return
+
+        message_lower = review_message.lower()
+        needs_correction = any(
+            keyword in message_lower
+            for keyword in [
+                "regenerate", "replace", "redo", "fix", "improve",
+                "not good", "poor quality", "wrong", "missing",
+                "needs work", "should be", "try again",
+            ]
+        )
+
+        if not needs_correction:
+            logger.info(
+                "[orchestrator] session=%s | review %s approved",
+                session.id[:8], review_key,
+            )
+            return
+
+        session.review_iteration_count[review_key] = iteration + 1
+
+        correction_task = TaskNode(
+            id=f"correction-{review_key}-{iteration + 1}",
+            description=f"Apply corrections based on review feedback: {review_message[:200]}",
+            skill_id=None,
+            depends_on=[review_task.id],
+            status=TaskStatus.PENDING,
+            task_type=TaskType.EXECUTION,
+            tool_categories=["core", "generation", "clip_editing", "timeline_mgmt"],
+        )
+        session.dag.tasks.append(correction_task)
+
+        logger.info(
+            "[orchestrator] session=%s | review %s requested corrections, added task %s",
+            session.id[:8], review_key, correction_task.id,
+        )
+
     def _cancel_dependents(self, dag: TaskDAG, failed_task_id: str) -> None:
-        """Cancel all tasks that transitively depend on a failed task."""
         cancelled: set[str] = {failed_task_id}
         changed = True
         while changed:
@@ -379,7 +490,6 @@ class Orchestrator:
 
     @staticmethod
     def _any_task_mutates(tasks: list[TaskNode]) -> bool:
-        """Check if any task's categories include mutation-prone tools."""
         mutation_categories = {"clip_editing", "timeline_mgmt", "track_mgmt", "editing_ops", "subtitles"}
         for task in tasks:
             if any(cat in mutation_categories for cat in task.tool_categories):
@@ -388,7 +498,6 @@ class Orchestrator:
 
     @staticmethod
     def _summarize_results(tool_results: list[ToolResult]) -> str:
-        """Create a brief summary of tool results for dependent tasks."""
         parts: list[str] = []
         for r in tool_results:
             if r.success:
@@ -419,7 +528,6 @@ class Orchestrator:
 
     @staticmethod
     def _format_timeline(state: Any) -> str:
-        """Format a TimelineState into context text."""
         if state is None:
             return ""
         lines: list[str] = [

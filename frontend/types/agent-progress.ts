@@ -21,6 +21,7 @@ export interface AgentProgress {
   currentTaskId: string | null;
   turnCount: number;
   startedAt: number;
+  completedAt?: number;
   collapsed: boolean;
   error?: string;
   isOrchestrated?: boolean;

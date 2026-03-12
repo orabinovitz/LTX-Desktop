@@ -62,6 +62,34 @@ const PARALLEL_SAFE_TOOLS = new Set([
   "toggle_favorite",
 ]);
 
+const MUTATION_TOOLS = new Set([
+  "add_clip_to_timeline",
+  "trim_clip",
+  "split_clip",
+  "delete_clip",
+  "move_clip",
+  "create_timeline",
+  "duplicate_timeline",
+  "add_track",
+  "delete_track",
+  "add_dissolve",
+  "set_clip_speed",
+  "set_clip_volume",
+  "set_clip_opacity",
+  "set_color_correction",
+  "flip_clip",
+  "reverse_clip",
+  "duplicate_clip",
+  "split_at_playhead",
+  "create_subclip_assets",
+  "delete_asset",
+  "batch_delete_assets",
+  "organize_asset",
+  "import_media",
+  "add_subtitle",
+  "edit_subtitle",
+]);
+
 function buildTimelineState(
   clips: TimelineClip[],
   trackCount: number,
@@ -111,12 +139,6 @@ function taskInfoToAgentTask(info: OrchestrateTaskInfo): AgentTask {
   };
 }
 
-/**
- * Hook for orchestrated multi-agent execution.
- *
- * Manages the lifecycle of complex requests that are decomposed into
- * a DAG of tasks by the backend orchestrator.
- */
 export function useOrchestratedAgent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -181,11 +203,13 @@ export function useOrchestratedAgent() {
         progressActions.update({ isOrchestrated: true });
 
         let turns = 0;
-        while (!response.done && turns < 30) {
+        let lastMessageAdded = false;
+
+        while (!response.done && turns < 50) {
           turns++;
           progressActions.incrementTurn();
-
           syncTaskStatuses(response.tasks, progressActions);
+          lastMessageAdded = false;
 
           if (response.tool_calls.length > 0) {
             progressActions.update({ thinkingLine: "" });
@@ -215,6 +239,37 @@ export function useOrchestratedAgent() {
               }
             }
 
+            // BUG-4 fix: send updated context after mutation tools
+            let updatedContext: string | undefined;
+            const hadMutations = toolCalls.some((tc) =>
+              MUTATION_TOOLS.has(tc.tool_name),
+            );
+            if (hadMutations) {
+              const contextResult = await executeTool({
+                tool_name: "get_project_assets",
+                arguments: {},
+              });
+              if (contextResult.success && contextResult.result) {
+                const r = contextResult.result as {
+                  assetCount?: number;
+                  assets?: Array<{
+                    id: string;
+                    type: string;
+                    prompt?: string;
+                  }>;
+                };
+                const assetSummary = (r.assets ?? [])
+                  .map(
+                    (a) =>
+                      `  - ${a.id}: ${a.type}${a.prompt ? `, "${a.prompt.slice(0, 60)}"` : ""}`,
+                  )
+                  .join("\n");
+                updatedContext =
+                  `## Updated Project State\n` +
+                  `Total assets: ${r.assetCount ?? 0}\n${assetSummary}`;
+              }
+            }
+
             progressActions.setThinking("Continuing orchestration...");
 
             const contRes = await fetch(
@@ -225,6 +280,9 @@ export function useOrchestratedAgent() {
                 body: JSON.stringify({
                   session_id: sessionIdRef.current,
                   tool_results: results,
+                  ...(updatedContext
+                    ? { updated_context: updatedContext }
+                    : {}),
                 }),
                 signal,
               },
@@ -233,12 +291,35 @@ export function useOrchestratedAgent() {
             if (!contRes.ok)
               throw new Error(`Orchestrate continue error: ${contRes.status}`);
             response = await contRes.json();
-          } else if (response.message && !response.done) {
-            setMessages((prev) => [
-              ...prev,
-              { role: "agent", content: response.message },
-            ]);
-            break;
+          } else if (!response.done) {
+            // BUG-1 fix: when no tool calls but not done, call continue
+            // to let the orchestrator advance to the next task.
+            if (response.message) {
+              setMessages((prev) => [
+                ...prev,
+                { role: "agent", content: response.message },
+              ]);
+              lastMessageAdded = true;
+            }
+
+            progressActions.setThinking("Advancing to next task...");
+
+            const contRes = await fetch(
+              `${backendUrl}/api/agent/orchestrate/continue`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  session_id: sessionIdRef.current,
+                  tool_results: [],
+                }),
+                signal,
+              },
+            );
+
+            if (!contRes.ok)
+              throw new Error(`Orchestrate continue error: ${contRes.status}`);
+            response = await contRes.json();
           } else {
             break;
           }
@@ -247,8 +328,14 @@ export function useOrchestratedAgent() {
         syncTaskStatuses(response.tasks, progressActions);
         progressActions.endSession();
 
+        // BUG-9 fix: only add final message if we didn't already add it
         const finalText = response.message || "All tasks completed.";
-        setMessages((prev) => [...prev, { role: "agent", content: finalText }]);
+        if (!lastMessageAdded || finalText !== response.message) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "agent", content: finalText },
+          ]);
+        }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           progressActions.reset();
@@ -261,7 +348,10 @@ export function useOrchestratedAgent() {
         progressActions.endSession(errorMsg);
         setMessages((prev) => [
           ...prev,
-          { role: "agent", content: "Something went wrong. Please try again." },
+          {
+            role: "agent",
+            content: "Something went wrong. Please try again.",
+          },
         ]);
       } finally {
         setIsProcessing(false);

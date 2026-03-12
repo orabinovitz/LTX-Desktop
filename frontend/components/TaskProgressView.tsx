@@ -244,7 +244,7 @@ export function TaskProgressView({
   const totalCount = progress.tasks.length;
   const totalElapsed = useElapsedTime(
     progress.startedAt,
-    isFinished ? Date.now() : undefined,
+    progress.completedAt,
   );
 
   const autoCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
