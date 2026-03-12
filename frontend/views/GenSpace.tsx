@@ -1034,7 +1034,30 @@ export function GenSpace() {
           const assetId = args.asset_id as string
           if (!assetId || !currentProjectId) return fail('Missing asset_id or project')
           deleteAsset(currentProjectId, assetId)
-          return ok({ deleted: assetId })
+          const remaining = (currentProjectRef.current?.assets ?? []).length
+          return ok({ deleted: assetId, remaining_asset_count: remaining })
+        }
+        case 'batch_delete_assets': {
+          const assetIds = args.asset_ids as string[] | undefined
+          if (!assetIds?.length || !currentProjectId) return fail('Missing asset_ids or project')
+          const deleted: string[] = []
+          const failed: string[] = []
+          for (const id of assetIds) {
+            try {
+              deleteAsset(currentProjectId, id)
+              deleted.push(id)
+            } catch {
+              failed.push(id)
+            }
+          }
+          const remainingCount = (currentProjectRef.current?.assets ?? []).length
+          return ok({
+            deleted,
+            failed,
+            deleted_count: deleted.length,
+            failed_count: failed.length,
+            remaining_asset_count: remainingCount,
+          })
         }
         case 'toggle_favorite': {
           const assetId = args.asset_id as string

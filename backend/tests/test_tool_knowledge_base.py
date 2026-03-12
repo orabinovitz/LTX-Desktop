@@ -67,7 +67,7 @@ class TestToolRegistryCompleteness:
                 )
 
     def test_total_tool_count(self) -> None:
-        assert len(ALL_TOOLS) == 64, f"Expected 64 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 65, f"Expected 65 tools, got {len(ALL_TOOLS)}"
 
 
 class TestIntentClassification:

@@ -765,9 +765,38 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       const assetId = args.asset_id as string | undefined;
       if (!assetId) return fail("delete_asset", "Missing asset_id");
       if (deleteAsset && currentProjectId) deleteAsset(currentProjectId, assetId);
-      return ok("delete_asset", { assetId });
+      const remaining = (assetsRef.current ?? []).length;
+      return ok("delete_asset", { assetId, remaining_asset_count: remaining });
     },
-    [deleteAsset, currentProjectId],
+    [deleteAsset, currentProjectId, assetsRef],
+  );
+
+  const handleBatchDeleteAssets = useCallback(
+    (args: Record<string, unknown>): ToolResult => {
+      const assetIds = args.asset_ids as string[] | undefined;
+      if (!assetIds?.length) return fail("batch_delete_assets", "Missing or empty asset_ids array");
+      if (!currentProjectId) return fail("batch_delete_assets", "No active project");
+
+      const deleted: string[] = [];
+      const failed: string[] = [];
+      for (const id of assetIds) {
+        try {
+          if (deleteAsset) deleteAsset(currentProjectId, id);
+          deleted.push(id);
+        } catch {
+          failed.push(id);
+        }
+      }
+      const remaining = (assetsRef.current ?? []).length;
+      return ok("batch_delete_assets", {
+        deleted,
+        failed,
+        deleted_count: deleted.length,
+        failed_count: failed.length,
+        remaining_asset_count: remaining,
+      });
+    },
+    [deleteAsset, currentProjectId, assetsRef],
   );
 
   const handleOrganizeAsset = useCallback(
@@ -1170,6 +1199,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           case "create_subclip_assets": return handleCreateSubclipAssets(safe.arguments);
           case "import_media": return handleImportMedia(safe.arguments);
           case "delete_asset": return handleDeleteAsset(safe.arguments);
+          case "batch_delete_assets": return handleBatchDeleteAssets(safe.arguments);
           case "organize_asset": return handleOrganizeAsset(safe.arguments);
           case "set_active_take": return handleSetActiveTake(safe.arguments);
           case "regenerate_asset": return handleRegenerateAsset(safe.arguments);
@@ -1209,7 +1239,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     [
       handleAddClipToTimeline, handleAddDissolve, handleAddSubtitle,
       handleAddTrack, handleCancelGeneration, handleCreateSubclipAssets,
-      handleCreateTimeline, handleDeleteAsset, handleDeleteClip,
+      handleBatchDeleteAssets, handleCreateTimeline, handleDeleteAsset, handleDeleteClip,
       handleDeleteTrack, handleDeselectAll, handleDuplicateClip,
       handleDuplicateTimeline, handleEditSubtitle, handleExportFcpxml,
       handleExportTimeline, handleFillTimelineGap, handleFlipClip,

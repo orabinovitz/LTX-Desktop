@@ -212,7 +212,8 @@ CATEGORIES: dict[str, ToolCategory] = {
         ],
         tool_names=[
             "create_subclip_assets", "import_media", "delete_asset",
-            "organize_asset", "set_active_take", "regenerate_asset",
+            "batch_delete_assets", "organize_asset", "set_active_take",
+            "regenerate_asset",
         ],
     ),
     "generation": ToolCategory(

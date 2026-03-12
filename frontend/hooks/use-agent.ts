@@ -25,6 +25,7 @@ const PARALLEL_SAFE_TOOLS = new Set([
   "get_video_metadata",
   "cancel_generation",
   "delete_asset",
+  "batch_delete_assets",
   "toggle_favorite",
 ]);
 
@@ -218,7 +219,7 @@ export function useAgent() {
         // Agentic loop
         let turns = 0;
         let currentTasks: AgentTask[] = [];
-        while (!response.done && turns < 10) {
+        while (!response.done && turns < 20) {
           turns++;
           progressActions.incrementTurn();
 
@@ -354,12 +355,38 @@ export function useAgent() {
 
           progressActions.setThinking("Continuing conversation...");
 
+          const MUTATION_TOOLS = new Set([
+            "delete_asset", "batch_delete_assets", "organize_asset",
+            "toggle_favorite", "create_subclip_assets", "import_media",
+          ]);
+          const hadMutations = response.tool_calls.some(
+            (tc) => MUTATION_TOOLS.has(tc.tool_name),
+          );
+
+          let updatedContext: string | undefined;
+          if (hadMutations) {
+            const contextResult = await executeTool({
+              tool_name: "get_project_assets",
+              arguments: {},
+            });
+            if (contextResult.success && contextResult.result) {
+              const r = contextResult.result as { assetCount?: number; assets?: Array<{ id: string; type: string; prompt?: string }> };
+              const assetSummary = (r.assets ?? [])
+                .map((a) => `  - ${a.id}: ${a.type}${a.prompt ? `, "${a.prompt.slice(0, 60)}"` : ""}`)
+                .join("\n");
+              updatedContext =
+                `## Updated Project State (after tool execution)\n` +
+                `Total assets remaining: ${r.assetCount ?? 0}\n${assetSummary}`;
+            }
+          }
+
           const contRes = await fetch(`${backendUrl}/api/agent/continue`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               tool_results: results.filter(Boolean),
               session_id: sessionIdRef.current,
+              ...(updatedContext ? { updated_context: updatedContext } : {}),
             }),
             signal,
           });

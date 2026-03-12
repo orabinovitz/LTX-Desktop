@@ -70,6 +70,7 @@ class AgentHandler(StateHandlerBase):
             tool_results=request.tool_results,
             gemini_api_key=api_key,
             http_client=self._http,
+            updated_context=request.updated_context,
         )
 
     def analyze_video(self, request: AnalyzeVideoRequest) -> AnalyzeVideoResponse:

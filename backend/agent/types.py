@@ -195,6 +195,7 @@ class AgentContinueRequest(BaseModel):
 
     tool_results: list[ToolResult] = Field(default_factory=list)
     session_id: str | None = Field(default="", description="Identifies the ongoing agent session")
+    updated_context: str | None = Field(default=None, description="Optional updated state context injected after mutations")
 
 
 class AnalyzeVideoRequest(BaseModel):

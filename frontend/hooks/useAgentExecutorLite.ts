@@ -87,7 +87,33 @@ export function useAgentExecutorLite(deps: AgentExecutorLiteDeps) {
           if (!assetId) return fail("delete_asset", "Missing asset_id");
           if (deleteAsset && currentProjectId)
             deleteAsset(currentProjectId, assetId);
-          return ok("delete_asset", { assetId });
+          const remaining = (assetsRef.current ?? []).length;
+          return ok("delete_asset", { assetId, remaining_asset_count: remaining });
+        }
+
+        case "batch_delete_assets": {
+          const assetIds = args.asset_ids as string[] | undefined;
+          if (!assetIds?.length) return fail("batch_delete_assets", "Missing or empty asset_ids array");
+          if (!currentProjectId) return fail("batch_delete_assets", "No active project");
+
+          const deleted: string[] = [];
+          const failed: string[] = [];
+          for (const id of assetIds) {
+            try {
+              if (deleteAsset) deleteAsset(currentProjectId, id);
+              deleted.push(id);
+            } catch {
+              failed.push(id);
+            }
+          }
+          const remainingCount = (assetsRef.current ?? []).length;
+          return ok("batch_delete_assets", {
+            deleted,
+            failed,
+            deleted_count: deleted.length,
+            failed_count: failed.length,
+            remaining_asset_count: remainingCount,
+          });
         }
 
         case "organize_asset": {

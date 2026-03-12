@@ -757,6 +757,26 @@ delete_asset = _tool(
     ],
 )
 
+batch_delete_assets = _tool(
+    name="batch_delete_assets",
+    description=(
+        "Remove multiple assets from the project in one call. Use this instead of "
+        "calling delete_asset repeatedly when you need to delete more than one asset. "
+        "Returns the list of successfully deleted IDs, any failures, and the remaining "
+        "asset count so you can verify the operation is complete."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[
+        ToolParameter(
+            name="asset_ids",
+            type="array",
+            description="Array of asset IDs to delete.",
+            items={"type": "string"},
+        ),
+    ],
+)
+
 organize_asset = _tool(
     name="organize_asset",
     description=(
@@ -1362,6 +1382,7 @@ ALL_TOOLS: list[ToolDefinition] = [
     create_subclip_assets,
     import_media,
     delete_asset,
+    batch_delete_assets,
     organize_asset,
     set_active_take,
     regenerate_asset,

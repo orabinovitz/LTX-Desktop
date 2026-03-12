@@ -440,6 +440,24 @@ issues. Use this for high-stakes edits.
 - Total duration must match the user's requested length (±5s)
 - Review your edit before declaring it done
 
+## Bulk Operations (delete all X, organize all Y, etc.)
+
+When the user asks to perform an operation on ALL items matching a criteria:
+1. Call `get_project_assets` to see the full list.
+2. Identify ALL matching items — make the complete list before starting.
+3. Use `batch_delete_assets` (not `delete_asset`) when deleting multiple assets. \
+Pass ALL matching asset IDs in a single call.
+4. After completing operations, call `get_project_assets` AGAIN to verify \
+zero matching items remain.
+5. If matching items still remain, continue operating until the count reaches zero.
+6. NEVER declare completion without verification. Saying "I deleted the images" \
+is NOT acceptable unless you have confirmed via `get_project_assets` that no \
+matching items remain.
+
+This applies to ALL bulk operations: delete, organize, favorite, move to bin, etc. \
+The tool responses include `remaining_asset_count` — use it to confirm progress. \
+If the count shows items remain, keep going.
+
 ## Response Style
 - Be concise and professional. Brief editorial reasoning, then action.
 - After edits, give a short summary and finish immediately.
@@ -809,6 +827,7 @@ def continue_with_results(
     tool_results: list[ToolResult],
     gemini_api_key: str,
     http_client: HTTPClient,
+    updated_context: str | None = None,
 ) -> AgentExecuteResponse:
     """Feed frontend tool-execution results back and continue the loop.
 
@@ -831,6 +850,11 @@ def continue_with_results(
     sd.contents.append(
         {"role": "function", "parts": function_response_parts}
     )
+
+    if updated_context:
+        sd.contents.append(
+            {"role": "user", "parts": [{"text": updated_context}]}
+        )
 
     result_summary = [
         f"{tr.tool_name}:{'ok' if tr.success else 'FAIL'}"
