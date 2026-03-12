@@ -138,6 +138,11 @@ export function AgentPromptBox({
   onVoiceDisconnect,
 }: AgentPromptBoxProps) {
   const [input, setInput] = useState("");
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    text: string;
+  } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -172,6 +177,30 @@ export function AgentPromptBox({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, isVoiceActive, onClose, onVoiceDisconnect]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const dismiss = () => setContextMenu(null);
+    window.addEventListener("click", dismiss);
+    window.addEventListener("contextmenu", dismiss);
+    return () => {
+      window.removeEventListener("click", dismiss);
+      window.removeEventListener("contextmenu", dismiss);
+    };
+  }, [contextMenu]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    const selected = window.getSelection()?.toString() ?? "";
+    if (!selected) return;
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, text: selected });
+  }, []);
+
+  const handleCopy = useCallback(() => {
+    if (!contextMenu) return;
+    void navigator.clipboard.writeText(contextMenu.text);
+    setContextMenu(null);
+  }, [contextMenu]);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -311,7 +340,9 @@ export function AgentPromptBox({
           {/* Messages (text mode) */}
           <div
             ref={scrollRef}
-            className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3"
+            tabIndex={-1}
+            className="relative min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3 outline-none"
+            onContextMenu={handleContextMenu}
           >
             {messages.length === 0 && (
               <p className="py-8 text-center text-xs text-zinc-500">
@@ -425,6 +456,20 @@ export function AgentPromptBox({
       {voiceError && (
         <div className="border-t border-red-800/50 bg-red-900/30 px-3 py-2 text-xs text-red-400">
           {voiceError}
+        </div>
+      )}
+
+      {contextMenu && (
+        <div
+          className="fixed z-[100] min-w-[120px] rounded-md border border-zinc-700 bg-zinc-800 py-1 shadow-xl"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={handleCopy}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-200 hover:bg-zinc-700"
+          >
+            Copy
+          </button>
         </div>
       )}
     </div>
