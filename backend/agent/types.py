@@ -316,6 +316,10 @@ class TaskDAG(BaseModel):
 
     tasks: list[TaskNode] = Field(default_factory=list)
     original_prompt: str = Field(default="", description="The user's original request")
+    target_duration_seconds: float | None = Field(
+        default=None,
+        description="Planner's estimated target duration for the final video in seconds",
+    )
 
     def get_ready_tasks(self) -> list[TaskNode]:
         """Return tasks whose dependencies are all completed."""
@@ -361,6 +365,10 @@ class SubAgentContext(BaseModel):
     )
     project_id: str | None = None
     view_context: str = "editor"
+    target_duration_seconds: float | None = Field(
+        default=None,
+        description="Target duration for the final video, propagated from the planner's estimate",
+    )
 
 
 class SubAgentResult(BaseModel):

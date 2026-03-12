@@ -11,6 +11,7 @@ import type {
   AgentTask,
   OrchestrateResponse,
   OrchestrateTaskInfo,
+  OrchestratorStatus,
 } from "../types/agent-progress";
 
 export type { AgentProgress };
@@ -167,6 +168,7 @@ export function useOrchestratedAgent() {
       progressActions.startSession();
       progressActions.update({
         isOrchestrated: true,
+        orchestratorStatus: "planning" as OrchestratorStatus,
         thinkingLine: "Decomposing your request into tasks...",
       });
 
@@ -200,7 +202,10 @@ export function useOrchestratedAgent() {
 
         const orchestratedTasks = response.tasks.map(taskInfoToAgentTask);
         progressActions.setPlan(orchestratedTasks);
-        progressActions.update({ isOrchestrated: true });
+        progressActions.update({
+          isOrchestrated: true,
+          orchestratorStatus: response.status as OrchestratorStatus,
+        });
 
         let turns = 0;
         let lastMessageAdded = false;
@@ -211,6 +216,10 @@ export function useOrchestratedAgent() {
           syncTaskStatuses(response.tasks, progressActions);
           lastMessageAdded = false;
 
+          progressActions.update({
+            orchestratorStatus: response.status as OrchestratorStatus,
+          });
+
           if (response.tool_calls.length > 0) {
             progressActions.update({ thinkingLine: "" });
 
@@ -220,6 +229,13 @@ export function useOrchestratedAgent() {
 
             const results: ToolResult[] = [];
             const toolCalls = response.tool_calls;
+            const toolNames = [...new Set(toolCalls.map((tc) => tc.tool_name))];
+
+            if (response.current_task_id) {
+              progressActions.updateTask(response.current_task_id, {
+                activeToolCalls: toolNames,
+              });
+            }
 
             const groups = groupByToolName(toolCalls);
             for (const group of groups) {
@@ -268,6 +284,12 @@ export function useOrchestratedAgent() {
                   `## Updated Project State\n` +
                   `Total assets: ${r.assetCount ?? 0}\n${assetSummary}`;
               }
+            }
+
+            if (response.current_task_id) {
+              progressActions.updateTask(response.current_task_id, {
+                activeToolCalls: undefined,
+              });
             }
 
             progressActions.setThinking("Continuing orchestration...");

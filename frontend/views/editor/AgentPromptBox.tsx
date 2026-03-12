@@ -216,6 +216,8 @@ export function AgentPromptBox({
   if (!isOpen) return null;
 
   const showProgressView = progress.phase !== "idle";
+  const showOrchestratedSticky =
+    progress.isOrchestrated === true && showProgressView;
   const showOldThinking =
     isProcessing &&
     !showProgressView &&
@@ -337,6 +339,13 @@ export function AgentPromptBox({
         </div>
       ) : (
         <>
+          {/* Orchestrated progress — sticky above messages */}
+          {showProgressView && showOrchestratedSticky && (
+            <div className="flex-shrink-0 overflow-y-auto border-b border-zinc-800/60 px-3 py-2" style={{ maxHeight: "40%" }}>
+              <TaskProgressView progress={progress} onSetCollapsed={onSetCollapsed} />
+            </div>
+          )}
+
           {/* Messages (text mode) */}
           <div
             ref={scrollRef}
@@ -344,7 +353,7 @@ export function AgentPromptBox({
             className="relative min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3 outline-none"
             onContextMenu={handleContextMenu}
           >
-            {messages.length === 0 && (
+            {messages.length === 0 && !showProgressView && (
               <p className="py-8 text-center text-xs text-zinc-500">
                 Describe what you'd like to do with your video...
               </p>
@@ -401,7 +410,8 @@ export function AgentPromptBox({
               </div>
             ))}
 
-            {showProgressView && (
+            {/* Non-orchestrated progress stays inline */}
+            {showProgressView && !showOrchestratedSticky && (
               <TaskProgressView progress={progress} onSetCollapsed={onSetCollapsed} />
             )}
 

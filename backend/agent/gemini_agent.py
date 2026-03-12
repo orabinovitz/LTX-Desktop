@@ -118,7 +118,8 @@ its best 5-8 seconds.
 - Trim, split, delete, move, and add clips.
 - Split all clips at the playhead with `split_at_playhead`.
 - Flip clips horizontally/vertically, reverse playback, change speed.
-- Add cross-dissolve transitions between adjacent clips.
+- Use hard cuts by default. Only add dissolves at major section breaks \
+(time jumps, location changes, emotional shifts) — not between every clip.
 - Duplicate timeline (only when protecting existing work).
 - Create a new empty timeline, rename timelines.
 - Set playhead position.

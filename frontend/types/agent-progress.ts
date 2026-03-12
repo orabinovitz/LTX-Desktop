@@ -11,7 +11,10 @@ export interface AgentTask {
   skillId?: string;
   skillName?: string;
   dependsOn?: string[];
+  activeToolCalls?: string[];
 }
+
+export type OrchestratorStatus = "planning" | "executing" | "awaiting_tool_results" | "reviewing" | "done" | "error";
 
 export interface AgentProgress {
   phase: "idle" | "thinking" | "planning" | "executing" | "done" | "error";
@@ -25,6 +28,7 @@ export interface AgentProgress {
   collapsed: boolean;
   error?: string;
   isOrchestrated?: boolean;
+  orchestratorStatus?: OrchestratorStatus;
 }
 
 export const INITIAL_PROGRESS: AgentProgress = {

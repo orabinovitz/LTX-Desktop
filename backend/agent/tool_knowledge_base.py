@@ -96,7 +96,7 @@ CATEGORIES: dict[str, ToolCategory] = {
                     "Plan structure: opening wide shot (5-8s) → medium shots for main content (4-6s each) → close-ups for detail (3-4s) → closing wide shot (5-8s)",
                     "Trim EACH clip to its strongest scene: use importance scores and shot_type from metadata. wide/aerial → 5-8s, medium → 4-6s, close-up → 3-4s",
                     "Arrange clips to alternate shot types (wide → medium → close → medium → wide) for visual variety",
-                    "Add cross-dissolves between clips (duration=0.5 to 1.0 seconds) for smooth flow",
+                    "Use hard cuts between clips by default. Only add dissolves at major section transitions (time jumps, topic shifts)",
                     "review_edit_quality to score the edit. If score < 7, tighten the weakest clips and re-review",
                 ],
             ),

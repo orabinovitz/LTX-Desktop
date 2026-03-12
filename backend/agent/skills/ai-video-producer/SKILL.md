@@ -92,14 +92,21 @@ lighting, composition). The video prompt should describe only the motion
 **Direct video workflow (for motion-heavy shots):**
 1. `generate_video(mode='text_to_video', prompt=<full description>)` -> get video asset_id
 
-**Duration selection rules:**
-- Quick reaction/cutaway: 6s
-- Standard scene beat: 8s
-- Extended action: 10s (pro max)
+**Duration selection rules (per shot):**
+- Quick reaction/cutaway: 4-6s
+- Standard scene beat: 6-8s
+- Extended action or dialogue beat: 8-10s (pro max)
 - Long continuous shot: 12-20s (fast model only, must use fast)
-- For a 30s ad: plan 4-6 shots averaging 5-7s each
-- For a 60s video: plan 8-12 shots with varied durations
-- NEVER make all shots the same duration. Vary for rhythm.
+
+**Shot count from total duration:**
+- 30s ad: 4-6 shots averaging 5-7s each
+- 60s brand film: 8-12 shots with varied durations
+- 90-180s scene: 15-30 shots, mix of short and long holds
+- 3-5 minute narrative scene: 25-50 shots, emphasize variety
+- 5-10 minute short film: 40-80+ shots across multiple scenes
+
+NEVER make all shots the same duration. Vary for rhythm.
+Total project duration drives shot count — not the other way around.
 
 **Parallel generation:**
 `generate_image` and `generate_video` are parallel-safe. Generate multiple
@@ -178,8 +185,16 @@ Write prompts like a cinematographer describes a shot:
 **Avoid:**
 - Vague descriptions ("a nice scene")
 - Multiple competing actions in one shot
-- Text or dialogue descriptions (these are visual prompts)
 - Overly complex scenes that AI will struggle to render
+
+**Dialogue and speech:**
+When a shot involves characters speaking, include the dialogue in the prompt.
+Describe who is speaking and what they say — the model generates full audio
+with speaking characters. Example:
+- "Medium shot of a man leaning across the diner table, saying 'We do this
+  in ten minutes, no hesitation', tense atmosphere, low warm lighting"
+- For non-dialogue shots (landscapes, action, montage), omit speech — keep
+  prompts visual and kinetic only.
 
 ## Project Type Templates
 
@@ -205,6 +220,33 @@ Write prompts like a cinematographer describes a shot:
 - Core content (6-8s)
 - CTA or closing (3-4s)
 - 9:16 vertical aspect ratio
+
+### Scene with dialogue (90-180s)
+- 15-30 shots, varied durations
+- Opening: wide establishing shot to set the space (6-10s)
+- Dialogue beats: medium and close-up shots alternating speakers (6-10s each)
+- Reaction shots: close-ups during pauses or subtext moments (4-6s)
+- Insert/detail shots: hands, objects, environment details to add texture (4-6s)
+- Turning point: tighter framing as tension shifts (6-8s)
+- Closing: wider shot or held close-up for emotional resolution (8-12s)
+- Pacing: let dialogue scenes breathe — avoid rapid cutting
+
+### Full narrative scene (3-5 minutes / 180-300s)
+- 25-50 shots, multiple dramatic beats
+- Structure: setup (20%), development (40%), turn (20%), resolution (20%)
+- Establish early with wide shots, progressively tighten framing as tension builds
+- Use longer holds (8-12s) for emotional weight, shorter cuts (4-6s) for action
+- Include environmental/atmospheric shots between dialogue beats for rhythm
+- Vary camera motion across the scene — don't repeat the same move on adjacent shots
+- Plan character consistency carefully: same wardrobe, lighting direction, color temperature
+
+### Short film / multi-scene (5-10 minutes / 300-600s)
+- 40-80+ shots across multiple scenes
+- Each scene has its own mini-arc with setup and turn
+- Use dissolves or establishing shots to signal scene transitions
+- Maintain visual continuity within scenes, allow contrast between scenes
+- Budget time: plan each scene's duration before generating any shots
+- Prioritize the most important scenes for higher shot count and variety
 
 ### Music video / montage
 - 12-20+ shots, rhythm-driven

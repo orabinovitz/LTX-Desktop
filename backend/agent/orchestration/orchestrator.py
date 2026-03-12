@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 _MAX_SESSIONS = 20
 _SESSION_TTL_SECONDS = 1800
 _MAX_RETRIES_PER_TASK = 1
-_MAX_DAG_TASKS = 12
+_MAX_DAG_TASKS = 50
 _MAX_REVIEW_ITERATIONS = 2
 
 
@@ -62,6 +62,7 @@ class OrchestratorSession:
     pending_tool_calls: list[ToolCall] = field(default_factory=list)
     pending_task_ids: list[str] = field(default_factory=list)
     active_sub_agent_results: dict[str, SubAgentResult] = field(default_factory=dict)
+    task_tool_call_counts: dict[str, int] = field(default_factory=dict)
     timeline_context: str | None = None
     assets_context: str | None = None
     project_id: str | None = None
@@ -251,21 +252,34 @@ class Orchestrator:
         session: OrchestratorSession,
         tool_results: list[ToolResult],
     ) -> OrchestrateResponse:
-        """Resume sub-agent sessions with frontend tool results."""
+        """Resume sub-agent sessions with frontend tool results.
+
+        Each sub-agent receives ONLY the tool results that correspond to
+        its own tool calls, not the full list.  The mapping is based on
+        ``task_tool_call_counts`` which records how many tool calls each
+        task contributed to the combined ``pending_tool_calls`` list.
+        """
         all_frontend_calls: list[ToolCall] = []
         new_pending_ids: list[str] = []
         new_active_results: dict[str, SubAgentResult] = {}
+        new_task_counts: dict[str, int] = {}
+
+        result_offset = 0
 
         for task_id in session.pending_task_ids:
+            count = session.task_tool_call_counts.get(task_id, 1)
+            task_results = tool_results[result_offset:result_offset + count]
+            result_offset += count
+
             prev_result = session.active_sub_agent_results.get(task_id)
             if not prev_result:
                 task = session.dag.get_task(task_id)
                 if task:
                     task.status = TaskStatus.COMPLETED
-                    task.result_summary = self._summarize_results(tool_results)
+                    task.result_summary = self._summarize_results(task_results)
                 continue
 
-            resumed = self._pool.resume_single(prev_result, tool_results)
+            resumed = self._pool.resume_single(prev_result, task_results)
 
             task = session.dag.get_task(task_id)
             if not task:
@@ -283,6 +297,7 @@ class Orchestrator:
                 continue
 
             if resumed.tool_calls:
+                new_task_counts[task_id] = len(resumed.tool_calls)
                 all_frontend_calls.extend(resumed.tool_calls)
                 new_pending_ids.append(task_id)
                 new_active_results[task_id] = resumed
@@ -300,6 +315,7 @@ class Orchestrator:
             session.pending_tool_calls = all_frontend_calls
             session.pending_task_ids = new_pending_ids
             session.active_sub_agent_results = new_active_results
+            session.task_tool_call_counts = new_task_counts
             return _build_response(
                 session, self._registry,
                 tool_calls=all_frontend_calls,
@@ -308,6 +324,7 @@ class Orchestrator:
         session.pending_task_ids = []
         session.pending_tool_calls = []
         session.active_sub_agent_results = {}
+        session.task_tool_call_counts = {}
         return self._execute_next(session)
 
     def _execute_next(self, session: OrchestratorSession) -> OrchestrateResponse:
@@ -337,6 +354,12 @@ class Orchestrator:
                 message="No tasks can proceed. Some tasks may have failed.",
                 done=True,
             )
+
+        expanded = self._try_expand_shot_tasks(session, ready_tasks)
+        if expanded:
+            ready_tasks = session.dag.get_ready_tasks()
+            if not ready_tasks:
+                return self._execute_next(session)
 
         has_mutation = self._any_task_mutates(ready_tasks)
         if has_mutation and len(ready_tasks) > 1:
@@ -368,6 +391,7 @@ class Orchestrator:
                 prior_task_results=prior_results,
                 project_id=session.project_id,
                 view_context=session.view_context,
+                target_duration_seconds=session.dag.target_duration_seconds,
             )
             tasks_to_dispatch.append((task, skill_content, ctx))
 
@@ -383,6 +407,7 @@ class Orchestrator:
         all_frontend_calls: list[ToolCall] = []
         pending_task_ids: list[str] = []
         active_sub_agent_results: dict[str, SubAgentResult] = {}
+        task_tool_call_counts: dict[str, int] = {}
 
         for result in results:
             task = session.dag.get_task(result.task_id)
@@ -401,6 +426,7 @@ class Orchestrator:
                 continue
 
             if result.tool_calls:
+                task_tool_call_counts[result.task_id] = len(result.tool_calls)
                 all_frontend_calls.extend(result.tool_calls)
                 pending_task_ids.append(result.task_id)
                 active_sub_agent_results[result.task_id] = result
@@ -416,12 +442,117 @@ class Orchestrator:
             session.pending_tool_calls = all_frontend_calls
             session.pending_task_ids = pending_task_ids
             session.active_sub_agent_results = active_sub_agent_results
+            session.task_tool_call_counts = task_tool_call_counts
             return _build_response(
                 session, self._registry,
                 tool_calls=all_frontend_calls,
             )
 
         return self._execute_next(session)
+
+    @staticmethod
+    def _parse_shot_list(text: str) -> list[tuple[int, str]]:
+        """Extract numbered shots from a result summary.
+
+        Looks for patterns like "Shot 1: description", "Shot 2: description".
+        Returns list of (shot_number, description) tuples.
+        """
+        import re
+        shots: list[tuple[int, str]] = []
+        pattern = re.compile(
+            r"Shot\s+(\d+)\s*[:\-–—]\s*(.+?)(?=Shot\s+\d+\s*[:\-–—]|\Z)",
+            re.DOTALL | re.IGNORECASE,
+        )
+        for match in pattern.finditer(text):
+            num = int(match.group(1))
+            desc = match.group(2).strip()
+            if len(desc) > 10:
+                shots.append((num, desc))
+        return shots
+
+    def _try_expand_shot_tasks(
+        self,
+        session: OrchestratorSession,
+        ready_tasks: list[TaskNode],
+    ) -> bool:
+        """Check if any ready execution task should be expanded into per-shot tasks.
+
+        When a ready execution task depends on a completed creative task
+        that produced a numbered shot list, and the execution task is about
+        generation, expand it into N individual per-shot tasks that run
+        in parallel.
+
+        Returns True if expansion happened (caller should re-fetch ready tasks).
+        """
+        expanded_any = False
+
+        for task in list(ready_tasks):
+            if task.task_type != TaskType.EXECUTION:
+                continue
+            if "generation" not in task.tool_categories:
+                continue
+
+            shot_list: list[tuple[int, str]] = []
+            script_task_id: str | None = None
+
+            for dep_id in task.depends_on:
+                dep_task = session.dag.get_task(dep_id)
+                if not dep_task or dep_task.status != TaskStatus.COMPLETED:
+                    continue
+                if dep_task.task_type != TaskType.CREATIVE:
+                    continue
+
+                shots = self._parse_shot_list(dep_task.result_summary)
+                if len(shots) >= 2:
+                    shot_list = shots
+                    script_task_id = dep_id
+                    break
+
+            if not shot_list or not script_task_id:
+                continue
+
+            logger.info(
+                "[orchestrator] session=%s | expanding task %s into %d per-shot tasks",
+                session.id[:8], task.id, len(shot_list),
+            )
+
+            original_task_id = task.id
+            task.status = TaskStatus.CANCELLED
+            task.error = f"Expanded into {len(shot_list)} per-shot tasks"
+
+            shot_task_ids: list[str] = []
+            for shot_num, shot_desc in shot_list:
+                shot_task_id = f"generate-shot-{shot_num}"
+                short_desc = shot_desc[:500].replace("\n", " ")
+                shot_task = TaskNode(
+                    id=shot_task_id,
+                    description=(
+                        f"Generate Shot {shot_num}: First call generate_image "
+                        f"with this visual description: \"{short_desc}\". "
+                        f"Then call generate_video with mode=image_to_video "
+                        f"using the generated image asset_id. "
+                        f"Report the final video asset_id."
+                    ),
+                    skill_id="ai-video-producer",
+                    depends_on=list(task.depends_on),
+                    status=TaskStatus.PENDING,
+                    task_type=TaskType.EXECUTION,
+                    tool_categories=["generation"],
+                    context_requirements=["prior_results"],
+                )
+                session.dag.tasks.append(shot_task)
+                shot_task_ids.append(shot_task_id)
+
+            for other_task in session.dag.tasks:
+                if original_task_id in other_task.depends_on:
+                    other_task.depends_on = [
+                        dep for dep in other_task.depends_on
+                        if dep != original_task_id
+                    ] + shot_task_ids
+
+            expanded_any = True
+
+        return expanded_any
 
     def _handle_review_result(
         self,

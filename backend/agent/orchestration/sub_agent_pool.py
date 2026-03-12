@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 _SUB_AGENT_MODEL = "gemini-3-flash-preview"
 _MAX_WORKERS = 4
-_MAX_SUB_AGENT_TURNS = 10
+_MAX_SUB_AGENT_TURNS = 30
 
 
 def _build_system_prompt(
@@ -94,11 +95,29 @@ def _build_system_prompt(
     )
 
 
+def _has_shot_list(prior_results: dict[str, str]) -> bool:
+    """Check if any prior task result contains a numbered shot list."""
+    for summary in prior_results.values():
+        if any(f"Shot {i}:" in summary or f"Shot {i} :" in summary for i in range(1, 30)):
+            return True
+    return False
+
+
 def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
     """Build the user message with all relevant context for the sub-agent."""
     parts: list[str] = []
 
     parts.append(f"## Task\n{context.task.description}")
+
+    if context.target_duration_seconds is not None:
+        parts.append(
+            f"## Target Duration\n"
+            f"The planned target duration for this project is "
+            f"**{context.target_duration_seconds:.0f} seconds** "
+            f"(~{context.target_duration_seconds / 60:.1f} minutes). "
+            f"All shot counts, pacing decisions, and timeline assembly "
+            f"must target this duration."
+        )
 
     if context.timeline_context:
         parts.append(f"## Timeline State\n{context.timeline_context}")
@@ -114,6 +133,8 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
         parts.append(f"## Results From Prior Tasks\n{results_text}")
 
     task_type = getattr(context.task, "task_type", "execution")
+    has_script = _has_shot_list(context.prior_task_results) if context.prior_task_results else False
+
     if task_type == "execution":
         if tool_names:
             tools_summary = ", ".join(tool_names[:15])
@@ -128,8 +149,54 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
                 "Execute the task now by calling the available tools. "
                 "Do NOT just describe what to do — actually call the tools."
             )
+
+        if has_script:
+            parts.append(
+                "## CRITICAL: Follow the Shot List\n"
+                "The prior tasks contain a NUMBERED shot list. You MUST:\n"
+                "- Generate EVERY shot listed (Shot 1, Shot 2, Shot 3, etc.)\n"
+                "- Follow each shot's visual description EXACTLY\n"
+                "- Do NOT skip any shots\n"
+                "- Do NOT invent new shots that aren't in the list\n"
+                "- For each shot: first call generate_image with the visual "
+                "description, then call generate_video with image_to_video "
+                "mode to animate it\n"
+                "- Report each shot's asset_id in your summary"
+            )
+
+    elif task_type == "review":
+        parts.append(
+            "Evaluate the results from prior tasks now."
+        )
+        if has_script:
+            parts.append(
+                "## CRITICAL: Review Against the Script\n"
+                "The prior tasks contain a NUMBERED shot list and generated "
+                "content. You MUST:\n"
+                "- Compare EACH generated shot against its corresponding "
+                "shot description in the script\n"
+                "- Reference shots by number (Shot 1, Shot 2, etc.)\n"
+                "- For each shot, state: PASS (matches description) or "
+                "FAIL (explain what's wrong)\n"
+                "- If any shots need regeneration, say 'regenerate' and "
+                "explain what should change\n"
+                "- Evaluate overall visual consistency across all shots"
+            )
     else:
-        parts.append("Produce the requested creative output now.")
+        if "shot" in context.task.description.lower() or "script" in context.task.description.lower():
+            parts.append(
+                "## CRITICAL: Structured Output Required\n"
+                "Your output MUST include a NUMBERED shot list using the "
+                "format 'Shot 1:', 'Shot 2:', etc. Each shot must specify:\n"
+                "- Visual description (what the camera sees)\n"
+                "- Shot type (wide, medium, close-up, detail, POV)\n"
+                "- Camera motion (static, dolly_in, dolly_out, etc.)\n"
+                "- Duration in seconds\n"
+                "- Any dialogue or text overlay\n\n"
+                "Produce the creative output now."
+            )
+        else:
+            parts.append("Produce the requested creative output now.")
 
     return "\n\n".join(parts)
 
@@ -261,7 +328,7 @@ def _run_gemini_turn(
             tc = ToolCall(
                 tool_name=tool_name,
                 arguments=arguments,
-                call_id=tool_name,
+                call_id=f"{tool_name}_{uuid.uuid4().hex[:8]}",
             )
             if tool_def.execution_target == ExecutionTarget.BACKEND:
                 backend_calls.append(tc)
@@ -330,7 +397,7 @@ def execute_sub_agent(
                     else {"error": br.error or "unknown"}
                 )
                 fn_response_parts.append(
-                    {"functionResponse": {"name": bc.call_id, "response": result_payload}}
+                    {"functionResponse": {"name": bc.tool_name, "response": result_payload}}
                 )
             contents.append({"role": "function", "parts": fn_response_parts})
 
@@ -394,9 +461,8 @@ def resume_sub_agent(
             {"result": tr.result} if tr.success
             else {"error": tr.error or "unknown error"}
         )
-        fn_name = tr.tool_name or tr.call_id or "unknown"
         fn_response_parts.append(
-            {"functionResponse": {"name": fn_name, "response": payload}}
+            {"functionResponse": {"name": tr.tool_name or "unknown", "response": payload}}
         )
 
     if fn_response_parts:
@@ -439,7 +505,7 @@ def resume_sub_agent(
                     else {"error": br.error or "unknown"}
                 )
                 fn_resp.append(
-                    {"functionResponse": {"name": bc.call_id, "response": rp}}
+                    {"functionResponse": {"name": bc.tool_name, "response": rp}}
                 )
             contents.append({"role": "function", "parts": fn_resp})
 

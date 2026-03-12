@@ -306,8 +306,12 @@ she sets down her wine glass with deliberate care
 - Describe characters consistently across every shot (same wardrobe, features).
 - Favor environments AI renders well (natural landscapes, urban settings,
   interiors with clear lighting) over complex crowds or intricate machinery.
-- Write dialogue as subtitles to be added post-assembly, not as something
-  the generated video will contain.
+- For shots where characters speak, include the dialogue directly in the
+  visual prompt — the AI model generates video with full audio and speaking
+  characters. Write it naturally: "She says 'I can't do this anymore' while
+  looking away." Do NOT separate dialogue into subtitles for spoken lines.
+- For voice-over or text overlays that appear on screen, note those as
+  subtitles to be added post-assembly.
 - Plan varied shot durations for rhythm: hooks at 4-6s, story beats at 6-10s,
   transitions at 3-4s.
 
