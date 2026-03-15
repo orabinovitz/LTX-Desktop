@@ -20,12 +20,14 @@ def _param(
     description: str,
     *,
     required: bool = True,
+    items: dict[str, object] | None = None,
 ) -> ToolParameter:
     return ToolParameter(
         name=name,
         type=type,
         description=description,
         required=required,
+        items=items,
     )
 
 
@@ -886,7 +888,7 @@ generate_image = _tool(
         _param("resolution", "string", "For NB2: '1K', '2K', or '4K'. For ZIT: '1080p', '1440p', or '2048p'.", required=False),
         _param("aspect_ratio", "string", "For NB2: 'auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'. For ZIT: '1:1', '16:9', '9:16', '4:3', '3:4', '21:9'.", required=False),
         _param("num_variations", "integer", "Number of image variations (1-4, default 1).", required=False),
-        _param("image_urls", "array", "List of asset IDs for reference images (from get_project_assets results). The system resolves these to image data automatically. Use for NB2 editing: compositing people, objects, or scenes from multiple images.", required=False),
+        _param("image_urls", "array", "List of asset IDs for reference images (from get_project_assets results). The system resolves these to image data automatically. Use for NB2 editing: compositing people, objects, or scenes from multiple images.", required=False, items={"type": "string"}),
     ],
 )
 
@@ -1359,7 +1361,7 @@ save_to_project_memory = _tool(
         ),
         _param("content", "string", "The document body in markdown format."),
         _param("description", "string", "Short 1-2 sentence summary.", required=False),
-        _param("tags", "array", "Searchable tags for this document.", required=False),
+        _param("tags", "array", "Searchable tags for this document.", required=False, items={"type": "string"}),
     ],
 )
 
@@ -1377,7 +1379,7 @@ update_project_memory = _tool(
         _param("content", "string", "New document body.", required=False),
         _param("title", "string", "New title.", required=False),
         _param("description", "string", "New description.", required=False),
-        _param("tags", "array", "New tags list.", required=False),
+        _param("tags", "array", "New tags list.", required=False, items={"type": "string"}),
     ],
 )
 

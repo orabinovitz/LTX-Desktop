@@ -41,6 +41,30 @@ function useElapsedTime(startedAt: number, completedAt?: number): string {
   return `${m}m ${s % 60}s`;
 }
 
+const SHOT_TASK_RE = /^(?:generate-shot-\d+|task-\d+-shot-\d+)$/;
+
+interface ShotGroupSummary {
+  total: number;
+  completed: number;
+  failed: number;
+  inProgress: number;
+  pending: number;
+  tasks: AgentTask[];
+}
+
+function buildShotGroupSummary(tasks: AgentTask[]): ShotGroupSummary | null {
+  const shotTasks = tasks.filter((t) => SHOT_TASK_RE.test(t.id));
+  if (shotTasks.length < 3) return null;
+  return {
+    total: shotTasks.length,
+    completed: shotTasks.filter((t) => t.status === "completed").length,
+    failed: shotTasks.filter((t) => t.status === "failed" || t.status === "cancelled").length,
+    inProgress: shotTasks.filter((t) => t.status === "in_progress").length,
+    pending: shotTasks.filter((t) => t.status === "pending").length,
+    tasks: shotTasks,
+  };
+}
+
 interface GroupedTasks {
   active: AgentTask[];
   pending: AgentTask[];
@@ -48,13 +72,15 @@ interface GroupedTasks {
   failed: AgentTask[];
 }
 
-function groupTasksByStatus(tasks: AgentTask[]): GroupedTasks {
+function groupTasksByStatus(tasks: AgentTask[], excludeShotTasks: boolean): GroupedTasks {
   const active: AgentTask[] = [];
   const pending: AgentTask[] = [];
   const completed: AgentTask[] = [];
   const failed: AgentTask[] = [];
 
   for (const task of tasks) {
+    if (excludeShotTasks && SHOT_TASK_RE.test(task.id)) continue;
+
     switch (task.status) {
       case "in_progress":
         active.push(task);
@@ -168,7 +194,7 @@ function ActiveTaskCard({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="text-[12px] font-medium leading-tight text-zinc-100">
+          <span className="truncate text-[12px] font-medium leading-tight text-zinc-100">
             {task.label}
           </span>
           {elapsed && (
@@ -291,6 +317,73 @@ function CompletedTaskCard({ task }: { task: AgentTask }) {
         <span className="flex-shrink-0 text-[9px] tabular-nums text-zinc-600">
           {elapsed}
         </span>
+      )}
+    </div>
+  );
+}
+
+// --- Shot Group Card ---
+
+function ShotGroupCard({ summary }: { summary: ShotGroupSummary }) {
+  const [expanded, setExpanded] = useState(false);
+  const done = summary.completed + summary.failed;
+  const progressPercent = summary.total > 0 ? (done / summary.total) * 100 : 0;
+  const isAllDone = done >= summary.total;
+  const hasFailed = summary.failed > 0;
+
+  const statusText = isAllDone
+    ? `${summary.completed} completed${hasFailed ? `, ${summary.failed} failed` : ""}`
+    : `${done}/${summary.total} shots${summary.inProgress > 0 ? ` (${summary.inProgress} generating)` : ""}`;
+
+  return (
+    <div className="rounded-md border-l-[3px] border-l-indigo-500/60 bg-indigo-500/[0.04]">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-start gap-2 px-2.5 py-2 text-left"
+      >
+        <div className="mt-px">
+          {isAllDone ? (
+            <div className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500/20">
+              <Check className="h-2 w-2 text-emerald-400" />
+            </div>
+          ) : summary.inProgress > 0 ? (
+            <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-indigo-400" />
+          ) : (
+            <div className="h-3.5 w-3.5 flex-shrink-0 rounded-full border border-zinc-600/60" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[12px] font-medium leading-tight text-zinc-100">
+              Generating shots
+            </span>
+            <span className="text-[10px] tabular-nums text-zinc-500">
+              {statusText}
+            </span>
+            <div className="transition-transform duration-200">
+              {expanded ? (
+                <ChevronDown className="h-2.5 w-2.5 text-zinc-600" />
+              ) : (
+                <ChevronRight className="h-2.5 w-2.5 text-zinc-600" />
+              )}
+            </div>
+          </div>
+          {!isAllDone && (
+            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-zinc-800">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-indigo-400 transition-all duration-500 ease-out"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          )}
+        </div>
+      </button>
+      {expanded && (
+        <div className="max-h-[200px] space-y-0.5 overflow-y-auto border-t border-zinc-800/40 px-1 pb-1.5 pt-1">
+          {summary.tasks.map((task) => (
+            <CompletedTaskCard key={task.id} task={task} />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -426,9 +519,16 @@ export function TaskProgressView({
     };
   }, [isFinished, collapsed, onSetCollapsed]);
 
-  const grouped = useMemo(
-    () => groupTasksByStatus(progress.tasks),
+  const shotGroup = useMemo(
+    () => buildShotGroupSummary(progress.tasks),
     [progress.tasks],
+  );
+
+  const hasShotGroup = shotGroup !== null;
+
+  const grouped = useMemo(
+    () => groupTasksByStatus(progress.tasks, hasShotGroup),
+    [progress.tasks, hasShotGroup],
   );
 
   const finishedTasks = useMemo(
@@ -492,6 +592,13 @@ export function TaskProgressView({
                   <ActiveTaskCard key={task.id} task={task} index={i} />
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Shot Group (collapsed view of generate-shot-* tasks) */}
+          {shotGroup && (
+            <div className="px-1">
+              <ShotGroupCard summary={shotGroup} />
             </div>
           )}
 

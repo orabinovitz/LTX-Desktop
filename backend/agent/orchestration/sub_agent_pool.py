@@ -66,6 +66,10 @@ def _build_system_prompt(
             "- Be specific and detailed — your output will be used by other agents to execute.\n"
             "- Focus ONLY on the task described above.\n"
             "- Do NOT attempt work outside your assigned task.\n"
+            "- After producing your creative output, ALWAYS save it to project memory "
+            "by calling `save_to_project_memory` with an appropriate type "
+            "(e.g. 'script', 'research', 'storyboard', 'notes') and descriptive title. "
+            "This ensures your work is preserved for future reference.\n"
             "- When done, summarize what you produced."
         )
 

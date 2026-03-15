@@ -1176,12 +1176,25 @@ export function GenSpace() {
           if (!p) return fail('Missing prompt')
           if (!currentProjectId) return fail('No active project')
           try {
+            let resolvedImageUrls: string[] | undefined
+            const rawImageUrls = args.image_urls as string[] | undefined
+            if (rawImageUrls && rawImageUrls.length > 0) {
+              const projectAssets = currentProjectRef.current?.assets ?? []
+              resolvedImageUrls = rawImageUrls.map(ref => {
+                if (ref.startsWith('data:') || ref.startsWith('file:') || ref.startsWith('http')) return ref
+                const matched = projectAssets.find(a => a.id === ref)
+                return matched?.url ?? ref
+              })
+            }
+
             const result = await agentGenerateImage(
               {
                 prompt: p,
-                resolution: (args.resolution as string) ?? '1080p',
+                model: (args.model as 'nano-banana-2' | 'z-image-turbo') || undefined,
+                resolution: (args.resolution as string) || undefined,
                 aspectRatio: (args.aspect_ratio as string) ?? '16:9',
                 numVariations: args.num_variations ? Number(args.num_variations) : undefined,
+                imageUrls: resolvedImageUrls,
               },
               addAsset, currentProjectId,
             )

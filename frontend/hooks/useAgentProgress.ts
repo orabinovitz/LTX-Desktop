@@ -172,6 +172,7 @@ export function useAgentProgress() {
 
   return {
     progress,
+    progressRef,
     update,
     updateTask,
     startSession,

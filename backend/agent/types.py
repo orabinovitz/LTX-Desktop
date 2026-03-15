@@ -322,12 +322,13 @@ class TaskDAG(BaseModel):
     )
 
     def get_ready_tasks(self) -> list[TaskNode]:
-        """Return tasks whose dependencies are all completed."""
-        completed_ids = {t.id for t in self.tasks if t.status == TaskStatus.COMPLETED}
+        """Return tasks whose dependencies are all in a terminal state."""
+        terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
+        terminal_ids = {t.id for t in self.tasks if t.status in terminal}
         return [
             t for t in self.tasks
             if t.status == TaskStatus.PENDING
-            and all(dep in completed_ids for dep in t.depends_on)
+            and all(dep in terminal_ids for dep in t.depends_on)
         ]
 
     def is_complete(self) -> bool:

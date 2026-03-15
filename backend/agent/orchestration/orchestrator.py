@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_SESSIONS = 20
 _SESSION_TTL_SECONDS = 1800
-_MAX_RETRIES_PER_TASK = 1
+_MAX_RETRIES_PER_TASK = 2
 _MAX_DAG_TASKS = 75
 _MAX_REVIEW_ITERATIONS = 2
 
@@ -196,7 +196,10 @@ class Orchestrator:
             [(t.id, t.task_type.value) for t in dag.tasks],
         )
 
-        return self._execute_next(session)
+        return _build_response(
+            session, self._registry,
+            message="Plan ready. Starting execution.",
+        )
 
     def continue_with_results(
         self,
@@ -429,7 +432,8 @@ class Orchestrator:
                 else:
                     task.status = TaskStatus.FAILED
                     task.error = result.error
-                    self._cancel_dependents(session.dag, task.id)
+                    if "-shot-" not in task.id:
+                        self._cancel_dependents(session.dag, task.id)
                 continue
 
             if result.tool_calls:
@@ -455,7 +459,14 @@ class Orchestrator:
                 tool_calls=all_frontend_calls,
             )
 
-        return self._execute_next(session)
+        completed_count = sum(
+            1 for t in session.dag.tasks if t.status == TaskStatus.COMPLETED
+        )
+        total_count = len(session.dag.tasks)
+        return _build_response(
+            session, self._registry,
+            message=f"Completed {completed_count}/{total_count} tasks. Advancing...",
+        )
 
     @staticmethod
     def _parse_shot_list(text: str) -> list[tuple[int, str]]:
@@ -583,6 +594,8 @@ class Orchestrator:
                 continue
             if "generation" not in task.tool_categories:
                 continue
+            if task.skill_id == "scene-preproduction":
+                continue
 
             shot_list: list[tuple[int, str]] = []
             script_task_id: str | None = None
@@ -626,7 +639,7 @@ class Orchestrator:
 
             shot_task_ids: list[str] = []
             for shot_num, shot_desc in shot_list:
-                shot_task_id = f"generate-shot-{shot_num}"
+                shot_task_id = f"{original_task_id}-shot-{shot_num}"
                 short_desc = shot_desc[:500].replace("\n", " ")
 
                 if has_refs:

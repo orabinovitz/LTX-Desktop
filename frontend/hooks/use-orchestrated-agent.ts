@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type MutableRefObject } from "react";
 import { logger } from "../lib/logger";
 import { backendFetch } from "../lib/backend";
 import type { TimelineClip } from "../types/project";
@@ -121,19 +121,42 @@ function buildTimelineState(
   };
 }
 
-function taskInfoToAgentTask(info: OrchestrateTaskInfo): AgentTask {
-  const statusMap: Record<string, AgentTask["status"]> = {
-    pending: "pending",
-    running: "in_progress",
-    completed: "completed",
-    failed: "failed",
-    cancelled: "cancelled",
-  };
+const TASK_STATUS_MAP: Record<string, AgentTask["status"]> = {
+  pending: "pending",
+  running: "in_progress",
+  completed: "completed",
+  failed: "failed",
+  cancelled: "cancelled",
+};
 
+function humanizeTaskLabel(id: string, description: string): string {
+  const shotMatch = id.match(/^(?:generate-shot-|task-\d+-shot-)(\d+)$/);
+  if (shotMatch) {
+    const shotNum = shotMatch[1];
+    const descMatch = description.match(
+      /visual description:\s*"?\*{0,2}\s*(.+?)(?:"\s*\.|"\s*$|\.?\s*-\s*\*{0,2}Shot Type)/is,
+    );
+    if (descMatch) {
+      const short = descMatch[1].trim().slice(0, 60);
+      return `Shot ${shotNum}: ${short}${descMatch[1].length > 60 ? "..." : ""}`;
+    }
+    return `Shot ${shotNum}`;
+  }
+
+  const firstSentence = description.match(/^(.+?\.)\s/);
+  if (firstSentence && firstSentence[1].length <= 80) {
+    return firstSentence[1];
+  }
+
+  if (description.length <= 80) return description;
+  return description.slice(0, 77) + "...";
+}
+
+function taskInfoToAgentTask(info: OrchestrateTaskInfo): AgentTask {
   return {
     id: info.id,
-    label: info.description,
-    status: statusMap[info.status] ?? "pending",
+    label: humanizeTaskLabel(info.id, info.description),
+    status: TASK_STATUS_MAP[info.status] ?? "pending",
     skillId: info.skill_id ?? undefined,
     skillName: info.skill_name ?? undefined,
     dependsOn: info.depends_on,
@@ -213,7 +236,7 @@ export function useOrchestratedAgent() {
         while (!response.done && turns < 50) {
           turns++;
           progressActions.incrementTurn();
-          syncTaskStatuses(response.tasks, progressActions);
+          syncTaskStatuses(response.tasks, progressActions, progressActions.progressRef);
           lastMessageAdded = false;
 
           progressActions.update({
@@ -347,7 +370,7 @@ export function useOrchestratedAgent() {
           }
         }
 
-        syncTaskStatuses(response.tasks, progressActions);
+        syncTaskStatuses(response.tasks, progressActions, progressActions.progressRef);
         progressActions.endSession();
 
         // BUG-9 fix: only add final message if we didn't already add it
@@ -425,12 +448,21 @@ function groupByToolName(toolCalls: ToolCall[]): ToolCallGroup[] {
 function syncTaskStatuses(
   tasks: OrchestrateTaskInfo[],
   actions: ReturnType<typeof useAgentProgress>,
+  progressRef: MutableRefObject<AgentProgress>,
 ) {
+  const knownIds = new Set(progressRef.current.tasks.map((t) => t.id));
+
   for (const taskInfo of tasks) {
     const agentTask = taskInfoToAgentTask(taskInfo);
+
+    if (!knownIds.has(agentTask.id)) {
+      actions.addAdHocTask(agentTask);
+      knownIds.add(agentTask.id);
+    }
+
     if (agentTask.status === "completed") {
       actions.completeTask(agentTask.id);
-    } else if (agentTask.status === "failed") {
+    } else if (agentTask.status === "failed" || agentTask.status === "cancelled") {
       actions.failTask(agentTask.id, agentTask.error ?? "Unknown error");
     } else if (agentTask.status === "in_progress") {
       actions.startTask(agentTask.id);

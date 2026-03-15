@@ -253,7 +253,9 @@ export async function agentGenerateImage(
 
   if (isNb2) {
     const aspectRatio = params.aspectRatio ?? "16:9";
-    const resolution = params.resolution ?? "1K";
+    const ZIT_TO_NB2: Record<string, string> = { "1080p": "1K", "1440p": "2K", "2048p": "4K" };
+    const rawRes = params.resolution ?? "1K";
+    const resolution = ZIT_TO_NB2[rawRes] ?? rawRes;
     resolutionLabel = `${resolution} ${aspectRatio}`;
     requestBody = {
       prompt: params.prompt,
