@@ -133,12 +133,16 @@ function humanizeTaskLabel(id: string, description: string): string {
   const shotMatch = id.match(/^(?:generate-shot-|task-\d+-shot-)(\d+)$/);
   if (shotMatch) {
     const shotNum = shotMatch[1];
-    const descMatch = description.match(
-      /visual description:\s*"?\*{0,2}\s*(.+?)(?:"\s*\.|"\s*$|\.?\s*-\s*\*{0,2}Shot Type)/is,
-    );
-    if (descMatch) {
-      const short = descMatch[1].trim().slice(0, 60);
-      return `Shot ${shotNum}: ${short}${descMatch[1].length > 60 ? "..." : ""}`;
+    const afterDesc = description.match(/visual description:\s*"?\*{0,2}\s*(.+)/is);
+    if (afterDesc) {
+      const raw = afterDesc[1].replace(/[*"]/g, "").trim();
+      const short = raw.slice(0, 55).replace(/\s+\S*$/, "");
+      return `Shot ${shotNum}: ${short}...`;
+    }
+    const afterColon = description.match(/^Generate Shot \d+:\s*(.+)/i);
+    if (afterColon) {
+      const short = afterColon[1].slice(0, 55).replace(/\s+\S*$/, "");
+      return `Shot ${shotNum}: ${short}...`;
     }
     return `Shot ${shotNum}`;
   }

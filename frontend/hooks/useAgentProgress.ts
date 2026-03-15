@@ -77,15 +77,8 @@ export function useAgentProgress() {
             return {
               ...t,
               status: "in_progress" as const,
-              startedAt: Date.now(),
+              startedAt: t.startedAt ?? Date.now(),
               detail: detail ?? t.detail,
-            };
-          }
-          if (t.status === "in_progress") {
-            return {
-              ...t,
-              status: "completed" as const,
-              completedAt: Date.now(),
             };
           }
           return t;

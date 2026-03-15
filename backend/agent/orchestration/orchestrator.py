@@ -52,6 +52,7 @@ _SESSION_TTL_SECONDS = 1800
 _MAX_RETRIES_PER_TASK = 2
 _MAX_DAG_TASKS = 75
 _MAX_REVIEW_ITERATIONS = 2
+_MAX_SHOTS_PER_EXPANSION = 40
 
 
 @dataclass
@@ -524,8 +525,11 @@ class Orchestrator:
                     parsed = _json.loads(summary[json_start:json_end + 1])
                     if isinstance(parsed, dict):
                         target.update(parsed)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as exc:
+                    logger.warning(
+                        "[orchestrator] failed to parse %s from task %s: %s",
+                        marker.strip(":"), task.id, exc,
+                    )
 
         return character_refs, location_refs
 
@@ -615,6 +619,14 @@ class Orchestrator:
 
             if not shot_list or not script_task_id:
                 continue
+
+            if len(shot_list) > _MAX_SHOTS_PER_EXPANSION:
+                logger.warning(
+                    "[orchestrator] session=%s | shot list has %d entries, "
+                    "capping at %d",
+                    session.id[:8], len(shot_list), _MAX_SHOTS_PER_EXPANSION,
+                )
+                shot_list = shot_list[:_MAX_SHOTS_PER_EXPANSION]
 
             character_refs, location_refs = self._parse_reference_assets(session.dag)
             has_refs = bool(character_refs or location_refs)
