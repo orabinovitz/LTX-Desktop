@@ -219,6 +219,7 @@ class AppHandler:
         self.agent = AgentHandler(
             state=self.state,
             lock=self._lock,
+            config=config,
             http=http,
         )
 

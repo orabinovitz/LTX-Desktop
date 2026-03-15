@@ -5,7 +5,7 @@ import { useAgent } from "@/hooks/use-agent";
 beforeEach(() => {
   Object.defineProperty(window, "electronAPI", {
     value: {
-      getBackendUrl: vi.fn().mockResolvedValue("http://localhost:8000"),
+      getBackend: vi.fn().mockResolvedValue({ url: "http://localhost:8000", token: "test-token" }),
     },
     writable: true,
     configurable: true,

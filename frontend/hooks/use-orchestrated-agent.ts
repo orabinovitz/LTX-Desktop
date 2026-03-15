@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { logger } from "../lib/logger";
+import { backendFetch } from "../lib/backend";
 import type { TimelineClip } from "../types/project";
 import type {
   ToolCall,
@@ -177,10 +178,9 @@ export function useOrchestratedAgent() {
       const t0 = performance.now();
 
       try {
-        const backendUrl = await window.electronAPI.getBackendUrl();
         const timelineState = buildTimelineState(clips, trackCount, currentTime);
 
-        const res = await fetch(`${backendUrl}/api/agent/orchestrate`, {
+        const res = await backendFetch("/api/agent/orchestrate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -294,8 +294,8 @@ export function useOrchestratedAgent() {
 
             progressActions.setThinking("Continuing orchestration...");
 
-            const contRes = await fetch(
-              `${backendUrl}/api/agent/orchestrate/continue`,
+            const contRes = await backendFetch(
+              "/api/agent/orchestrate/continue",
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -326,8 +326,8 @@ export function useOrchestratedAgent() {
 
             progressActions.setThinking("Advancing to next task...");
 
-            const contRes = await fetch(
-              `${backendUrl}/api/agent/orchestrate/continue`,
+            const contRes = await backendFetch(
+              "/api/agent/orchestrate/continue",
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },

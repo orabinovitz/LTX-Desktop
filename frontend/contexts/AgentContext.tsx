@@ -13,6 +13,7 @@ import type { ToolCall, ToolResult } from "../views/editor/useAgentExecutor";
 import type { TimelineClip, ProjectTab } from "../types/project";
 import { useProjects } from "./ProjectContext";
 import { logger } from "../lib/logger";
+import { backendFetch } from "../lib/backend";
 
 type ViewContext = "editor" | "genspace" | "playground";
 
@@ -78,9 +79,8 @@ async function classifyComplexity(
   prompt: string,
 ): Promise<"simple" | "orchestrated"> {
   try {
-    const backendUrl = await window.electronAPI.getBackendUrl();
-    const res = await fetch(
-      `${backendUrl}/api/agent/classify-complexity?prompt=${encodeURIComponent(prompt)}`,
+    const res = await backendFetch(
+      `/api/agent/classify-complexity?prompt=${encodeURIComponent(prompt)}`,
     );
     if (res.ok) {
       const data = await res.json();

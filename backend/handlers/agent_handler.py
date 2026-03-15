@@ -5,7 +5,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from threading import RLock
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from runtime_config.runtime_config import RuntimeConfig
 
 from agent import brain as brain_module
 from agent import gemini_agent, video_analyzer
@@ -37,8 +40,8 @@ _LIVE_API_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
 
 
 class AgentHandler(StateHandlerBase):
-    def __init__(self, state: AppState, lock: RLock, http: HTTPClient) -> None:
-        super().__init__(state, lock)
+    def __init__(self, state: AppState, lock: RLock, config: RuntimeConfig, http: HTTPClient) -> None:
+        super().__init__(state, lock, config)
         self._http = http
 
     def execute(self, request: AgentExecuteRequest) -> AgentExecuteResponse:

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { backendFetch } from "../lib/backend";
 
 export type AnalysisStatus = "analyzing" | "complete" | "failed";
 
@@ -8,7 +9,6 @@ export function useAnalysisStatus() {
   );
   const pollingRef = useRef<Set<string>>(new Set());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const backendUrlRef = useRef<string | null>(null);
 
   const markAnalyzing = useCallback((assetId: string) => {
     pollingRef.current.add(assetId);
@@ -24,15 +24,10 @@ export function useAnalysisStatus() {
       const ids = [...pollingRef.current];
       if (ids.length === 0) return;
 
-      if (!backendUrlRef.current) {
-        backendUrlRef.current = await window.electronAPI.getBackendUrl();
-      }
-      const backendUrl = backendUrlRef.current;
-
       const results = await Promise.allSettled(
         ids.map(async (assetId) => {
-          const res = await fetch(
-            `${backendUrl}/api/agent/video-metadata/${assetId}`,
+          const res = await backendFetch(
+            `/api/agent/video-metadata/${assetId}`,
           );
           if (!res.ok) return null;
           const data = await res.json();

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { logger } from "../lib/logger";
+import { backendFetch } from "../lib/backend";
 import type { TimelineClip } from "../types/project";
 import type {
   ToolCall,
@@ -123,8 +124,7 @@ export async function triggerVideoAnalysis(
   force?: boolean,
 ): Promise<boolean> {
   try {
-    const backendUrl = await window.electronAPI.getBackendUrl();
-    const res = await fetch(`${backendUrl}/api/agent/analyze-video`, {
+    const res = await backendFetch("/api/agent/analyze-video", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -181,7 +181,6 @@ export function useAgent() {
       const t0 = performance.now();
 
       try {
-        const backendUrl = await window.electronAPI.getBackendUrl();
         const timelineState = buildTimelineState(
           clips,
           trackCount,
@@ -189,7 +188,7 @@ export function useAgent() {
         );
         progressActions.setThinking("Sending request to AI...");
 
-        const res = await fetch(`${backendUrl}/api/agent/execute`, {
+        const res = await backendFetch("/api/agent/execute", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -380,7 +379,7 @@ export function useAgent() {
             }
           }
 
-          const contRes = await fetch(`${backendUrl}/api/agent/continue`, {
+          const contRes = await backendFetch("/api/agent/continue", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

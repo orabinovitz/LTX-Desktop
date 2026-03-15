@@ -9,6 +9,7 @@
 import type { Asset } from "../../types/project";
 import { copyToAssetFolder } from "../../lib/asset-copy";
 import type { OnToolProgress } from "../../hooks/use-agent";
+import { backendFetch } from "../../lib/backend";
 
 interface GenerationProgress {
   status: string;
@@ -80,12 +81,6 @@ function getImageDimensions(
   return { width: shortSide, height: Math.round(shortSide / ratio) };
 }
 
-let _cachedBackendUrl: string | null = null;
-async function getBackendUrl(): Promise<string> {
-  if (_cachedBackendUrl) return _cachedBackendUrl;
-  _cachedBackendUrl = await window.electronAPI.getBackendUrl();
-  return _cachedBackendUrl;
-}
 
 function startProgressPolling(
   onProgress: OnToolProgress | undefined,
@@ -132,7 +127,6 @@ export async function agentGenerateVideo(
   signal?: AbortSignal,
   onProgress?: OnToolProgress,
 ): Promise<GenerationResult> {
-  const backendUrl = await getBackendUrl();
   const stopPolling = startProgressPolling(onProgress, signal);
 
   const body: Record<string, unknown> = {
@@ -150,7 +144,7 @@ export async function agentGenerateVideo(
 
   let response: Response;
   try {
-    response = await fetch(`${backendUrl}/api/generate`, {
+    response = await backendFetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -222,7 +216,6 @@ export async function agentGenerateImage(
   signal?: AbortSignal,
   onProgress?: OnToolProgress,
 ): Promise<GenerationResult> {
-  const backendUrl = await getBackendUrl();
   const stopPolling = startProgressPolling(onProgress, signal);
   const { width, height } = getImageDimensions(
     params.resolution ?? "1080p",
@@ -231,7 +224,7 @@ export async function agentGenerateImage(
 
   let response: Response;
   try {
-    response = await fetch(`${backendUrl}/api/generate-image`, {
+    response = await backendFetch("/api/generate-image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -307,12 +300,11 @@ export async function agentRetakeSection(
   signal?: AbortSignal,
   onProgress?: OnToolProgress,
 ): Promise<GenerationResult> {
-  const backendUrl = await getBackendUrl();
   const stopPolling = startProgressPolling(onProgress, signal);
 
   let response: Response;
   try {
-    response = await fetch(`${backendUrl}/api/retake`, {
+    response = await backendFetch("/api/retake", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -384,8 +376,7 @@ export async function agentRetakeSection(
 }
 
 export async function agentCancelGeneration(): Promise<void> {
-  const backendUrl = await getBackendUrl();
-  const res = await fetch(`${backendUrl}/api/generate/cancel`, { method: "POST" });
+  const res = await backendFetch("/api/generate/cancel", { method: "POST" });
   if (!res.ok) {
     throw new Error(`Cancel request failed: ${res.status}`);
   }
@@ -396,9 +387,8 @@ export async function agentGetGenerationStatus(): Promise<{
   progress: number;
   phase: string;
 }> {
-  const backendUrl = await getBackendUrl();
   try {
-    const res = await fetch(`${backendUrl}/api/generation/progress`);
+    const res = await backendFetch("/api/generation/progress");
     if (!res.ok) return { isGenerating: false, progress: 0, phase: "idle" };
     const data: GenerationProgress = await res.json();
     return {

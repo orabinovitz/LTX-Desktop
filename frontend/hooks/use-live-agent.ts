@@ -8,6 +8,7 @@ import {
 } from "@google/genai/web";
 import { AudioPlaybackQueue } from "../lib/audio-playback";
 import { logger } from "../lib/logger";
+import { backendFetch } from "../lib/backend";
 import type { ToolCall, ToolResult } from "../views/editor/useAgentExecutor";
 
 // Worklet URL resolved by Vite at build time
@@ -272,12 +273,9 @@ export function useLiveAgent(
 
     let step = "init";
     try {
-      step = "getBackendUrl";
-      const backendUrl = await window.electronAPI.getBackendUrl();
-
       if (!configRef.current) {
         step = "fetchConfig";
-        const configRes = await fetch(`${backendUrl}/api/agent/live-config`);
+        const configRes = await backendFetch("/api/agent/live-config");
         if (!configRes.ok) throw new Error(`Config HTTP ${configRes.status}`);
         configRef.current = await configRes.json();
       }
@@ -285,7 +283,7 @@ export function useLiveAgent(
 
       step = "fetchToken+micAccess";
       const tokenPromise = (async () => {
-        const tokenRes = await fetch(`${backendUrl}/api/agent/live-token`, {
+        const tokenRes = await backendFetch("/api/agent/live-token", {
           method: "POST",
         });
         if (!tokenRes.ok) {
