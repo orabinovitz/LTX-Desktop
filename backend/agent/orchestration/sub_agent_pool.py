@@ -103,6 +103,14 @@ def _has_shot_list(prior_results: dict[str, str]) -> bool:
     return False
 
 
+def _has_reference_assets(prior_results: dict[str, str]) -> bool:
+    """Check if any prior task result contains CHARACTER_REFS or LOCATION_REFS."""
+    for summary in prior_results.values():
+        if "CHARACTER_REFS:" in summary or "LOCATION_REFS:" in summary:
+            return True
+    return False
+
+
 def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
     """Build the user message with all relevant context for the sub-agent."""
     parts: list[str] = []
@@ -170,6 +178,23 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
                 "description, then call generate_video with image_to_video "
                 "mode to animate it\n"
                 "- Report each shot's asset_id in your summary"
+            )
+
+        has_refs = _has_reference_assets(context.prior_task_results) if context.prior_task_results else False
+        if has_refs:
+            parts.append(
+                "## CRITICAL: Use Reference Images for Consistency\n"
+                "Pre-production tasks generated CHARACTER and/or LOCATION "
+                "reference images. When calling `generate_image` for any "
+                "shot, you MUST pass the relevant reference asset IDs in "
+                "the `image_urls` parameter.\n\n"
+                "If the task description includes specific asset IDs to "
+                "use as image_urls, use those EXACTLY. This ensures every "
+                "shot maintains visual consistency with the established "
+                "characters and locations.\n\n"
+                "In your prompt, anchor character identity in the first "
+                "10 words and use identical vocabulary to the character "
+                "descriptions from pre-production."
             )
 
     elif task_type == "review":

@@ -237,9 +237,32 @@ Read `examples/scene-notes.md` when:
 - the user wants a modeled output format
 - the answer needs to sound like practical directing notes rather than analysis
 
+## Pre-production awareness
+
+When directing a scene that will be generated as AI content, the production
+pipeline establishes visual consistency BEFORE shot generation:
+
+- **Character reference sheets** define how each character looks from every
+  angle. When reviewing shots, verify characters match their reference sheets.
+  Flag identity drift (face changes, clothing inconsistencies, missing
+  signature accessories) as a specific regeneration note.
+- **Location keyframes** define the canonical look of each environment. When
+  reviewing shots, verify locations match their keyframe — same architecture,
+  same lighting quality, same color palette. Flag location inconsistencies.
+
+When writing directorial notes for a scene:
+- Reference established character identity tags by their exact vocabulary
+- Note which location keyframe angle best serves each shot's emotional intent
+- If a character needs a specific expression or pose, describe it in terms
+  the generation model can execute (physical behavior, not emotional adjectives)
+
 ## Project Memory
 
-Before giving direction, check project memory for scripts, shot lists, and prior creative decisions. Your notes must build on the established creative vision, not contradict it. Save directorial notes to memory using `save_to_project_memory` with type "notes" and record user reactions using `add_memory_note`.
+Before giving direction, check project memory for scripts, shot lists,
+character reference sheets, location keyframes, and prior creative decisions.
+Your notes must build on the established creative vision, not contradict it.
+Save directorial notes to memory using `save_to_project_memory` with type
+"notes" and record user reactions using `add_memory_note`.
 
 ## Quality bar
 

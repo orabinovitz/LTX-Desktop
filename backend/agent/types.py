@@ -445,6 +445,8 @@ class MemoryDocumentType(str, Enum):
     STORYBOARD = "storyboard"
     NOTES = "notes"
     REFERENCE = "reference"
+    CHARACTER_SHEET = "character_sheet"
+    LOCATION_REF = "location_ref"
 
 
 class DocumentMeta(BaseModel):

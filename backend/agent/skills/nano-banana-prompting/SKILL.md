@@ -241,6 +241,47 @@ When writing or improving an image generation prompt, verify:
 9. Are exclusions stated positively where possible?
 10. Is the resolution appropriate (1K for iteration, 2K/4K for finals)?
 
+## Scene production workflow
+
+When generating shots for a scene with pre-established characters and
+locations, follow this workflow to maintain visual consistency:
+
+**Before generating any shot:**
+1. Identify which character reference sheets and location keyframes exist
+   in the project assets (provided as prior task results or in the task
+   description)
+2. Collect the asset IDs for each character and location that appears in
+   the shot
+
+**For each shot generation:**
+1. Write the prompt using the six-element formula, anchoring character
+   identity in the **first 10 words** with the exact identity tag from
+   pre-production
+2. Pass ALL relevant reference asset IDs in the `image_urls` parameter:
+   - Character reference sheets for every character in the shot
+   - The location keyframe that best matches the shot's setting
+3. In the prompt, explicitly describe what to preserve from references:
+   "Maintain the character's appearance from the reference images. Maintain
+   the location's architecture, lighting, and color palette."
+4. Add shot-specific composition, camera, and lighting details AFTER the
+   identity and location anchors
+
+**Prompt template for reference-based shots:**
+```
+[Identity tag of primary character], [action/pose], with [secondary
+character identity tag] in [location description matching keyframe].
+[Composition and camera details]. [Lighting matching the established
+style]. [Style and quality details]. Maintain character appearances and
+location design from the reference images.
+```
+
+**Reference image ordering in `image_urls`:**
+- Primary character first
+- Secondary characters next
+- Location reference last
+- The model weights earlier references more heavily, so put the most
+  important consistency anchor first
+
 ## Anti-patterns
 
 Do not:
@@ -253,3 +294,6 @@ Do not:
   parameter instead
 - Write vague lighting ("good lighting," "cinematic lighting") — name the setup
 - Regenerate from scratch when an edit would be faster and more controlled
+- Generate shots without passing character/location references when they exist
+- Change identity tag vocabulary between shots — consistency depends on
+  identical descriptions

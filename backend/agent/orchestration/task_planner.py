@@ -122,28 +122,60 @@ For ANY request to create a video, scene, ad, short film, or visual sequence:
 2. **Visual style MUST be a separate task** that defines color palette, \
    lighting approach, and framing guide for the entire project.
 
-3. **Generation MUST be a separate execution task** that generates \
-   EVERY shot from the script. The orchestrator will expand this into \
-   per-shot parallel tasks automatically. Label this task description \
-   as: "Generate all shots from the shot list: generate each image \
-   with generate_image then animate with generate_video image_to_video"
+3. **Character pre-production** (when the script involves named characters \
+   or identifiable people): a separate EXECUTION task that generates \
+   character reference sheet images using `generate_image`. For each \
+   character, generate a 360-degree turnaround reference sheet showing \
+   front, three-quarter, side, and back views. Save reference asset IDs \
+   to project memory. The sub-agent MUST include in its output summary: \
+   `CHARACTER_REFS: {{"character_name": "asset_id", ...}}` so downstream \
+   tasks can use these as `image_urls` references. This task depends on \
+   the script and visual style tasks. Assign skill: `scene-preproduction`. \
+   Skip this step if the scene has no identifiable characters (e.g., \
+   abstract, nature, or object-only content).
 
-4. **Review MUST compare against the script.** The reviewer receives \
+4. **Location pre-production** (when the script involves specific \
+   locations): a separate EXECUTION task that generates location keyframe \
+   images using `generate_image`. For each location, generate a wide \
+   establishing shot plus 2-3 angle/interior variations using NB2 editing \
+   (pass the establishing shot as `image_urls` reference). Save reference \
+   asset IDs to project memory. The sub-agent MUST include in its output \
+   summary: `LOCATION_REFS: {{"location_label": "asset_id", ...}}` so \
+   downstream tasks can use these as `image_urls` references. This task \
+   depends on the script and visual style tasks. Assign skill: \
+   `scene-preproduction`. Character and location pre-production tasks \
+   are independent and can run in parallel. Skip this step if no specific \
+   locations are described.
+
+5. **Generation MUST be a separate execution task** that generates \
+   EVERY shot from the script. The orchestrator will expand this into \
+   per-shot parallel tasks automatically and inject character/location \
+   reference asset IDs from pre-production. This task MUST depend on \
+   the character and location pre-production tasks (if they exist) so \
+   reference images are available. Label this task description \
+   as: "Generate all shots from the shot list: generate each image \
+   with generate_image then animate with generate_video image_to_video. \
+   Use character and location reference images from pre-production as \
+   image_urls in every generate_image call for visual consistency."
+
+6. **Review MUST compare against the script.** The reviewer receives \
    both the script and the generation results. It must evaluate each \
    shot by number against the script description and flag specific \
    shots that need regeneration.
 
-5. **Timeline assembly is a separate execution task** that creates a \
+7. **Timeline assembly is a separate execution task** that creates a \
    timeline, adds all clips, trims dead frames, adjusts pacing, and \
    adds transitions.
 
-6. **Final edit review** evaluates the assembled timeline for pacing, \
+8. **Final edit review** evaluates the assembled timeline for pacing, \
    continuity, and overall quality.
 
 NEVER combine script-writing and generation into one task. \
 NEVER combine generation and timeline editing into one task. \
 NEVER skip the script step — every generated shot must trace back \
-to a numbered shot description.
+to a numbered shot description. \
+NEVER skip pre-production when characters or locations are present — \
+visual consistency depends on reference images being established first.
 
 ## General Rules
 
@@ -186,14 +218,16 @@ context_requirements: "timeline_state", "asset_metadata", "prior_results".
 
 Note: The user did NOT specify a duration. A scene with dialogue between \
 two characters has multiple dramatic beats (arrival, settling in, conversation \
-develops, tension builds, resolution). This requires ~3 minutes.
+develops, tension builds, resolution). This requires ~3 minutes. \
+The scene has two named characters (the couple) and one main location \
+(the diner), so character and location pre-production tasks are required.
 
 {{
   "target_duration_seconds": 180,
   "tasks": [
     {{
       "id": "task-1",
-      "description": "Write a detailed script for a ~3-minute A24-style diner scene. The couple's conversation should have multiple beats: arrival and settling in, casual talk that reveals subtext, a tension shift, and an unresolved ending. Include a NUMBERED shot list with 25-30 shots. Each shot must specify: visual description, shot type (wide/medium/close-up/detail), camera motion, duration in seconds, and any dialogue as subtitle text. Use format 'Shot 1:', 'Shot 2:', etc. Target total duration ~180 seconds. Vary shot durations: 4-6s for quick reactions, 6-10s for dialogue beats, 8-12s for establishing and emotional holds.",
+      "description": "Write a detailed script for a ~3-minute A24-style diner scene. The couple's conversation should have multiple beats: arrival and settling in, casual talk that reveals subtext, a tension shift, and an unresolved ending. Include a NUMBERED shot list with 25-30 shots. Each shot must specify: visual description, shot type (wide/medium/close-up/detail), camera motion, duration in seconds, and any dialogue as subtitle text. Use format 'Shot 1:', 'Shot 2:', etc. Target total duration ~180 seconds. Vary shot durations: 4-6s for quick reactions, 6-10s for dialogue beats, 8-12s for establishing and emotional holds. Give each character a specific name and detailed physical description that will be used for character reference sheets.",
       "skill_id": "film-tv-screenwriting",
       "task_type": "creative",
       "depends_on": [],
@@ -202,7 +236,7 @@ develops, tension builds, resolution). This requires ~3 minutes.
     }},
     {{
       "id": "task-2",
-      "description": "Define the A24 visual style for this diner scene: color palette (warm tungsten with cool shadows), lighting approach (practical sources, neon signs, overhead fluorescents), framing philosophy (off-center compositions, negative space), and grain/texture. Describe how each shot type should look visually for AI generation prompts.",
+      "description": "Define the A24 visual style for this diner scene: color palette (warm tungsten with cool shadows), lighting approach (practical sources, neon signs, overhead fluorescents), framing philosophy (off-center compositions, negative space), and grain/texture. Describe how each shot type should look visually for AI generation prompts. Include specific camera body, lens, and film stock recommendations.",
       "skill_id": "cinematography",
       "task_type": "creative",
       "depends_on": [],
@@ -211,37 +245,55 @@ develops, tension builds, resolution). This requires ~3 minutes.
     }},
     {{
       "id": "task-3",
-      "description": "Generate all shots from the shot list: for EACH numbered shot in the script from task-1, generate an image with generate_image using the visual style from task-2, then animate it into a video clip with generate_video in image_to_video mode. Generate EVERY shot listed — do not skip any.",
-      "skill_id": "ai-video-producer",
+      "description": "Generate character reference sheets for visual consistency. For EACH named character in the script from task-1, generate a 360-degree turnaround character sheet image using generate_image showing front, three-quarter, side, and back views with the visual style from task-2. Create a fixed identity tag for each character. Save all reference asset IDs to project memory. Your output MUST include CHARACTER_REFS with a JSON map of character names to asset IDs.",
+      "skill_id": "scene-preproduction",
       "task_type": "execution",
       "depends_on": ["task-1", "task-2"],
-      "tool_categories": ["generation"],
+      "tool_categories": ["generation", "memory"],
       "context_requirements": ["prior_results"]
     }},
     {{
       "id": "task-4",
-      "description": "Review each generated shot against the script from task-1. For EACH shot by number, verify: does the visual match the shot description? Is the framing correct? Does it fit the A24 aesthetic from task-2? Flag specific shots that need regeneration and explain why.",
-      "skill_id": "directing",
-      "task_type": "review",
-      "depends_on": ["task-1", "task-3"],
-      "tool_categories": ["core"],
+      "description": "Generate location keyframe images for visual consistency. For the diner location from the script in task-1, generate a wide establishing exterior shot plus interior variations (booth view, counter view, window view) using generate_image with the visual style from task-2. Use NB2 editing by passing the establishing shot asset ID as image_urls to maintain consistency across variations. Save all reference asset IDs to project memory. Your output MUST include LOCATION_REFS with a JSON map of location labels to asset IDs.",
+      "skill_id": "scene-preproduction",
+      "task_type": "execution",
+      "depends_on": ["task-1", "task-2"],
+      "tool_categories": ["generation", "memory"],
       "context_requirements": ["prior_results"]
     }},
     {{
       "id": "task-5",
+      "description": "Generate all shots from the shot list: for EACH numbered shot in the script from task-1, generate an image with generate_image using the visual style from task-2, then animate it into a video clip with generate_video in image_to_video mode. Generate EVERY shot listed — do not skip any. Use character and location reference images from pre-production tasks (task-3 and task-4) as image_urls in every generate_image call for visual consistency.",
+      "skill_id": null,
+      "task_type": "execution",
+      "depends_on": ["task-1", "task-2", "task-3", "task-4"],
+      "tool_categories": ["generation"],
+      "context_requirements": ["prior_results"]
+    }},
+    {{
+      "id": "task-6",
+      "description": "Review each generated shot against the script from task-1. For EACH shot by number, verify: does the visual match the shot description? Is the framing correct? Does it fit the A24 aesthetic from task-2? Are characters visually consistent with the reference sheets from task-3? Is the location consistent with keyframes from task-4? Flag specific shots that need regeneration and explain why.",
+      "skill_id": "directing",
+      "task_type": "review",
+      "depends_on": ["task-1", "task-5"],
+      "tool_categories": ["core"],
+      "context_requirements": ["prior_results"]
+    }},
+    {{
+      "id": "task-7",
       "description": "Create a new timeline with create_timeline. Add ALL generated video clips in script order using add_clip_to_timeline. Trim dead frames from each clip head/tail with trim_clip. Close all gaps. Use hard cuts between clips by default. Only add a dissolve at major section breaks (time jumps or location changes). Adjust pacing: hold longer on emotional close-ups, cut tighter on wide establishing shots. Target total duration ~180 seconds.",
       "skill_id": "tv-film-editing",
       "task_type": "execution",
-      "depends_on": ["task-3", "task-4"],
+      "depends_on": ["task-5", "task-6"],
       "tool_categories": ["timeline_mgmt", "clip_editing", "transitions", "playback"],
       "context_requirements": ["prior_results", "timeline_state"]
     }},
     {{
-      "id": "task-6",
+      "id": "task-8",
       "description": "Review the final edited timeline. Check: total duration (~180s), pacing rhythm, shot-to-shot continuity, whether the emotional subtext from the script is preserved, and whether the A24 aesthetic is maintained. Flag specific edits that need adjustment.",
       "skill_id": "tv-film-editing",
       "task_type": "review",
-      "depends_on": ["task-5"],
+      "depends_on": ["task-7"],
       "tool_categories": ["core"],
       "context_requirements": ["prior_results", "timeline_state"]
     }}

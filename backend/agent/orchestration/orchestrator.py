@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 _MAX_SESSIONS = 20
 _SESSION_TTL_SECONDS = 1800
 _MAX_RETRIES_PER_TASK = 1
-_MAX_DAG_TASKS = 50
+_MAX_DAG_TASKS = 75
 _MAX_REVIEW_ITERATIONS = 2
 
 
@@ -477,6 +477,87 @@ class Orchestrator:
                 shots.append((num, desc))
         return shots
 
+    @staticmethod
+    def _parse_reference_assets(
+        dag: TaskDAG,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Scan completed DAG tasks for CHARACTER_REFS and LOCATION_REFS blocks.
+
+        Returns (character_refs, location_refs) where each is a dict of
+        label -> asset_id parsed from pre-production task output summaries.
+        """
+        import json as _json
+
+        character_refs: dict[str, str] = {}
+        location_refs: dict[str, str] = {}
+
+        for task in dag.tasks:
+            if task.status != TaskStatus.COMPLETED or not task.result_summary:
+                continue
+
+            summary = task.result_summary
+            for marker, target in [
+                ("CHARACTER_REFS:", character_refs),
+                ("LOCATION_REFS:", location_refs),
+            ]:
+                idx = summary.find(marker)
+                if idx == -1:
+                    continue
+                json_start = summary.find("{", idx)
+                if json_start == -1:
+                    continue
+                json_end = summary.find("}", json_start)
+                if json_end == -1:
+                    continue
+                try:
+                    parsed = _json.loads(summary[json_start:json_end + 1])
+                    if isinstance(parsed, dict):
+                        target.update(parsed)
+                except (ValueError, TypeError):
+                    pass
+
+        return character_refs, location_refs
+
+    @staticmethod
+    def _select_refs_for_shot(
+        shot_desc: str,
+        character_refs: dict[str, str],
+        location_refs: dict[str, str],
+    ) -> list[str]:
+        """Pick the most relevant reference asset IDs for a specific shot.
+
+        All character refs are always included (scenes rarely have >5).
+        Location refs are included if any keyword from the label appears in
+        the shot description, with the first (establishing) ref as fallback.
+        Capped at 5 total to stay well within NB2's 14-image limit.
+        """
+        refs: list[str] = list(character_refs.values())
+
+        desc_lower = shot_desc.lower()
+        matched_loc_refs: list[str] = []
+        first_loc_ref: str | None = None
+
+        for label, asset_id in location_refs.items():
+            if first_loc_ref is None:
+                first_loc_ref = asset_id
+            keywords = label.replace("_", " ").split()
+            if any(kw in desc_lower for kw in keywords if len(kw) > 2):
+                matched_loc_refs.append(asset_id)
+
+        if matched_loc_refs:
+            refs.extend(matched_loc_refs[:2])
+        elif first_loc_ref:
+            refs.append(first_loc_ref)
+
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for r in refs:
+            if r not in seen:
+                seen.add(r)
+                deduped.append(r)
+
+        return deduped[:5]
+
     def _try_expand_shot_tasks(
         self,
         session: OrchestratorSession,
@@ -488,6 +569,10 @@ class Orchestrator:
         that produced a numbered shot list, and the execution task is about
         generation, expand it into N individual per-shot tasks that run
         in parallel.
+
+        If pre-production tasks produced CHARACTER_REFS / LOCATION_REFS,
+        the relevant reference asset IDs are injected into each per-shot
+        task description so the sub-agent passes them as image_urls.
 
         Returns True if expansion happened (caller should re-fetch ready tasks).
         """
@@ -518,6 +603,18 @@ class Orchestrator:
             if not shot_list or not script_task_id:
                 continue
 
+            character_refs, location_refs = self._parse_reference_assets(session.dag)
+            has_refs = bool(character_refs or location_refs)
+
+            if has_refs:
+                logger.info(
+                    "[orchestrator] session=%s | found pre-production refs: "
+                    "%d character(s), %d location(s)",
+                    session.id[:8],
+                    len(character_refs),
+                    len(location_refs),
+                )
+
             logger.info(
                 "[orchestrator] session=%s | expanding task %s into %d per-shot tasks",
                 session.id[:8], task.id, len(shot_list),
@@ -531,16 +628,35 @@ class Orchestrator:
             for shot_num, shot_desc in shot_list:
                 shot_task_id = f"generate-shot-{shot_num}"
                 short_desc = shot_desc[:500].replace("\n", " ")
-                shot_task = TaskNode(
-                    id=shot_task_id,
-                    description=(
+
+                if has_refs:
+                    ref_ids = self._select_refs_for_shot(
+                        shot_desc, character_refs, location_refs,
+                    )
+                    refs_str = ", ".join(ref_ids)
+                    description = (
+                        f"Generate Shot {shot_num}: First call generate_image "
+                        f"with this visual description: \"{short_desc}\". "
+                        f"IMPORTANT: Pass these reference asset IDs as "
+                        f"image_urls for character/location consistency: "
+                        f"[{refs_str}]. "
+                        f"Then call generate_video with mode=image_to_video "
+                        f"using the generated image asset_id. "
+                        f"Report the final video asset_id."
+                    )
+                else:
+                    description = (
                         f"Generate Shot {shot_num}: First call generate_image "
                         f"with this visual description: \"{short_desc}\". "
                         f"Then call generate_video with mode=image_to_video "
                         f"using the generated image asset_id. "
                         f"Report the final video asset_id."
-                    ),
-                    skill_id="ai-video-producer",
+                    )
+
+                shot_task = TaskNode(
+                    id=shot_task_id,
+                    description=description,
+                    skill_id="nano-banana-prompting" if has_refs else "ai-video-producer",
                     depends_on=list(task.depends_on),
                     status=TaskStatus.PENDING,
                     task_type=TaskType.EXECUTION,
