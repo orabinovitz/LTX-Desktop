@@ -37,6 +37,7 @@ from agent.types import (
     VideoMetadata,
 )
 from agent import brain as brain_module
+from agent import project_memory
 from agent import video_analyzer
 from agent.scene_decomposer import decompose_to_scenes
 from services.http_client.http_client import HTTPClient, HttpTimeoutError
@@ -333,18 +334,47 @@ surprising claim first (hook), then explain, then conclude.
 - NEVER include a segment where the speaker is being asked a question. \
 Only include segments where the speaker is ANSWERING.
 
+## Project Memory
+You have access to the project's persistent memory — a shared context store \
+that persists across sessions and is available to all agents.
+
+**ALWAYS** check project memory (it's in your context) before starting \
+creative work — previous agents may have already created scripts, research, \
+or storyboards you should build on.
+
+**ALWAYS** save significant creative outputs (scripts, shot lists, research) \
+to project memory using `save_to_project_memory` so future agents can use them.
+
+**ALWAYS** record user preferences and decisions using `add_memory_note` when \
+the user expresses likes, dislikes, or makes creative choices. This includes \
+rejected approaches, approved directions, and style preferences.
+
+After major creative milestones, update the master project context using \
+`update_project_context` to keep the living summary current.
+
+Available memory tools:
+- `save_to_project_memory` — save a new document (script, research, storyboard, notes, reference)
+- `update_project_memory` — update an existing document by ID
+- `read_project_memory` — read a document's full content by ID
+- `list_project_memory` — list all documents (with optional type filter)
+- `add_memory_note` — append a preference/decision to the memory log
+- `update_project_context` — update the master project context summary
+
 ## Workflow
 1. Timeline state is already in your context. Only call \
 `get_timeline_state` if the context is completely missing or you need \
 updated clip IDs after splits.
-2. If a project brain is in your context, use `query_project_brain` \
+2. Check **Project Memory** in your context for existing scripts, \
+research, or decisions that are relevant to the current request.
+3. If a project brain is in your context, use `query_project_brain` \
 to find clips relevant to the user's request BEFORE loading metadata.
-3. Call `get_video_metadata` only for clips you actually need.
-4. Plan your edit strategy. Think about the final result, not just \
+4. Call `get_video_metadata` only for clips you actually need.
+5. Plan your edit strategy. Think about the final result, not just \
 individual operations.
-5. If the timeline has existing clips worth preserving, duplicate first.
-6. Execute edits in logical order. After trims/deletes, close gaps.
-7. Summarize what you did and why — then STOP. Trust tool results.
+6. If the timeline has existing clips worth preserving, duplicate first.
+7. Execute edits in logical order. After trims/deletes, close gaps.
+8. Save creative outputs to project memory and note user preferences.
+9. Summarize what you did and why — then STOP. Trust tool results.
 
 ## Content Generation
 
@@ -602,6 +632,21 @@ _IMAGE_GENERATION_APPENDIX = """\
 - Generate a hero reference image first
 - Use that image's asset_id in image_urls for subsequent generations
 - Describe the same character details (clothing, hair, features) in every prompt
+- Always reference the ORIGINAL anchor image, never the 5th+ derivative (errors compound)
+- Use identical vocabulary across prompts — switching "emerald eyes" to "green eyes" causes drift
+
+**NB2 prompting best practices (critical for quality):**
+- NB2 is an LLM-backbone model. Write full natural-language sentences, NOT keyword lists.
+  Bad: "cool car, neon, city, night, rain, 8k, cinematic, masterpiece"
+  Good: "A matte-black sports car drifting through rain-slicked Tokyo backstreets at 2 AM, \
+neon kanji signs bleeding reflections across the wet asphalt."
+- Name real camera hardware for photorealism: "Shot on Sony A7III, 85mm f/1.8" or \
+"Kodak Portra 400 film stock" — each triggers distinct, learned visual DNA.
+- Be specific about lighting: "Soft key light from the upper left with warm rim light \
+separating the subject from a dark background" beats "cinematic lighting."
+- For editing, always describe both the change AND what to preserve: "Change the background \
+to a modern office. Keep the person's pose, clothing, and expression identical."
+- Iterate at 1K resolution, finalize winners at 2K or 4K.
 """
 
 _GENERATION_MODE_APPENDIX = """\
@@ -653,6 +698,7 @@ class _SessionData:
     scoped_categories: list[str]
     view_context: str
     last_access: float
+    project_id: str | None = None
 
 
 _sessions: OrderedDict[str, _SessionData] = OrderedDict()
@@ -689,16 +735,19 @@ def _set_session(
     *,
     scoped_categories: list[str] | None = None,
     view_context: str | None = None,
+    project_id: str | None = None,
 ) -> None:
     """Create or update a session."""
     existing = _sessions.get(session_id)
     cats = scoped_categories or (existing.scoped_categories if existing else [])
     vc = view_context or (existing.view_context if existing else "editor")
+    pid = project_id or (existing.project_id if existing else None)
     _sessions[session_id] = _SessionData(
         contents=contents,
         scoped_categories=cats,
         view_context=vc,
         last_access=time.monotonic(),
+        project_id=pid,
     )
 
 
@@ -706,6 +755,7 @@ def create_session(
     *,
     scoped_categories: list[str] | None = None,
     view_context: str = "editor",
+    project_id: str | None = None,
 ) -> str:
     """Create a new conversation session and return its UUID."""
     _evict_stale_sessions()
@@ -713,6 +763,7 @@ def create_session(
     _set_session(
         session_id, [],
         scoped_categories=scoped_categories or [],
+        project_id=project_id,
         view_context=view_context,
     )
     logger.info("Created agent session %s (total: %d)", session_id, len(_sessions))
@@ -766,10 +817,13 @@ def execute_prompt(
         if sd is not None:
             sd.scoped_categories = scoped_categories
             sd.view_context = view_ctx
+            if request.project_id:
+                sd.project_id = request.project_id
     else:
         session_id = create_session(
             scoped_categories=scoped_categories,
             view_context=view_ctx,
+            project_id=request.project_id,
         )
 
     # -- Build context text from timeline state --------------------------
@@ -803,6 +857,18 @@ def execute_prompt(
                 )
         if project_brain is not None:
             context_parts.append(brain_module.format_brain_for_agent(project_brain))
+
+    # Inject project memory context only when relevant (creative work,
+    # memory-related keywords, or the project already has stored memory).
+    if request.project_id:
+        should_inject_memory = (
+            "memory" in scoped_categories
+            or project_memory.has_memory(request.project_id)
+        )
+        if should_inject_memory:
+            memory_ctx = project_memory.format_memory_for_agent(request.project_id)
+            if memory_ctx:
+                context_parts.append(memory_ctx)
 
     # Inject assets/view context from GenSpace or other non-editor views
     if request.assets_context:
@@ -855,7 +921,7 @@ def execute_prompt(
     )
 
     t0 = time.monotonic()
-    response = _call_gemini(session_id, gemini_api_key, http_client)
+    response = _call_gemini(session_id, gemini_api_key, http_client, project_id=request.project_id)
     elapsed = time.monotonic() - t0
     logger.info(
         "[agent] session=%s | execute_prompt completed in %.1fs (done=%s, tools=%d)",
@@ -912,7 +978,7 @@ def continue_with_results(
     )
 
     t0 = time.monotonic()
-    response = _call_gemini(session_id, gemini_api_key, http_client)
+    response = _call_gemini(session_id, gemini_api_key, http_client, project_id=sd.project_id)
     elapsed = time.monotonic() - t0
     logger.info(
         "[agent] session=%s | continue completed in %.1fs (done=%s, tools=%d)",
@@ -934,6 +1000,7 @@ def _call_gemini(
     api_key: str,
     http_client: HTTPClient,
     _depth: int = 0,
+    project_id: str | None = None,
 ) -> AgentExecuteResponse:
     """Make a single Gemini generateContent call and process the result.
 
@@ -1180,12 +1247,12 @@ def _call_gemini(
     if backend_tool_calls:
         if len(backend_tool_calls) == 1:
             backend_results = [
-                _execute_backend_tool(backend_tool_calls[0], api_key=api_key, http_client=http_client, session_id=session_id)
+                _execute_backend_tool(backend_tool_calls[0], api_key=api_key, http_client=http_client, session_id=session_id, project_id=project_id)
             ]
         else:
             with ThreadPoolExecutor(max_workers=min(4, len(backend_tool_calls))) as pool:
                 backend_results = list(pool.map(
-                    lambda tc: _execute_backend_tool(tc, api_key=api_key, http_client=http_client, session_id=session_id),
+                    lambda tc: _execute_backend_tool(tc, api_key=api_key, http_client=http_client, session_id=session_id, project_id=project_id),
                     backend_tool_calls,
                 ))
 
@@ -1224,7 +1291,7 @@ def _call_gemini(
         )
 
     # -- Only backend tools were called — recurse to continue the loop ----
-    return _call_gemini(session_id, api_key, http_client, _depth=_depth + 1)
+    return _call_gemini(session_id, api_key, http_client, _depth=_depth + 1, project_id=project_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1238,6 +1305,7 @@ def _execute_backend_tool(
     api_key: str,
     http_client: HTTPClient,
     session_id: str,
+    project_id: str | None = None,
 ) -> ToolResult:
     """Execute a backend-side tool and return the result."""
     logger.info("Executing backend tool: %s(%s)", tool_call.tool_name, tool_call.arguments)
@@ -1248,6 +1316,9 @@ def _execute_backend_tool(
     def _review_structure(tc: ToolCall) -> ToolResult:
         return _handle_review_edit_structure(tc, api_key=api_key, http_client=http_client)
 
+    def _memory_tool(tc: ToolCall) -> ToolResult:
+        return _handle_memory_tool(tc, project_id=project_id)
+
     handlers: dict[str, Any] = {
         "get_video_metadata": _handle_get_video_metadata,
         "query_project_brain": _handle_query_brain,
@@ -1257,6 +1328,12 @@ def _execute_backend_tool(
         "get_full_transcript": _handle_get_full_transcript,
         "review_edit_quality": _review_quality,
         "review_edit_structure": _review_structure,
+        "save_to_project_memory": _memory_tool,
+        "update_project_memory": _memory_tool,
+        "read_project_memory": _memory_tool,
+        "list_project_memory": _memory_tool,
+        "add_memory_note": _memory_tool,
+        "update_project_context": _memory_tool,
     }
 
     try:
@@ -1767,3 +1844,104 @@ def _format_video_metadata(meta: VideoMetadata) -> str:
             )
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Project memory tool handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_memory_tool(
+    tool_call: ToolCall,
+    *,
+    project_id: str | None,
+) -> ToolResult:
+    """Dispatch memory tool calls to the project_memory module."""
+    if not project_id:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error="No project_id available — memory tools require an active project.",
+        )
+
+    name = tool_call.tool_name
+    args = tool_call.arguments
+
+    try:
+        if name == "save_to_project_memory":
+            title = args.get("title", "")
+            doc_type_str = args.get("type", "notes")
+            content = args.get("content", "")
+            if not title or not content:
+                return ToolResult(call_id=tool_call.call_id, success=False, error="title and content are required")
+            from agent.types import MemoryDocumentType
+            type_map = {t.value: t for t in MemoryDocumentType}
+            doc_type = type_map.get(doc_type_str, MemoryDocumentType.NOTES)
+            tags_raw = args.get("tags", [])
+            tags = tags_raw if isinstance(tags_raw, list) else []
+            meta = project_memory.write_document(
+                project_id=project_id,
+                title=title,
+                doc_type=doc_type,
+                content=content,
+                description=args.get("description", ""),
+                tags=tags,
+                created_by=f"agent",
+            )
+            return ToolResult(call_id=tool_call.call_id, result=meta.model_dump(mode="json"))
+
+        if name == "update_project_memory":
+            doc_id = args.get("document_id", "")
+            if not doc_id:
+                return ToolResult(call_id=tool_call.call_id, success=False, error="document_id is required")
+            tags_raw = args.get("tags")
+            tags = tags_raw if isinstance(tags_raw, list) else None
+            meta = project_memory.update_document(
+                project_id=project_id,
+                doc_id=doc_id,
+                content=args.get("content"),
+                title=args.get("title"),
+                description=args.get("description"),
+                tags=tags,
+            )
+            if meta is None:
+                return ToolResult(call_id=tool_call.call_id, success=False, error=f"Document '{doc_id}' not found")
+            return ToolResult(call_id=tool_call.call_id, result=meta.model_dump(mode="json"))
+
+        if name == "read_project_memory":
+            doc_id = args.get("document_id", "")
+            if not doc_id:
+                return ToolResult(call_id=tool_call.call_id, success=False, error="document_id is required")
+            doc = project_memory.read_document(project_id, doc_id)
+            if doc is None:
+                return ToolResult(call_id=tool_call.call_id, success=False, error=f"Document '{doc_id}' not found")
+            return ToolResult(call_id=tool_call.call_id, result={"title": doc.meta.title, "type": doc.meta.type, "content": doc.content, "version": doc.meta.version})
+
+        if name == "list_project_memory":
+            from agent.types import MemoryDocumentType
+            type_filter_str = args.get("type_filter")
+            doc_type_filter = None
+            if type_filter_str:
+                type_map = {t.value: t for t in MemoryDocumentType}
+                doc_type_filter = type_map.get(type_filter_str)
+            docs = project_memory.list_documents(project_id, doc_type=doc_type_filter)
+            return ToolResult(call_id=tool_call.call_id, result=[d.model_dump(mode="json") for d in docs])
+
+        if name == "add_memory_note":
+            note = args.get("note", "")
+            if not note:
+                return ToolResult(call_id=tool_call.call_id, success=False, error="note is required")
+            project_memory.append_memory_entry(project_id, note)
+            return ToolResult(call_id=tool_call.call_id, result="Memory note saved.")
+
+        if name == "update_project_context":
+            content = args.get("content", "")
+            if not content:
+                return ToolResult(call_id=tool_call.call_id, success=False, error="content is required")
+            project_memory.update_context(project_id, content)
+            return ToolResult(call_id=tool_call.call_id, result="Project context updated.")
+
+        return ToolResult(call_id=tool_call.call_id, success=False, error=f"Unknown memory tool: {name}")
+
+    except ValueError as e:
+        return ToolResult(call_id=tool_call.call_id, success=False, error=str(e))

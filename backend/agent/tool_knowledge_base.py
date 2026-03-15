@@ -359,6 +359,41 @@ CATEGORIES: dict[str, ToolCategory] = {
             ),
         ],
     ),
+    "memory": ToolCategory(
+        name="memory",
+        display_name="Project Memory",
+        description="Save and retrieve persistent project context: scripts, research, preferences, decisions",
+        keywords=[
+            "memory", "remember", "save", "context", "script", "research",
+            "storyboard", "notes", "preference", "decision", "like",
+            "dislike", "feedback", "history", "recall", "previous",
+            "write down", "note", "record", "document",
+        ],
+        tool_names=[
+            "save_to_project_memory", "update_project_memory",
+            "read_project_memory", "list_project_memory",
+            "add_memory_note", "update_project_context",
+        ],
+        workflows=[
+            WorkflowRecipe(
+                name="save_creative_output",
+                description="Save a creative artifact to project memory for cross-session persistence",
+                steps=[
+                    "list_project_memory() to check if related documents exist",
+                    "save_to_project_memory(title, type, content, description, tags)",
+                    "update_project_context(content) to update the master context summary",
+                ],
+            ),
+            WorkflowRecipe(
+                name="record_user_preference",
+                description="Record user feedback, preferences, or decisions for future agents",
+                steps=[
+                    "add_memory_note(note) with specific details about the preference",
+                    "If significant: update_project_context(content) to reflect the change",
+                ],
+            ),
+        ],
+    ),
 }
 
 
@@ -368,7 +403,7 @@ CATEGORIES: dict[str, ToolCategory] = {
 
 ALLOWED_CATEGORIES_BY_VIEW: dict[str, set[str]] = {
     "editor": set(CATEGORIES.keys()),
-    "genspace": {"core", "generation", "asset_mgmt", "analysis", "clip_editing", "timeline_mgmt", "track_mgmt"},
+    "genspace": {"core", "generation", "asset_mgmt", "analysis", "clip_editing", "timeline_mgmt", "track_mgmt", "memory"},
     "playground": {"generation"},
 }
 

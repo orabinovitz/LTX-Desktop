@@ -57,6 +57,17 @@ specialized sub-agents. Each task is one of three types:
 - **asset_mgmt**: create_subclip_assets, organize_asset
 - **analysis**: get_video_metadata, query_project_brain, get_full_transcript
 - **review**: review_edit_quality, review_edit_structure
+- **memory**: save_to_project_memory, update_project_memory, \
+  read_project_memory, list_project_memory, add_memory_note, \
+  update_project_context
+
+## Project Memory
+
+If the context includes a **Project Memory** section, existing documents \
+(scripts, research, storyboards) and user preferences/decisions are available. \
+Sub-agents should READ relevant memory documents before starting creative work \
+and SAVE their creative outputs to memory when done. \
+User preferences in the memory log MUST be respected.
 
 ## CRITICAL: Duration Estimation
 
@@ -341,6 +352,7 @@ class TaskPlanner:
         available_skills: list[SkillDescriptor],
         timeline_context: str | None = None,
         assets_context: str | None = None,
+        memory_context: str | None = None,
     ) -> TaskDAG:
         """Break a user request into a validated TaskDAG.
 
@@ -355,6 +367,8 @@ class TaskPlanner:
             user_parts.append(f"## Current Timeline\n{timeline_context}")
         if assets_context:
             user_parts.append(f"## Available Assets\n{assets_context}")
+        if memory_context:
+            user_parts.append(memory_context)
         user_parts.append(f"## User Request\n{prompt}")
         user_message = "\n\n".join(user_parts)
 

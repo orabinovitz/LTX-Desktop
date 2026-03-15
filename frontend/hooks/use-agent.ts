@@ -433,6 +433,7 @@ export function useAgent() {
         ]);
       } finally {
         setIsProcessing(false);
+        window.dispatchEvent(new CustomEvent('agent-action-complete'));
       }
     },
     [progressActions],

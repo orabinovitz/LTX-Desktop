@@ -156,6 +156,12 @@ class Orchestrator:
         timeline_ctx = self._format_timeline(request.timeline_state) if request.timeline_state else None
         assets_ctx = str(request.assets_context) if request.assets_context else None
 
+        memory_ctx: str | None = None
+        if request.project_id:
+            from agent import project_memory
+            if project_memory.has_memory(request.project_id):
+                memory_ctx = project_memory.format_memory_for_agent(request.project_id)
+
         logger.info(
             "[orchestrator] session=%s | planning: %.80s",
             session_id[:8], request.prompt,
@@ -166,6 +172,7 @@ class Orchestrator:
             descriptors,
             timeline_context=timeline_ctx,
             assets_context=assets_ctx,
+            memory_context=memory_ctx,
         )
 
         if len(dag.tasks) > _MAX_DAG_TASKS:
@@ -279,7 +286,7 @@ class Orchestrator:
                     task.result_summary = self._summarize_results(task_results)
                 continue
 
-            resumed = self._pool.resume_single(prev_result, task_results)
+            resumed = self._pool.resume_single(prev_result, task_results, project_id=session.project_id)
 
             task = session.dag.get_task(task_id)
             if not task:

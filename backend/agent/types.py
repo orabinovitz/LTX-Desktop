@@ -433,6 +433,92 @@ class OrchestrateContinueRequest(BaseModel):
 
 
 # ============================================================
+# Project Memory
+# ============================================================
+
+
+class MemoryDocumentType(str, Enum):
+    """Type classification for project memory documents."""
+
+    SCRIPT = "script"
+    RESEARCH = "research"
+    STORYBOARD = "storyboard"
+    NOTES = "notes"
+    REFERENCE = "reference"
+
+
+class DocumentMeta(BaseModel):
+    """Metadata for a project memory document (stored in manifest)."""
+
+    id: str = Field(description="Unique document identifier")
+    title: str = Field(description="Human-readable document title")
+    type: MemoryDocumentType = Field(description="Document classification")
+    filename: str = Field(description="Relative path within .memory/ directory")
+    description: str = Field(default="", description="Short summary of the document")
+    created_at: str = Field(description="ISO-8601 creation timestamp")
+    updated_at: str = Field(description="ISO-8601 last-update timestamp")
+    version: int = Field(default=1, description="Incremented on each update")
+    tags: list[str] = Field(default_factory=list, description="Searchable tags")
+    created_by: str = Field(default="user", description="Creator identifier (e.g. 'user', 'agent:cinematography')")
+
+
+class MemoryManifest(BaseModel):
+    """Index of all documents in a project's memory store."""
+
+    project_id: str
+    documents: list[DocumentMeta] = Field(default_factory=list)
+    updated_at: str = Field(default="", description="ISO-8601 last-update timestamp")
+
+
+class MemoryDocument(BaseModel):
+    """A full memory document: metadata + content body."""
+
+    meta: DocumentMeta
+    content: str = Field(description="Markdown body of the document")
+
+
+class SaveDocumentRequest(BaseModel):
+    """Request to create a new memory document."""
+
+    project_id: str
+    title: str
+    type: MemoryDocumentType
+    content: str
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
+    created_by: str = "user"
+    assets_path: str | None = Field(default=None, description="Override storage base path")
+
+
+class UpdateDocumentRequest(BaseModel):
+    """Request to update an existing memory document."""
+
+    project_id: str
+    document_id: str
+    content: str | None = None
+    title: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
+    assets_path: str | None = Field(default=None, description="Override storage base path")
+
+
+class AddMemoryEntryRequest(BaseModel):
+    """Request to append an entry to the memory/preferences log."""
+
+    project_id: str
+    entry: str = Field(description="Free-text memory note", max_length=5000)
+    assets_path: str | None = Field(default=None, description="Override storage base path")
+
+
+class UpdateContextRequest(BaseModel):
+    """Request to update the master project context document."""
+
+    project_id: str
+    content: str = Field(description="New master context content", max_length=50000)
+    assets_path: str | None = Field(default=None, description="Override storage base path")
+
+
+# ============================================================
 # Live API
 # ============================================================
 

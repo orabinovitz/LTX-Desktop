@@ -237,6 +237,10 @@ Read `examples/scene-notes.md` when:
 - the user wants a modeled output format
 - the answer needs to sound like practical directing notes rather than analysis
 
+## Project Memory
+
+Before giving direction, check project memory for scripts, shot lists, and prior creative decisions. Your notes must build on the established creative vision, not contradict it. Save directorial notes to memory using `save_to_project_memory` with type "notes" and record user reactions using `add_memory_note`.
+
 ## Quality bar
 
 Strong answers should feel like notes from a perceptive director:

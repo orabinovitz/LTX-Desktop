@@ -326,6 +326,15 @@ Read these only when they will improve the answer:
 - `templates/DELIVERABLE_TEMPLATES.md`
   - Read when the user asks for beat sheets, pilot engines, season arcs, scene cards, character breakdowns, or development memos.
 
+## Project Memory
+
+Before starting creative work, check the project memory context for existing scripts, character descriptions, or user preferences. Build on what exists rather than starting from scratch.
+
+After completing a script, scene, or outline:
+1. Save the output to project memory using `save_to_project_memory` with type "script" and appropriate tags (e.g. scene name, characters, location).
+2. If this is a significant creative milestone, update the master project context using `update_project_context` to reflect the new material.
+3. Record any user feedback or creative decisions using `add_memory_note`.
+
 ## Final check before sending
 
 Before responding, verify:

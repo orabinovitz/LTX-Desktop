@@ -4,19 +4,27 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from agent import project_memory
 from agent.types import (
+    AddMemoryEntryRequest,
     AgentContinueRequest,
     AgentExecuteRequest,
     AgentExecuteResponse,
     AnalyzeVideoRequest,
     AnalyzeVideoResponse,
     DecomposeVideoResponse,
+    DocumentMeta,
     LiveConfigResponse,
     LiveTokenResponse,
+    MemoryManifest,
+    MemoryDocument,
     OrchestrateContinueRequest,
     OrchestrateRequest,
     OrchestrateResponse,
+    SaveDocumentRequest,
     SubClipInfo,
+    UpdateContextRequest,
+    UpdateDocumentRequest,
 )
 from app_handler import AppHandler
 from state import get_state_service
@@ -175,3 +183,131 @@ def route_get_live_config(
 ) -> LiveConfigResponse:
     """Return system prompt and tool declarations for Live API sessions."""
     return handler.agent.get_live_config()
+
+
+# ------------------------------------------------------------------
+# Project Memory endpoints
+# ------------------------------------------------------------------
+
+
+@router.get("/agent/memory/{project_id}")
+def route_list_memory(
+    project_id: str,
+    assets_path: str | None = None,
+) -> MemoryManifest:
+    """List all memory documents for a project."""
+    manifest = project_memory.get_manifest(project_id, assets_path)
+    if manifest is None:
+        return MemoryManifest(project_id=project_id, documents=[], updated_at="")
+    return manifest
+
+
+@router.get("/agent/memory/{project_id}/document/{doc_id}")
+def route_read_memory_document(
+    project_id: str,
+    doc_id: str,
+    assets_path: str | None = None,
+) -> MemoryDocument:
+    """Read a specific memory document."""
+    doc = project_memory.read_document(project_id, doc_id, assets_path)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return doc
+
+
+@router.post("/agent/memory/{project_id}/document", response_model=DocumentMeta)
+def route_create_memory_document(
+    project_id: str,
+    req: SaveDocumentRequest,
+) -> DocumentMeta:
+    """Create a new memory document."""
+    try:
+        return project_memory.write_document(
+            project_id=project_id,
+            title=req.title,
+            doc_type=req.type,
+            content=req.content,
+            description=req.description,
+            tags=req.tags,
+            created_by=req.created_by,
+            assets_path=req.assets_path,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.put("/agent/memory/{project_id}/document/{doc_id}", response_model=DocumentMeta)
+def route_update_memory_document(
+    project_id: str,
+    doc_id: str,
+    req: UpdateDocumentRequest,
+) -> DocumentMeta:
+    """Update an existing memory document."""
+    try:
+        meta = project_memory.update_document(
+            project_id=project_id,
+            doc_id=doc_id,
+            content=req.content,
+            title=req.title,
+            description=req.description,
+            tags=req.tags,
+            assets_path=req.assets_path,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return meta
+
+
+@router.delete("/agent/memory/{project_id}/document/{doc_id}")
+def route_delete_memory_document(
+    project_id: str,
+    doc_id: str,
+    assets_path: str | None = None,
+) -> dict[str, str]:
+    """Delete a memory document."""
+    deleted = project_memory.delete_document(project_id, doc_id, assets_path)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"status": "deleted"}
+
+
+@router.get("/agent/memory/{project_id}/context")
+def route_read_context(
+    project_id: str,
+    assets_path: str | None = None,
+) -> dict[str, str]:
+    """Read the master project context document."""
+    content = project_memory.read_context(project_id, assets_path)
+    return {"content": content}
+
+
+@router.put("/agent/memory/{project_id}/context")
+def route_update_context(
+    project_id: str,
+    req: UpdateContextRequest,
+) -> dict[str, str]:
+    """Update the master project context document."""
+    project_memory.update_context(project_id, req.content, req.assets_path)
+    return {"status": "updated"}
+
+
+@router.get("/agent/memory/{project_id}/log")
+def route_read_memory_log(
+    project_id: str,
+    assets_path: str | None = None,
+) -> dict[str, str]:
+    """Read the memory/preferences log."""
+    content = project_memory.read_memory_log(project_id, assets_path)
+    return {"content": content}
+
+
+@router.post("/agent/memory/{project_id}/log")
+def route_append_memory_log(
+    project_id: str,
+    req: AddMemoryEntryRequest,
+) -> dict[str, str]:
+    """Append an entry to the memory/preferences log."""
+    project_memory.append_memory_entry(project_id, req.entry, req.assets_path)
+    return {"status": "appended"}

@@ -67,7 +67,7 @@ class TestToolRegistryCompleteness:
                 )
 
     def test_total_tool_count(self) -> None:
-        assert len(ALL_TOOLS) == 65, f"Expected 65 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 71, f"Expected 71 tools, got {len(ALL_TOOLS)}"
 
 
 class TestIntentClassification:
@@ -453,7 +453,7 @@ class TestViewContextFiltering:
         filtered = filter_categories_for_view(all_cats, "genspace")
         assert set(filtered) == {
             "core", "generation", "asset_mgmt", "analysis",
-            "clip_editing", "timeline_mgmt", "track_mgmt",
+            "clip_editing", "timeline_mgmt", "track_mgmt", "memory",
         }
         assert "playback" not in filtered
         assert "subtitles" not in filtered

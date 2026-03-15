@@ -5,6 +5,7 @@ import { ProjectProvider, useProjects } from './contexts/ProjectContext'
 import { KeyboardShortcutsProvider } from './contexts/KeyboardShortcutsContext'
 import { AppSettingsProvider, useAppSettings } from './contexts/AppSettingsContext'
 import { AgentProvider, useAgentContext } from './contexts/AgentContext'
+import { ProjectMemoryProvider } from './contexts/ProjectMemoryContext'
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal'
 import { AgentPromptBox } from './views/editor/AgentPromptBox'
 import { useGlobalAgentShortcut } from './hooks/useGlobalAgentShortcut'
@@ -563,8 +564,10 @@ export default function App() {
       <KeyboardShortcutsProvider>
         <AppSettingsProvider>
           <AgentProvider>
-            <AppContent />
-            <KeyboardShortcutsModal />
+            <ProjectMemoryProvider>
+              <AppContent />
+              <KeyboardShortcutsModal />
+            </ProjectMemoryProvider>
           </AgentProvider>
         </AppSettingsProvider>
       </KeyboardShortcutsProvider>

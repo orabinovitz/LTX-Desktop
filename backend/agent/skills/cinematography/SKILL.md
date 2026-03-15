@@ -204,6 +204,12 @@ Do not:
 - confuse "pretty" with good cinematography
 - ignore the practical constraints the user is working within
 
+## Project Memory
+
+Before creating shot lists or visual plans, read the project memory for existing scripts, storyboards, and user preferences (especially location and style decisions). Your visual choices must align with any established creative direction.
+
+After completing a shot list or visual style guide, save it to project memory using `save_to_project_memory` with type "storyboard" or "reference". Record user feedback on visual choices using `add_memory_note`.
+
 ## Quality bar
 
 Strong advice should feel like notes from a thoughtful DP:

@@ -1337,6 +1337,115 @@ review_edit_structure = _tool(
     ],
 )
 
+# ===================================================================
+# PROJECT MEMORY — persistent context across agent sessions
+# ===================================================================
+
+save_to_project_memory = _tool(
+    name="save_to_project_memory",
+    description=(
+        "Save a new document to the project's persistent memory. Use this to "
+        "store creative outputs (scripts, research, storyboards, notes) so "
+        "they persist across sessions and are available to other agents. "
+        "Returns the document metadata including its unique ID."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    category="memory",
+    parameters=[
+        _param("title", "string", "Human-readable document title."),
+        _param(
+            "type", "string",
+            "Document type: 'script', 'research', 'storyboard', 'notes', or 'reference'.",
+        ),
+        _param("content", "string", "The document body in markdown format."),
+        _param("description", "string", "Short 1-2 sentence summary.", required=False),
+        _param("tags", "array", "Searchable tags for this document.", required=False),
+    ],
+)
+
+update_project_memory = _tool(
+    name="update_project_memory",
+    description=(
+        "Update an existing document in the project memory. Provide the "
+        "document ID (from list_project_memory or a previous save) and "
+        "the fields to update. Increments the version number."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    category="memory",
+    parameters=[
+        _param("document_id", "string", "ID of the document to update."),
+        _param("content", "string", "New document body.", required=False),
+        _param("title", "string", "New title.", required=False),
+        _param("description", "string", "New description.", required=False),
+        _param("tags", "array", "New tags list.", required=False),
+    ],
+)
+
+read_project_memory = _tool(
+    name="read_project_memory",
+    description=(
+        "Read the full content of a specific document from project memory. "
+        "Use the document ID from list_project_memory or the context summary."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    category="memory",
+    parameters=[
+        _param("document_id", "string", "ID of the document to read."),
+    ],
+)
+
+list_project_memory = _tool(
+    name="list_project_memory",
+    description=(
+        "List all documents in the project memory with their metadata "
+        "(title, type, description, tags, version). Use this to discover "
+        "what context is available before starting creative work."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    category="memory",
+    parameters=[
+        _param(
+            "type_filter", "string",
+            "Optional filter: 'script', 'research', 'storyboard', 'notes', or 'reference'.",
+            required=False,
+        ),
+    ],
+)
+
+add_memory_note = _tool(
+    name="add_memory_note",
+    description=(
+        "Append a note to the project's memory log — a persistent record of "
+        "user preferences, creative decisions, and feedback. Notes are "
+        "timestamped and visible to all future agent sessions. Use this to "
+        "record things like: user dislikes, user preferences, rejected "
+        "approaches, approved creative directions."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    category="memory",
+    parameters=[
+        _param(
+            "note", "string",
+            "The memory note to record (e.g. 'User rejected urban diner — prefers rural roadside aesthetic').",
+        ),
+    ],
+)
+
+update_project_context = _tool(
+    name="update_project_context",
+    description=(
+        "Update the master project context document — a living summary of "
+        "the project's creative direction, key decisions, characters, tone, "
+        "and current status. This is the first thing agents read when starting "
+        "a new session. Keep it concise and up-to-date."
+    ),
+    execution_target=ExecutionTarget.BACKEND,
+    category="memory",
+    parameters=[
+        _param("content", "string", "The updated project context in markdown format."),
+    ],
+)
+
 # ---------------------------------------------------------------------------
 # Public registry
 # ---------------------------------------------------------------------------
@@ -1422,6 +1531,13 @@ ALL_TOOLS: list[ToolDefinition] = [
     # Review (backend)
     review_edit_quality,
     review_edit_structure,
+    # Memory (backend)
+    save_to_project_memory,
+    update_project_memory,
+    read_project_memory,
+    list_project_memory,
+    add_memory_note,
+    update_project_context,
 ]
 
 TOOLS_BY_NAME: dict[str, ToolDefinition] = {tool.name: tool for tool in ALL_TOOLS}

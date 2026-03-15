@@ -1,13 +1,16 @@
-import { ArrowLeft, Sparkles, Film } from 'lucide-react'
+import { ArrowLeft, Sparkles, Film, BookOpen } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
+import { useProjectMemory } from '../contexts/ProjectMemoryContext'
 import { LtxLogo } from '../components/LtxLogo'
 import { Button } from '../components/ui/button'
+import { MemoryPanel } from '../components/memory/MemoryPanel'
 import { GenSpace } from './GenSpace'
 import { VideoEditor } from './VideoEditor'
 import type { ProjectTab } from '../types/project'
 
 export function Project() {
   const { currentProject, currentTab, setCurrentTab, goHome } = useProjects()
+  const { isPanelOpen, togglePanel, documents } = useProjectMemory()
   
   if (!currentProject) {
     return (
@@ -62,18 +65,39 @@ export function Project() {
           ))}
         </div>
         
-        {/* Right spacer - equal to left to keep tabs centered */}
-        <div className="flex-1" />
+        {/* Right side - Memory toggle */}
+        <div className="flex-1 flex justify-end pr-20">
+          <button
+            onClick={togglePanel}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
+              isPanelOpen
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+            }`}
+            title="Toggle Project Memory"
+          >
+            <BookOpen className="h-4 w-4" />
+            <span>Memory</span>
+            {documents.length > 0 && (
+              <span className="ml-0.5 text-xs bg-zinc-700 text-zinc-300 rounded-full px-1.5 py-0.5 min-w-[1.25rem] text-center">
+                {documents.length}
+              </span>
+            )}
+          </button>
+        </div>
       </header>
       
       {/* Main Content - both views stay mounted to preserve state */}
-      <main className="flex-1 overflow-hidden relative">
-        <div className={`absolute inset-0 ${currentTab === 'gen-space' ? '' : 'invisible pointer-events-none'}`}>
-          <GenSpace />
+      <main className="flex-1 overflow-hidden flex">
+        <div className="flex-1 relative">
+          <div className={`absolute inset-0 ${currentTab === 'gen-space' ? '' : 'invisible pointer-events-none'}`}>
+            <GenSpace />
+          </div>
+          <div className={`absolute inset-0 ${currentTab === 'video-editor' ? '' : 'invisible pointer-events-none'}`}>
+            <VideoEditor />
+          </div>
         </div>
-        <div className={`absolute inset-0 ${currentTab === 'video-editor' ? '' : 'invisible pointer-events-none'}`}>
-          <VideoEditor />
-        </div>
+        <MemoryPanel />
       </main>
     </div>
   )

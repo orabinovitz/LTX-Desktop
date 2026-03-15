@@ -125,6 +125,14 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
     if context.assets_context:
         parts.append(f"## Available Assets\n{context.assets_context}")
 
+    task_type_val = getattr(context.task, "task_type", "execution")
+    task_type_str = task_type_val.value if hasattr(task_type_val, "value") else str(task_type_val)
+    if context.project_id and task_type_str in ("creative", "review"):
+        from agent import project_memory
+        memory_ctx = project_memory.format_memory_for_agent(context.project_id)
+        if memory_ctx:
+            parts.append(memory_ctx)
+
     if context.prior_task_results:
         results_text = "\n".join(
             f"- **{tid}**: {summary}"
@@ -229,6 +237,10 @@ def _get_scoped_tools(
 
     if "core" not in categories:
         categories = ["core", *categories]
+    task_type_val = getattr(task, "task_type", "execution")
+    task_type_str = task_type_val.value if hasattr(task_type_val, "value") else str(task_type_val)
+    if "memory" not in categories and task_type_str in ("creative", "review"):
+        categories = [*categories, "memory"]
 
     scoped_tools = get_tools_for_categories(categories)
     if not scoped_tools:
@@ -242,6 +254,7 @@ def _execute_backend_tool_inline(
     *,
     api_key: str,
     http_client: HTTPClient,
+    project_id: str | None = None,
 ) -> ToolResult:
     """Execute a backend tool inline."""
     from agent.gemini_agent import _execute_backend_tool
@@ -250,6 +263,7 @@ def _execute_backend_tool_inline(
         api_key=api_key,
         http_client=http_client,
         session_id="sub-agent",
+        project_id=project_id,
     )
 
 
@@ -389,7 +403,7 @@ def execute_sub_agent(
             fn_response_parts: list[dict[str, Any]] = []
             for bc in backend_calls:
                 br = _execute_backend_tool_inline(
-                    bc, api_key=api_key, http_client=http_client,
+                    bc, api_key=api_key, http_client=http_client, project_id=context.project_id,
                 )
                 all_backend_results.append(br)
                 result_payload: dict[str, Any] = (
@@ -438,6 +452,7 @@ def resume_sub_agent(
     tool_results: list[ToolResult],
     api_key: str,
     http_client: HTTPClient,
+    project_id: str | None = None,
 ) -> SubAgentResult:
     """Resume a sub-agent session after frontend tool execution.
 
@@ -497,7 +512,7 @@ def resume_sub_agent(
             fn_resp: list[dict[str, Any]] = []
             for bc in backend_calls:
                 br = _execute_backend_tool_inline(
-                    bc, api_key=api_key, http_client=http_client,
+                    bc, api_key=api_key, http_client=http_client, project_id=project_id,
                 )
                 all_backend_results.append(br)
                 rp: dict[str, Any] = (
@@ -554,10 +569,12 @@ class SubAgentPool:
         self,
         prev_result: SubAgentResult,
         tool_results: list[ToolResult],
+        project_id: str | None = None,
     ) -> SubAgentResult:
         return resume_sub_agent(
             prev_result, tool_results,
             self._api_key, self._http_client,
+            project_id=project_id,
         )
 
     def execute_parallel(
