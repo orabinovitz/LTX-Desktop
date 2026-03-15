@@ -7,6 +7,7 @@ from typing import Literal
 from services.a2v_pipeline.a2v_pipeline import A2VPipeline
 from services.depth_processor_pipeline.depth_processor_pipeline import DepthProcessorPipeline
 from services.fast_video_pipeline.fast_video_pipeline import FastVideoPipeline
+from services.nano_banana_2_api_client.nano_banana_2_api_client import NanoBanana2APIClient
 from services.zit_api_client.zit_api_client import ZitAPIClient
 from services.gpu_cleaner.gpu_cleaner import GpuCleaner
 from services.gpu_info.gpu_info import GpuInfo, GpuTelemetryPayload
@@ -42,6 +43,7 @@ __all__ = [
     "TaskRunner",
     "VideoPipelineModelType",
     "FastVideoPipeline",
+    "NanoBanana2APIClient",
     "ZitAPIClient",
     "ImageGenerationPipeline",
     "IcLoraPipeline",

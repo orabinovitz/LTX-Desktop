@@ -872,18 +872,20 @@ generate_video = _tool(
 generate_image = _tool(
     name="generate_image",
     description=(
-        "Generate a new image using AI from a text prompt. The generated "
-        "image is saved as a new project asset. Returns the asset_id. "
-        "Use this when you need a still image for compositing, thumbnails, "
-        "or as input for image-to-video generation."
+        "Generate or edit an image using AI. Default model is Nano Banana 2 "
+        "(higher quality, supports editing with reference images). Pass "
+        "image_urls with asset paths to composite/edit multiple images together. "
+        "Without image_urls, generates from text only. Returns the asset_id."
     ),
     execution_target=ExecutionTarget.FRONTEND,
     category="generation",
     parameters=[
-        _param("prompt", "string", "Text description of the desired image."),
-        _param("resolution", "string", "'1080p', '1440p', or '2048p'.", required=False),
-        _param("aspect_ratio", "string", "'1:1', '16:9', '9:16', '4:3', '3:4', '21:9'.", required=False),
+        _param("prompt", "string", "Text description of the desired image, or editing instruction when image_urls are provided."),
+        _param("model", "string", "'nano-banana-2' (default, higher quality) or 'z-image-turbo' (fast). Use NB2 unless user requests ZIT.", required=False),
+        _param("resolution", "string", "For NB2: '1K', '2K', or '4K'. For ZIT: '1080p', '1440p', or '2048p'.", required=False),
+        _param("aspect_ratio", "string", "For NB2: 'auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'. For ZIT: '1:1', '16:9', '9:16', '4:3', '3:4', '21:9'.", required=False),
         _param("num_variations", "integer", "Number of image variations (1-4, default 1).", required=False),
+        _param("image_urls", "array", "List of image asset URLs for NB2 editing mode. Pass existing asset URLs to composite or edit them together.", required=False),
     ],
 )
 

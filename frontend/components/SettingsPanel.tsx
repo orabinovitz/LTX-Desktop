@@ -7,6 +7,8 @@ import {
   sanitizeForcedApiVideoSettings,
 } from '../lib/api-video-options'
 
+export type ImageModelType = 'nano-banana-2' | 'z-image-turbo'
+
 export interface GenerationSettings {
   model: 'fast' | 'pro'
   duration: number
@@ -16,10 +18,12 @@ export interface GenerationSettings {
   cameraMotion: string
   aspectRatio?: string
   // Image-specific settings
+  imageModel?: ImageModelType
   imageResolution: string
   imageAspectRatio: string
   imageSteps: number
-  variations?: number  // Number of image variations to generate
+  variations?: number
+  nb2Resolution?: string
 }
 
 interface SettingsPanelProps {
@@ -71,9 +75,19 @@ export function SettingsPanel({
 
   // Image mode settings
   if (isImageMode) {
+    const isNb2 = (settings.imageModel || 'nano-banana-2') === 'nano-banana-2'
     return (
       <div className="space-y-4">
-        {/* Aspect Ratio and Quality side by side */}
+        <Select
+          label="Image Model"
+          value={settings.imageModel || 'nano-banana-2'}
+          onChange={(e) => handleChange('imageModel', e.target.value)}
+          disabled={disabled}
+        >
+          <option value="nano-banana-2">Nano Banana 2</option>
+          <option value="z-image-turbo">Z-Image Turbo</option>
+        </Select>
+
         <div className="grid grid-cols-2 gap-3">
           <Select
             label="Aspect Ratio"
@@ -87,18 +101,39 @@ export function SettingsPanel({
             <option value="4:3">4:3 (Standard)</option>
             <option value="3:4">3:4 (Portrait Standard)</option>
             <option value="21:9">21:9 (Cinematic)</option>
+            {isNb2 && <>
+              <option value="auto">Auto</option>
+              <option value="3:2">3:2</option>
+              <option value="2:3">2:3</option>
+              <option value="5:4">5:4</option>
+              <option value="4:5">4:5</option>
+            </>}
           </Select>
 
-          <Select
-            label="Quality"
-            value={settings.imageSteps || 4}
-            onChange={(e) => handleChange('imageSteps', parseInt(e.target.value))}
-            disabled={disabled}
-          >
-            <option value={4}>Fast</option>
-            <option value={8}>Balanced</option>
-            <option value={12}>High</option>
-          </Select>
+          {isNb2 ? (
+            <Select
+              label="Resolution"
+              value={settings.nb2Resolution || '1K'}
+              onChange={(e) => handleChange('nb2Resolution', e.target.value)}
+              disabled={disabled}
+            >
+              <option value="0.5K">0.5K</option>
+              <option value="1K">1K</option>
+              <option value="2K">2K</option>
+              <option value="4K">4K</option>
+            </Select>
+          ) : (
+            <Select
+              label="Quality"
+              value={settings.imageSteps || 4}
+              onChange={(e) => handleChange('imageSteps', parseInt(e.target.value))}
+              disabled={disabled}
+            >
+              <option value={4}>Fast</option>
+              <option value={8}>Balanced</option>
+              <option value={12}>High</option>
+            </Select>
+          )}
         </div>
       </div>
     )

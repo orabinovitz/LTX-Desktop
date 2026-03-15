@@ -237,12 +237,19 @@ class GenerateVideoRequest(BaseModel):
     aspectRatio: Literal["16:9", "9:16"] = "16:9"
 
 
+ImageModelType = Literal["nano-banana-2", "z-image-turbo"]
+
+
 class GenerateImageRequest(BaseModel):
     prompt: NonEmptyPrompt
     width: int = 1024
     height: int = 1024
     numSteps: int = 4
     numImages: int = 1
+    model: ImageModelType = "nano-banana-2"
+    imageUrls: list[str] | None = None
+    aspectRatio: str | None = None
+    resolution: str | None = None
 
 
 def _default_model_types() -> set[ModelFileType]:

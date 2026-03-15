@@ -888,9 +888,11 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
         const result = await agentGenerateImage(
           {
             prompt,
+            model: args.model as "nano-banana-2" | "z-image-turbo" | undefined,
             resolution: args.resolution as string | undefined,
             aspectRatio: args.aspect_ratio as string | undefined,
             numVariations: args.num_variations ? Number(args.num_variations) : undefined,
+            imageUrls: args.image_urls as string[] | undefined,
           },
           addAsset, currentProjectId, assetSavePath,
           generationAbortRef.current.signal,

@@ -26,6 +26,7 @@ import { logger } from '../lib/logger'
 import { RetakePanel } from '../components/RetakePanel'
 import { ICLoraPanel, CONDITIONING_TYPES } from '../components/ICLoraPanel'
 import { FreeApiKeyBubble } from '../components/FreeApiKeyBubble'
+
 import { useAgentDispatch } from '../contexts/AgentContext'
 import type { ToolResult } from './editor/useAgentExecutor'
 import {
@@ -348,6 +349,8 @@ function PromptBar({
   onIcLoraCondTypeChange,
   icLoraStrength,
   onIcLoraStrengthChange,
+  editImages,
+  onEditImagesChange,
 }: {
   mode: 'image' | 'video' | 'retake' | 'ic-lora'
   onModeChange: (mode: 'image' | 'video' | 'retake' | 'ic-lora') => void
@@ -369,7 +372,9 @@ function PromptBar({
     videoResolution: string
     fps: number
     aspectRatio: string
+    imageModel?: string
     imageResolution: string
+    nb2Resolution?: string
     variations: number
     audio?: boolean
   }
@@ -379,13 +384,19 @@ function PromptBar({
   onIcLoraCondTypeChange?: (type: ICLoraConditioningType) => void
   icLoraStrength?: number
   onIcLoraStrengthChange?: (strength: number) => void
+  editImages: Array<{ dataUri: string; name: string }>
+  onEditImagesChange: (images: Array<{ dataUri: string; name: string }>) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const audioInputRef = useRef<HTMLInputElement>(null)
+  const nb2InputRef = useRef<HTMLInputElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [isAudioDragOver, setIsAudioDragOver] = useState(false)
+  const [isNb2DragOver, setIsNb2DragOver] = useState(false)
   const isRetake = mode === 'retake'
   const isIcLora = mode === 'ic-lora'
+  const isNb2 = mode === 'image' && (settings.imageModel || 'nano-banana-2') !== 'z-image-turbo'
+  const NB2_MAX_IMAGES = 10
   const LOCAL_MAX_DURATION: Record<string, number> = { '540p': 20, '720p': 10, '1080p': 5 }
   const localMaxDuration = LOCAL_MAX_DURATION[settings.videoResolution] ?? 20
   const videoDurationOptions = shouldVideoGenerateWithLtxApi
@@ -464,6 +475,78 @@ function PromptBar({
     }
   }
   
+  const fileToDataUri = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result === 'string') resolve(reader.result)
+        else reject(new Error('Failed to read file'))
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+
+  const urlToDataUri = (url: string): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const img = new window.Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth
+        canvas.height = img.naturalHeight
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { reject(new Error('No canvas context')); return }
+        ctx.drawImage(img, 0, 0)
+        resolve(canvas.toDataURL('image/png'))
+      }
+      img.onerror = () => reject(new Error(`Failed to load image: ${url}`))
+      img.src = url
+    })
+
+  const handleNb2Drop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsNb2DragOver(false)
+    if (editImages.length >= NB2_MAX_IMAGES) return
+
+    const assetData = e.dataTransfer.getData('asset')
+    if (assetData) {
+      try {
+        const asset = JSON.parse(assetData) as Asset
+        if (asset.type === 'image' && asset.url) {
+          const dataUri = await urlToDataUri(asset.url)
+          onEditImagesChange([...editImages, { dataUri, name: asset.prompt || 'image' }])
+        }
+      } catch (err) { console.error('NB2 drop failed:', err) }
+      return
+    }
+
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
+    const remaining = NB2_MAX_IMAGES - editImages.length
+    const toProcess = files.slice(0, remaining)
+    const newImages = await Promise.all(
+      toProcess.map(async (file) => ({ dataUri: await fileToDataUri(file), name: file.name }))
+    )
+    if (newImages.length > 0) {
+      onEditImagesChange([...editImages, ...newImages])
+    }
+  }
+
+  const handleNb2FileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/'))
+    const remaining = NB2_MAX_IMAGES - editImages.length
+    const toProcess = files.slice(0, remaining)
+    const newImages = await Promise.all(
+      toProcess.map(async (file) => ({ dataUri: await fileToDataUri(file), name: file.name }))
+    )
+    if (newImages.length > 0) {
+      onEditImagesChange([...editImages, ...newImages])
+    }
+    e.target.value = ''
+  }
+
+  const removeNb2Image = (index: number) => {
+    onEditImagesChange(editImages.filter((_, i) => i !== index))
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !isGenerating && canGenerate) {
       e.preventDefault()
@@ -541,6 +624,52 @@ function PromptBar({
               onChange={handleAudioFileSelect}
               className="hidden"
             />
+          </div>
+        )}
+
+        {/* NB2 reference image boxes — image mode only */}
+        {isNb2 && (
+          <div
+            className="flex items-center gap-1 ml-2 mt-1 pt-1 flex-shrink-0 overflow-x-auto max-w-[240px] outline-none"
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsNb2DragOver(true) }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsNb2DragOver(false)
+            }}
+            onDrop={handleNb2Drop}
+          >
+            {editImages.map((img, i) => (
+              <div
+                key={i}
+                className="relative w-10 h-10 rounded-lg bg-zinc-800 border border-zinc-700 flex-shrink-0 group"
+              >
+                <img src={img.dataUri} alt={img.name} className="w-full h-full object-cover rounded-lg" />
+                <button
+                  onClick={() => removeNb2Image(i)}
+                  className="absolute -top-1 -right-1 p-0.5 rounded-full bg-zinc-800 text-zinc-400 hover:text-white z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            {editImages.length < NB2_MAX_IMAGES && (
+              <div
+                className={`relative w-10 h-10 rounded-lg border-2 border-dashed flex items-center justify-center flex-shrink-0 cursor-pointer transition-colors ${
+                  isNb2DragOver ? 'border-amber-500 bg-amber-500/10' : 'border-zinc-700 hover:border-zinc-500'
+                }`}
+                onClick={() => nb2InputRef.current?.click()}
+                title="Add reference image for editing"
+              >
+                <Image className={`h-4 w-4 transition-colors ${isNb2DragOver ? 'text-amber-500' : 'text-zinc-500'}`} />
+                <input
+                  ref={nb2InputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleNb2FileSelect}
+                  className="hidden"
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -628,40 +757,91 @@ function PromptBar({
           </>
         ) : mode === 'image' ? (
           <>
-            {/* Model indicator */}
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-800/50">
-              <ZitIcon className="h-3.5 w-3.5" />
-              <span className="text-zinc-300 font-medium">Z-Image Turbo</span>
-            </div>
-            
-            {/* Resolution dropdown */}
+            {/* Image model selector */}
             <SettingsDropdown
-              title="IMAGE RESOLUTION"
-              value={settings.imageResolution}
-              onChange={(v) => onSettingsChange({ ...settings, imageResolution: v })}
+              title="IMAGE MODEL"
+              value={settings.imageModel || 'nano-banana-2'}
+              onChange={(v) => onSettingsChange({ ...settings, imageModel: v })}
               options={[
-                { value: '1080p', label: '1080p' },
-                { value: '1440p', label: '1440p' },
-                { value: '2048p', label: '2048p' },
+                { value: 'nano-banana-2', label: 'Nano Banana 2' },
+                { value: 'z-image-turbo', label: 'Z-Image Turbo' },
               ]}
               trigger={
                 <>
-                  <Monitor className="h-3.5 w-3.5" />
-                  <span>{settings.imageResolution.replace('p', '')}</span>
+                  {(settings.imageModel || 'nano-banana-2') === 'z-image-turbo' ? (
+                    <ZitIcon className="h-3.5 w-3.5" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                  )}
+                  <span className="text-zinc-300 font-medium">
+                    {(settings.imageModel || 'nano-banana-2') === 'z-image-turbo' ? 'Z-Image Turbo' : 'Nano Banana 2'}
+                  </span>
                 </>
               }
             />
+            
+            {/* Resolution dropdown */}
+            {(settings.imageModel || 'nano-banana-2') === 'z-image-turbo' ? (
+              <SettingsDropdown
+                title="IMAGE RESOLUTION"
+                value={settings.imageResolution}
+                onChange={(v) => onSettingsChange({ ...settings, imageResolution: v })}
+                options={[
+                  { value: '1080p', label: '1080p' },
+                  { value: '1440p', label: '1440p' },
+                  { value: '2048p', label: '2048p' },
+                ]}
+                trigger={
+                  <>
+                    <Monitor className="h-3.5 w-3.5" />
+                    <span>{settings.imageResolution.replace('p', '')}</span>
+                  </>
+                }
+              />
+            ) : (
+              <SettingsDropdown
+                title="RESOLUTION"
+                value={settings.nb2Resolution || '1K'}
+                onChange={(v) => onSettingsChange({ ...settings, nb2Resolution: v })}
+                options={[
+                  { value: '0.5K', label: '0.5K' },
+                  { value: '1K', label: '1K' },
+                  { value: '2K', label: '2K' },
+                  { value: '4K', label: '4K' },
+                ]}
+                trigger={
+                  <>
+                    <Monitor className="h-3.5 w-3.5" />
+                    <span>{settings.nb2Resolution || '1K'}</span>
+                  </>
+                }
+              />
+            )}
             
             {/* Aspect ratio dropdown */}
             <SettingsDropdown
               title="RATIO"
               value={settings.aspectRatio}
               onChange={(v) => onSettingsChange({ ...settings, aspectRatio: v })}
-              options={[
-                { value: '16:9', label: '16:9' },
-                { value: '1:1', label: '1:1' },
-                { value: '9:16', label: '9:16' },
-              ]}
+              options={
+                (settings.imageModel || 'nano-banana-2') === 'z-image-turbo'
+                  ? [
+                      { value: '16:9', label: '16:9' },
+                      { value: '1:1', label: '1:1' },
+                      { value: '9:16', label: '9:16' },
+                    ]
+                  : [
+                      { value: 'auto', label: 'Auto' },
+                      { value: '16:9', label: '16:9' },
+                      { value: '1:1', label: '1:1' },
+                      { value: '9:16', label: '9:16' },
+                      { value: '4:3', label: '4:3' },
+                      { value: '3:4', label: '3:4' },
+                      { value: '3:2', label: '3:2' },
+                      { value: '2:3', label: '2:3' },
+                      { value: '21:9', label: '21:9' },
+                    ]
+              }
               trigger={
                 <>
                   <AspectIcon className="h-3.5 w-3.5" />
@@ -850,7 +1030,9 @@ const DEFAULT_VIDEO_SETTINGS = {
   videoResolution: '540p',
   fps: 24,
   aspectRatio: '16:9',
+  imageModel: 'nano-banana-2' as 'nano-banana-2' | 'z-image-turbo',
   imageResolution: '1080p',
+  nb2Resolution: '1K',
   variations: 1,
   audio: true,
 }
@@ -907,10 +1089,11 @@ export function GenSpace() {
     }
   } | null>(null)
   const [settings, setSettings] = useState(() => ({ ...DEFAULT_VIDEO_SETTINGS }))
+  const [editImages, setEditImages] = useState<Array<{ dataUri: string; name: string }>>([])
   const applyForcedVideoSettings = useCallback(
-    (next: { model: string; duration: number; videoResolution: string; fps: number; audio: boolean; aspectRatio: string; imageResolution: string; variations: number }) => {
+    <T extends { model: string; duration: number; videoResolution: string; fps: number; audio: boolean; aspectRatio: string }>(next: T): T => {
       if (!shouldVideoGenerateWithLtxApi || mode !== 'video') return next
-      return sanitizeForcedApiVideoSettings(next, { hasAudio: !!inputAudio })
+      return { ...next, ...sanitizeForcedApiVideoSettings(next, { hasAudio: !!inputAudio }) }
     },
     [inputAudio, mode, shouldVideoGenerateWithLtxApi],
   )
@@ -1519,11 +1702,14 @@ export function GenSpace() {
           fps: 24,
           audio: false,
           cameraMotion: 'none',
+          imageModel: (settings.imageModel || 'nano-banana-2') as 'nano-banana-2' | 'z-image-turbo',
           imageResolution: settings.imageResolution,
           imageAspectRatio: settings.aspectRatio,
           imageSteps: 4,
+          nb2Resolution: settings.nb2Resolution || '1K',
           variations: settings.variations,
-        }
+        },
+        editImages.length > 0 ? editImages.map(img => img.dataUri) : undefined,
       )
     } else {
       // Generate video (t2v if no image/audio, i2v if image, a2v if audio)
@@ -1563,6 +1749,19 @@ export function GenSpace() {
     e.dataTransfer.setData('asset', JSON.stringify(asset))
     e.dataTransfer.setData('assetId', asset.id)
     e.dataTransfer.effectAllowed = 'copy'
+
+    const img = e.currentTarget.querySelector('img')
+    if (img) {
+      const dragEl = document.createElement('div')
+      dragEl.style.cssText = 'position:fixed;top:-1000px;left:-1000px;width:40px;height:40px;border-radius:6px;overflow:hidden;pointer-events:none;'
+      const imgClone = document.createElement('img')
+      imgClone.src = img.src
+      imgClone.style.cssText = 'width:100%;height:100%;object-fit:cover;'
+      dragEl.appendChild(imgClone)
+      document.body.appendChild(dragEl)
+      e.dataTransfer.setDragImage(dragEl, 20, 20)
+      setTimeout(() => document.body.removeChild(dragEl), 0)
+    }
   }
   
   const handleCreateVideo = (imageAsset: Asset) => {
@@ -1850,6 +2049,8 @@ export function GenSpace() {
           onIcLoraCondTypeChange={setIcLoraCondType}
           icLoraStrength={icLoraStrength}
           onIcLoraStrengthChange={setIcLoraStrength}
+          editImages={editImages}
+          onEditImagesChange={setEditImages}
         />
       </div>
       

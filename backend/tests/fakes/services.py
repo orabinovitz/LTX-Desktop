@@ -289,6 +289,62 @@ class FakeZitAPIClient:
         return self.text_to_image_result
 
 
+class FakeNanoBanana2APIClient:
+    def __init__(self) -> None:
+        self.text_to_image_calls: list[dict[str, Any]] = []
+        self.edit_calls: list[dict[str, Any]] = []
+        self.raise_on_text_to_image: Exception | None = None
+        self.raise_on_edit: Exception | None = None
+        self.text_to_image_result = b"fake-nb2-image"
+        self.edit_result = b"fake-nb2-edit-image"
+
+    def generate_text_to_image(
+        self,
+        *,
+        api_key: str,
+        prompt: str,
+        aspect_ratio: str,
+        resolution: str,
+        seed: int,
+    ) -> bytes:
+        self.text_to_image_calls.append(
+            {
+                "api_key": api_key,
+                "prompt": prompt,
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+                "seed": seed,
+            }
+        )
+        if self.raise_on_text_to_image is not None:
+            raise self.raise_on_text_to_image
+        return self.text_to_image_result
+
+    def edit_images(
+        self,
+        *,
+        api_key: str,
+        prompt: str,
+        image_urls: list[str],
+        aspect_ratio: str,
+        resolution: str,
+        seed: int,
+    ) -> bytes:
+        self.edit_calls.append(
+            {
+                "api_key": api_key,
+                "prompt": prompt,
+                "image_urls": image_urls,
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+                "seed": seed,
+            }
+        )
+        if self.raise_on_edit is not None:
+            raise self.raise_on_edit
+        return self.edit_result
+
+
 class FakeModelDownloader:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -754,6 +810,7 @@ class FakeServices:
     task_runner: FakeTaskRunner = field(default_factory=FakeTaskRunner)
     ltx_api_client: FakeLTXAPIClient = field(default_factory=FakeLTXAPIClient)
     zit_api_client: FakeZitAPIClient = field(default_factory=FakeZitAPIClient)
+    nano_banana_2_api_client: FakeNanoBanana2APIClient = field(default_factory=FakeNanoBanana2APIClient)
     fast_video_pipeline: FakeFastVideoPipeline = field(default_factory=FakeFastVideoPipeline)
     image_generation_pipeline: FakeImageGenerationPipeline = field(default_factory=FakeImageGenerationPipeline)
     ic_lora_pipeline: FakeIcLoraPipeline = field(default_factory=FakeIcLoraPipeline)

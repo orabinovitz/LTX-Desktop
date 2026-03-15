@@ -365,8 +365,19 @@ Call `generate_video(mode='audio_to_video', audio_asset_id=<id>, prompt=...)` \
 to generate a video synced to audio.
 
 ### Text-to-Image (T2I)
-Call `generate_image(prompt=...)` to create still images for compositing, \
-thumbnails, or as I2V input.
+Two image models are available:
+- **Nano Banana 2** (default): Higher quality, supports editing with reference images. \
+Use `generate_image(prompt=...)` or `generate_image(prompt=..., model='nano-banana-2')`. \
+Resolution options: '1K', '2K', '4K'. Aspect ratios include 'auto', '16:9', '9:16', etc.
+- **Z-Image Turbo**: Fast generation. Use `generate_image(prompt=..., model='z-image-turbo')`. \
+Resolution options: '1080p', '1440p', '2048p'.
+
+Default to Nano Banana 2 unless the user specifically asks for Z-Image Turbo.
+
+### Image Editing with Nano Banana 2
+Pass `image_urls` to edit/composite multiple images together:
+`generate_image(prompt='Put the man and woman at a restaurant table', image_urls=[<url1>, <url2>, <url3>])` \
+This lets you combine elements from multiple reference images into a new composition.
 
 ### Retake
 Call `retake_section(video_asset_id=..., start_time=..., duration=..., prompt=...)` \

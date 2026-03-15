@@ -27,6 +27,7 @@ from services.interfaces import (
     A2VPipeline,
     DepthProcessorPipeline,
     FastVideoPipeline,
+    NanoBanana2APIClient,
     ZitAPIClient,
     ImageGenerationPipeline,
     GpuCleaner,
@@ -60,6 +61,7 @@ class AppHandler:
         task_runner: TaskRunner,
         ltx_api_client: LTXAPIClient,
         zit_api_client: ZitAPIClient,
+        nano_banana_2_api_client: NanoBanana2APIClient,
         fast_video_pipeline_class: type[FastVideoPipeline],
         image_generation_pipeline_class: type[ImageGenerationPipeline],
         ic_lora_pipeline_class: type[IcLoraPipeline],
@@ -79,6 +81,7 @@ class AppHandler:
         self.task_runner = task_runner
         self.ltx_api_client = ltx_api_client
         self.zit_api_client = zit_api_client
+        self.nano_banana_2_api_client = nano_banana_2_api_client
         self.fast_video_pipeline_class = fast_video_pipeline_class
         self.image_generation_pipeline_class = image_generation_pipeline_class
         self.ic_lora_pipeline_class = ic_lora_pipeline_class
@@ -176,6 +179,7 @@ class AppHandler:
             pipelines_handler=self.pipelines,
             config=config,
             zit_api_client=zit_api_client,
+            nano_banana_2_api_client=nano_banana_2_api_client,
         )
 
         self.health = HealthHandler(
@@ -238,6 +242,7 @@ class ServiceBundle:
     task_runner: TaskRunner
     ltx_api_client: LTXAPIClient
     zit_api_client: ZitAPIClient
+    nano_banana_2_api_client: NanoBanana2APIClient
     fast_video_pipeline_class: type[FastVideoPipeline]
     image_generation_pipeline_class: type[ImageGenerationPipeline]
     ic_lora_pipeline_class: type[IcLoraPipeline]
@@ -250,6 +255,7 @@ class ServiceBundle:
 def build_default_service_bundle(config: RuntimeConfig) -> ServiceBundle:
     """Build real runtime services with lazy heavy imports isolated from tests."""
     from services.fast_video_pipeline.ltx_fast_video_pipeline import LTXFastVideoPipeline
+    from services.nano_banana_2_api_client.nano_banana_2_api_client_impl import NanoBanana2APIClientImpl
     from services.zit_api_client.zit_api_client_impl import ZitAPIClientImpl
     from services.gpu_cleaner.torch_cleaner import TorchCleaner
     from services.gpu_info.gpu_info_impl import GpuInfoImpl
@@ -282,6 +288,7 @@ def build_default_service_bundle(config: RuntimeConfig) -> ServiceBundle:
         task_runner=ThreadingRunner(),
         ltx_api_client=LTXAPIClientImpl(http=http, ltx_api_base_url=config.ltx_api_base_url),
         zit_api_client=ZitAPIClientImpl(http=http),
+        nano_banana_2_api_client=NanoBanana2APIClientImpl(http=http),
         fast_video_pipeline_class=LTXFastVideoPipeline,
         image_generation_pipeline_class=ZitImageGenerationPipeline,
         ic_lora_pipeline_class=LTXIcLoraPipeline,
@@ -311,6 +318,7 @@ def build_initial_state(
         task_runner=bundle.task_runner,
         ltx_api_client=bundle.ltx_api_client,
         zit_api_client=bundle.zit_api_client,
+        nano_banana_2_api_client=bundle.nano_banana_2_api_client,
         fast_video_pipeline_class=bundle.fast_video_pipeline_class,
         image_generation_pipeline_class=bundle.image_generation_pipeline_class,
         ic_lora_pipeline_class=bundle.ic_lora_pipeline_class,

@@ -1043,7 +1043,7 @@ class TestGenerateImage:
         create_fake_model_files(include_zit=True)
         r = client.post(
             "/api/generate-image",
-            json={"prompt": "A cat", "width": 1024, "height": 1024, "numSteps": 4},
+            json={"prompt": "A cat", "width": 1024, "height": 1024, "numSteps": 4, "model": "z-image-turbo"},
         )
 
         assert r.status_code == 200
@@ -1056,7 +1056,7 @@ class TestGenerateImage:
         create_fake_model_files(include_zit=True)
         r = client.post(
             "/api/generate-image",
-            json={"prompt": "test", "width": 1023, "height": 1023},
+            json={"prompt": "test", "width": 1023, "height": 1023, "model": "z-image-turbo"},
         )
         assert r.status_code == 200
 
@@ -1068,7 +1068,7 @@ class TestGenerateImage:
         create_fake_model_files(include_zit=True)
         r = client.post(
             "/api/generate-image",
-            json={"prompt": "test", "numImages": 20},
+            json={"prompt": "test", "numImages": 20, "model": "z-image-turbo"},
         )
         assert r.status_code == 200
 
@@ -1078,14 +1078,14 @@ class TestGenerateImage:
         create_fake_model_files(include_zit=True)
         fake_services.image_generation_pipeline.raise_on_generate = RuntimeError("GPU OOM")
 
-        r = client.post("/api/generate-image", json={"prompt": "test"})
+        r = client.post("/api/generate-image", json={"prompt": "test", "model": "z-image-turbo"})
         assert r.status_code == 500
 
     def test_cancelled(self, client, fake_services, create_fake_model_files):
         create_fake_model_files(include_zit=True)
         fake_services.image_generation_pipeline.raise_on_generate = RuntimeError("cancelled")
 
-        r = client.post("/api/generate-image", json={"prompt": "test"})
+        r = client.post("/api/generate-image", json={"prompt": "test", "model": "z-image-turbo"})
         assert r.status_code == 200
         assert r.json()["status"] == "cancelled"
 
@@ -1097,7 +1097,7 @@ class TestForcedApiGenerateImage:
 
         r = client.post(
             "/api/generate-image",
-            json={"prompt": "A cat", "width": 1024, "height": 1024, "numSteps": 4, "numImages": 2},
+            json={"prompt": "A cat", "width": 1024, "height": 1024, "numSteps": 4, "numImages": 2, "model": "z-image-turbo"},
         )
 
         assert r.status_code == 200
@@ -1111,7 +1111,7 @@ class TestForcedApiGenerateImage:
         test_state.config.force_api_generations = True
         test_state.state.app_settings.fal_api_key = ""
 
-        r = client.post("/api/generate-image", json={"prompt": "A cat"})
+        r = client.post("/api/generate-image", json={"prompt": "A cat", "model": "z-image-turbo"})
 
         assert r.status_code == 500
         assert r.json()["error"] == "FAL_API_KEY_NOT_CONFIGURED"
@@ -1121,7 +1121,95 @@ class TestForcedApiGenerateImage:
         test_state.state.app_settings.fal_api_key = "fal-key"
         fake_services.zit_api_client.raise_on_text_to_image = RuntimeError("cancelled")
 
+        r = client.post("/api/generate-image", json={"prompt": "A cat", "model": "z-image-turbo"})
+
+        assert r.status_code == 200
+        assert r.json()["status"] == "cancelled"
+
+
+class TestNanoBanana2TextToImage:
+    def test_happy_path(self, client, test_state, fake_services):
+        test_state.state.app_settings.fal_api_key = "fal-key"
+
+        r = client.post(
+            "/api/generate-image",
+            json={"prompt": "A sunset over mountains", "model": "nano-banana-2", "aspectRatio": "16:9", "resolution": "1K"},
+        )
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "complete"
+        assert len(data["image_paths"]) == 1
+        assert Path(data["image_paths"][0]).exists()
+        assert len(fake_services.nano_banana_2_api_client.text_to_image_calls) == 1
+        call = fake_services.nano_banana_2_api_client.text_to_image_calls[0]
+        assert call["prompt"] == "A sunset over mountains"
+        assert call["aspect_ratio"] == "16:9"
+        assert call["resolution"] == "1K"
+
+    def test_defaults_to_nb2(self, client, test_state, fake_services):
+        test_state.state.app_settings.fal_api_key = "fal-key"
+
         r = client.post("/api/generate-image", json={"prompt": "A cat"})
+
+        assert r.status_code == 200
+        assert len(fake_services.nano_banana_2_api_client.text_to_image_calls) == 1
+
+    def test_missing_fal_key(self, client, test_state):
+        test_state.state.app_settings.fal_api_key = ""
+
+        r = client.post("/api/generate-image", json={"prompt": "A cat", "model": "nano-banana-2"})
+
+        assert r.status_code == 500
+        assert r.json()["error"] == "FAL_API_KEY_NOT_CONFIGURED"
+
+    def test_cancelled(self, client, test_state, fake_services):
+        test_state.state.app_settings.fal_api_key = "fal-key"
+        fake_services.nano_banana_2_api_client.raise_on_text_to_image = RuntimeError("cancelled")
+
+        r = client.post("/api/generate-image", json={"prompt": "A cat", "model": "nano-banana-2"})
+
+        assert r.status_code == 200
+        assert r.json()["status"] == "cancelled"
+
+
+class TestNanoBanana2ImageEdit:
+    def test_happy_path(self, client, test_state, fake_services):
+        test_state.state.app_settings.fal_api_key = "fal-key"
+
+        r = client.post(
+            "/api/generate-image",
+            json={
+                "prompt": "Put the man and woman at a table in the restaurant",
+                "model": "nano-banana-2",
+                "imageUrls": ["data:image/png;base64,abc123", "data:image/png;base64,def456"],
+                "aspectRatio": "16:9",
+                "resolution": "2K",
+            },
+        )
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "complete"
+        assert len(data["image_paths"]) == 1
+        assert len(fake_services.nano_banana_2_api_client.edit_calls) == 1
+        call = fake_services.nano_banana_2_api_client.edit_calls[0]
+        assert call["prompt"] == "Put the man and woman at a table in the restaurant"
+        assert len(call["image_urls"]) == 2
+        assert call["resolution"] == "2K"
+
+    def test_edit_cancelled(self, client, test_state, fake_services):
+        test_state.state.app_settings.fal_api_key = "fal-key"
+        fake_services.nano_banana_2_api_client.raise_on_edit = RuntimeError("cancelled")
+
+        r = client.post(
+            "/api/generate-image",
+            json={
+                "prompt": "Edit this",
+                "model": "nano-banana-2",
+                "imageUrls": ["data:image/png;base64,abc123"],
+            },
+        )
 
         assert r.status_code == 200
         assert r.json()["status"] == "cancelled"

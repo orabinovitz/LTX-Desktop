@@ -37,6 +37,8 @@ interface ImageGenerationParams {
   resolution?: string;
   aspectRatio?: string;
   numVariations?: number;
+  model?: "nano-banana-2" | "z-image-turbo";
+  imageUrls?: string[];
 }
 
 interface RetakeParams {
@@ -217,23 +219,48 @@ export async function agentGenerateImage(
   onProgress?: OnToolProgress,
 ): Promise<GenerationResult> {
   const stopPolling = startProgressPolling(onProgress, signal);
-  const { width, height } = getImageDimensions(
-    params.resolution ?? "1080p",
-    params.aspectRatio ?? "16:9",
-  );
+  const imageModel = params.model ?? "nano-banana-2";
+  const isNb2 = imageModel === "nano-banana-2";
+
+  let requestBody: Record<string, unknown>;
+  let resolutionLabel: string;
+
+  if (isNb2) {
+    const aspectRatio = params.aspectRatio ?? "16:9";
+    const resolution = params.resolution ?? "1K";
+    resolutionLabel = `${resolution} ${aspectRatio}`;
+    requestBody = {
+      prompt: params.prompt,
+      model: "nano-banana-2",
+      aspectRatio,
+      resolution,
+      numImages: params.numVariations ?? 1,
+      ...(params.imageUrls && params.imageUrls.length > 0
+        ? { imageUrls: params.imageUrls }
+        : {}),
+    };
+  } else {
+    const { width, height } = getImageDimensions(
+      params.resolution ?? "1080p",
+      params.aspectRatio ?? "16:9",
+    );
+    resolutionLabel = `${width}x${height}`;
+    requestBody = {
+      prompt: params.prompt,
+      model: "z-image-turbo",
+      width,
+      height,
+      numSteps: 8,
+      numImages: params.numVariations ?? 1,
+    };
+  }
 
   let response: Response;
   try {
     response = await backendFetch("/api/generate-image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt: params.prompt,
-        width,
-        height,
-        numSteps: 8,
-        numImages: params.numVariations ?? 1,
-      }),
+      body: JSON.stringify(requestBody),
       signal,
     });
   } catch (e) {
@@ -266,18 +293,18 @@ export async function agentGenerateImage(
     path: finalPath,
     url: finalUrl,
     prompt: params.prompt,
-    resolution: `${width}x${height}`,
+    resolution: resolutionLabel,
     generationParams: {
-      mode: 'text-to-image',
+      mode: params.imageUrls?.length ? 'text-to-image' : 'text-to-image',
       prompt: params.prompt,
       model: 'fast',
       duration: 0,
-      resolution: `${width}x${height}`,
+      resolution: resolutionLabel,
       fps: 0,
       audio: false,
       cameraMotion: 'none',
       imageAspectRatio: params.aspectRatio ?? '16:9',
-      imageSteps: 8,
+      imageSteps: isNb2 ? 0 : 8,
     },
   });
 

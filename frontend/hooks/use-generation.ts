@@ -26,7 +26,7 @@ interface GenerationProgress {
 
 interface UseGenerationReturn extends GenerationState {
   generate: (prompt: string, imagePath: string | null, settings: GenerationSettings, audioPath?: string | null) => Promise<void>
-  generateImage: (prompt: string, settings: GenerationSettings) => Promise<void>
+  generateImage: (prompt: string, settings: GenerationSettings, imageDataUris?: string[]) => Promise<void>
   cancel: () => void
   reset: () => void
 }
@@ -288,9 +288,13 @@ export function useGeneration(): UseGenerationReturn {
 
   const generateImage = useCallback(async (
     prompt: string,
-    settings: GenerationSettings
+    settings: GenerationSettings,
+    imageDataUris?: string[],
   ) => {
-    if (forceApiGenerations) {
+    const imageModel = settings.imageModel || 'nano-banana-2'
+    const needsFalKey = imageModel === 'nano-banana-2' || forceApiGenerations
+
+    if (needsFalKey) {
       try {
         const response = await backendFetch('/api/settings')
         if (response.ok) {
@@ -301,7 +305,7 @@ export function useGeneration(): UseGenerationReturn {
               detail: {
                 requiredKeys: ['fal'],
                 title: 'Connect FAL AI',
-                description: 'FAL AI is required for generating images with Z Image Turbo when API generations are enabled.',
+                description: 'A FAL AI key is required for image generation.',
                 blocking: false,
               },
             }))
@@ -314,7 +318,7 @@ export function useGeneration(): UseGenerationReturn {
             detail: {
               requiredKeys: ['fal'],
               title: 'Connect FAL AI',
-              description: 'FAL AI is required for generating images with Z Image Turbo when API generations are enabled.',
+              description: 'A FAL AI key is required for image generation.',
               blocking: false,
             },
           }))
@@ -341,11 +345,8 @@ export function useGeneration(): UseGenerationReturn {
     abortControllerRef.current = new AbortController()
 
     try {
-      // Skip prompt enhancement for T2I - use original prompt directly
       const finalPrompt = prompt
-
-      const dims = getImageDimensions(settings)
-      const numSteps = settings.imageSteps || 4
+      const isNb2 = imageModel === 'nano-banana-2'
 
       // Poll for progress
       const pollProgress = async () => {
@@ -359,7 +360,7 @@ export function useGeneration(): UseGenerationReturn {
               ...prev,
               progress: data.progress,
               statusMessage: data.phase === 'loading_model' 
-                ? 'Loading Z-Image Turbo model...' 
+                ? 'Loading image model...' 
                 : data.phase === 'inference'
                   ? numImages > 1 
                     ? `Generating image ${currentImage + 1}/${totalImages}...`
@@ -376,16 +377,33 @@ export function useGeneration(): UseGenerationReturn {
       
       const progressInterval = setInterval(pollProgress, 500)
 
-      const response = await backendFetch('/api/generate-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      let requestBody: Record<string, unknown>
+      if (isNb2) {
+        requestBody = {
           prompt: finalPrompt,
+          model: 'nano-banana-2',
+          aspectRatio: settings.imageAspectRatio || '16:9',
+          resolution: settings.nb2Resolution || '1K',
+          numImages,
+          ...(imageDataUris && imageDataUris.length > 0 ? { imageUrls: imageDataUris } : {}),
+        }
+      } else {
+        const dims = getImageDimensions(settings)
+        const numSteps = settings.imageSteps || 4
+        requestBody = {
+          prompt: finalPrompt,
+          model: 'z-image-turbo',
           width: dims.width,
           height: dims.height,
           numSteps,
           numImages,
-        }),
+        }
+      }
+
+      const response = await backendFetch('/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
         signal: abortControllerRef.current.signal,
       })
 
