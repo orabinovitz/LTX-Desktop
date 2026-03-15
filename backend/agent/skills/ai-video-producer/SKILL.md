@@ -85,9 +85,19 @@ Execute the shot list using these tools:
 1. `generate_image(prompt=<visual description>)` -> get asset_id
 2. `generate_video(mode='image_to_video', image_asset_id=<id>, prompt=<motion description>)` -> get video asset_id
 
+The default image model is **Nano Banana 2** (higher quality). Use
+`model='z-image-turbo'` only when speed matters more than quality.
+
 The image prompt should describe the static scene (subject, environment,
 lighting, composition). The video prompt should describe only the motion
 (camera movement, character action, environmental movement).
+
+**Image compositing with Nano Banana 2:**
+To combine elements from multiple reference images (e.g. place a character
+in a new scene, merge subjects from different shots):
+1. Use `get_project_assets()` to find the source image asset IDs
+2. `generate_image(prompt=<desired composition>, image_urls=[<asset-id-1>, <asset-id-2>])` -> get composited asset_id
+3. Optionally animate: `generate_video(mode='image_to_video', image_asset_id=<composited-id>, prompt=<motion>)`
 
 **Direct video workflow (for motion-heavy shots):**
 1. `generate_video(mode='text_to_video', prompt=<full description>)` -> get video asset_id
@@ -115,6 +125,8 @@ production time.
 
 **Character consistency:**
 - Generate a hero close-up image first as the character reference
+- Use that image's asset_id in `image_urls` for subsequent NB2 generations
+  to maintain the same face, clothing, and features across shots
 - Use consistent descriptions across all prompts (same clothing, hair,
   features, environment lighting)
 - Simple silhouettes and solid colors anchor identity better than complex

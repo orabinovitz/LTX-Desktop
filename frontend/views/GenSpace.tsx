@@ -34,6 +34,7 @@ import {
   agentGenerateVideo,
   agentCancelGeneration,
   agentGetGenerationStatus,
+  urlToDataUri,
 } from './editor/agentGenerationHelper'
 
 // Asset card with hover overlays
@@ -484,22 +485,6 @@ function PromptBar({
       }
       reader.onerror = reject
       reader.readAsDataURL(file)
-    })
-
-  const urlToDataUri = (url: string): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const img = new window.Image()
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        canvas.width = img.naturalWidth
-        canvas.height = img.naturalHeight
-        const ctx = canvas.getContext('2d')
-        if (!ctx) { reject(new Error('No canvas context')); return }
-        ctx.drawImage(img, 0, 0)
-        resolve(canvas.toDataURL('image/png'))
-      }
-      img.onerror = () => reject(new Error(`Failed to load image: ${url}`))
-      img.src = url
     })
 
   const handleNb2Drop = async (e: React.DragEvent) => {

@@ -375,9 +375,16 @@ Resolution options: '1080p', '1440p', '2048p'.
 Default to Nano Banana 2 unless the user specifically asks for Z-Image Turbo.
 
 ### Image Editing with Nano Banana 2
-Pass `image_urls` to edit/composite multiple images together:
-`generate_image(prompt='Put the man and woman at a restaurant table', image_urls=[<url1>, <url2>, <url3>])` \
-This lets you combine elements from multiple reference images into a new composition.
+To edit or composite multiple images together:
+1. Identify the source images. Use `get_project_assets()` to find existing image asset IDs.
+2. Pass the asset IDs in `image_urls`:
+   `generate_image(prompt='Put the man and woman at a restaurant table', \
+image_urls=['asset-id-1', 'asset-id-2', 'asset-id-3'])`
+3. The system resolves asset IDs to image data automatically.
+
+Use cases: combine a person from one image with a background from another, \
+place multiple subjects together in a scene, apply style transfer, reconstruct scenes. \
+The prompt should describe the DESIRED RESULT, not the source images.
 
 ### Retake
 Call `retake_section(video_asset_id=..., start_time=..., duration=..., prompt=...)` \
@@ -569,6 +576,32 @@ NEVER cut just because "it's been N seconds." If a shot is still compelling, let
 If score < 7, identify and tighten the weakest clips, then re-review. \
 Check specifically: are any adjacent clips within 30% duration of each other? \
 Is the rhythm curve monotonous? Does the edit have a clear open-build-breathe-climax-resolve?
+"""
+
+_IMAGE_GENERATION_APPENDIX = """\
+## Image Generation: Model Selection
+
+**Nano Banana 2 (default):**
+- Higher quality, supports editing/compositing with reference images
+- Resolution: '1K' (default), '2K', '4K' (higher cost at 2K/4K)
+- Use for: hero shots, character close-ups, detailed scenes, image editing
+- Pass image_urls (asset IDs) when you need to combine or edit existing images
+
+**Z-Image Turbo:**
+- Faster generation, text-to-image only (no editing support)
+- Resolution: '1080p', '1440p', '2048p'
+- Use for: quick thumbnails, placeholder images, high volume generation
+
+**Image editing workflow:**
+1. Generate or identify source images (characters, backgrounds, objects)
+2. Use get_project_assets() to get their asset IDs
+3. Call generate_image(prompt=<desired result>, image_urls=[<asset-id-1>, <asset-id-2>])
+4. The prompt should describe the DESIRED RESULT, not the source images
+
+**Character consistency across shots:**
+- Generate a hero reference image first
+- Use that image's asset_id in image_urls for subsequent generations
+- Describe the same character details (clothing, hair, features) in every prompt
 """
 
 _GENERATION_MODE_APPENDIX = """\
@@ -960,6 +993,7 @@ def _call_gemini(
         if "clip_editing" in sd.scoped_categories:
             dynamic_prompt += "\n\n" + _EDITING_MODE_APPENDIX
         if "generation" in sd.scoped_categories:
+            dynamic_prompt += "\n\n" + _IMAGE_GENERATION_APPENDIX
             dynamic_prompt += "\n\n" + _GENERATION_MODE_APPENDIX
 
     payload: dict[str, Any] = {

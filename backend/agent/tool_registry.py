@@ -874,8 +874,9 @@ generate_image = _tool(
     description=(
         "Generate or edit an image using AI. Default model is Nano Banana 2 "
         "(higher quality, supports editing with reference images). Pass "
-        "image_urls with asset paths to composite/edit multiple images together. "
-        "Without image_urls, generates from text only. Returns the asset_id."
+        "image_urls with asset IDs (from get_project_assets) to composite/edit "
+        "multiple images together. Without image_urls, generates from text only. "
+        "Returns the asset_id."
     ),
     execution_target=ExecutionTarget.FRONTEND,
     category="generation",
@@ -885,7 +886,7 @@ generate_image = _tool(
         _param("resolution", "string", "For NB2: '1K', '2K', or '4K'. For ZIT: '1080p', '1440p', or '2048p'.", required=False),
         _param("aspect_ratio", "string", "For NB2: 'auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'. For ZIT: '1:1', '16:9', '9:16', '4:3', '3:4', '21:9'.", required=False),
         _param("num_variations", "integer", "Number of image variations (1-4, default 1).", required=False),
-        _param("image_urls", "array", "List of image asset URLs for NB2 editing mode. Pass existing asset URLs to composite or edit them together.", required=False),
+        _param("image_urls", "array", "List of asset IDs for reference images (from get_project_assets results). The system resolves these to image data automatically. Use for NB2 editing: compositing people, objects, or scenes from multiple images.", required=False),
     ],
 )
 

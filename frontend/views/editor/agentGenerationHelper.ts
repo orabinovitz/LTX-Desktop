@@ -11,6 +11,23 @@ import { copyToAssetFolder } from "../../lib/asset-copy";
 import type { OnToolProgress } from "../../hooks/use-agent";
 import { backendFetch } from "../../lib/backend";
 
+export function urlToDataUri(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { reject(new Error('No canvas context')); return }
+      ctx.drawImage(img, 0, 0)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = () => reject(new Error(`Failed to load: ${url}`))
+    img.src = url
+  })
+}
+
 interface GenerationProgress {
   status: string;
   phase: string;
@@ -222,6 +239,15 @@ export async function agentGenerateImage(
   const imageModel = params.model ?? "nano-banana-2";
   const isNb2 = imageModel === "nano-banana-2";
 
+  let resolvedImageUrls: string[] | undefined;
+  if (isNb2 && params.imageUrls && params.imageUrls.length > 0) {
+    resolvedImageUrls = await Promise.all(
+      params.imageUrls.map(url =>
+        url.startsWith('data:') ? Promise.resolve(url) : urlToDataUri(url)
+      )
+    );
+  }
+
   let requestBody: Record<string, unknown>;
   let resolutionLabel: string;
 
@@ -235,8 +261,8 @@ export async function agentGenerateImage(
       aspectRatio,
       resolution,
       numImages: params.numVariations ?? 1,
-      ...(params.imageUrls && params.imageUrls.length > 0
-        ? { imageUrls: params.imageUrls }
+      ...(resolvedImageUrls && resolvedImageUrls.length > 0
+        ? { imageUrls: resolvedImageUrls }
         : {}),
     };
   } else {
@@ -295,7 +321,7 @@ export async function agentGenerateImage(
     prompt: params.prompt,
     resolution: resolutionLabel,
     generationParams: {
-      mode: params.imageUrls?.length ? 'text-to-image' : 'text-to-image',
+      mode: 'text-to-image',
       prompt: params.prompt,
       model: 'fast',
       duration: 0,

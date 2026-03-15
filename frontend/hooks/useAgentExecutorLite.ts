@@ -259,6 +259,17 @@ export function useAgentExecutorLite(deps: AgentExecutorLiteDeps) {
           const prompt = args.prompt as string;
           if (!prompt) return fail("generate_image", "Missing prompt");
 
+          let resolvedImageUrls: string[] | undefined;
+          const rawImageUrls = args.image_urls as string[] | undefined;
+          if (rawImageUrls && rawImageUrls.length > 0) {
+            const assets = assetsRef.current ?? [];
+            resolvedImageUrls = rawImageUrls.map(ref => {
+              if (ref.startsWith('data:') || ref.startsWith('file:') || ref.startsWith('http')) return ref;
+              const matched = assets.find(a => a.id === ref);
+              return matched?.url ?? ref;
+            });
+          }
+
           generationAbortRef.current = new AbortController();
           try {
             const result = await agentGenerateImage(
@@ -270,7 +281,7 @@ export function useAgentExecutorLite(deps: AgentExecutorLiteDeps) {
                 numVariations: args.num_variations
                   ? Number(args.num_variations)
                   : undefined,
-                imageUrls: args.image_urls as string[] | undefined,
+                imageUrls: resolvedImageUrls,
               },
               addAsset,
               currentProjectId,
