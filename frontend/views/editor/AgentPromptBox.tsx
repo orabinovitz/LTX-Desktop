@@ -416,17 +416,6 @@ export function AgentPromptBox({
               </div>
             ))}
 
-            {clarificationState && onSubmitClarification && (
-              <div className="flex justify-start">
-                <div className="w-full rounded-lg bg-zinc-800 px-3 py-2.5 text-xs leading-relaxed text-zinc-200">
-                  <ClarificationView
-                    questions={clarificationState.questions}
-                    onSubmit={onSubmitClarification}
-                  />
-                </div>
-              </div>
-            )}
-
             {/* Non-orchestrated progress stays inline */}
             {showProgressView && !showOrchestratedSticky && (
               <TaskProgressView progress={progress} onSetCollapsed={onSetCollapsed} />
@@ -442,40 +431,49 @@ export function AgentPromptBox({
             )}
           </div>
 
-          {/* Input (text mode) */}
-          <form
-            onSubmit={handleSubmit}
-            className="flex flex-shrink-0 items-center gap-2 border-t border-zinc-800 bg-zinc-900/95 px-3 py-2.5"
-          >
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.stopPropagation()}
-              placeholder="Type your prompt here..."
-              disabled={isProcessing || !!clarificationState}
-              className="flex-1 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 outline-none transition-colors focus:border-blue-500 disabled:opacity-50"
-            />
-            {onVoiceConnect && (
-              <button
-                type="button"
-                onClick={onVoiceConnect}
-                disabled={isProcessing || !!clarificationState}
-                className="flex-shrink-0 rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
-                title="Switch to voice mode"
-              >
-                <Mic className="h-3.5 w-3.5" />
-              </button>
-            )}
-            <button
-              type="submit"
-              disabled={isProcessing || !!clarificationState || !input.trim()}
-              className="flex-shrink-0 rounded-lg bg-blue-600 p-2 text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+          {/* Clarification panel — sticky between messages and input */}
+          {clarificationState && onSubmitClarification ? (
+            <div className="min-h-0 flex-1 overflow-y-auto border-t border-zinc-700 border-l-2 border-l-amber-500 bg-zinc-800/80 px-4 py-3">
+              <ClarificationView
+                questions={clarificationState.questions}
+                onSubmit={onSubmitClarification}
+              />
+            </div>
+          ) : (
+            <form
+              onSubmit={handleSubmit}
+              className="flex flex-shrink-0 items-center gap-2 border-t border-zinc-800 bg-zinc-900/95 px-3 py-2.5"
             >
-              <Send className="h-3.5 w-3.5" />
-            </button>
-          </form>
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder="Type your prompt here..."
+                disabled={isProcessing}
+                className="flex-1 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 outline-none transition-colors focus:border-blue-500 disabled:opacity-50"
+              />
+              {onVoiceConnect && (
+                <button
+                  type="button"
+                  onClick={onVoiceConnect}
+                  disabled={isProcessing}
+                  className="flex-shrink-0 rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Switch to voice mode"
+                >
+                  <Mic className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={isProcessing || !input.trim()}
+                className="flex-shrink-0 rounded-lg bg-blue-600 p-2 text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </button>
+            </form>
+          )}
         </>
       )}
 

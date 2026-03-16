@@ -51,6 +51,18 @@ _STYLE_KEYWORDS = {
     "commercial", "music video", "narrative", "vlog",
 }
 
+_FULL_PRODUCTION_SIGNALS = re.compile(
+    r"""
+    \bcreate\b.*\b(?:video|scene|film|ad|promo|trailer|commercial)\b
+    | \bmake\b.*\b(?:video|scene|film|ad|promo|trailer|commercial)\b
+    | \bproduce\b
+    | \bshoot\b
+    | \bfull\s+(?:video|scene|production)\b
+    | \bfrom\s+scratch\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
 _CINEMATIC_DIRECTOR_NAMES = {
     "villeneuve", "deakins", "kubrick", "spielberg", "nolan", "fincher",
     "scorsese", "coen", "malick", "lubezki", "richardson", "kamiński",
@@ -82,7 +94,7 @@ def has_cinematic_intent(prompt: str) -> bool:
             return True
     return False
 
-_MAX_SIMPLE_WORD_COUNT = 25
+_MAX_SIMPLE_WORD_COUNT = 45
 
 
 def classify_complexity(prompt: str) -> RequestComplexity:
@@ -90,10 +102,12 @@ def classify_complexity(prompt: str) -> RequestComplexity:
 
     Rules (evaluated in order):
 
-    1. Very short prompts (< 8 words, no multi-step signals) → simple.
-    2. Explicit multi-step language ("first ... then ...") → orchestrated.
-    3. Touches 2+ distinct domains (generation + editing) → orchestrated.
-    4. Mentions a specialized style keyword → orchestrated.
+    1. Explicit multi-step language ("first ... then ...") → orchestrated.
+    2. Touches 2+ distinct domains (generation + editing) → orchestrated.
+    3. Style keyword combined with a production signal (create/make a
+       video/scene/film) → orchestrated.  A style keyword alone is just
+       a modifier on a simple request and stays simple.
+    4. Very long prompts (> 45 words) → orchestrated as a fallback.
     5. Everything else → simple.
     """
     prompt_lower = prompt.lower().strip()
@@ -101,10 +115,6 @@ def classify_complexity(prompt: str) -> RequestComplexity:
 
     if _MULTI_STEP_SIGNALS.search(prompt_lower):
         return "orchestrated"
-
-    for kw in _STYLE_KEYWORDS:
-        if kw in prompt_lower:
-            return "orchestrated"
 
     matched_domains: set[str] = set()
     for domain, keywords in _MULTI_DOMAIN_KEYWORDS.items():
@@ -114,6 +124,11 @@ def classify_complexity(prompt: str) -> RequestComplexity:
                 break
 
     if len(matched_domains) >= 2:
+        return "orchestrated"
+
+    has_style = any(kw in prompt_lower for kw in _STYLE_KEYWORDS)
+    has_production_signal = bool(_FULL_PRODUCTION_SIGNALS.search(prompt_lower))
+    if has_style and has_production_signal:
         return "orchestrated"
 
     if word_count > _MAX_SIMPLE_WORD_COUNT:

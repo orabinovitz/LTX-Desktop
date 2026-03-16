@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { ArrowRight, SkipForward } from "lucide-react";
+import { ArrowRight, SkipForward, MessageCircleQuestion } from "lucide-react";
 import type {
   ClarificationQuestion,
   ClarificationAnswer,
@@ -123,9 +123,12 @@ export function ClarificationView({
 
   return (
     <div className="space-y-3">
-      <p className="text-[11px] font-medium text-zinc-400">
-        Before I start, a few quick questions to make sure I get this right:
-      </p>
+      <div className="flex items-center gap-1.5">
+        <MessageCircleQuestion className="h-3.5 w-3.5 flex-shrink-0 text-amber-400" />
+        <p className="text-[11px] font-semibold text-amber-400/90">
+          A few questions before I start:
+        </p>
+      </div>
 
       {questions.map((q, idx) => {
         const answer = answers.get(q.id);
