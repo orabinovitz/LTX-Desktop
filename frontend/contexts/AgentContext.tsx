@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useAgent, type ChatMessage, type OnToolProgress } from "../hooks/use-agent";
+import { useAgent, type ChatMessage, type OnToolProgress, type AgentMessage } from "../hooks/use-agent";
 import { useOrchestratedAgent } from "../hooks/use-orchestrated-agent";
 import type { AgentProgress } from "../types/agent-progress";
 import type { ToolCall, ToolResult } from "../views/editor/useAgentExecutor";
@@ -177,6 +177,15 @@ function formatClarificationContext(
   return lines.join("\n");
 }
 
+function chatMessagesToConversationHistory(messages: ChatMessage[]): AgentMessage[] {
+  return messages
+    .filter((m) => m.content)
+    .map((m) => ({
+      role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+      content: m.content,
+    }));
+}
+
 export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [agentOpen, setAgentOpen] = useState(false);
 
@@ -273,17 +282,33 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       setActiveMode(complexity);
       const { executor, timelineState, wrappedExecuteTool, viewCtx } = ctx;
 
-      const agent = complexity === "orchestrated" ? orchestratedAgent : simpleAgent;
-      agent.sendPrompt(
-        prompt,
-        timelineState?.clips ?? [],
-        timelineState?.trackCount ?? 0,
-        timelineState?.currentTime ?? 0,
-        wrappedExecuteTool,
-        executor?.projectId ?? null,
-        executor?.viewContext,
-        viewCtx,
-      );
+      if (complexity === "simple") {
+        const priorHistory = chatMessagesToConversationHistory(
+          orchestratedAgent.messages,
+        );
+        simpleAgent.sendPrompt(
+          prompt,
+          timelineState?.clips ?? [],
+          timelineState?.trackCount ?? 0,
+          timelineState?.currentTime ?? 0,
+          wrappedExecuteTool,
+          executor?.projectId ?? null,
+          executor?.viewContext,
+          viewCtx,
+          priorHistory.length > 0 ? priorHistory : undefined,
+        );
+      } else {
+        orchestratedAgent.sendPrompt(
+          prompt,
+          timelineState?.clips ?? [],
+          timelineState?.trackCount ?? 0,
+          timelineState?.currentTime ?? 0,
+          wrappedExecuteTool,
+          executor?.projectId ?? null,
+          executor?.viewContext,
+          viewCtx,
+        );
+      }
     },
     [simpleAgent, orchestratedAgent],
   );

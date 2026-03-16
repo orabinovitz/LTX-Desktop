@@ -266,6 +266,22 @@ def format_brain_for_agent(brain: ProjectBrain) -> str:
     return "\n".join(lines)
 
 
+def clear_brain(project_id: str) -> bool:
+    """Remove a project's brain from memory and disk. Returns True if deleted."""
+    with _brain_lock:
+        _brains.pop(project_id, None)
+    path = _disk_path(project_id)
+    if path.exists():
+        try:
+            path.unlink()
+            logger.info("Cleared brain cache for project %s", project_id[:8])
+            return True
+        except Exception:
+            logger.warning("Failed to delete brain cache for %s", project_id[:8], exc_info=True)
+            return False
+    return False
+
+
 def mark_dirty(project_id: str) -> None:
     """Flag a brain as needing a rebuild (rebuilt lazily on next agent prompt)."""
     with _brain_lock:

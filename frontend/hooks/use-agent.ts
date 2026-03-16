@@ -54,7 +54,7 @@ interface TimelineState {
   playhead_time: number;
 }
 
-interface AgentMessage {
+export interface AgentMessage {
   role: "user" | "assistant";
   content: string;
 }
@@ -167,6 +167,7 @@ export function useAgent() {
       projectId?: string | null,
       viewContext?: "editor" | "genspace" | "playground",
       assetsContext?: Record<string, unknown> | null,
+      externalConversationHistory?: AgentMessage[],
     ) => {
       setIsProcessing(true);
       abortRef.current?.abort();
@@ -189,6 +190,10 @@ export function useAgent() {
         );
         progressActions.setThinking("Sending request to AI...");
 
+        const effectiveHistory = externalConversationHistory
+          ? [...externalConversationHistory, ...conversationRef.current]
+          : conversationRef.current;
+
         const res = await backendFetch("/api/agent/execute", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -200,7 +205,7 @@ export function useAgent() {
             ...(assetsContext ? { assets_context: assetsContext } : {}),
             ...(sessionIdRef.current
               ? { session_id: sessionIdRef.current }
-              : { conversation_history: conversationRef.current }),
+              : { conversation_history: effectiveHistory }),
           }),
           signal,
         });

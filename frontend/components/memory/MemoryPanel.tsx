@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   X,
   FileText,
@@ -115,13 +115,33 @@ function ContextTab() {
 }
 
 function LogTab() {
-  const { memoryLog, appendMemoryNote, isLoading } = useProjectMemory()
+  const { memoryLog, appendMemoryNote, clearMemoryLog, isLoading } = useProjectMemory()
   const [newNote, setNewNote] = useState('')
+  const [confirmClear, setConfirmClear] = useState(false)
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (confirmTimer.current) clearTimeout(confirmTimer.current)
+    }
+  }, [])
 
   const handleAdd = async () => {
     if (!newNote.trim()) return
     await appendMemoryNote(newNote.trim())
     setNewNote('')
+  }
+
+  const handleClear = async () => {
+    if (!confirmClear) {
+      setConfirmClear(true)
+      if (confirmTimer.current) clearTimeout(confirmTimer.current)
+      confirmTimer.current = setTimeout(() => setConfirmClear(false), 3000)
+      return
+    }
+    if (confirmTimer.current) clearTimeout(confirmTimer.current)
+    await clearMemoryLog()
+    setConfirmClear(false)
   }
 
   return (
@@ -140,7 +160,7 @@ function LogTab() {
           </div>
         )}
       </div>
-      <div className="p-3 border-t border-zinc-800">
+      <div className="p-3 border-t border-zinc-800 space-y-2">
         <div className="flex gap-2">
           <input
             className="flex-1 bg-zinc-900 text-sm text-zinc-200 rounded-md px-3 py-1.5 border border-zinc-700 outline-none focus:border-zinc-500 placeholder:text-zinc-500"
@@ -153,6 +173,18 @@ function LogTab() {
             Add
           </Button>
         </div>
+        {memoryLog && (
+          <Button
+            variant="outline"
+            size="sm"
+            className={`w-full ${confirmClear ? 'border-red-600 text-red-400 hover:bg-red-950' : ''}`}
+            onClick={handleClear}
+            disabled={isLoading}
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+            {confirmClear ? 'Click again to confirm' : 'Clear Log'}
+          </Button>
+        )}
       </div>
     </div>
   )
@@ -306,8 +338,24 @@ function DocumentsTab() {
 }
 
 export function MemoryPanel() {
-  const { isPanelOpen, setPanelOpen, refreshMemory, isLoading, documents } = useProjectMemory()
+  const { isPanelOpen, setPanelOpen, refreshMemory, clearAllMemory, isLoading, documents, masterContext, memoryLog } = useProjectMemory()
   const [activeTab, setActiveTab] = useState<MemoryTab>('documents')
+  const [confirmClearAll, setConfirmClearAll] = useState(false)
+  const clearAllTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const hasAnyMemory = documents.length > 0 || !!masterContext || !!memoryLog
+
+  const handleClearAll = async () => {
+    if (!confirmClearAll) {
+      setConfirmClearAll(true)
+      if (clearAllTimer.current) clearTimeout(clearAllTimer.current)
+      clearAllTimer.current = setTimeout(() => setConfirmClearAll(false), 3000)
+      return
+    }
+    if (clearAllTimer.current) clearTimeout(clearAllTimer.current)
+    await clearAllMemory()
+    setConfirmClearAll(false)
+  }
 
   if (!isPanelOpen) return null
 
@@ -368,6 +416,21 @@ export function MemoryPanel() {
         {activeTab === 'log' && <LogTab />}
         {activeTab === 'documents' && <DocumentsTab />}
       </div>
+
+      {hasAnyMemory && (
+        <div className="px-3 py-2 border-t border-zinc-800">
+          <Button
+            variant="outline"
+            size="sm"
+            className={`w-full ${confirmClearAll ? 'border-red-600 text-red-400 hover:bg-red-950' : 'text-zinc-500'}`}
+            onClick={() => void handleClearAll()}
+            disabled={isLoading}
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+            {confirmClearAll ? 'Click again to confirm clear all' : 'Clear All Memory'}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

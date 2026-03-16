@@ -322,3 +322,23 @@ def route_append_memory_log(
     """Append an entry to the memory/preferences log."""
     project_memory.append_memory_entry(project_id, req.entry, req.assets_path)
     return {"status": "appended"}
+
+
+@router.delete("/agent/memory/{project_id}/log")
+def route_clear_memory_log(
+    project_id: str,
+    assets_path: str | None = None,
+) -> dict[str, str]:
+    """Clear the memory/preferences log."""
+    project_memory.clear_memory_log(project_id, assets_path)
+    return {"status": "cleared"}
+
+
+@router.delete("/agent/memory/{project_id}/all")
+def route_clear_all_memory(
+    project_id: str,
+    assets_path: str | None = None,
+) -> dict[str, str]:
+    """Clear all memory: documents, log, context, and brain cache."""
+    project_memory.clear_all_memory(project_id, assets_path)
+    return {"status": "cleared"}

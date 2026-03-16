@@ -57,6 +57,8 @@ interface ProjectMemoryActions {
   deleteDocument: (id: string) => Promise<void>
   updateContext: (content: string) => Promise<void>
   appendMemoryNote: (entry: string) => Promise<void>
+  clearMemoryLog: () => Promise<void>
+  clearAllMemory: () => Promise<void>
   setPanelOpen: (open: boolean) => void
   togglePanel: () => void
 }
@@ -235,6 +237,28 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
     [projectId, refreshMemory],
   )
 
+  const clearMemoryLog = useCallback(async () => {
+    if (!projectId) return
+    const res = await backendFetch(`/api/agent/memory/${projectId}/log`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error(`Failed to clear memory log: ${res.status}`)
+    setMemoryLog('')
+  }, [projectId])
+
+  const clearAllMemory = useCallback(async () => {
+    if (!projectId) return
+    const res = await backendFetch(`/api/agent/memory/${projectId}/all`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error(`Failed to clear all memory: ${res.status}`)
+    setDocuments([])
+    setMasterContext('')
+    setMemoryLog('')
+    setSelectedDocumentId(null)
+    setSelectedDocument(null)
+  }, [projectId])
+
   const togglePanel = useCallback(() => {
     setIsPanelOpen((prev) => !prev)
   }, [])
@@ -256,6 +280,8 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
       deleteDocument,
       updateContext,
       appendMemoryNote,
+      clearMemoryLog,
+      clearAllMemory,
       setPanelOpen: setIsPanelOpen,
       togglePanel,
     }),
@@ -275,6 +301,8 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
       deleteDocument,
       updateContext,
       appendMemoryNote,
+      clearMemoryLog,
+      clearAllMemory,
       togglePanel,
     ],
   )

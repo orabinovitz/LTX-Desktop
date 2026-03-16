@@ -185,3 +185,47 @@ def test_moderate_length_single_action_is_simple() -> None:
     assert len(prompt.split()) > 25
     assert len(prompt.split()) <= 45
     assert classify_complexity(prompt) == "simple"
+
+
+# --- Creative planning tasks → orchestrated ---
+
+
+def test_create_visual_identity_is_orchestrated() -> None:
+    """Visual identity requests need the orchestrator's skill routing."""
+    assert classify_complexity("create the visual identity") == "orchestrated"
+
+
+def test_visual_identity_guide_is_orchestrated() -> None:
+    assert classify_complexity("now please create a visual identity guide") == "orchestrated"
+
+
+def test_identity_bible_is_orchestrated() -> None:
+    assert classify_complexity("write an identity bible for this project") == "orchestrated"
+
+
+def test_style_guide_is_orchestrated() -> None:
+    assert classify_complexity("create a style guide") == "orchestrated"
+
+
+def test_storyboard_is_orchestrated() -> None:
+    assert classify_complexity("create a storyboard for this scene") == "orchestrated"
+
+
+def test_shot_list_is_orchestrated() -> None:
+    assert classify_complexity("create a shot list") == "orchestrated"
+
+
+def test_look_development_is_orchestrated() -> None:
+    assert classify_complexity("do look development for this project") == "orchestrated"
+
+
+def test_pre_production_is_orchestrated() -> None:
+    assert classify_complexity("start pre-production") == "orchestrated"
+
+
+def test_moodboard_is_orchestrated() -> None:
+    assert classify_complexity("create a moodboard for the scene") == "orchestrated"
+
+
+def test_character_sheet_is_orchestrated() -> None:
+    assert classify_complexity("create a character sheet for the detective") == "orchestrated"

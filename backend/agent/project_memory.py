@@ -429,6 +429,22 @@ def read_memory_log(
         return ""
 
 
+def clear_memory_log(
+    project_id: str,
+    assets_path: str | None = None,
+) -> None:
+    """Delete the memory/preferences log file."""
+    try:
+        mdir = _memory_dir(project_id, assets_path)
+    except ValueError:
+        return
+    path = mdir / "memory.md"
+    if path.exists():
+        path.unlink()
+    invalidate_cache(project_id, assets_path)
+    logger.info("Cleared memory log for project %s", project_id[:8])
+
+
 def append_memory_entry(
     project_id: str,
     entry: str,
@@ -449,6 +465,39 @@ def append_memory_entry(
         _atomic_write(path, f"# Project Memory Log\n\n{line}")
     invalidate_cache(project_id, assets_path)
     logger.info("Appended memory entry for project %s", project_id[:8])
+
+
+def clear_all_memory(
+    project_id: str,
+    assets_path: str | None = None,
+) -> None:
+    """Delete all documents, log, context, and brain cache for a project."""
+    try:
+        mdir = _memory_dir(project_id, assets_path)
+    except ValueError:
+        return
+
+    manifest = _load_manifest(mdir)
+    for doc in list(manifest.documents):
+        doc_path = mdir / doc.filename
+        doc_path.unlink(missing_ok=True)
+    manifest.documents.clear()
+    manifest.project_id = project_id
+    _save_manifest(mdir, manifest)
+
+    context_path = mdir / "context.md"
+    if context_path.exists():
+        context_path.unlink()
+
+    log_path = mdir / "memory.md"
+    if log_path.exists():
+        log_path.unlink()
+
+    from agent import brain as brain_module
+    brain_module.clear_brain(project_id)
+
+    invalidate_cache(project_id, assets_path)
+    logger.info("Cleared all memory (docs, log, context, brain) for project %s", project_id[:8])
 
 
 # ---------------------------------------------------------------------------

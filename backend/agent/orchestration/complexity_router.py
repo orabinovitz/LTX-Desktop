@@ -63,6 +63,22 @@ _FULL_PRODUCTION_SIGNALS = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
+_CREATIVE_PLANNING_SIGNALS = re.compile(
+    r"""
+    \bvisual\s+identit
+    | \bidentity\s+(?:bible|guide)\b
+    | \bstyle\s+guide\b
+    | \blook\s+dev(?:elopment)?\b
+    | \bstoryboard\b
+    | \bpre[- ]?production\b
+    | \bcharacter\s+(?:sheet|ref|design)\b
+    | \blocation\s+(?:ref|scout|design)\b
+    | \bshot\s+list\b
+    | \bmood\s*board\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
 _CINEMATIC_DIRECTOR_NAMES = {
     "villeneuve", "deakins", "kubrick", "spielberg", "nolan", "fincher",
     "scorsese", "coen", "malick", "lubezki", "richardson", "kamiński",
@@ -103,17 +119,22 @@ def classify_complexity(prompt: str) -> RequestComplexity:
     Rules (evaluated in order):
 
     1. Explicit multi-step language ("first ... then ...") → orchestrated.
-    2. Touches 2+ distinct domains (generation + editing) → orchestrated.
-    3. Style keyword combined with a production signal (create/make a
+    2. Creative planning tasks that need skill routing (visual identity,
+       style guide, storyboard, pre-production, shot list) → orchestrated.
+    3. Touches 2+ distinct domains (generation + editing) → orchestrated.
+    4. Style keyword combined with a production signal (create/make a
        video/scene/film) → orchestrated.  A style keyword alone is just
        a modifier on a simple request and stays simple.
-    4. Very long prompts (> 45 words) → orchestrated as a fallback.
-    5. Everything else → simple.
+    5. Very long prompts (> 45 words) → orchestrated as a fallback.
+    6. Everything else → simple.
     """
     prompt_lower = prompt.lower().strip()
     word_count = len(prompt_lower.split())
 
     if _MULTI_STEP_SIGNALS.search(prompt_lower):
+        return "orchestrated"
+
+    if _CREATIVE_PLANNING_SIGNALS.search(prompt_lower):
         return "orchestrated"
 
     matched_domains: set[str] = set()
