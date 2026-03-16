@@ -267,6 +267,10 @@ class SkillContent(BaseModel):
         default_factory=dict,
         description="Reference files: {filename: content}. Loaded from references/ subdirectory.",
     )
+    enable_search: bool = Field(
+        default=False,
+        description="Enable Gemini Google Search grounding for this skill's sub-agent sessions.",
+    )
 
 
 # ============================================================
@@ -387,6 +391,7 @@ class SubAgentResult(BaseModel):
     )
     sub_agent_system_prompt: str = Field(default="", description="System prompt for resuming")
     sub_agent_tool_declarations: list[Any] = Field(default_factory=list, description="Tool declarations for resuming")
+    sub_agent_enable_search: bool = Field(default=False, description="Whether Google Search grounding was enabled")
 
 
 class OrchestrateRequest(BaseModel):
@@ -448,6 +453,7 @@ class MemoryDocumentType(str, Enum):
     REFERENCE = "reference"
     CHARACTER_SHEET = "character_sheet"
     LOCATION_REF = "location_ref"
+    VISUAL_IDENTITY = "visual_identity"
 
 
 class DocumentMeta(BaseModel):

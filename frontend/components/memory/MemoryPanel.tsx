@@ -22,6 +22,9 @@ const DOC_TYPE_ICONS: Record<string, string> = {
   storyboard: '🎬',
   notes: '📌',
   reference: '📎',
+  character_sheet: '👤',
+  location_ref: '📍',
+  visual_identity: '🎨',
 }
 
 const DOC_TYPE_COLORS: Record<string, string> = {
@@ -30,6 +33,9 @@ const DOC_TYPE_COLORS: Record<string, string> = {
   storyboard: 'text-purple-400',
   notes: 'text-yellow-400',
   reference: 'text-zinc-400',
+  character_sheet: 'text-orange-400',
+  location_ref: 'text-teal-400',
+  visual_identity: 'text-rose-400',
 }
 
 function formatDate(iso: string): string {

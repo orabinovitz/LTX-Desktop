@@ -304,6 +304,8 @@ def _run_gemini_turn(
     http_client: HTTPClient,
     task_id: str,
     turn: int,
+    *,
+    enable_search: bool = False,
 ) -> tuple[list[dict[str, Any]], list[ToolCall], list[ToolCall]] | None:
     """Make one Gemini API call and parse the response.
 
@@ -313,10 +315,14 @@ def _run_gemini_turn(
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{_SUB_AGENT_MODEL}:generateContent"
     )
+    tools: list[dict[str, Any]] = [{"functionDeclarations": tool_declarations}]
+    if enable_search:
+        tools.append({"google_search": {}})
+
     payload: dict[str, Any] = {
         "contents": contents,
         "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "tools": [{"functionDeclarations": tool_declarations}],
+        "tools": tools,
         "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192},
     }
 
@@ -398,6 +404,7 @@ def execute_sub_agent(
     system_prompt = _build_system_prompt(task, skill_content)
     tool_declarations, tool_names = _get_scoped_tools(task, skill_content)
     user_message = _build_user_message(context, tool_names)
+    search_enabled = skill_content.enable_search if skill_content else False
 
     contents: list[dict[str, Any]] = [
         {"role": "user", "parts": [{"text": user_message}]},
@@ -411,6 +418,7 @@ def execute_sub_agent(
         result = _run_gemini_turn(
             contents, system_prompt, tool_declarations,
             api_key, http_client, task.id, turn,
+            enable_search=search_enabled,
         )
         if result is None:
             return SubAgentResult(
@@ -473,6 +481,7 @@ def execute_sub_agent(
         sub_agent_contents=contents,
         sub_agent_system_prompt=system_prompt,
         sub_agent_tool_declarations=tool_declarations,
+        sub_agent_enable_search=search_enabled,
     )
 
 
@@ -491,6 +500,7 @@ def resume_sub_agent(
     contents = list(prev_result.sub_agent_contents or [])
     system_prompt = prev_result.sub_agent_system_prompt or ""
     tool_declarations = prev_result.sub_agent_tool_declarations or []
+    search_enabled = prev_result.sub_agent_enable_search
     task_id = prev_result.task_id
 
     if not contents or not system_prompt:
@@ -520,6 +530,7 @@ def resume_sub_agent(
         result = _run_gemini_turn(
             contents, system_prompt, tool_declarations,
             api_key, http_client, task_id, turn + 100,
+            enable_search=search_enabled,
         )
         if result is None:
             return SubAgentResult(
@@ -573,6 +584,7 @@ def resume_sub_agent(
         sub_agent_contents=contents,
         sub_agent_system_prompt=system_prompt,
         sub_agent_tool_declarations=tool_declarations,
+        sub_agent_enable_search=search_enabled,
     )
 
 

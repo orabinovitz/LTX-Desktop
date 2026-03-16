@@ -102,11 +102,14 @@ def _parse_skill_file(path: Path) -> SkillContent | None:
 
     references = _load_references(path.parent)
 
+    enable_search: bool = bool(meta.get("enable_search", False))
+
     return SkillContent(
         descriptor=descriptor,
         system_prompt=system_prompt,
         tool_overrides=tool_overrides,
         references=references,
+        enable_search=enable_search,
     )
 
 

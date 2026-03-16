@@ -119,10 +119,23 @@ For ANY request to create a video, scene, ad, short film, or visual sequence:
    - The target duration referenced explicitly in the task description
    - The output MUST use the format "Shot 1:", "Shot 2:", etc.
 
-2. **Visual style MUST be a separate task** that defines color palette, \
-   lighting approach, and framing guide for the entire project.
+2. **Visual identity research** is a creative task that depends on the \
+   script. It researches reference films, cinematographer interviews, \
+   photographer/painter references, and genre-specific visual conventions \
+   using web search, then produces a Visual Identity Bible covering: \
+   color world, light philosophy, camera and lens identity, texture, \
+   production design direction, costume direction, aspect ratio, framing, \
+   visual arc, and anti-references. Assign skill: `visual-identity`. \
+   This task saves the Visual Identity Bible to project memory as a \
+   reference document. All downstream visual tasks depend on it.
 
-3. **Character pre-production** (when the script involves named characters \
+3. **Visual style MUST be a separate task** that defines color palette, \
+   lighting approach, and framing guide for the entire project. This task \
+   depends on the script AND the visual identity research — it translates \
+   the Visual Identity Bible into concrete shot-level guidance for AI \
+   generation prompts.
+
+4. **Character pre-production** (when the script involves named characters \
    or identifiable people): a separate EXECUTION task that generates \
    character reference sheet images using `generate_image`. For each \
    character, generate a 360-degree turnaround reference sheet showing \
@@ -134,7 +147,7 @@ For ANY request to create a video, scene, ad, short film, or visual sequence:
    Skip this step if the scene has no identifiable characters (e.g., \
    abstract, nature, or object-only content).
 
-4. **Location pre-production** (when the script involves specific \
+5. **Location pre-production** (when the script involves specific \
    locations): a separate EXECUTION task that generates location keyframe \
    images using `generate_image`. For each location, generate a wide \
    establishing shot plus 2-3 angle/interior variations using NB2 editing \
@@ -147,7 +160,7 @@ For ANY request to create a video, scene, ad, short film, or visual sequence:
    are independent and can run in parallel. Skip this step if no specific \
    locations are described.
 
-5. **Generation MUST be a separate execution task** that generates \
+6. **Generation MUST be a separate execution task** that generates \
    EVERY shot from the script. The orchestrator will expand this into \
    per-shot parallel tasks automatically and inject character/location \
    reference asset IDs from pre-production. This task MUST depend on \
@@ -158,16 +171,16 @@ For ANY request to create a video, scene, ad, short film, or visual sequence:
    Use character and location reference images from pre-production as \
    image_urls in every generate_image call for visual consistency."
 
-6. **Review MUST compare against the script.** The reviewer receives \
+7. **Review MUST compare against the script.** The reviewer receives \
    both the script and the generation results. It must evaluate each \
    shot by number against the script description and flag specific \
    shots that need regeneration.
 
-7. **Timeline assembly is a separate execution task** that creates a \
+8. **Timeline assembly is a separate execution task** that creates a \
    timeline, adds all clips, trims dead frames, adjusts pacing, and \
    adds transitions.
 
-8. **Final edit review** evaluates the assembled timeline for pacing, \
+9. **Final edit review** evaluates the assembled timeline for pacing, \
    continuity, and overall quality.
 
 NEVER combine script-writing and generation into one task. \
@@ -236,64 +249,73 @@ The scene has two named characters (the couple) and one main location \
     }},
     {{
       "id": "task-2",
-      "description": "Define the A24 visual style for this diner scene: color palette (warm tungsten with cool shadows), lighting approach (practical sources, neon signs, overhead fluorescents), framing philosophy (off-center compositions, negative space), and grain/texture. Describe how each shot type should look visually for AI generation prompts. Include specific camera body, lens, and film stock recommendations.",
-      "skill_id": "cinematography",
+      "description": "Research and create the Visual Identity Bible for this A24-style diner scene. Search for reference films with similar settings and tones (e.g., the visual approach of films like 'Moonlight,' 'First Reformed,' 'Paris, Texas'), find cinematographer interviews about shooting intimate dialogue scenes in practical locations, and research the visual language of A24 naturalism. Produce a comprehensive Visual Identity Bible covering: visual thesis, reference films with specific visual reasoning, color world (warm tungsten, neon, cool shadows), light philosophy (practical source-driven), camera and lens identity (handheld vs. locked, vintage glass for texture), texture and grain, production design direction (diner architecture, era cues), costume direction, aspect ratio and framing philosophy, visual arc across the scene, and anti-references. Save the Visual Identity Bible to project memory.",
+      "skill_id": "visual-identity",
       "task_type": "creative",
-      "depends_on": [],
+      "depends_on": ["task-1"],
       "tool_categories": [],
-      "context_requirements": []
+      "context_requirements": ["prior_results"]
     }},
     {{
       "id": "task-3",
-      "description": "Generate character reference sheets for visual consistency. For EACH named character in the script from task-1, generate a 360-degree turnaround character sheet image using generate_image showing front, three-quarter, side, and back views with the visual style from task-2. Create a fixed identity tag for each character. Save all reference asset IDs to project memory. Your output MUST include CHARACTER_REFS with a JSON map of character names to asset IDs.",
-      "skill_id": "scene-preproduction",
-      "task_type": "execution",
+      "description": "Using the Visual Identity Bible from task-2, define the concrete A24 visual style for this diner scene: translate the identity bible into specific shot-level guidance including color palette (warm tungsten with cool shadows), lighting approach (practical sources, neon signs, overhead fluorescents), framing philosophy (off-center compositions, negative space), and grain/texture. Describe how each shot type should look visually for AI generation prompts. Include specific camera body, lens, and film stock recommendations grounded in the visual identity research.",
+      "skill_id": "cinematography",
+      "task_type": "creative",
       "depends_on": ["task-1", "task-2"],
-      "tool_categories": ["generation", "memory"],
+      "tool_categories": [],
       "context_requirements": ["prior_results"]
     }},
     {{
       "id": "task-4",
-      "description": "Generate location keyframe images for visual consistency. For the diner location from the script in task-1, generate a wide establishing exterior shot plus interior variations (booth view, counter view, window view) using generate_image with the visual style from task-2. Use NB2 editing by passing the establishing shot asset ID as image_urls to maintain consistency across variations. Save all reference asset IDs to project memory. Your output MUST include LOCATION_REFS with a JSON map of location labels to asset IDs.",
+      "description": "Generate character reference sheets for visual consistency. For EACH named character in the script from task-1, generate a 360-degree turnaround character sheet image using generate_image showing front, three-quarter, side, and back views with the visual style from task-3 and the costume/makeup direction from the Visual Identity Bible (task-2). Create a fixed identity tag for each character. Save all reference asset IDs to project memory. Your output MUST include CHARACTER_REFS with a JSON map of character names to asset IDs.",
       "skill_id": "scene-preproduction",
       "task_type": "execution",
-      "depends_on": ["task-1", "task-2"],
+      "depends_on": ["task-1", "task-3"],
       "tool_categories": ["generation", "memory"],
       "context_requirements": ["prior_results"]
     }},
     {{
       "id": "task-5",
-      "description": "Generate all shots from the shot list: for EACH numbered shot in the script from task-1, generate an image with generate_image using the visual style from task-2, then animate it into a video clip with generate_video in image_to_video mode. Generate EVERY shot listed — do not skip any. Use character and location reference images from pre-production tasks (task-3 and task-4) as image_urls in every generate_image call for visual consistency.",
-      "skill_id": null,
+      "description": "Generate location keyframe images for visual consistency. For the diner location from the script in task-1, generate a wide establishing exterior shot plus interior variations (booth view, counter view, window view) using generate_image with the visual style from task-3 and the production design direction from the Visual Identity Bible (task-2). Use NB2 editing by passing the establishing shot asset ID as image_urls to maintain consistency across variations. Save all reference asset IDs to project memory. Your output MUST include LOCATION_REFS with a JSON map of location labels to asset IDs.",
+      "skill_id": "scene-preproduction",
       "task_type": "execution",
-      "depends_on": ["task-1", "task-2", "task-3", "task-4"],
-      "tool_categories": ["generation"],
+      "depends_on": ["task-1", "task-3"],
+      "tool_categories": ["generation", "memory"],
       "context_requirements": ["prior_results"]
     }},
     {{
       "id": "task-6",
-      "description": "Review each generated shot against the script from task-1. For EACH shot by number, verify: does the visual match the shot description? Is the framing correct? Does it fit the A24 aesthetic from task-2? Are characters visually consistent with the reference sheets from task-3? Is the location consistent with keyframes from task-4? Flag specific shots that need regeneration and explain why.",
-      "skill_id": "directing",
-      "task_type": "review",
-      "depends_on": ["task-1", "task-5"],
-      "tool_categories": ["core"],
+      "description": "Generate all shots from the shot list: for EACH numbered shot in the script from task-1, generate an image with generate_image using the visual style from task-3, then animate it into a video clip with generate_video in image_to_video mode. Generate EVERY shot listed — do not skip any. Use character and location reference images from pre-production tasks (task-4 and task-5) as image_urls in every generate_image call for visual consistency.",
+      "skill_id": null,
+      "task_type": "execution",
+      "depends_on": ["task-1", "task-3", "task-4", "task-5"],
+      "tool_categories": ["generation"],
       "context_requirements": ["prior_results"]
     }},
     {{
       "id": "task-7",
+      "description": "Review each generated shot against the script from task-1 and the Visual Identity Bible from task-2. For EACH shot by number, verify: does the visual match the shot description? Is the framing correct? Does it fit the A24 aesthetic from the visual identity and style guides? Are characters visually consistent with the reference sheets from task-4? Is the location consistent with keyframes from task-5? Flag specific shots that need regeneration and explain why.",
+      "skill_id": "directing",
+      "task_type": "review",
+      "depends_on": ["task-1", "task-6"],
+      "tool_categories": ["core"],
+      "context_requirements": ["prior_results"]
+    }},
+    {{
+      "id": "task-8",
       "description": "Create a new timeline with create_timeline. Add ALL generated video clips in script order using add_clip_to_timeline. Trim dead frames from each clip head/tail with trim_clip. Close all gaps. Use hard cuts between clips by default. Only add a dissolve at major section breaks (time jumps or location changes). Adjust pacing: hold longer on emotional close-ups, cut tighter on wide establishing shots. Target total duration ~180 seconds.",
       "skill_id": "tv-film-editing",
       "task_type": "execution",
-      "depends_on": ["task-5", "task-6"],
+      "depends_on": ["task-6", "task-7"],
       "tool_categories": ["timeline_mgmt", "clip_editing", "transitions", "playback"],
       "context_requirements": ["prior_results", "timeline_state"]
     }},
     {{
-      "id": "task-8",
-      "description": "Review the final edited timeline. Check: total duration (~180s), pacing rhythm, shot-to-shot continuity, whether the emotional subtext from the script is preserved, and whether the A24 aesthetic is maintained. Flag specific edits that need adjustment.",
+      "id": "task-9",
+      "description": "Review the final edited timeline. Check: total duration (~180s), pacing rhythm, shot-to-shot continuity, whether the emotional subtext from the script is preserved, and whether the A24 aesthetic from the Visual Identity Bible is maintained throughout. Flag specific edits that need adjustment.",
       "skill_id": "tv-film-editing",
       "task_type": "review",
-      "depends_on": ["task-7"],
+      "depends_on": ["task-8"],
       "tool_categories": ["core"],
       "context_requirements": ["prior_results", "timeline_state"]
     }}
