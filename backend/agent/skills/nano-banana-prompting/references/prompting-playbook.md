@@ -5,7 +5,7 @@ Nano Banana 2 image generation.
 
 ---
 
-## Camera Body → Visual DNA
+## Still Camera Body → Visual DNA (Photography / Editorial)
 
 | Camera Body | Visual Signature | Best For |
 |---|---|---|
@@ -18,6 +18,63 @@ Nano Banana 2 image generation.
 | Leica M11 | Clinical sharpness with organic rendering, subtle vignetting | Street photography, luxury editorial |
 | Phase One IQ4 | Ultra-high-resolution medium format, extreme tonal separation | Architecture, landscape, museum-quality stills |
 | Polaroid SX-70 | Instant film softness, warm color cast, white border frame | Nostalgic, personal, lo-fi aesthetic |
+
+**Do NOT use these for cinematic/film content.** Use the Cinema Camera Body table below instead.
+
+---
+
+## Cinema Camera Body → Visual DNA (Film / Cinematic)
+
+| Camera Body | Visual Signature | Best For |
+|---|---|---|
+| ARRI ALEXA 35 | Organic highlight rolloff, natural skin tones, wide latitude, the modern cinema standard | Drama, A24, prestige TV, any narrative film work |
+| ARRI ALEXA Mini LF | Large-format ARRI look, shallower DOF, immersive perspective | Features requiring intimacy at scale (Dune, The Batman) |
+| ARRI ALEXA Classic / XT | Warmer, slightly grittier predecessor to ALEXA 35, rich midtones | 2010s cinema look, indie drama, Coen brothers style |
+| RED V-RAPTOR | Sharp, high-resolution, precise digital rendering, cooler skin tones | Sci-fi, action, visually aggressive work (Gone Girl, Guardians of the Galaxy) |
+| RED Monstro 8K | Extreme resolution, clinical detail, wide dynamic range | VFX-heavy productions, large-format digital cinema |
+| Sony VENICE 2 | Dual-ISO, excellent low-light, clean shadows, slightly cool | Night exteriors, thriller, noir, modern crime drama |
+| Panavision Millennium DXL2 | Large-format with Panavision color science, unique organic rendering | Prestige period drama, high-end auteur work |
+| ARRICAM ST / ARRICAM LT | 35mm film camera, mechanical precision, true celluloid texture | Any scene shot on actual film stock, period-accurate cinema |
+| Panavision Panaflex Millennium | 35mm film camera, classic Hollywood motion picture look | Period films, films explicitly referencing 90s/2000s cinema |
+| IMAX MSM 9802 | 65mm/15-perf IMAX, extreme resolution, overwhelming scale | IMAX sequences, Nolan-style spectacle, landscape grandeur |
+
+---
+
+## Cinema Lens → Visual Character
+
+| Lens | Character | Best For |
+|---|---|---|
+| Cooke S7/i | "The Cooke Look" — warm, organic, flattering skin tones, gentle falloff | Prestige drama, character-driven stories, A24 |
+| Cooke Anamorphic /i | Warm anamorphic with controlled flares, classic oval bokeh | Widescreen drama, period pieces, romantic cinema |
+| Panavision Primo 70 | Clinically sharp center, gentle edge falloff, elegant rendering | High-end features, large-format dramatic work |
+| Panavision C-Series Anamorphic | Heavy flares, soft edges, breathing on focus, vintage character | 70s cinema feel, romantic, nostalgic period drama |
+| Panavision Ultra Speed MKII | Soft, dreamy wide open, gentle contrast, vintage spherical | 80s/90s cinema classics, dreamy sequences |
+| Zeiss Master Anamorphic | Controlled anamorphic, subtle flares, sharp with character | Modern epic, sci-fi, premium blockbuster |
+| Zeiss Super Speed MKII | Sharp with slight warm cast, reliable character | Documentary, indie features, naturalistic cinema |
+| Canon K35 | Warm flares, soft contrast, organic vintage rendering | Indie cinema, nostalgic period work, warm character-driven |
+| Leitz (Leica) Summilux-C | Extremely sharp with subtle organic rendering, minimal distortion | Modern drama requiring clarity with soul |
+| Angenieux Optimo | Smooth cinema zoom, excellent bokeh, versatile | Documentary-style narrative, single-camera work |
+
+---
+
+## Motion Picture Film Stock → Aesthetic (Cinema)
+
+| Film Stock | Color Character | Grain | Best For |
+|---|---|---|---|
+| Kodak VISION3 50D 5203/7203 | Rich daylight color, vivid saturation, natural skin tones | Very fine | Bright exteriors, daylight drama, period pieces |
+| Kodak VISION3 250D 5207/7207 | Versatile daylight, balanced color, good latitude | Fine-medium | Mixed lighting, all-purpose daylight cinema |
+| Kodak VISION3 200T 5213/7213 | Warm tungsten-balanced, beautiful skin under practicals | Fine | Indoor drama, warm interiors, intimate scenes |
+| Kodak VISION3 500T 5219/7219 | Rich low-light rendering, deep shadows, atmospheric | Medium-heavy | Night exteriors, noir, moody interiors, thriller |
+| Kodak Ektachrome 100D | Reversal film — vivid, contrasty, saturated, punchy | Fine | Stylized sequences, music videos, heightened reality |
+| Fujifilm ETERNA 500T 8573 | Neutral, slightly desaturated, open shadows, low contrast | Fine | Naturalistic drama, muted aesthetic, Terrence Malick feel |
+| Fujifilm ETERNA Vivid 250D 8546 | Vivid but controlled saturation, clean rendering | Fine | Colorful period drama, vibrant daylight scenes |
+
+**Cinema era shorthand:**
+- "1970s Kodak 5247" — golden, warm, contrasty, the New Hollywood look (Taxi Driver, The Godfather)
+- "1980s Kodak 5293/5294" — slightly cooler, classic 80s cinema (Blade Runner, Blue Velvet)
+- "1990s Kodak Vision 500T" — warm tungsten night scenes, Fincher/Spielberg era
+- "2000s bleach bypass process" — desaturated, high contrast, metallic (Saving Private Ryan, Minority Report)
+- "Super 16mm blown up to 35mm" — heavy grain, gritty, intimate (Moonlight, Beasts of the Southern Wild)
 
 ---
 
@@ -151,6 +208,112 @@ grated vents in the street. CineStill 800T film stock aesthetic with
 halation around neon lights. 24mm lens, f/4, deep focus. Teal and
 magenta color palette with warm pockets of orange street food vendor
 light.
+```
+
+---
+
+## Cinematic Example Prompts
+
+### A24-Style Intimate Drama
+
+```
+A cinematic screen grab from a feature film. A young woman sits alone
+at a worn kitchen table in a dimly lit apartment, her face half-turned
+toward a rain-streaked window. She holds a coffee mug with both hands
+but isn't drinking — her eyes are distant, unfocused. The apartment is
+sparse: peeling wallpaper, a single overhead bulb creating a pool of
+warm tungsten light that fades to deep shadow at the edges of frame.
+Shot on ARRI ALEXA 35 with Cooke S7/i 50mm at T2.0. Kodak VISION3
+500T 5219/7219 film stock. Soft practical lighting from the overhead
+bulb and cool ambient window light on her shadow side. Subtle film
+grain, muted desaturated color palette with warm amber highlights and
+cool blue-grey shadows. In the style of Barry Jenkins' Moonlight —
+luminous skin, intimate framing, negative space that breathes.
+```
+
+### Denis Villeneuve-Style Landscape
+
+```
+A cinematic screen grab from a film directed by Denis Villeneuve. A
+lone figure in a dark tactical suit stands at the edge of a vast salt
+flat stretching to the horizon, heat shimmer distorting the distant
+mountains. The figure is small in the frame — lower third, off-center
+right — dwarfed by the immense empty landscape. The sky is a pale
+amber gradient choked with dust haze. Shot on ARRI ALEXA Mini LF with
+Panavision Primo 70 40mm at T4.0. Kodak VISION3 250D 5207/7207.
+High-key natural daylight filtered through atmospheric particulate,
+no fill light, harsh overhead sun creating minimal shadow. Desaturated
+amber and bleached teal color palette. In the style of Roger Deakins
+shooting Sicario — tension embedded in landscape, geometric
+composition, oppressive negative space. Subtle film grain.
+```
+
+### Survival Drama — Beach Crash Scene
+
+```
+A cinematic screen grab from a feature film. A disoriented POV shot
+looking straight up at the sky — palm fronds blurred at the edges of
+frame, bright overcast sky slightly blown out, a wisp of black smoke
+drifting across from screen left. The image has a dreamlike, unfocused
+quality as if waking from unconsciousness — slight lens distortion at
+the edges, shallow depth of field. Shot on ARRI ALEXA 35 with Zeiss
+Super Speed MKII 28mm at T1.3 (wide open for maximum softness). Kodak
+VISION3 250D 5207/7207. Overexposed natural daylight, no fill,
+high-key with crushed highlights. Desaturated, slightly warm color
+palette. In the style of Roger Deakins — naturalistic, motivated light
+only. Organic film grain, shot on celluloid.
+```
+
+### Noir Thriller
+
+```
+A cinematic screen grab from a neo-noir thriller. A man in a dark
+overcoat stands at the end of a rain-slicked alley, his face obscured
+by the brim of a hat. A single sodium vapor street lamp behind him
+creates a harsh orange rim light on his shoulders and hat brim while
+his face remains in complete shadow. Wet cobblestones reflect the
+amber light in streaks. Steam rises from a grate near his feet. Shot
+on Sony VENICE 2 with Panavision C-Series Anamorphic 50mm at T2.3.
+Kodak VISION3 500T 5219/7219. Low-key lighting — single hard
+practical source, deep shadows consuming 70% of the frame. Heavy film
+grain, anamorphic lens flares catching the street lamp. Color palette:
+deep blacks, warm sodium amber, cold blue in the deepest shadows. In
+the style of Roger Deakins shooting Blade Runner 2049 crossed with
+the visual language of Michael Mann's Collateral.
+```
+
+### Spielberg-Style Close-Up
+
+```
+A cinematic screen grab from a Steven Spielberg film. Extreme close-up
+of a child's face — a boy around 8 years old — looking upward with
+wide eyes filled with wonder and faint reflected light. His mouth is
+slightly open. Tears have dried on his cheeks but his expression is
+awe, not sadness. The background is a complete warm amber blur. Shot
+on ARRI ALEXA 35 with Cooke S7/i 85mm at T1.4. Kodak VISION3 200T
+5213/7213. Key light from above and camera-right, warm and soft,
+creating gentle Rembrandt lighting. A subtle backlight separates his
+hair from the amber background. In the style of Janusz Kamiński —
+overexposed highlights blooming softly, blue-tinged shadow side, the
+light itself as emotional storytelling. Fine organic film grain.
+```
+
+### Documentary-Style Handheld
+
+```
+A cinematic screen grab from a gritty independent film. Two men argue
+in a cramped laundromat — one leaning against a dryer with arms
+crossed, the other pacing with tense shoulders. Fluorescent overhead
+tubes cast flat, unflattering blue-white light. The camera is at eye
+level, handheld with subtle movement, slightly too close to the
+subjects — invasive, documentary intimacy. A woman folds clothes in
+the background, deliberately not looking. Shot on ARRI ALEXA Classic
+with Zeiss Super Speed MKII 32mm at T2.1. Kodak VISION3 500T
+5219/7219 pushed one stop. Practical fluorescent lighting only — no
+supplemental film lighting. Visible grain, desaturated, high contrast.
+In the style of the Safdie brothers' Uncut Gems — anxious proximity,
+claustrophobic framing, reality that feels uncomfortable. Shot on
+16mm blown up to 35mm for extra grain texture.
 ```
 
 ---

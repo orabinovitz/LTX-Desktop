@@ -133,43 +133,91 @@ For ANY request to create a video, scene, ad, short film, or visual sequence:
    lighting approach, and framing guide for the entire project. This task \
    depends on the script AND the visual identity research — it translates \
    the Visual Identity Bible into concrete shot-level guidance for AI \
-   generation prompts.
+   generation prompts. **CRITICAL: The visual style task output MUST end \
+   with a structured NB2_STYLE_BLOCK** containing exact values for: \
+   camera, film_stock, lens, framing, grain, color, director_ref, dp_ref, \
+   and style_refs. This block is parsed by the orchestrator and injected \
+   into every per-shot generation prompt. Example format: \
+   `NB2_STYLE_BLOCK:\\ncamera: ARRI ALEXA 35\\nfilm_stock: Kodak VISION3 \
+   500T 5219/7219\\nlens: Cooke S7/i 50mm T2.0\\nframing: cinematic \
+   screen grab from a feature film\\ngrain: subtle organic film \
+   grain\\ncolor: desaturated cool teal shadows, warm amber \
+   practicals\\ndirector_ref: in the style of Denis Villeneuve\\ndp_ref: \
+   shot by Roger Deakins\\nstyle_refs: Sicario, Prisoners`
 
 4. **Character pre-production** (when the script involves named characters \
    or identifiable people): a separate EXECUTION task that generates \
    character reference sheet images using `generate_image`. For each \
    character, generate a 360-degree turnaround reference sheet showing \
-   front, three-quarter, side, and back views. Save reference asset IDs \
-   to project memory. The sub-agent MUST include in its output summary: \
-   `CHARACTER_REFS: {{"character_name": "asset_id", ...}}` so downstream \
-   tasks can use these as `image_urls` references. This task depends on \
-   the script and visual style tasks. Assign skill: `scene-preproduction`. \
-   Skip this step if the scene has no identifiable characters (e.g., \
-   abstract, nature, or object-only content).
+   front, three-quarter, side, and back views. The sub-agent must apply \
+   the Visual Identity Bible's costume direction and the NB2 Style Block's \
+   camera/film stock values to character sheet prompts. Save reference \
+   asset IDs to project memory. The sub-agent MUST include in its output \
+   summary: `CHARACTER_REFS: {{"character_name": "asset_id", ...}}` so \
+   downstream tasks can use these as `image_urls` references. This task \
+   depends on the script and visual style tasks. Assign skill: \
+   `scene-preproduction`. Skip this step if the scene has no identifiable \
+   characters (e.g., abstract, nature, or object-only content).
 
 5. **Location pre-production** (when the script involves specific \
    locations): a separate EXECUTION task that generates location keyframe \
    images using `generate_image`. For each location, generate a wide \
    establishing shot plus 2-3 angle/interior variations using NB2 editing \
-   (pass the establishing shot as `image_urls` reference). Save reference \
-   asset IDs to project memory. The sub-agent MUST include in its output \
-   summary: `LOCATION_REFS: {{"location_label": "asset_id", ...}}` so \
-   downstream tasks can use these as `image_urls` references. This task \
-   depends on the script and visual style tasks. Assign skill: \
-   `scene-preproduction`. Character and location pre-production tasks \
-   are independent and can run in parallel. Skip this step if no specific \
-   locations are described.
+   (pass the establishing shot as `image_urls` reference). The sub-agent \
+   must apply the Visual Identity Bible's production design direction and \
+   the NB2 Style Block's camera/film stock/lens values to location prompts. \
+   Save reference asset IDs to project memory. The sub-agent MUST include \
+   in its output summary: \
+   `LOCATION_REFS: {{"location_label": "asset_id", ...}}` so downstream \
+   tasks can use these as `image_urls` references. This task depends on \
+   the script and visual style tasks. Assign skill: `scene-preproduction`. \
+   Character and location pre-production tasks are independent and can run \
+   in parallel. Skip this step if no specific locations are described.
 
 6. **Generation MUST be a separate execution task** that generates \
    EVERY shot from the script. The orchestrator will expand this into \
-   per-shot parallel tasks automatically and inject character/location \
-   reference asset IDs from pre-production. This task MUST depend on \
-   the character and location pre-production tasks (if they exist) so \
-   reference images are available. Label this task description \
-   as: "Generate all shots from the shot list: generate each image \
-   with generate_image then animate with generate_video image_to_video. \
+   per-shot parallel tasks automatically, inject character/location \
+   reference asset IDs from pre-production, AND inject the NB2_STYLE_BLOCK \
+   from the visual style task into each per-shot prompt. This task MUST \
+   depend on the character and location pre-production tasks (if they \
+   exist) so reference images are available. Label this task description \
+   as: "Generate all shots from the shot list: for each shot, write a \
+   detailed NB2 prompt applying the visual style guide and NB2_STYLE_BLOCK \
+   (camera, film stock, lens, director/DP references), then call \
+   generate_image, then animate with generate_video image_to_video. \
    Use character and location reference images from pre-production as \
    image_urls in every generate_image call for visual consistency."
+
+## CRITICAL: Cinematic Intent Detection
+
+If the user request contains ANY of these signals, the project has cinematic \
+intent and ALL visual tasks must use cinema-specific prompting:
+
+**Cinematic keywords**: cinematic, film, movie, feature film, short film, \
+A24, arthouse, auteur, narrative, scene, drama, thriller, noir, horror
+
+**Director/DP names**: Villeneuve, Deakins, Kubrick, Spielberg, Nolan, \
+Fincher, Scorsese, Coen, Malick, Lubezki, Richardson, Kamiński, Scott, \
+Tarantino, Anderson (Wes or PTA), Jenkins, Zhao, Gerwig, Peele, Aster
+
+**Film references**: any specific film title used as a style reference
+
+**Visual style signals**: "look like a film", "cinematic look", "film grain", \
+"shot on film", "movie quality", "like a movie"
+
+When cinematic intent is detected:
+- The script task description MUST mention the cinematic tone
+- The visual identity research MUST search for the referenced directors/DPs \
+  and films specifically
+- The visual style task description MUST instruct: "Use cinema camera bodies \
+  (ARRI, RED, Panavision), cinema film stocks (Kodak VISION3), and cinema \
+  lenses (Cooke, Panavision, Zeiss). Frame every image prompt as 'a cinematic \
+  screen grab from a feature film.' Include director/DP style references. \
+  NEVER use still camera bodies (Sony A7III, Canon 5D, Hasselblad) — they \
+  produce a photography look, not a cinema look."
+- The generation task description MUST note: "Each shot prompt must read as \
+  a cinematic screen grab from a film. Use the cinema camera, film stock, \
+  lens, and director/DP references from the NB2_STYLE_BLOCK."
 
 7. **Review MUST compare against the script.** The reviewer receives \
    both the script and the generation results. It must evaluate each \
@@ -233,14 +281,17 @@ Note: The user did NOT specify a duration. A scene with dialogue between \
 two characters has multiple dramatic beats (arrival, settling in, conversation \
 develops, tension builds, resolution). This requires ~3 minutes. \
 The scene has two named characters (the couple) and one main location \
-(the diner), so character and location pre-production tasks are required.
+(the diner), so character and location pre-production tasks are required. \
+CINEMATIC INTENT DETECTED: "A24-style" triggers cinematic prompting — \
+all visual tasks must use cinema cameras, film stocks, and director/DP \
+references. Never use still camera bodies.
 
 {{
   "target_duration_seconds": 180,
   "tasks": [
     {{
       "id": "task-1",
-      "description": "Write a detailed script for a ~3-minute A24-style diner scene. The couple's conversation should have multiple beats: arrival and settling in, casual talk that reveals subtext, a tension shift, and an unresolved ending. Include a NUMBERED shot list with 25-30 shots. Each shot must specify: visual description, shot type (wide/medium/close-up/detail), camera motion, duration in seconds, and any dialogue as subtitle text. Use format 'Shot 1:', 'Shot 2:', etc. Target total duration ~180 seconds. Vary shot durations: 4-6s for quick reactions, 6-10s for dialogue beats, 8-12s for establishing and emotional holds. Give each character a specific name and detailed physical description that will be used for character reference sheets.",
+      "description": "Write a detailed script for a ~3-minute A24-style diner scene. The couple's conversation should have multiple beats: arrival and settling in, casual talk that reveals subtext, a tension shift, and an unresolved ending. Include a NUMBERED shot list with 25-30 shots. Each shot must specify: visual description, shot type (wide/medium/close-up/detail), camera motion, duration in seconds, and any dialogue as subtitle text. Use format 'Shot 1:', 'Shot 2:', etc. Target total duration ~180 seconds. Vary shot durations: 4-6s for quick reactions, 6-10s for dialogue beats, 8-12s for establishing and emotional holds. Give each character a specific name and detailed physical description that will be used for character reference sheets. The tone is A24 cinematic naturalism — intimate, observational, emotionally loaded subtext.",
       "skill_id": "film-tv-screenwriting",
       "task_type": "creative",
       "depends_on": [],
@@ -258,7 +309,7 @@ The scene has two named characters (the couple) and one main location \
     }},
     {{
       "id": "task-3",
-      "description": "Using the Visual Identity Bible from task-2, define the concrete A24 visual style for this diner scene: translate the identity bible into specific shot-level guidance including color palette (warm tungsten with cool shadows), lighting approach (practical sources, neon signs, overhead fluorescents), framing philosophy (off-center compositions, negative space), and grain/texture. Describe how each shot type should look visually for AI generation prompts. Include specific camera body, lens, and film stock recommendations grounded in the visual identity research.",
+      "description": "Using the Visual Identity Bible from task-2, define the concrete A24 visual style for this diner scene. Translate the identity bible into specific shot-level guidance including color palette (warm tungsten with cool shadows), lighting approach (practical sources, neon signs, overhead fluorescents), framing philosophy (off-center compositions, negative space), and grain/texture. Describe how each shot type should look visually for AI generation prompts. CINEMATIC PROJECT: Use cinema camera bodies (ARRI ALEXA 35 or ARRI ALEXA Classic), cinema film stocks (Kodak VISION3 500T 5219/7219 or VISION3 200T 5213/7213), and cinema lenses (Cooke S7/i or vintage Zeiss Super Speed). Frame every prompt as 'a cinematic screen grab from a feature film.' Include director/DP style references from the Visual Identity Bible. NEVER use still camera bodies. Your output MUST end with a structured NB2_STYLE_BLOCK containing: camera, film_stock, lens, framing, grain, color, director_ref, dp_ref, style_refs.",
       "skill_id": "cinematography",
       "task_type": "creative",
       "depends_on": ["task-1", "task-2"],
@@ -267,7 +318,7 @@ The scene has two named characters (the couple) and one main location \
     }},
     {{
       "id": "task-4",
-      "description": "Generate character reference sheets for visual consistency. For EACH named character in the script from task-1, generate a 360-degree turnaround character sheet image using generate_image showing front, three-quarter, side, and back views with the visual style from task-3 and the costume/makeup direction from the Visual Identity Bible (task-2). Create a fixed identity tag for each character. Save all reference asset IDs to project memory. Your output MUST include CHARACTER_REFS with a JSON map of character names to asset IDs.",
+      "description": "Generate character reference sheets for visual consistency. For EACH named character in the script from task-1, generate a 360-degree turnaround character sheet image using generate_image showing front, three-quarter, side, and back views. Apply the Visual Identity Bible's costume/makeup direction from task-2 and the NB2_STYLE_BLOCK's cinema camera/film stock from task-3 to every prompt. Frame character sheets as cinematic — use 'A cinematic screen grab from a feature film' framing with the specified cinema camera and film stock. Create a fixed identity tag for each character. Save all reference asset IDs to project memory. Your output MUST include CHARACTER_REFS with a JSON map of character names to asset IDs.",
       "skill_id": "scene-preproduction",
       "task_type": "execution",
       "depends_on": ["task-1", "task-3"],
@@ -276,7 +327,7 @@ The scene has two named characters (the couple) and one main location \
     }},
     {{
       "id": "task-5",
-      "description": "Generate location keyframe images for visual consistency. For the diner location from the script in task-1, generate a wide establishing exterior shot plus interior variations (booth view, counter view, window view) using generate_image with the visual style from task-3 and the production design direction from the Visual Identity Bible (task-2). Use NB2 editing by passing the establishing shot asset ID as image_urls to maintain consistency across variations. Save all reference asset IDs to project memory. Your output MUST include LOCATION_REFS with a JSON map of location labels to asset IDs.",
+      "description": "Generate location keyframe images for visual consistency. For the diner location from the script in task-1, generate a wide establishing exterior shot plus interior variations (booth view, counter view, window view) using generate_image. Apply the Visual Identity Bible's production design direction from task-2 and the NB2_STYLE_BLOCK's cinema camera/film stock/lens from task-3 to every prompt. Frame location keyframes as cinematic — use 'A cinematic screen grab from a feature film' framing with the specified cinema camera, film stock, and director/DP style references. Use NB2 editing by passing the establishing shot asset ID as image_urls to maintain consistency across variations. Save all reference asset IDs to project memory. Your output MUST include LOCATION_REFS with a JSON map of location labels to asset IDs.",
       "skill_id": "scene-preproduction",
       "task_type": "execution",
       "depends_on": ["task-1", "task-3"],
@@ -285,7 +336,7 @@ The scene has two named characters (the couple) and one main location \
     }},
     {{
       "id": "task-6",
-      "description": "Generate all shots from the shot list: for EACH numbered shot in the script from task-1, generate an image with generate_image using the visual style from task-3, then animate it into a video clip with generate_video in image_to_video mode. Generate EVERY shot listed — do not skip any. Use character and location reference images from pre-production tasks (task-4 and task-5) as image_urls in every generate_image call for visual consistency.",
+      "description": "Generate all shots from the shot list: for EACH numbered shot in the script from task-1, write a detailed NB2 cinematic prompt applying the NB2_STYLE_BLOCK from the visual style guide (task-3) — use the specified cinema camera, film stock, lens, and director/DP references. Frame every prompt as 'a cinematic screen grab from a feature film.' Describe blocking, atmosphere, spatial relationships, and body language in detail. Then call generate_image, then animate with generate_video in image_to_video mode. Generate EVERY shot listed — do not skip any. Use character and location reference images from pre-production tasks (task-4 and task-5) as image_urls in every generate_image call for visual consistency.",
       "skill_id": null,
       "task_type": "execution",
       "depends_on": ["task-1", "task-3", "task-4", "task-5"],

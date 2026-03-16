@@ -573,6 +573,85 @@ class Orchestrator:
 
         return deduped[:5]
 
+    @staticmethod
+    def _extract_visual_style_block(dag: TaskDAG) -> str | None:
+        """Extract the NB2_STYLE_BLOCK from the cinematography task output.
+
+        Scans all completed creative tasks for a structured NB2_STYLE_BLOCK.
+        If found, returns the raw block text for injection into per-shot
+        task descriptions. Falls back to extracting a general visual style
+        summary from the longest creative task output if no structured block
+        exists.
+        """
+        style_block: str | None = None
+        longest_creative_summary = ""
+
+        for task in dag.tasks:
+            if task.status != TaskStatus.COMPLETED or not task.result_summary:
+                continue
+            if task.task_type != TaskType.CREATIVE:
+                continue
+
+            summary = task.result_summary
+
+            block_start = summary.find("NB2_STYLE_BLOCK:")
+            if block_start != -1:
+                block_end = summary.find("\n\n", block_start)
+                if block_end == -1:
+                    block_end = len(summary)
+                style_block = summary[block_start:block_end].strip()
+                break
+
+            if (
+                task.skill_id in ("cinematography", "visual-identity")
+                and len(summary) > len(longest_creative_summary)
+            ):
+                longest_creative_summary = summary
+
+        if style_block:
+            return style_block
+
+        if not longest_creative_summary:
+            return None
+
+        lines: list[str] = []
+        summary_lower = longest_creative_summary.lower()
+
+        import re
+        camera_match = re.search(
+            r"(?:camera|shot on|filmed on)[:\s]+([^\n,.]{5,60})",
+            summary_lower,
+        )
+        if camera_match:
+            lines.append(f"camera: {camera_match.group(1).strip()}")
+
+        stock_match = re.search(
+            r"(?:film stock|stock)[:\s]+([^\n,.]{5,60})",
+            summary_lower,
+        )
+        if stock_match:
+            lines.append(f"film_stock: {stock_match.group(1).strip()}")
+
+        lens_match = re.search(
+            r"(?:lens|optics)[:\s]+([^\n,.]{5,60})",
+            summary_lower,
+        )
+        if lens_match:
+            lines.append(f"lens: {lens_match.group(1).strip()}")
+
+        for pattern in [
+            r"(?:director|directed by|style of)[:\s]+([^\n,.]{3,50})",
+            r"(?:dp|cinematographer|shot by)[:\s]+([^\n,.]{3,50})",
+        ]:
+            ref_match = re.search(pattern, summary_lower)
+            if ref_match:
+                lines.append(f"style_ref: {ref_match.group(1).strip()}")
+
+        if not lines:
+            return None
+
+        return "NB2_STYLE_BLOCK:\n" + "\n".join(lines)
+
     def _try_expand_shot_tasks(
         self,
         session: OrchestratorSession,
@@ -588,6 +667,10 @@ class Orchestrator:
         If pre-production tasks produced CHARACTER_REFS / LOCATION_REFS,
         the relevant reference asset IDs are injected into each per-shot
         task description so the sub-agent passes them as image_urls.
+
+        If a visual style guide produced an NB2_STYLE_BLOCK, its directives
+        are injected into each per-shot task description so the sub-agent
+        applies the correct camera, film stock, lens, and style references.
 
         Returns True if expansion happened (caller should re-fetch ready tasks).
         """
@@ -640,6 +723,14 @@ class Orchestrator:
                     len(location_refs),
                 )
 
+            visual_style_block = self._extract_visual_style_block(session.dag)
+            if visual_style_block:
+                logger.info(
+                    "[orchestrator] session=%s | injecting visual style block "
+                    "into per-shot tasks (%d chars)",
+                    session.id[:8], len(visual_style_block),
+                )
+
             logger.info(
                 "[orchestrator] session=%s | expanding task %s into %d per-shot tasks",
                 session.id[:8], task.id, len(shot_list),
@@ -654,13 +745,25 @@ class Orchestrator:
                 shot_task_id = f"{original_task_id}-shot-{shot_num}"
                 short_desc = shot_desc[:500].replace("\n", " ")
 
+                style_instruction = ""
+                if visual_style_block:
+                    style_instruction = (
+                        f"VISUAL STYLE — apply these directives to the "
+                        f"generate_image prompt:\n{visual_style_block}\n"
+                        f"Write the prompt as a cinematic screen grab from a "
+                        f"film using the camera, film stock, lens, and style "
+                        f"references above. Describe blocking, atmosphere, "
+                        f"and spatial relationships in detail. "
+                    )
+
                 if has_refs:
                     ref_ids = self._select_refs_for_shot(
                         shot_desc, character_refs, location_refs,
                     )
                     refs_str = ", ".join(ref_ids)
                     description = (
-                        f"Generate Shot {shot_num}: First call generate_image "
+                        f"Generate Shot {shot_num}: {style_instruction}"
+                        f"First call generate_image "
                         f"with this visual description: \"{short_desc}\". "
                         f"IMPORTANT: Pass these reference asset IDs as "
                         f"image_urls for character/location consistency: "
@@ -671,7 +774,8 @@ class Orchestrator:
                     )
                 else:
                     description = (
-                        f"Generate Shot {shot_num}: First call generate_image "
+                        f"Generate Shot {shot_num}: {style_instruction}"
+                        f"First call generate_image "
                         f"with this visual description: \"{short_desc}\". "
                         f"Then call generate_video with mode=image_to_video "
                         f"using the generated image asset_id. "
@@ -681,7 +785,7 @@ class Orchestrator:
                 shot_task = TaskNode(
                     id=shot_task_id,
                     description=description,
-                    skill_id="nano-banana-prompting" if has_refs else "ai-video-producer",
+                    skill_id="nano-banana-prompting",
                     depends_on=list(task.depends_on),
                     status=TaskStatus.PENDING,
                     task_type=TaskType.EXECUTION,

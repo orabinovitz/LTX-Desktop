@@ -84,7 +84,7 @@ Naming real camera bodies, lenses, and film stocks is the single most impactful
 prompting technique. Each piece of hardware triggers distinct visual DNA the model
 has deeply internalized.
 
-**Camera bodies and their signatures:**
+**Still camera bodies (use for photography, editorial, product work):**
 - **Sony A7III** — precise depth-of-field compression
 - **Hasselblad X2D** — medium-format tonal range, rich gradation
 - **Canon 5D Mark IV** — photojournalistic realism
@@ -98,12 +98,173 @@ has deeply internalized.
 - **85–135mm** — portrait isolation, background compression, intimacy or voyeurism
 - **Anamorphic 40mm** — cinematic widescreen, oval bokeh, horizontal flares
 
-**Film stocks — one of the most powerful single instructions:**
+**Still photography film stocks (use for photo/editorial work):**
 - **Kodak Portra 400** — warm skin tones, pastel palette, fine organic grain
 - **Fujifilm Velvia 50** — vivid landscape saturation, punchy color
 - **Fujifilm Superia 400** — characteristic green shift in shadows
 - **Era shorthand** — "1980s color film, slightly grainy" or "90s disposable camera
   aesthetic, harsh flash, candid framing" produces historically convincing results
+
+## Cinematic / film-look prompting
+
+When the user wants content that looks like it belongs in a film, TV show, or
+cinematic narrative, the prompting approach changes fundamentally. Still camera
+references (Sony A7III, Canon 5D, Hasselblad) produce a **photography** look —
+sharp, clean, editorial. Cinema cameras, motion picture film stocks, and cinema
+lenses produce the organic, textured, emotionally weighted look audiences
+associate with movies.
+
+**CRITICAL: Never use still camera bodies for cinematic content.** "Shot on Sony
+A7III" will give you a photography look. "Shot on ARRI ALEXA 35" gives you a
+cinema look. The difference is fundamental to how the model renders skin tones,
+highlight rolloff, shadow detail, and overall texture.
+
+### Cinematic framing anchor
+
+Every cinematic prompt should open with a framing phrase that anchors NB2 in
+the cinema visual space:
+
+- "A cinematic screen grab from a feature film" — the strongest single anchor
+- "A cinematic still from a film directed by [director name]"
+- "A cinematic frame from a [genre] film"
+- "A film still captured on set"
+
+This framing phrase replaces the generic "Create" or "Capture" verb for
+cinematic work. It tells NB2 the entire image should feel like a frame pulled
+from projected celluloid or a digital intermediate, not a photograph.
+
+### Cinema camera bodies
+
+Each cinema camera carries distinct visual DNA — highlight rolloff, color
+science, skin tone rendering, dynamic range behavior:
+
+- **ARRI ALEXA 35** — the gold standard. Organic highlight rolloff, natural
+  skin tones, wide latitude. The default choice for drama, A24, prestige TV.
+- **ARRI ALEXA Mini LF** — large-format ARRI look with shallower depth of
+  field and more immersive perspective. Used for features requiring intimacy
+  at scale (Dune, The Batman).
+- **ARRI ALEXA Classic / ALEXA XT** — the slightly grittier predecessor.
+  Warmer, less clinical than the 35. The camera behind most 2010s cinema.
+- **RED V-RAPTOR / RED Monstro** — sharper, higher resolution, more digital
+  precision. Cooler skin tones. Good for sci-fi, action, visually aggressive
+  work (Guardians of the Galaxy, Gone Girl).
+- **Sony VENICE 2** — dual-ISO, excellent low-light. Slightly cooler than
+  ARRI, clean in shadows. Good for night work, thriller, noir.
+- **Panavision Millennium DXL2** — large-format with Panavision color science.
+  Unique rendering with Panavision lenses. Prestige period drama.
+- **ARRICAM ST / ARRICAM LT** — 35mm film cameras. Use when the prompt
+  specifies actual celluloid. Organic grain, mechanical precision.
+
+### Motion picture film stocks
+
+Cinema film stocks are fundamentally different from still photography stocks.
+They're designed for motion picture projection and carry distinct color
+rendering, grain structure, and tonal character:
+
+- **Kodak VISION3 50D 5203/7203** — daylight tungsten, fine grain, rich color
+  saturation. The go-to for bright exterior scenes. Clean, vivid, precise.
+- **Kodak VISION3 250D 5207/7207** — versatile daylight stock. Moderate grain,
+  good latitude. Balanced for mixed lighting conditions.
+- **Kodak VISION3 200T 5213/7213** — tungsten-balanced, warm interior look.
+  Beautiful skin tones under practicals. Classic indoor cinema feel.
+- **Kodak VISION3 500T 5219/7219** — high-speed tungsten. Visible grain,
+  beautiful in low light. The stock behind many night exteriors and moody
+  interiors. Noir, thriller, atmospheric drama.
+- **Kodak Ektachrome 100D** — reversal film for cinema. Vivid, contrasty,
+  saturated. Used for stylized sequences and music videos.
+
+### Cinema lenses
+
+Cinema lenses shape the image personality as much as the camera body:
+
+- **Cooke S7/i** — the "Cooke Look." Warm, organic, flattering skin tones
+  with gentle falloff. The workhorse of prestige drama.
+- **Panavision Primo 70** — large format, clinically sharp center with gentle
+  edge falloff. Elegant, refined.
+- **Zeiss Master Anamorphic** — controlled anamorphic character. Oval bokeh,
+  subtle flares, 2.39:1 widescreen. Epic, cinematic.
+- **Panavision C-Series Anamorphic** — vintage anamorphic. Heavy flares, soft
+  edges, breathing on focus pulls. Romantic, nostalgic, 70s cinema feel.
+- **Panavision Ultra Speed MKII** — vintage spherical. Soft, dreamy wide open.
+  Used on many 80s and 90s classics.
+- **Zeiss Super Speed MKII** — sharp but with character. Slight warm cast.
+  Documentary and indie favorite.
+- **Canon K35** — vintage cinema prime. Warm flares, soft contrast, organic.
+  The hipster's anamorphic alternative.
+
+### Director and cinematographer name references
+
+Naming directors and DPs activates powerful style associations. NB2 has
+internalized the visual language of well-known filmmakers. Use these as style
+modifiers:
+
+- "in the style of Roger Deakins" — controlled naturalism, motivated light,
+  mathematical compositions, muted palette
+- "in the style of Emmanuel Lubezki" — long takes, natural light, wide angles,
+  immersive, transcendent
+- "in the visual language of Denis Villeneuve" — vast scale, geometric
+  compositions, amber/teal palette, atmospheric haze
+- "directed by Ridley Scott" — smoke, shafts of light, layered production
+  design, epic scale
+- "shot by Bradford Young" — underexposed, luminous skin, darkness as texture,
+  intimacy
+- "in the style of Robert Richardson" — high contrast, bold color, operatic
+  lighting, Tarantino/Stone energy
+- "shot by Hoyte van Hoytema" — IMAX scale, natural light, Nolan's visual
+  language, awe
+- "in the style of Janusz Kamiński" — overexposed highlights, blue shadows,
+  Spielberg's visual grammar
+
+You can also reference specific films as style anchors:
+- "in the style of Blade Runner 2049" — amber dust, teal fog, neon in darkness
+- "in the style of Sicario" — desert heat, tension in landscape, surveillance
+- "in the style of Moonlight" — intimate, luminous skin, practical color light
+- "in the style of The Revenant" — natural light, raw landscape, brutal beauty
+
+### Film grain and texture
+
+For cinematic content, texture is essential. Clean digital sharpness reads as
+"video" or "photography," not "film":
+
+- "subtle film grain" — minimal but present texture
+- "organic film grain, shot on celluloid" — heavier, more visible grain
+  structure
+- "shot on 35mm film" — natural grain pattern, slight softness
+- "shot on 16mm film" — heavier grain, more texture, indie/documentary feel
+- Never use "8K," "ultra HD," "ultra detailed," or "hyper-realistic" for
+  cinematic content — these push toward the clean digital look you're avoiding
+
+### Cinematic prompt formula
+
+For cinematic shots, extend the standard six-element formula:
+
+```
+[Cinematic framing anchor]. [Subject + Details] + [Action] in
+[Setting + Environment]. [Cinema camera + cinema lens + film stock].
+[Composition: shot size, angle, framing]. [Lighting: motivated,
+specific]. [Atmosphere: texture, grain, mood]. [Director/DP style
+reference]. [Scene blocking and spatial relationships in detail].
+```
+
+NB2 has excellent prompt adherence — **write long, detailed prompts for
+cinematic work**. Describe the blocking (where characters stand relative to
+each other and the environment), body language, spatial depth, atmospheric
+elements (haze, dust, rain), and practical light sources. The more precisely
+you describe the physical reality of the scene, the more cinematic the result.
+
+### When to use cinematic vs. photography prompting
+
+Use **cinematic prompting** when:
+- The user says "cinematic," "film," "movie," "A24," or names a director/DP
+- The content is narrative — scenes, stories, characters in dramatic situations
+- The user references a specific film or TV show's visual style
+- The content is for video production (storyboards, shot references, animatics)
+
+Use **photography prompting** (still cameras, photo film stocks) when:
+- The content is editorial, product, portrait, or lifestyle photography
+- The user references a photographer or photography style
+- The output is a standalone image, not part of a narrative sequence
+- The content is commercial (product shots, catalog, social media stills)
 
 ## Lighting specificity
 
