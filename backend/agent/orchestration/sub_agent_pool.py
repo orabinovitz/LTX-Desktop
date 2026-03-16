@@ -315,9 +315,17 @@ def _run_gemini_turn(
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{_SUB_AGENT_MODEL}:generateContent"
     )
-    tools: list[dict[str, Any]] = [{"functionDeclarations": tool_declarations}]
+    # #region agent log
+    import pathlib as _pathlib_dbg
+    _dbg_path = _pathlib_dbg.Path("/Users/orabinovitz/Projects/ltx-desktop/.cursor/debug-2a94fd.log")
+    with open(_dbg_path, "a") as _f:
+        import json as _json_dbg
+        _f.write(_json_dbg.dumps({"sessionId":"2a94fd","hypothesisId":"B","location":"sub_agent_pool.py:318","message":"tools_config","data":{"enable_search":enable_search,"num_declarations":len(tool_declarations),"task_id":task_id,"turn":turn},"timestamp":__import__('time').time()}) + "\n")
+    # #endregion
     if enable_search:
-        tools.append({"google_search": {}})
+        tools: list[dict[str, Any]] = [{"google_search": {}}]
+    else:
+        tools: list[dict[str, Any]] = [{"functionDeclarations": tool_declarations}]
 
     payload: dict[str, Any] = {
         "contents": contents,
@@ -414,11 +422,13 @@ def execute_sub_agent(
     all_backend_results: list[ToolResult] = []
     text_fragments: list[str] = []
 
+    search_phase = search_enabled
+
     for turn in range(_MAX_SUB_AGENT_TURNS):
         result = _run_gemini_turn(
             contents, system_prompt, tool_declarations,
             api_key, http_client, task.id, turn,
-            enable_search=search_enabled,
+            enable_search=search_phase,
         )
         if result is None:
             return SubAgentResult(
@@ -432,6 +442,14 @@ def execute_sub_agent(
         for part in parts:
             if "text" in part:
                 text_fragments.append(part["text"])
+
+        if search_phase and not frontend_calls and not backend_calls:
+            search_phase = False
+            contents.append({
+                "role": "user",
+                "parts": [{"text": "Now save your research output to project memory using save_to_project_memory."}],
+            })
+            continue
 
         if not frontend_calls and not backend_calls:
             break

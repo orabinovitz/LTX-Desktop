@@ -436,17 +436,74 @@ def _validate_dag(tasks: list[TaskNode]) -> list[TaskNode]:
     return tasks
 
 
+def _try_recover_truncated_json(text: str) -> dict[str, Any] | list[dict[str, Any]] | None:
+    """Attempt to recover parseable tasks from truncated JSON.
+
+    Scans backward from the end to find the last complete task object,
+    then reconstructs valid JSON containing all complete tasks.
+    Returns the parsed data or None if recovery fails.
+    """
+    brace_depth = 0
+    in_string = False
+    escape_next = False
+    last_complete_task_end = -1
+
+    for i, ch in enumerate(text):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\" and in_string:
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            brace_depth += 1
+        elif ch == "}":
+            brace_depth -= 1
+            if brace_depth == 1:
+                last_complete_task_end = i
+
+    if last_complete_task_end == -1:
+        return None
+
+    repaired = text[: last_complete_task_end + 1] + "\n  ]\n}"
+    try:
+        data = json.loads(repaired)
+        if isinstance(data, dict) and "tasks" in data and len(data["tasks"]) >= 1:
+            logger.warning(
+                "Recovered %d task(s) from truncated planner JSON",
+                len(data["tasks"]),
+            )
+            return data  # type: ignore[return-value]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return None
+
+
 def _parse_planner_response(text: str) -> tuple[list[dict[str, Any]], float | None]:
     """Extract tasks and target_duration_seconds from the planner's JSON response.
 
-    Returns (tasks, target_duration_seconds).
+    Returns (tasks, target_duration_seconds).  If the JSON is truncated
+    (e.g. output-token limit hit), attempts to recover all complete task
+    objects before falling back.
     """
     text = text.strip()
     if text.startswith("```"):
         lines = text.split("\n")
         text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
 
-    data = json.loads(text)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        recovered = _try_recover_truncated_json(text)
+        if recovered is None:
+            raise
+        data = recovered
+
     target_duration: float | None = None
 
     if isinstance(data, dict):
@@ -506,7 +563,7 @@ class TaskPlanner:
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "generationConfig": {
                 "temperature": 0.2,
-                "maxOutputTokens": 4096,
+                "maxOutputTokens": 16384,
                 "responseMimeType": "application/json",
             },
         }
