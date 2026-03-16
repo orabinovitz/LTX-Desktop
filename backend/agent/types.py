@@ -7,6 +7,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+MEMORY_WRITE_TOOLS: frozenset[str] = frozenset({
+    "save_to_project_memory",
+    "update_project_memory",
+    "add_memory_note",
+    "update_project_context",
+})
+
 
 # ============================================================
 # Video Analysis
@@ -188,6 +195,7 @@ class AgentExecuteResponse(BaseModel):
     message: str = Field(default="", description="Message to display to the user")
     done: bool = Field(default=False, description="True when the agent has finished all steps")
     session_id: str = Field(default="", description="Session ID for continuing the conversation")
+    memory_updated: bool = Field(default=False, description="True when project memory was modified during this turn")
 
 
 class AgentContinueRequest(BaseModel):
@@ -428,6 +436,7 @@ class OrchestrateResponse(BaseModel):
     tool_calls: list[ToolCall] = Field(default_factory=list, description="Frontend tool calls to execute")
     message: str = Field(default="", description="Message to display to the user")
     done: bool = Field(default=False)
+    memory_updated: bool = Field(default=False, description="True when project memory was modified during this turn")
 
 
 class OrchestrateContinueRequest(BaseModel):

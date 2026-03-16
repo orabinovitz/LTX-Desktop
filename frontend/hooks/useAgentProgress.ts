@@ -57,7 +57,7 @@ export function useAgentProgress() {
 
   const setPlan = useCallback(
     (tasks: AgentTask[]) => {
-      update({ phase: "executing", tasks, thinkingLine: "", collapsed: false });
+      update({ phase: "executing", tasks, thinkingLine: "", collapsed: true });
     },
     [update],
   );
@@ -83,7 +83,7 @@ export function useAgentProgress() {
           }
           return t;
         });
-        const next = { ...prev, tasks, currentTaskId: taskId, collapsed: false };
+        const next = { ...prev, tasks, currentTaskId: taskId };
         progressRef.current = next;
         return next;
       });

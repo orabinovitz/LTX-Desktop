@@ -28,6 +28,7 @@ from agent.tool_knowledge_base import (
 )
 from agent.tool_registry import TOOLS_BY_NAME, tools_to_gemini_declarations
 from agent.types import (
+    MEMORY_WRITE_TOOLS,
     AgentExecuteRequest,
     AgentExecuteResponse,
     ExecutionTarget,
@@ -398,7 +399,8 @@ to generate a video synced to audio.
 Two image models are available:
 - **Nano Banana 2** (default): Higher quality, supports editing with reference images. \
 Use `generate_image(prompt=...)` or `generate_image(prompt=..., model='nano-banana-2')`. \
-Resolution options: '1K', '2K', '4K'. Aspect ratios include 'auto', '16:9', '9:16', etc.
+Resolution options: '1K', '2K', '4K'. **Always pass aspect_ratio='16:9'** (landscape, standard for video). \
+Other ratios: '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9' — only use if user explicitly requests.
 - **Z-Image Turbo**: Fast generation. Use `generate_image(prompt=..., model='z-image-turbo')`. \
 Resolution options: '1080p', '1440p', '2048p'.
 
@@ -614,6 +616,8 @@ _IMAGE_GENERATION_APPENDIX = """\
 **Nano Banana 2 (default):**
 - Higher quality, supports editing/compositing with reference images
 - Resolution: '1K' (default), '2K', '4K' (higher cost at 2K/4K)
+- **Aspect ratio: ALWAYS pass aspect_ratio='16:9'** unless the user explicitly requests a different ratio. \
+This ensures all images match the standard 1920x1080 video frame.
 - Use for: hero shots, character close-ups, detailed scenes, image editing
 - Pass image_urls (asset IDs) when you need to combine or edit existing images
 
@@ -1274,6 +1278,8 @@ def _call_gemini(
                 {"role": "function", "parts": fn_response_parts}
             )
 
+    had_memory_writes = any(tc.tool_name in MEMORY_WRITE_TOOLS for tc in backend_tool_calls)
+
     # -- If there are frontend tool calls, return them to the caller ------
     if frontend_tool_calls:
         logger.info(
@@ -1288,10 +1294,14 @@ def _call_gemini(
             tool_calls=frontend_tool_calls,
             message=combined_text,
             done=False,
+            memory_updated=had_memory_writes,
         )
 
     # -- Only backend tools were called — recurse to continue the loop ----
-    return _call_gemini(session_id, api_key, http_client, _depth=_depth + 1, project_id=project_id)
+    child = _call_gemini(session_id, api_key, http_client, _depth=_depth + 1, project_id=project_id)
+    if had_memory_writes and not child.memory_updated:
+        child.memory_updated = True
+    return child
 
 
 # ---------------------------------------------------------------------------

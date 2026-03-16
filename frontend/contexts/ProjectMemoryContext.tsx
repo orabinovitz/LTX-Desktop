@@ -123,7 +123,11 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
       if (projectId) void refreshMemory()
     }
     window.addEventListener('agent-action-complete', handler)
-    return () => window.removeEventListener('agent-action-complete', handler)
+    window.addEventListener('memory-updated', handler)
+    return () => {
+      window.removeEventListener('agent-action-complete', handler)
+      window.removeEventListener('memory-updated', handler)
+    }
   }, [projectId, refreshMemory])
 
   const openDocument = useCallback(

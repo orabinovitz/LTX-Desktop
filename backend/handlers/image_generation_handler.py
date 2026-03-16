@@ -56,7 +56,7 @@ class ImageGenerationHandler(StateHandlerBase):
         if req.model == "nano-banana-2":
             return self._generate_via_nb2_api(
                 prompt=req.prompt,
-                aspect_ratio=req.aspectRatio or "auto",
+                aspect_ratio=req.aspectRatio or "16:9",
                 resolution=req.resolution or "1K",
                 seed=seed,
                 num_images=num_images,

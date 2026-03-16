@@ -92,7 +92,7 @@ describe("TaskProgressView", () => {
       />,
     );
     expect(screen.getByText("Task 1")).toBeInTheDocument();
-    expect(screen.getByText("Task 2")).toBeInTheDocument();
+    expect(screen.getAllByText("Task 2").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Task 3")).toBeInTheDocument();
   });
 

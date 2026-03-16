@@ -226,6 +226,9 @@ export function useOrchestratedAgent() {
         if (response.session_id) {
           sessionIdRef.current = response.session_id;
         }
+        if (response.memory_updated) {
+          window.dispatchEvent(new CustomEvent('memory-updated'));
+        }
 
         const orchestratedTasks = response.tasks.map(taskInfoToAgentTask);
         progressActions.setPlan(orchestratedTasks);
@@ -340,6 +343,9 @@ export function useOrchestratedAgent() {
             if (!contRes.ok)
               throw new Error(`Orchestrate continue error: ${contRes.status}`);
             response = await contRes.json();
+            if (response.memory_updated) {
+              window.dispatchEvent(new CustomEvent('memory-updated'));
+            }
           } else if (!response.done) {
             // BUG-1 fix: when no tool calls but not done, call continue
             // to let the orchestrator advance to the next task.
@@ -369,6 +375,9 @@ export function useOrchestratedAgent() {
             if (!contRes.ok)
               throw new Error(`Orchestrate continue error: ${contRes.status}`);
             response = await contRes.json();
+            if (response.memory_updated) {
+              window.dispatchEvent(new CustomEvent('memory-updated'));
+            }
           } else {
             break;
           }

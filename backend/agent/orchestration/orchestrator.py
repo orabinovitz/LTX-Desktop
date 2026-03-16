@@ -29,6 +29,7 @@ from agent.orchestration.sub_agent_pool import SubAgentPool
 from agent.orchestration.task_planner import TaskPlanner
 from agent.skills.skill_registry import SkillRegistry, get_skill_registry
 from agent.types import (
+    MEMORY_WRITE_TOOLS,
     OrchestrateRequest,
     OrchestrateResponse,
     OrchestrateTaskInfo,
@@ -53,6 +54,15 @@ _MAX_RETRIES_PER_TASK = 2
 _MAX_DAG_TASKS = 75
 _MAX_REVIEW_ITERATIONS = 2
 _MAX_SHOTS_PER_EXPANSION = 40
+
+
+def _results_have_memory_writes(results: list[SubAgentResult]) -> bool:
+    """Check if any sub-agent result includes memory-write tool executions."""
+    return any(
+        tr.call_id in MEMORY_WRITE_TOOLS
+        for r in results
+        for tr in r.backend_tool_results
+    )
 
 
 @dataclass
@@ -117,6 +127,7 @@ def _build_response(
     tool_calls: list[ToolCall] | None = None,
     message: str = "",
     done: bool = False,
+    memory_updated: bool = False,
 ) -> OrchestrateResponse:
     current_task_id = session.pending_task_ids[0] if session.pending_task_ids else None
     return OrchestrateResponse(
@@ -127,6 +138,7 @@ def _build_response(
         tool_calls=tool_calls or [],
         message=message,
         done=done,
+        memory_updated=memory_updated,
     )
 
 
@@ -274,6 +286,7 @@ class Orchestrator:
         new_pending_ids: list[str] = []
         new_active_results: dict[str, SubAgentResult] = {}
         new_task_counts: dict[str, int] = {}
+        all_resumed: list[SubAgentResult] = []
 
         result_offset = 0
 
@@ -291,6 +304,7 @@ class Orchestrator:
                 continue
 
             resumed = self._pool.resume_single(prev_result, task_results, project_id=session.project_id)
+            all_resumed.append(resumed)
 
             task = session.dag.get_task(task_id)
             if not task:
@@ -321,6 +335,8 @@ class Orchestrator:
                     session.id[:8], task_id,
                 )
 
+        memory_updated = _results_have_memory_writes(all_resumed)
+
         if all_frontend_calls:
             session.status = OrchestratorStatus.AWAITING_TOOL_RESULTS
             session.pending_tool_calls = all_frontend_calls
@@ -330,6 +346,7 @@ class Orchestrator:
             return _build_response(
                 session, self._registry,
                 tool_calls=all_frontend_calls,
+                memory_updated=memory_updated,
             )
 
         session.pending_task_ids = []
@@ -414,6 +431,7 @@ class Orchestrator:
         )
 
         results = self._pool.execute_parallel(tasks_to_dispatch)
+        memory_updated = _results_have_memory_writes(results)
 
         all_frontend_calls: list[ToolCall] = []
         pending_task_ids: list[str] = []
@@ -458,6 +476,7 @@ class Orchestrator:
             return _build_response(
                 session, self._registry,
                 tool_calls=all_frontend_calls,
+                memory_updated=memory_updated,
             )
 
         completed_count = sum(
@@ -467,6 +486,7 @@ class Orchestrator:
         return _build_response(
             session, self._registry,
             message=f"Completed {completed_count}/{total_count} tasks. Advancing...",
+            memory_updated=memory_updated,
         )
 
     @staticmethod
@@ -765,6 +785,8 @@ class Orchestrator:
                         f"Generate Shot {shot_num}: {style_instruction}"
                         f"First call generate_image "
                         f"with this visual description: \"{short_desc}\". "
+                        f"IMPORTANT: Pass aspect_ratio='16:9' for standard "
+                        f"landscape video framing. "
                         f"IMPORTANT: Pass these reference asset IDs as "
                         f"image_urls for character/location consistency: "
                         f"[{refs_str}]. "
@@ -777,6 +799,8 @@ class Orchestrator:
                         f"Generate Shot {shot_num}: {style_instruction}"
                         f"First call generate_image "
                         f"with this visual description: \"{short_desc}\". "
+                        f"IMPORTANT: Pass aspect_ratio='16:9' for standard "
+                        f"landscape video framing. "
                         f"Then call generate_video with mode=image_to_video "
                         f"using the generated image asset_id. "
                         f"Report the final video asset_id."

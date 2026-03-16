@@ -179,8 +179,11 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
                 "- Do NOT skip any shots\n"
                 "- Do NOT invent new shots that aren't in the list\n"
                 "- For each shot: first call generate_image with the visual "
-                "description, then call generate_video with image_to_video "
+                "description and aspect_ratio='16:9' for standard landscape "
+                "video framing, then call generate_video with image_to_video "
                 "mode to animate it\n"
+                "- ALWAYS pass aspect_ratio='16:9' to generate_image unless "
+                "the user explicitly requested a different ratio\n"
                 "- Report each shot's asset_id in your summary"
             )
 

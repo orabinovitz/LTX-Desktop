@@ -65,6 +65,7 @@ interface AgentResponse {
   message: string;
   done: boolean;
   session_id: string;
+  memory_updated?: boolean;
 }
 
 export interface ChatMessage {
@@ -209,6 +210,9 @@ export function useAgent() {
 
         if (response.session_id) {
           sessionIdRef.current = response.session_id;
+        }
+        if (response.memory_updated) {
+          window.dispatchEvent(new CustomEvent('memory-updated'));
         }
 
         if (response.done) {
@@ -393,6 +397,9 @@ export function useAgent() {
           if (!contRes.ok)
             throw new Error(`Agent continue error: ${contRes.status}`);
           response = await contRes.json();
+          if (response.memory_updated) {
+            window.dispatchEvent(new CustomEvent('memory-updated'));
+          }
         }
 
         const finalText = response.message || response.plan || "Done.";

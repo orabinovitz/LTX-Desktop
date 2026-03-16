@@ -63,4 +63,5 @@ export interface OrchestrateResponse {
   tool_calls: Array<{ tool_name: string; arguments: Record<string, unknown>; call_id?: string }>;
   message: string;
   done: boolean;
+  memory_updated?: boolean;
 }

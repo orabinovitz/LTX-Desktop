@@ -47,11 +47,10 @@ describe("useAgentProgress", () => {
     );
   });
 
-  it("setPlan sets tasks, transitions to executing, and auto-opens", () => {
+  it("setPlan sets tasks, transitions to executing, and stays collapsed", () => {
     const { result } = renderHook(() => useAgentProgress());
 
     act(() => result.current.startSession());
-    act(() => result.current.setCollapsed(true));
     act(() =>
       result.current.setPlan([
         { id: "t1", label: "Step 1", status: "pending" },
@@ -62,7 +61,7 @@ describe("useAgentProgress", () => {
     expect(result.current.progress.phase).toBe("executing");
     expect(result.current.progress.tasks).toHaveLength(2);
     expect(result.current.progress.thinkingLine).toBe("");
-    expect(result.current.progress.collapsed).toBe(false);
+    expect(result.current.progress.collapsed).toBe(true);
   });
 
   it("setCollapsed controls collapsed state", () => {
@@ -78,7 +77,7 @@ describe("useAgentProgress", () => {
     expect(result.current.progress.collapsed).toBe(false);
   });
 
-  it("startTask marks task in_progress, auto-completes previous, and auto-opens", () => {
+  it("startTask marks task in_progress and preserves collapsed state", () => {
     const { result } = renderHook(() => useAgentProgress());
 
     act(() => result.current.startSession());
@@ -93,12 +92,13 @@ describe("useAgentProgress", () => {
     expect(result.current.progress.tasks[0].status).toBe("in_progress");
     expect(result.current.progress.tasks[0].startedAt).toBeGreaterThan(0);
     expect(result.current.progress.currentTaskId).toBe("t1");
-    expect(result.current.progress.collapsed).toBe(false);
+    expect(result.current.progress.collapsed).toBe(true);
 
+    act(() => result.current.setCollapsed(false));
     act(() => result.current.startTask("t2"));
-    expect(result.current.progress.tasks[0].status).toBe("completed");
     expect(result.current.progress.tasks[1].status).toBe("in_progress");
     expect(result.current.progress.currentTaskId).toBe("t2");
+    expect(result.current.progress.collapsed).toBe(false);
   });
 
   it("startTask accepts a detail string", () => {

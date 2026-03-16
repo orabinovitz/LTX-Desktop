@@ -886,7 +886,7 @@ generate_image = _tool(
         _param("prompt", "string", "Text description of the desired image, or editing instruction when image_urls are provided."),
         _param("model", "string", "'nano-banana-2' (default, higher quality) or 'z-image-turbo' (fast). Use NB2 unless user requests ZIT.", required=False),
         _param("resolution", "string", "For NB2: '1K', '2K', or '4K'. For ZIT: '1080p', '1440p', or '2048p'.", required=False),
-        _param("aspect_ratio", "string", "For NB2: 'auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'. For ZIT: '1:1', '16:9', '9:16', '4:3', '3:4', '21:9'.", required=False),
+        _param("aspect_ratio", "string", "Default '16:9' (landscape, standard for video production). For NB2: '16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9'. For ZIT: '16:9', '9:16', '1:1', '4:3', '3:4', '21:9'. Always pass '16:9' unless the user explicitly requests a different ratio.", required=False),
         _param("num_variations", "integer", "Number of image variations (1-4, default 1).", required=False),
         _param("image_urls", "array", "List of asset IDs for reference images (from get_project_assets results). The system resolves these to image data automatically. Use for NB2 editing: compositing people, objects, or scenes from multiple images.", required=False, items={"type": "string"}),
     ],

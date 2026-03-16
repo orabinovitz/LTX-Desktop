@@ -6,14 +6,10 @@ import {
   ChevronRight,
   Ban,
   GitBranch,
-  Zap,
-  Brain,
-  Eye,
   AlertCircle,
-  CheckCircle2,
 } from "lucide-react";
 import { useEffect, useRef, useState, useMemo } from "react";
-import type { AgentProgress, AgentTask, OrchestratorStatus } from "@/types/agent-progress";
+import type { AgentProgress, AgentTask } from "@/types/agent-progress";
 
 const AUTO_COLLAPSE_DELAY_MS = 2500;
 const COMPLETED_COLLAPSE_THRESHOLD = 3;
@@ -101,28 +97,125 @@ function groupTasksByStatus(tasks: AgentTask[], excludeShotTasks: boolean): Grou
   return { active, pending, completed, failed };
 }
 
-// --- Phase Badge ---
+// --- Compact Progress Bar ---
 
-const PHASE_CONFIG: Record<string, { label: string; color: string; icon: typeof Zap }> = {
-  planning: { label: "Planning", color: "bg-amber-500/15 text-amber-400 border-amber-500/20", icon: Brain },
-  executing: { label: "Executing", color: "bg-blue-500/15 text-blue-400 border-blue-500/20", icon: Zap },
-  awaiting_tool_results: { label: "Executing", color: "bg-blue-500/15 text-blue-400 border-blue-500/20", icon: Zap },
-  reviewing: { label: "Reviewing", color: "bg-violet-500/15 text-violet-400 border-violet-500/20", icon: Eye },
-  done: { label: "Complete", color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20", icon: CheckCircle2 },
-  error: { label: "Error", color: "bg-red-500/15 text-red-400 border-red-500/20", icon: AlertCircle },
-};
+function CompactProgressBar({
+  progress,
+  collapsed,
+  onToggle,
+}: {
+  progress: AgentProgress;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const isFinished = progress.phase === "done" || progress.phase === "error";
+  const isError = progress.phase === "error";
+  const isPlanning =
+    progress.orchestratorStatus === "planning" || progress.phase === "thinking";
 
-function PhaseBadge({ status }: { status: OrchestratorStatus | undefined }) {
-  const config = PHASE_CONFIG[status ?? "executing"] ?? PHASE_CONFIG["executing"];
-  const Icon = config.icon;
+  const totalCount = progress.tasks.length;
+  const completedCount = progress.tasks.filter(
+    (t) => t.status === "completed",
+  ).length;
+  const failedCount = progress.tasks.filter(
+    (t) => t.status === "failed" || t.status === "cancelled",
+  ).length;
+  const doneCount = completedCount + failedCount;
+  const progressPercent =
+    totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
+  const totalElapsed = useElapsedTime(progress.startedAt, progress.completedAt);
+
+  const activeTasks = progress.tasks.filter(
+    (t) => t.status === "in_progress",
+  );
+
+  const activeLabel = (() => {
+    if (isFinished && !isError) {
+      if (completedCount === totalCount && totalCount > 0) {
+        return `${completedCount}/${totalCount} completed`;
+      }
+      const parts: string[] = [];
+      if (completedCount > 0) parts.push(`${completedCount} done`);
+      if (failedCount > 0) parts.push(`${failedCount} failed`);
+      return parts.join(", ") || "Complete";
+    }
+    if (isError) return progress.error || "Failed";
+    if (isPlanning && totalCount === 0) {
+      return progress.thinkingLine || "Planning your request...";
+    }
+    if (activeTasks.length > 0) return activeTasks[0].label;
+    if (progress.thinkingLine) return progress.thinkingLine;
+    return "Processing...";
+  })();
 
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-all duration-300 ${config.color}`}
+    <button
+      onClick={onToggle}
+      className={`flex w-full flex-col text-left transition-colors hover:bg-zinc-800/30 ${
+        isError ? "bg-red-900/5" : ""
+      }`}
+      data-testid="collapse-toggle"
     >
-      <Icon className="h-2.5 w-2.5" />
-      {config.label}
-    </span>
+      <div className="flex w-full items-center gap-2 px-3 py-2">
+        <div className="transition-transform duration-200">
+          {collapsed ? (
+            <ChevronRight className="h-3 w-3 text-zinc-500" />
+          ) : (
+            <ChevronDown className="h-3 w-3 text-zinc-500" />
+          )}
+        </div>
+
+        {isFinished && !isError ? (
+          <div className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500/20">
+            <Check className="h-2.5 w-2.5 text-emerald-400" />
+          </div>
+        ) : isError ? (
+          <div className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-red-500/20">
+            <AlertCircle className="h-2.5 w-2.5 text-red-400" />
+          </div>
+        ) : (
+          <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-blue-400" />
+        )}
+
+        <span
+          className={`min-w-0 flex-1 truncate text-[12px] font-medium ${
+            isError
+              ? "text-red-400"
+              : isFinished
+                ? "text-zinc-400"
+                : "text-zinc-200"
+          }`}
+        >
+          {activeLabel}
+          {!isFinished && activeTasks.length > 1 && (
+            <span className="ml-1 text-[10px] font-normal text-zinc-500">
+              (+{activeTasks.length - 1})
+            </span>
+          )}
+        </span>
+
+        {totalCount > 0 && (
+          <span className="flex-shrink-0 rounded-full bg-zinc-800 px-1.5 py-0.5 text-[10px] tabular-nums text-zinc-500">
+            {doneCount}/{totalCount}
+          </span>
+        )}
+
+        {totalElapsed && (
+          <span className="flex-shrink-0 text-[10px] tabular-nums text-zinc-600">
+            {totalElapsed}
+          </span>
+        )}
+      </div>
+
+      {!isFinished && totalCount > 0 && (
+        <div className="h-[2px] w-full bg-zinc-800">
+          <div
+            className="h-full bg-blue-500/60 transition-all duration-500 ease-out"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+      )}
+    </button>
   );
 }
 
@@ -425,71 +518,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-// --- Orchestrator Header ---
-
-function OrchestratorHeader({
-  progress,
-  collapsed,
-  onToggle,
-}: {
-  progress: AgentProgress;
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
-  const isFinished = progress.phase === "done" || progress.phase === "error";
-  const totalCount = progress.tasks.length;
-  const completedCount = progress.tasks.filter((t) => t.status === "completed").length;
-  const failedCount = progress.tasks.filter((t) => t.status === "failed" || t.status === "cancelled").length;
-  const activeCount = progress.tasks.filter((t) => t.status === "in_progress").length;
-  const pendingCount = progress.tasks.filter((t) => t.status === "pending").length;
-  const totalElapsed = useElapsedTime(progress.startedAt, progress.completedAt);
-
-  const statParts: string[] = [];
-  if (activeCount > 0) statParts.push(`${activeCount} running`);
-  if (completedCount > 0) statParts.push(`${completedCount} done`);
-  if (failedCount > 0) statParts.push(`${failedCount} failed`);
-  if (pendingCount > 0) statParts.push(`${pendingCount} pending`);
-  const statLine = statParts.join("  ·  ");
-
-  const progressPercent =
-    totalCount > 0 ? ((completedCount + failedCount) / totalCount) * 100 : 0;
-
-  return (
-    <button
-      onClick={onToggle}
-      className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-zinc-800/30"
-      data-testid="collapse-toggle"
-    >
-      <div className="transition-transform duration-200">
-        {collapsed ? (
-          <ChevronRight className="h-3 w-3 text-zinc-500" />
-        ) : (
-          <ChevronDown className="h-3 w-3 text-zinc-500" />
-        )}
-      </div>
-
-      <PhaseBadge status={progress.orchestratorStatus} />
-
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-[10px] text-zinc-500">{statLine}</span>
-        {!isFinished && totalCount > 0 && (
-          <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-800">
-            <div
-              className="h-full rounded-full bg-blue-500/60 transition-all duration-500"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-        )}
-      </div>
-
-      {totalElapsed && (
-        <span className="flex-shrink-0 text-[10px] tabular-nums text-zinc-600">
-          {totalElapsed}
-        </span>
-      )}
-    </button>
-  );
-}
+// OrchestratorHeader replaced by CompactProgressBar above
 
 // --- Main Component ---
 
@@ -518,6 +547,17 @@ export function TaskProgressView({
       }
     };
   }, [isFinished, collapsed, onSetCollapsed]);
+
+  const prevFailCountRef = useRef(0);
+  useEffect(() => {
+    const failCount = progress.tasks.filter(
+      (t) => t.status === "failed",
+    ).length;
+    if (failCount > prevFailCountRef.current && collapsed) {
+      onSetCollapsed(false);
+    }
+    prevFailCountRef.current = failCount;
+  }, [progress.tasks, collapsed, onSetCollapsed]);
 
   const shotGroup = useMemo(
     () => buildShotGroupSummary(progress.tasks),
@@ -549,12 +589,16 @@ export function TaskProgressView({
   const shouldAutoCollapseCompleted =
     finishedTasks.length >= COMPLETED_COLLAPSE_THRESHOLD;
 
+  const MAX_VISIBLE_PENDING = 3;
+  const visiblePending = grouped.pending.slice(0, MAX_VISIBLE_PENDING);
+  const hiddenPendingCount = grouped.pending.length - visiblePending.length;
+
   return (
     <div
       className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/60 transition-all duration-300"
       data-testid="task-progress-view"
     >
-      <OrchestratorHeader
+      <CompactProgressBar
         progress={progress}
         collapsed={collapsed}
         onToggle={() => onSetCollapsed(!collapsed)}
@@ -602,14 +646,14 @@ export function TaskProgressView({
             </div>
           )}
 
-          {/* Pending Tasks */}
+          {/* Pending Tasks (truncated) */}
           {grouped.pending.length > 0 && (
             <div>
               <SectionLabel>
                 Pending ({grouped.pending.length})
               </SectionLabel>
               <div className="space-y-0.5 px-1">
-                {grouped.pending.map((task, i) => (
+                {visiblePending.map((task, i) => (
                   <PendingTaskCard
                     key={task.id}
                     task={task}
@@ -617,6 +661,11 @@ export function TaskProgressView({
                     index={i}
                   />
                 ))}
+                {hiddenPendingCount > 0 && (
+                  <div className="px-2.5 py-1 text-[10px] text-zinc-600">
+                    + {hiddenPendingCount} more pending
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -711,11 +760,7 @@ function SimpleTaskProgressView({
 }: TaskProgressViewProps) {
   const collapsed = progress.collapsed;
   const isFinished = progress.phase === "done" || progress.phase === "error";
-  const completedCount = progress.tasks.filter((t) => t.status === "completed").length;
-  const failedCount = progress.tasks.filter((t) => t.status === "failed").length;
-  const cancelledCount = progress.tasks.filter((t) => t.status === "cancelled").length;
   const totalCount = progress.tasks.length;
-  const totalElapsed = useElapsedTime(progress.startedAt, progress.completedAt);
 
   const autoCollapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -732,20 +777,20 @@ function SimpleTaskProgressView({
     };
   }, [isFinished, collapsed, onSetCollapsed]);
 
+  const prevFailCountRef = useRef(0);
+  useEffect(() => {
+    const failCount = progress.tasks.filter(
+      (t) => t.status === "failed",
+    ).length;
+    if (failCount > prevFailCountRef.current && collapsed) {
+      onSetCollapsed(false);
+    }
+    prevFailCountRef.current = failCount;
+  }, [progress.tasks, collapsed, onSetCollapsed]);
+
   if (progress.phase === "idle") return null;
 
   const showTasks = !collapsed && progress.tasks.length > 0;
-
-  const summaryLabel = (() => {
-    if (isFinished) {
-      const parts: string[] = [];
-      if (completedCount > 0) parts.push(`${completedCount} done`);
-      if (failedCount > 0) parts.push(`${failedCount} failed`);
-      if (cancelledCount > 0) parts.push(`${cancelledCount} cancelled`);
-      return parts.join(", ") || `${completedCount}/${totalCount} completed`;
-    }
-    return `${completedCount}/${totalCount} tasks`;
-  })();
 
   return (
     <div className="space-y-2 transition-all duration-300" data-testid="task-progress-view">
@@ -770,42 +815,18 @@ function SimpleTaskProgressView({
 
       {progress.tasks.length > 0 && (
         <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/60 transition-all duration-300">
-          <button
-            onClick={() => onSetCollapsed(!collapsed)}
-            className="flex w-full items-center gap-1.5 px-3 py-2 text-left transition-colors hover:bg-zinc-800/40"
-            data-testid="collapse-toggle"
-          >
-            <div className="transition-transform duration-200">
-              {collapsed ? (
-                <ChevronRight className="h-3 w-3 text-zinc-500" />
-              ) : (
-                <ChevronDown className="h-3 w-3 text-zinc-500" />
-              )}
-            </div>
-            <div className="flex flex-1 items-center gap-2">
-              <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                {summaryLabel}
-              </span>
-              {!isFinished && totalCount > 0 && (
-                <div className="h-1 flex-1 overflow-hidden rounded-full bg-zinc-800">
-                  <div
-                    className="h-full rounded-full bg-blue-500/50 transition-all duration-500"
-                    style={{ width: `${(completedCount / totalCount) * 100}%` }}
-                  />
-                </div>
-              )}
-            </div>
-            {totalElapsed && (
-              <span className="text-[10px] tabular-nums text-zinc-600">{totalElapsed}</span>
-            )}
-          </button>
+          <CompactProgressBar
+            progress={progress}
+            collapsed={collapsed}
+            onToggle={() => onSetCollapsed(!collapsed)}
+          />
 
           <div
             className={`transition-all duration-300 ease-in-out ${
               showTasks ? "max-h-[600px] opacity-100" : "max-h-0 overflow-hidden opacity-0"
             }`}
           >
-            <div className="space-y-0.5 overflow-y-auto px-1.5 pb-2" style={{ maxHeight: "400px" }}>
+            <div className="space-y-0.5 overflow-y-auto border-t border-zinc-800/50 px-1.5 pb-2" style={{ maxHeight: "400px" }}>
               {progress.tasks.map((task) => (
                 <SimpleTaskItem key={task.id} task={task} allTasks={progress.tasks} />
               ))}
