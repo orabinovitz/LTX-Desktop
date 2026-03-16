@@ -489,24 +489,47 @@ class Orchestrator:
             memory_updated=memory_updated,
         )
 
+    _ALLOWED_API_DURATIONS = (6, 8, 10, 12, 14, 16, 18, 20)
+
     @staticmethod
-    def _parse_shot_list(text: str) -> list[tuple[int, str]]:
+    def _snap_duration(raw_seconds: float) -> int:
+        """Snap a raw duration to the nearest allowed API duration."""
+        allowed = Orchestrator._ALLOWED_API_DURATIONS
+        return min(allowed, key=lambda d: abs(d - raw_seconds))
+
+    @staticmethod
+    def _parse_shot_list(text: str) -> list[tuple[int, str, int]]:
         """Extract numbered shots from a result summary.
 
         Looks for patterns like "Shot 1: description", "Shot 2: description".
-        Returns list of (shot_number, description) tuples.
+        Returns list of (shot_number, description, api_duration) tuples.
+        The duration is extracted from patterns like "(5s)", "(5 seconds)"
+        and snapped to the nearest allowed API value.
         """
         import re
-        shots: list[tuple[int, str]] = []
-        pattern = re.compile(
-            r"Shot\s+(\d+)\s*[:\-–—]\s*(.+?)(?=Shot\s+\d+\s*[:\-–—]|\Z)",
+        shots: list[tuple[int, str, int]] = []
+        shot_pattern = re.compile(
+            r"Shot\s+(\d+)\s*(?:\([^)]*\)\s*)?[:\-–—]\s*(.+?)"
+            r"(?=Shot\s+\d+\s*(?:\([^)]*\)\s*)?[:\-–—]|\Z)",
             re.DOTALL | re.IGNORECASE,
         )
-        for match in pattern.finditer(text):
+        duration_pattern = re.compile(
+            r"\((\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?\)",
+            re.IGNORECASE,
+        )
+        default_duration = Orchestrator._ALLOWED_API_DURATIONS[0]
+        for match in shot_pattern.finditer(text):
             num = int(match.group(1))
             desc = match.group(2).strip()
-            if len(desc) > 10:
-                shots.append((num, desc))
+            if len(desc) <= 10:
+                continue
+            full_match = match.group(0)
+            dur_match = duration_pattern.search(full_match)
+            if dur_match:
+                api_dur = Orchestrator._snap_duration(float(dur_match.group(1)))
+            else:
+                api_dur = default_duration
+            shots.append((num, desc, api_dur))
         return shots
 
     @staticmethod
@@ -703,7 +726,7 @@ class Orchestrator:
             if task.skill_id == "scene-preproduction":
                 continue
 
-            shot_list: list[tuple[int, str]] = []
+            shot_list: list[tuple[int, str, int]] = []
             script_task_id: str | None = None
 
             for dep_id in task.depends_on:
@@ -760,7 +783,7 @@ class Orchestrator:
             task.error = f"Expanded into {len(shot_list)} per-shot tasks"
 
             shot_task_ids: list[str] = []
-            for shot_num, shot_desc in shot_list:
+            for shot_num, shot_desc, api_duration in shot_list:
                 shot_task_id = f"{original_task_id}-shot-{shot_num}"
                 short_desc = shot_desc[:500].replace("\n", " ")
 
@@ -774,6 +797,11 @@ class Orchestrator:
                         f"references above. Describe blocking, atmosphere, "
                         f"and spatial relationships in detail. "
                     )
+
+                duration_instruction = (
+                    f"IMPORTANT: Pass duration={api_duration} to "
+                    f"generate_video. "
+                )
 
                 if has_refs:
                     ref_ids = self._select_refs_for_shot(
@@ -792,6 +820,7 @@ class Orchestrator:
                         f"maintaining consistency: [{refs_str}]. "
                         f"Then call generate_video with mode=image_to_video "
                         f"using the generated image asset_id. "
+                        f"{duration_instruction}"
                         f"Report the final video asset_id."
                     )
                 else:
@@ -803,6 +832,7 @@ class Orchestrator:
                         f"landscape video framing. "
                         f"Then call generate_video with mode=image_to_video "
                         f"using the generated image asset_id. "
+                        f"{duration_instruction}"
                         f"Report the final video asset_id."
                     )
 

@@ -848,12 +848,14 @@ generate_video = _tool(
         _param("audio_asset_id", "string", "Asset ID of the input audio (for audio_to_video).", required=False),
         _param(
             "duration", "integer",
-            "Video duration in seconds. Allowed values depend on model: "
-            "fast model: 6, 8, 10, 12, 14, 16, 18, or 20 seconds. "
+            "REQUIRED. Video duration in seconds. The minimum is 6 seconds "
+            "(values below 6, such as 5, are INVALID and will cause an error). "
+            "Allowed values depend on model: "
+            "fast model at 1080p: 6, 8, 10, 12, 14, 16, 18, or 20 seconds. "
             "pro model: 6, 8, or 10 seconds only. "
             "Choose duration based on content: 6s for quick shots, 8-10s for standard scenes, "
-            "12-16s for extended scenes, 18-20s for long continuous shots.",
-            required=False,
+            "12-16s for extended scenes, 18-20s for long continuous shots. "
+            "Default to 6 if unsure.",
         ),
         _param("resolution", "string", "e.g. '720p', '1080p' (default).", required=False),
         _param("fps", "integer", "Frames per second (default 24).", required=False),

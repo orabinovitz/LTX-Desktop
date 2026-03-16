@@ -82,10 +82,11 @@ Signals for longer durations: dialogue between characters (2-3 min+), \
 multiple locations (3-5 min+), story arc with conflict/resolution (2-4 min+), \
 words like "full scene", "short film", "narrative" (2 min+).
 
-Derive shot count from duration:
-- Fast-paced (ads, montage): 1 shot per 3-4 seconds
-- Standard pacing: 1 shot per 5-7 seconds
-- Slow/cinematic (drama, arthouse): 1 shot per 6-10 seconds
+Derive shot count from duration. The video generation API requires \
+each shot to be 6, 8, or 10 seconds (or up to 20s for fast model at 1080p):
+- Fast-paced (ads, montage): 1 shot per 6 seconds
+- Standard pacing: 1 shot per 6-8 seconds
+- Slow/cinematic (drama, arthouse): 1 shot per 8-10 seconds
 
 Include `target_duration_seconds` in your output. Reference this duration \
 in the script task description so downstream tasks (assembly, review) \
@@ -101,7 +102,10 @@ a fixed order because each stage needs completed upstream work:
 
 1. **Script** (creative): Scene descriptions, dialogue, and a numbered \
    shot list where each shot specifies visual description, shot type, \
-   camera motion, and duration. Use format "Shot 1:", "Shot 2:", etc.
+   camera motion, and duration. Use format "Shot 1:", "Shot 2:", etc. \
+   IMPORTANT: Valid per-shot durations are 6, 8, or 10 seconds only \
+   (the video API does not support other values). Use 6s for quick cuts, \
+   8s for standard scenes, 10s for establishing/atmospheric shots.
 
 2. **Visual identity research** (creative, depends on script): Research \
    reference films, cinematographer/photographer/painter references, and \
@@ -212,7 +216,7 @@ Photography cameras appropriate (product, commercial context).
   "tasks": [
     {{
       "id": "task-1",
-      "description": "Write a script for a 15-second product ad for wireless headphones. Include a NUMBERED shot list with 4-5 shots. Each shot: visual description, shot type, camera motion, duration. Format: 'Shot 1:', 'Shot 2:', etc. Target 15 seconds total. Focus on sleek product close-ups and lifestyle context.",
+      "description": "Write a script for a 15-second product ad for wireless headphones. Include a NUMBERED shot list with 2-3 shots. Each shot: visual description, shot type, camera motion, duration. Format: 'Shot 1:', 'Shot 2:', etc. Target 15 seconds total. Valid durations are 6, 8, or 10 seconds per shot. Focus on sleek product close-ups and lifestyle context.",
       "skill_id": "advertising-screenwriter",
       "task_type": "creative",
       "depends_on": [],
@@ -260,7 +264,7 @@ Character and location pre-production needed.
   "tasks": [
     {{
       "id": "task-1",
-      "description": "Write a script for a ~90-second noir-style scene: a detective arrives at a rain-soaked crime scene at night. Include a numbered shot list with 12-15 shots. Each shot: visual description, shot type, camera motion, duration. Format 'Shot 1:', 'Shot 2:', etc. Target 90 seconds. Vary durations: 3-5s for detail shots, 6-10s for establishing and atmospheric shots. Give the detective a specific physical description for reference sheets.",
+      "description": "Write a script for a ~90-second noir-style scene: a detective arrives at a rain-soaked crime scene at night. Include a numbered shot list with 12-15 shots. Each shot: visual description, shot type, camera motion, duration. Format 'Shot 1:', 'Shot 2:', etc. Target 90 seconds. Vary durations: 6s for quick detail shots, 8-10s for establishing and atmospheric shots. Valid durations are 6, 8, or 10 seconds per shot. Give the detective a specific physical description for reference sheets.",
       "skill_id": "film-tv-screenwriting",
       "task_type": "creative",
       "depends_on": [],
@@ -343,7 +347,7 @@ focus on visual rhythm. No character/location pre-production needed.
   "tasks": [
     {{
       "id": "task-1",
-      "description": "Write a shot list for a 4-minute abstract music video with kaleidoscope visuals. Include 35-45 shots using format 'Shot 1:', 'Shot 2:', etc. Each shot: visual description of the abstract pattern/color/motion, camera motion, duration. Vary between rapid 2-3s cuts during high-energy sections and longer 8-12s holds during atmospheric passages. No characters or dialogue — focus on color, geometry, and rhythm.",
+      "description": "Write a shot list for a 4-minute abstract music video with kaleidoscope visuals. Include 35-45 shots using format 'Shot 1:', 'Shot 2:', etc. Each shot: visual description of the abstract pattern/color/motion, camera motion, duration. Use rapid 6s cuts during high-energy sections and longer 8-10s holds during atmospheric passages. Valid durations are 6, 8, or 10 seconds per shot. No characters or dialogue — focus on color, geometry, and rhythm.",
       "skill_id": "film-tv-screenwriting",
       "task_type": "creative",
       "depends_on": [],

@@ -448,6 +448,53 @@ class OrchestrateContinueRequest(BaseModel):
 
 
 # ============================================================
+# Clarification
+# ============================================================
+
+
+class ClarificationOption(BaseModel):
+    """A single selectable option for a clarification question."""
+
+    id: str = Field(description="Unique option identifier within the question")
+    label: str = Field(description="Display text for this option")
+
+
+class ClarificationQuestion(BaseModel):
+    """A question the agent asks the user before executing a complex request."""
+
+    id: str = Field(description="Unique question identifier")
+    question: str = Field(description="The question text")
+    options: list[ClarificationOption] = Field(description="Pre-determined answer options")
+    allow_custom: bool = Field(default=True, description="Whether to show a free-text input for custom answers")
+
+
+class ClarifyRequest(BaseModel):
+    """Request to generate clarification questions for a complex prompt."""
+
+    prompt: str = Field(description="User's natural-language instruction", max_length=10000)
+    timeline_state: TimelineState | None = None
+    assets_context: dict[str, object] | None = None
+    project_id: str | None = None
+    view_context: ViewContext = Field(default=ViewContext.EDITOR)
+
+
+class ClarifyResponse(BaseModel):
+    """Response containing clarification questions (or none if prompt is clear)."""
+
+    needs_clarification: bool = Field(default=False)
+    questions: list[ClarificationQuestion] = Field(default_factory=list)
+
+
+class ClarificationAnswer(BaseModel):
+    """A user's answer to a single clarification question."""
+
+    question_id: str
+    selected_option_id: str | None = Field(default=None, description="ID of selected option, None if skipped")
+    custom_answer: str | None = Field(default=None, description="Free-text answer override", max_length=500)
+    skipped: bool = Field(default=False)
+
+
+# ============================================================
 # Project Memory
 # ============================================================
 

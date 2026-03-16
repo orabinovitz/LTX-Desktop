@@ -124,6 +124,90 @@ class TestClassifyComplexity:
 
 
 # ====================================================================
+# /api/agent/clarify
+# ====================================================================
+
+
+class TestClarify:
+    def test_no_api_key_returns_no_clarification(self, client, test_state):
+        test_state.state.app_settings.gemini_api_key = ""
+        resp = client.post("/api/agent/clarify", json={
+            "prompt": "Create a full cinematic marketing video",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["needs_clarification"] is False
+
+    def test_clarify_returns_questions(self, client, test_state, fake_services):
+        test_state.state.app_settings.gemini_api_key = "test-key"
+        clarify_payload = {
+            "needs_clarification": True,
+            "questions": [
+                {
+                    "id": "target-platform",
+                    "question": "What platform is this video for?",
+                    "options": [
+                        {"id": "youtube", "label": "YouTube (16:9)"},
+                        {"id": "instagram-reels", "label": "Instagram Reels (9:16)"},
+                        {"id": "tiktok", "label": "TikTok (9:16)"},
+                    ],
+                    "allow_custom": True,
+                },
+                {
+                    "id": "visual-style",
+                    "question": "What visual style are you going for?",
+                    "options": [
+                        {"id": "cinematic", "label": "Cinematic / Film-like"},
+                        {"id": "clean-minimal", "label": "Clean and minimal"},
+                        {"id": "bold-energetic", "label": "Bold and energetic"},
+                    ],
+                    "allow_custom": True,
+                },
+            ],
+        }
+        fake_services.http.queue("post", FakeResponse(
+            status_code=200,
+            json_payload={"candidates": [{"content": {"parts": [{"text": json.dumps(clarify_payload)}]}}]},
+        ))
+
+        resp = client.post("/api/agent/clarify", json={
+            "prompt": "Create a full cinematic marketing video",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["needs_clarification"] is True
+        assert len(data["questions"]) == 2
+        assert data["questions"][0]["id"] == "target-platform"
+        assert len(data["questions"][0]["options"]) == 3
+
+    def test_clarify_handles_gemini_error(self, client, test_state, fake_services):
+        test_state.state.app_settings.gemini_api_key = "test-key"
+        fake_services.http.queue("post", FakeResponse(status_code=500, text="Internal error"))
+
+        resp = client.post("/api/agent/clarify", json={
+            "prompt": "Create a full cinematic marketing video",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["needs_clarification"] is False
+
+    def test_clarify_handles_no_clarification_needed(self, client, test_state, fake_services):
+        test_state.state.app_settings.gemini_api_key = "test-key"
+        clarify_payload = {"needs_clarification": False, "questions": []}
+        fake_services.http.queue("post", FakeResponse(
+            status_code=200,
+            json_payload={"candidates": [{"content": {"parts": [{"text": json.dumps(clarify_payload)}]}}]},
+        ))
+
+        resp = client.post("/api/agent/clarify", json={
+            "prompt": "Generate a sunset video and trim to 5 seconds",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["needs_clarification"] is False
+
+
+# ====================================================================
 # /api/agent/orchestrate
 # ====================================================================
 

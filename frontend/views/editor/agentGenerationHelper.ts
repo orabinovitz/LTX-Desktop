@@ -10,6 +10,7 @@ import type { Asset } from "../../types/project";
 import { copyToAssetFolder } from "../../lib/asset-copy";
 import type { OnToolProgress } from "../../hooks/use-agent";
 import { backendFetch } from "../../lib/backend";
+import { getAllowedForcedApiDurations } from "../../lib/api-video-options";
 
 export function urlToDataUri(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -148,12 +149,21 @@ export async function agentGenerateVideo(
 ): Promise<GenerationResult> {
   const stopPolling = startProgressPolling(onProgress, signal);
 
+  const model = params.model ?? "fast";
+  const resolution = params.resolution ?? "1080p";
+  const fps = params.fps ?? 24;
+  const allowedDurations = getAllowedForcedApiDurations(model, resolution, fps);
+  const rawDuration = params.duration ?? allowedDurations[0];
+  const snappedDuration = allowedDurations.reduce((best, d) =>
+    Math.abs(d - rawDuration) < Math.abs(best - rawDuration) ? d : best,
+  );
+
   const body: Record<string, unknown> = {
     prompt: params.prompt,
-    model: params.model ?? "fast",
-    duration: String(params.duration ?? 5),
-    resolution: params.resolution ?? "1080p",
-    fps: String(params.fps ?? 24),
+    model,
+    duration: String(snappedDuration),
+    resolution,
+    fps: String(fps),
     audio: "true",
     cameraMotion: params.cameraMotion ?? "none",
     aspectRatio: params.aspectRatio ?? "16:9",

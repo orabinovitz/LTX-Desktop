@@ -3,7 +3,9 @@ import { X, Send, Loader2, Bot, Undo2, Mic, Phone } from "lucide-react";
 import type { LiveAgentStatus } from "../../hooks/use-live-agent";
 import type { ToolCall, ChatMessage } from "../../hooks/use-agent";
 import type { AgentProgress } from "../../types/agent-progress";
+import type { ClarificationAnswer, ClarificationState } from "../../types/clarification";
 import { TaskProgressView } from "../../components/TaskProgressView";
+import { ClarificationView } from "./ClarificationView";
 
 export type { ChatMessage };
 
@@ -17,6 +19,8 @@ interface AgentPromptBoxProps {
   onSend: (prompt: string) => void;
   onUndo?: () => void;
   canUndo?: boolean;
+  clarificationState?: ClarificationState | null;
+  onSubmitClarification?: (answers: ClarificationAnswer[]) => void;
   voiceStatus?: LiveAgentStatus;
   voiceIsSpeaking?: boolean;
   voiceError?: string | null;
@@ -130,6 +134,8 @@ export function AgentPromptBox({
   onSend,
   onUndo,
   canUndo = false,
+  clarificationState = null,
+  onSubmitClarification,
   voiceStatus = "idle" as LiveAgentStatus,
   voiceIsSpeaking = false,
   voiceError = null,
@@ -160,7 +166,7 @@ export function AgentPromptBox({
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isProcessing, progress]);
+  }, [messages, isProcessing, progress, clarificationState]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -410,12 +416,23 @@ export function AgentPromptBox({
               </div>
             ))}
 
+            {clarificationState && onSubmitClarification && (
+              <div className="flex justify-start">
+                <div className="w-full rounded-lg bg-zinc-800 px-3 py-2.5 text-xs leading-relaxed text-zinc-200">
+                  <ClarificationView
+                    questions={clarificationState.questions}
+                    onSubmit={onSubmitClarification}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Non-orchestrated progress stays inline */}
             {showProgressView && !showOrchestratedSticky && (
               <TaskProgressView progress={progress} onSetCollapsed={onSetCollapsed} />
             )}
 
-            {showOldThinking && (
+            {showOldThinking && !clarificationState && (
               <div className="flex justify-start">
                 <div className="flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2 text-xs text-zinc-400">
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -437,14 +454,14 @@ export function AgentPromptBox({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="Type your prompt here..."
-              disabled={isProcessing}
+              disabled={isProcessing || !!clarificationState}
               className="flex-1 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 outline-none transition-colors focus:border-blue-500 disabled:opacity-50"
             />
             {onVoiceConnect && (
               <button
                 type="button"
                 onClick={onVoiceConnect}
-                disabled={isProcessing}
+                disabled={isProcessing || !!clarificationState}
                 className="flex-shrink-0 rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
                 title="Switch to voice mode"
               >
@@ -453,7 +470,7 @@ export function AgentPromptBox({
             )}
             <button
               type="submit"
-              disabled={isProcessing || !input.trim()}
+              disabled={isProcessing || !!clarificationState || !input.trim()}
               className="flex-shrink-0 rounded-lg bg-blue-600 p-2 text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send className="h-3.5 w-3.5" />

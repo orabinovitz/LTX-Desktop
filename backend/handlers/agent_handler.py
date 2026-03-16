@@ -21,6 +21,8 @@ from agent.types import (
     AnalysisStatus,
     AnalyzeVideoRequest,
     AnalyzeVideoResponse,
+    ClarifyRequest,
+    ClarifyResponse,
     LiveConfigResponse,
     LiveTokenResponse,
     OrchestrateContinueRequest,
@@ -119,6 +121,19 @@ class AgentHandler(StateHandlerBase):
         """Classify whether a request needs orchestration or the simple agent."""
         from agent.orchestration.complexity_router import classify_complexity
         return classify_complexity(prompt)
+
+    def clarify(self, request: ClarifyRequest) -> ClarifyResponse:
+        """Generate clarification questions for a complex request."""
+        api_key = self._state.app_settings.gemini_api_key
+        if not api_key:
+            return ClarifyResponse(needs_clarification=False)
+
+        from agent.clarification_generator import generate_questions
+        return generate_questions(
+            request=request,
+            gemini_api_key=api_key,
+            http_client=self._http,
+        )
 
     def analyze_video(self, request: AnalyzeVideoRequest) -> AnalyzeVideoResponse:
         """Start background video analysis."""

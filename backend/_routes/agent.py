@@ -12,6 +12,8 @@ from agent.types import (
     AgentExecuteResponse,
     AnalyzeVideoRequest,
     AnalyzeVideoResponse,
+    ClarifyRequest,
+    ClarifyResponse,
     DecomposeVideoResponse,
     DocumentMeta,
     LiveConfigResponse,
@@ -161,6 +163,15 @@ def route_classify_complexity(
     """Classify whether a prompt needs orchestration or the simple agent."""
     complexity = handler.agent.classify_request_complexity(prompt)
     return {"complexity": complexity}
+
+
+@router.post("/agent/clarify", response_model=ClarifyResponse)
+def route_clarify(
+    req: ClarifyRequest,
+    handler: AppHandler = Depends(get_state_service),
+) -> ClarifyResponse:
+    """Generate clarification questions for a complex request."""
+    return handler.agent.clarify(req)
 
 
 @router.post("/agent/live-token", response_model=LiveTokenResponse)

@@ -36,6 +36,8 @@ function AppContent() {
     progress: agentProgress,
     setCollapsed: setAgentCollapsed,
     sendAgentPrompt,
+    submitClarification,
+    clarificationState,
     activeExecutor,
   } = useAgentContext()
 
@@ -476,6 +478,8 @@ function AppContent() {
         onSend={sendAgentPrompt}
         onUndo={activeExecutor?.onUndo}
         canUndo={activeExecutor?.canUndo ?? false}
+        clarificationState={clarificationState}
+        onSubmitClarification={submitClarification}
       />
 
       {showGlobalControls && (

@@ -431,6 +431,7 @@ export function useOrchestratedAgent() {
     isProcessing,
     sendPrompt,
     clearChat,
+    setMessages,
     progress,
     setCollapsed: progressActions.setCollapsed,
   };

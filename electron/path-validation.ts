@@ -1,4 +1,5 @@
 import path from 'path'
+import { fileURLToPath } from 'url'
 
 const isWindows = process.platform === 'win32'
 
@@ -7,10 +8,10 @@ function normalize(p: string): string {
 }
 
 function stripFileUrl(fileUrl: string): string {
-  let raw = fileUrl
-  if (raw.startsWith('file:///')) raw = raw.slice(8)
-  else if (raw.startsWith('file://')) raw = raw.slice(7)
-  return decodeURIComponent(raw).replace(/\//g, path.sep)
+  if (fileUrl.startsWith('file://')) {
+    return fileURLToPath(fileUrl)
+  }
+  return decodeURIComponent(fileUrl).replace(/\//g, path.sep)
 }
 
 const approvedPaths = new Set<string>()

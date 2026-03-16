@@ -111,8 +111,8 @@ class TestParseShotList:
         text = "Shot 1: A wide establishing shot. Shot 2: Close-up of face. Shot 3: Medium tracking."
         result = Orchestrator._parse_shot_list(text)
         assert len(result) == 3
-        assert result[0] == (1, "A wide establishing shot.")
-        assert result[1] == (2, "Close-up of face.")
+        assert result[0] == (1, "A wide establishing shot.", 6)
+        assert result[1] == (2, "Close-up of face.", 6)
 
     def test_dash_separator(self):
         text = "Shot 1 - Wide angle of cityscape at sunset. Shot 2 - Interior, character enters."
@@ -130,6 +130,26 @@ class TestParseShotList:
         result = Orchestrator._parse_shot_list(text)
         assert len(result) == 1
         assert result[0][0] == 2
+
+    def test_duration_extracted_and_snapped(self):
+        text = "Shot 1 (5s): A wide establishing shot of the beach. Shot 2 (10s): Close-up of the face."
+        result = Orchestrator._parse_shot_list(text)
+        assert len(result) == 2
+        assert result[0][0] == 1
+        assert result[0][2] == 6  # 5 snaps to 6
+        assert result[1][0] == 2
+        assert result[1][2] == 10
+
+    def test_duration_snaps_to_nearest(self):
+        text = "Shot 1 (3s): Quick cut detail shot of scene. Shot 2 (21s): Long continuous tracking shot of the scene."
+        result = Orchestrator._parse_shot_list(text)
+        assert result[0][2] == 6  # 3 snaps to 6 (nearest)
+        assert result[1][2] == 20  # 21 snaps to 20 (nearest)
+
+    def test_no_duration_defaults_to_minimum(self):
+        text = "Shot 1: A wide establishing shot with no duration."
+        result = Orchestrator._parse_shot_list(text)
+        assert result[0][2] == 6
 
 
 class TestParseReferenceAssets:
