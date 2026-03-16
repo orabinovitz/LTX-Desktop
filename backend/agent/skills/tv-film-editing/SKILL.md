@@ -52,6 +52,10 @@ trigger_keywords:
   - ai video edit
   - rescue shot
   - fix footage
+do_not_trigger_when:
+  - User asks for simple clip operations without cinematic intent (use general-editor)
+  - User asks for shot design or visual style (use cinematography)
+  - User asks for script writing (use film-tv-screenwriting)
 ---
 
 ## System Prompt

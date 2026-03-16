@@ -51,6 +51,37 @@ _STYLE_KEYWORDS = {
     "commercial", "music video", "narrative", "vlog",
 }
 
+_CINEMATIC_DIRECTOR_NAMES = {
+    "villeneuve", "deakins", "kubrick", "spielberg", "nolan", "fincher",
+    "scorsese", "coen", "malick", "lubezki", "richardson", "kamiński",
+    "kaminski", "scott", "tarantino", "anderson", "jenkins", "zhao",
+    "gerwig", "peele", "aster", "wong kar-wai", "wong kar wai",
+    "kurosawa", "tarkovsky", "bergman", "fellini", "almodovar",
+    "storaro", "khondji", "prieto", "pfister", "miyagawa",
+    "hoytema", "young", "beebe", "laxton",
+}
+
+
+def has_cinematic_intent(prompt: str) -> bool:
+    """Detect cinematic intent from director/DP names and keywords.
+
+    Moved from the planner system prompt to code to avoid name-anchoring
+    bias in LLM outputs while preserving the detection capability.
+    """
+    prompt_lower = prompt.lower()
+    for name in _CINEMATIC_DIRECTOR_NAMES:
+        if name in prompt_lower:
+            return True
+    cinematic_keywords = {
+        "cinematic", "film", "movie", "feature film", "short film",
+        "a24", "arthouse", "auteur", "noir", "shot on film",
+        "film grain", "cinematic look", "like a movie",
+    }
+    for kw in cinematic_keywords:
+        if kw in prompt_lower:
+            return True
+    return False
+
 _MAX_SIMPLE_WORD_COUNT = 25
 
 

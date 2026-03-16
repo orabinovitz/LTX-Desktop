@@ -39,6 +39,10 @@ trigger_keywords:
   - doc edit
   - act structure documentary
   - verité
+do_not_trigger_when:
+  - User asks for narrative film or TV scene editing (use tv-film-editing)
+  - User asks for marketing or social media edits (use marketing-editor)
+  - User asks for shot design or visual style (use cinematography)
 ---
 
 ## System Prompt

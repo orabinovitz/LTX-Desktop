@@ -32,6 +32,10 @@ trigger_keywords:
   - teleplay
   - feature film
   - short film
+do_not_trigger_when:
+  - User asks for advertising copy or commercial scripts (use advertising-screenwriter)
+  - User asks for visual style or shot design (use cinematography)
+  - User asks for editing existing footage (use tv-film-editing)
 ---
 
 ## System Prompt

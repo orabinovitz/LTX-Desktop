@@ -39,6 +39,10 @@ trigger_keywords:
   - from brief
   - production pipeline
   - ai production
+do_not_trigger_when:
+  - User asks for a specific editing operation on existing clips (use general-editor or tv-film-editing)
+  - User asks about visual style or cinematography only (use cinematography or visual-identity)
+  - User asks for script writing only (use film-tv-screenwriting)
 ---
 
 ## System Prompt

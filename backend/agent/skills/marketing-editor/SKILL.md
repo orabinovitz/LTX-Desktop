@@ -50,6 +50,10 @@ trigger_keywords:
   - platform requirements
   - ad performance
   - hook optimization
+do_not_trigger_when:
+  - User asks for cinematic or narrative scene editing (use tv-film-editing)
+  - User asks for documentary-style editing (use documentary-editing)
+  - User asks about camera or lighting design (use cinematography)
 ---
 
 # Marketing Editor Skill

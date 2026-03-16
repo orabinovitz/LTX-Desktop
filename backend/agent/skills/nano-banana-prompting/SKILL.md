@@ -39,6 +39,10 @@ trigger_keywords:
   - environment consistency
   - location keyframe
   - style transfer
+do_not_trigger_when:
+  - User asks for broad visual identity or look book research (use visual-identity)
+  - User asks for cinematographic advice without image generation (use cinematography)
+  - User asks for editing existing clips (use tv-film-editing or general-editor)
 ---
 
 ## System Prompt
@@ -194,32 +198,14 @@ Cinema lenses shape the image personality as much as the camera body:
 
 ### Director and cinematographer name references
 
-Naming directors and DPs activates powerful style associations. NB2 has
-internalized the visual language of well-known filmmakers. Use these as style
-modifiers:
+Naming directors, DPs, and specific films activates powerful style associations
+in NB2. Use the pattern "in the style of [director/DP name]" or "in the style
+of [film title]" as style modifiers when cinematic content is needed. Match the
+reference to the emotional tone of the specific scene rather than defaulting to
+any single filmmaker.
 
-- "in the style of Roger Deakins" — controlled naturalism, motivated light,
-  mathematical compositions, muted palette
-- "in the style of Emmanuel Lubezki" — long takes, natural light, wide angles,
-  immersive, transcendent
-- "in the visual language of Denis Villeneuve" — vast scale, geometric
-  compositions, amber/teal palette, atmospheric haze
-- "directed by Ridley Scott" — smoke, shafts of light, layered production
-  design, epic scale
-- "shot by Bradford Young" — underexposed, luminous skin, darkness as texture,
-  intimacy
-- "in the style of Robert Richardson" — high contrast, bold color, operatic
-  lighting, Tarantino/Stone energy
-- "shot by Hoyte van Hoytema" — IMAX scale, natural light, Nolan's visual
-  language, awe
-- "in the style of Janusz Kamiński" — overexposed highlights, blue shadows,
-  Spielberg's visual grammar
-
-You can also reference specific films as style anchors:
-- "in the style of Blade Runner 2049" — amber dust, teal fog, neon in darkness
-- "in the style of Sicario" — desert heat, tension in landscape, surveillance
-- "in the style of Moonlight" — intimate, luminous skin, practical color light
-- "in the style of The Revenant" — natural light, raw landscape, brutal beauty
+Consult `references/prompting-playbook.md` for a detailed lookup table of
+director/DP/film name-to-visual-style associations when you need specifics.
 
 ### Film grain and texture
 
@@ -327,10 +313,10 @@ preserves fidelity for up to **14 objects** — all without LoRAs or seeds.
 **Identity anchoring rules:**
 - Give each character a short identity tag and place it in the **first 10 words**
   of every prompt — the model locks early on identity
-- Use a consistent one-line descriptor: "Luna-Ki, round eyes, freckled cheeks,
-  teal bob, yellow hoodie, small silver star earring"
-- Use **identical vocabulary** across all prompts — switching from "emerald eyes"
-  to "green eyes" between shots introduces drift
+- Use a consistent one-line descriptor following the pattern: "[Name], [2-3
+  distinctive physical features], [signature clothing], [one unique accessory]"
+- Use **identical vocabulary** across all prompts — switching between synonyms
+  for the same feature between shots introduces drift
 - One signature accessory (specific earring, hat, tattoo) serves as a
   high-salience anchor that reinforces recognizability
 
@@ -341,17 +327,22 @@ face shape and eye color from the second reference image."
 
 ## Environment consistency
 
-Location consistency follows the same reference-image logic as character consistency.
+Location consistency uses diverse reference images rather than a single anchor.
 
 **The location keyframe method:**
-1. Generate one wide establishing shot defining the environment's architecture,
-   lighting, colors, and atmosphere
-2. Reference this keyframe image in all subsequent shots set in that location
-3. Maintain **identical lighting descriptions** across all prompts for one
+1. Generate **3-4 independent text-to-image shots** per location, each with a
+   distinct angle or framing (wide establishing, medium from a different
+   vantage point, interior view, architectural detail)
+2. Do NOT use `image_urls` (edit mode) for location keyframes — edit mode
+   forces the model to stay close to the input, producing near-identical
+   outputs that reduce diversity
+3. Share the same core location description, lighting setup, and style
+   across all prompts, but vary the composition and spatial focus
+4. Maintain **identical lighting descriptions** across all prompts for one
    location — direction, quality, color temperature, time of day
-
-For angle variation within a consistent location, use editing: "Show the same
-location from a different angle" or "Zoom in on the bookshelf in the corner."
+5. Reference these diverse keyframes in downstream shots — pass 2-3 as
+   `image_urls` to give the model creative room rather than overfitting
+   on a single reference
 
 Naming specific real-world locations triggers web search grounding during
 generation: "View from an apartment window in Park Slope, Brooklyn" or "The

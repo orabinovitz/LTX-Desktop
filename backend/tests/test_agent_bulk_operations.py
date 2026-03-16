@@ -82,28 +82,28 @@ class TestBulkOperationIntentClassification:
 
 
 class TestBulkOperationSystemPrompt:
-    """System prompt includes bulk operation verification instructions."""
+    """Bulk operation instructions exist (now in a conditional module)."""
 
-    def test_system_prompt_mentions_bulk_operations(self) -> None:
-        from agent.gemini_agent import SYSTEM_PROMPT
+    def test_bulk_instructions_mention_bulk_operations(self) -> None:
+        from agent.gemini_agent import _BULK_OPERATIONS_INSTRUCTIONS
 
-        assert "Bulk Operations" in SYSTEM_PROMPT
+        assert "Bulk Operations" in _BULK_OPERATIONS_INSTRUCTIONS
 
-    def test_system_prompt_mentions_batch_delete(self) -> None:
-        from agent.gemini_agent import SYSTEM_PROMPT
+    def test_bulk_instructions_mention_batch_delete(self) -> None:
+        from agent.gemini_agent import _BULK_OPERATIONS_INSTRUCTIONS
 
-        assert "batch_delete_assets" in SYSTEM_PROMPT
+        assert "batch_delete_assets" in _BULK_OPERATIONS_INSTRUCTIONS
 
-    def test_system_prompt_mentions_verification(self) -> None:
-        from agent.gemini_agent import SYSTEM_PROMPT
+    def test_bulk_instructions_mention_verification(self) -> None:
+        from agent.gemini_agent import _BULK_OPERATIONS_INSTRUCTIONS
 
-        assert "get_project_assets" in SYSTEM_PROMPT
-        assert "verification" in SYSTEM_PROMPT.lower() or "verify" in SYSTEM_PROMPT.lower()
+        assert "get_project_assets" in _BULK_OPERATIONS_INSTRUCTIONS
+        assert "verify" in _BULK_OPERATIONS_INSTRUCTIONS.lower()
 
-    def test_system_prompt_mentions_remaining_count(self) -> None:
-        from agent.gemini_agent import SYSTEM_PROMPT
+    def test_bulk_instructions_mention_remaining_count(self) -> None:
+        from agent.gemini_agent import _BULK_OPERATIONS_INSTRUCTIONS
 
-        assert "remaining_asset_count" in SYSTEM_PROMPT
+        assert "remaining_asset_count" in _BULK_OPERATIONS_INSTRUCTIONS
 
 
 class TestContinueWithUpdatedContext:

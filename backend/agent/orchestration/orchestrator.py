@@ -59,7 +59,7 @@ _MAX_SHOTS_PER_EXPANSION = 40
 def _results_have_memory_writes(results: list[SubAgentResult]) -> bool:
     """Check if any sub-agent result includes memory-write tool executions."""
     return any(
-        tr.call_id in MEMORY_WRITE_TOOLS
+        any(tr.call_id.startswith(tool_name) for tool_name in MEMORY_WRITE_TOOLS)
         for r in results
         for tr in r.backend_tool_results
     )
@@ -563,26 +563,25 @@ class Orchestrator:
 
         All character refs are always included (scenes rarely have >5).
         Location refs are included if any keyword from the label appears in
-        the shot description, with the first (establishing) ref as fallback.
+        the shot description — up to 3 matched refs to provide diverse angles.
+        Falls back to 2 arbitrary location refs when no keyword matches.
         Capped at 5 total to stay well within NB2's 14-image limit.
         """
         refs: list[str] = list(character_refs.values())
 
         desc_lower = shot_desc.lower()
         matched_loc_refs: list[str] = []
-        first_loc_ref: str | None = None
 
         for label, asset_id in location_refs.items():
-            if first_loc_ref is None:
-                first_loc_ref = asset_id
             keywords = label.replace("_", " ").split()
             if any(kw in desc_lower for kw in keywords if len(kw) > 2):
                 matched_loc_refs.append(asset_id)
 
         if matched_loc_refs:
-            refs.extend(matched_loc_refs[:2])
-        elif first_loc_ref:
-            refs.append(first_loc_ref)
+            refs.extend(matched_loc_refs[:3])
+        else:
+            fallback_refs = list(location_refs.values())[:2]
+            refs.extend(fallback_refs)
 
         seen: set[str] = set()
         deduped: list[str] = []
@@ -787,9 +786,10 @@ class Orchestrator:
                         f"with this visual description: \"{short_desc}\". "
                         f"IMPORTANT: Pass aspect_ratio='16:9' for standard "
                         f"landscape video framing. "
-                        f"IMPORTANT: Pass these reference asset IDs as "
-                        f"image_urls for character/location consistency: "
-                        f"[{refs_str}]. "
+                        f"IMPORTANT: Pass ALL these reference asset IDs as "
+                        f"image_urls — they include diverse location angles "
+                        f"that give the model creative freedom while "
+                        f"maintaining consistency: [{refs_str}]. "
                         f"Then call generate_video with mode=image_to_video "
                         f"using the generated image asset_id. "
                         f"Report the final video asset_id."

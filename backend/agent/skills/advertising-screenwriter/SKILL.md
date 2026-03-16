@@ -31,6 +31,10 @@ trigger_keywords:
   - social ad script
   - copywriting
   - ad concept
+do_not_trigger_when:
+  - User asks for non-commercial creative writing (use film-tv-screenwriting)
+  - User asks for visual style or cinematography (use cinematography)
+  - User asks for editing existing footage (use tv-film-editing or general-editor)
 ---
 
 ## System Prompt

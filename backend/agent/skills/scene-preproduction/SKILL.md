@@ -27,6 +27,10 @@ trigger_keywords:
   - character design
   - location design
   - consistency setup
+do_not_trigger_when:
+  - User asks for visual style guidance without needing reference images (use cinematography)
+  - User asks for script writing or story development (use film-tv-screenwriting)
+  - User asks for actual editing of existing clips (use tv-film-editing or general-editor)
 tool_overrides:
   - generate_image
   - get_project_assets
@@ -115,8 +119,8 @@ body, natural standing pose. [CAMERA from NB2 Style Block, e.g., "Shot on
 ARRI ALEXA 35"]. [LENS from NB2 Style Block, e.g., "Cooke S7/i 85mm"].
 [FILM STOCK from NB2 Style Block, e.g., "Kodak VISION3 200T 5213/7213"].
 [LIGHTING from Visual Identity Bible light philosophy]. [COLOR PALETTE from
-Visual Identity Bible color world]. Subtle film grain. Character design
-reference sheet for film production.
+Visual Identity Bible color world]. Subtle film grain. No text. Character
+design reference sheet for film production.
 ```
 
 **For non-cinematic projects**, use this template:
@@ -126,8 +130,8 @@ Create a 360-degree character turnaround reference sheet showing [CHARACTER
 NAME], [DETAILED PHYSICAL DESCRIPTION], [OUTFIT DESCRIPTION]. Show four
 views on a neutral background: front view, three-quarter view, side profile,
 and back view. Full body, T-pose arms slightly away from body. Clean neutral
-studio lighting to show details clearly. Character design reference sheet
-style, professional concept art quality.
+studio lighting to show details clearly. No text. Character design
+reference sheet style, professional concept art quality.
 ```
 
 **Identity anchoring rules (critical for downstream consistency):**
@@ -143,37 +147,53 @@ identity tag.
 
 ### Step 3: Generate location keyframe images
 
-For EACH distinct location, generate a set of keyframe images:
+For EACH distinct location, generate **3-4 independent text-to-image images**
+using separate `generate_image` calls — each with a **different prompt** and
+**no `image_urls`**. Every call must be pure text-to-image so the model
+produces genuinely diverse interpretations of the location rather than
+pixel-level copies of a single source.
 
-1. **Wide establishing shot** — the canonical view of the location that
-   defines its architecture, lighting, color palette, and atmosphere. Use
-   `generate_image` with a detailed prompt incorporating the Visual Identity
-   Bible's production design direction and NB2 Style Block values.
+**Why independent generations?** Edit mode (`image_urls`) forces the model to
+stay close to the input image, producing near-identical outputs. Independent
+text-to-image calls with varied prompts create a diverse reference set that
+gives downstream shot generation more creative room.
 
-   **For cinematic projects**, frame location keyframes as:
-   ```
-   A cinematic screen grab from a feature film. [WIDE/ESTABLISHING shot
-   description incorporating production design direction]. [CAMERA from NB2
-   Style Block]. [LENS — use a wider focal length, e.g., 24-35mm]. [FILM
-   STOCK from NB2 Style Block]. [LIGHTING from Visual Identity Bible light
-   philosophy, matching time of day and weather]. [COLOR PALETTE from Visual
-   Identity Bible color world]. [DIRECTOR/DP style reference from NB2 Style
-   Block]. Subtle film grain, atmospheric [haze/dust/rain as appropriate].
-   ```
+**What to vary across prompts:**
+- **Angle/framing**: wide establishing, medium shot from a different vantage
+  point, closer architectural detail, view through a doorway or window
+- **Exterior vs interior**: if the location has both, cover each
+- **Spatial focus**: one prompt emphasizes the overall space, another
+  highlights a specific area (the counter, the booth, the hallway)
 
-2. **Interior/angle variations** — use `generate_image` with the establishing
-   shot's asset ID in `image_urls` to derive consistent variations:
-   - If the location has both exterior and interior: generate both
-   - Generate 2-3 angle variations (e.g., "same diner interior seen from
-     the booth," "same diner interior seen from the counter")
-   - Each variation prompt MUST reference the original: pass the establishing
-     shot asset ID in `image_urls` and say "Maintain the exact same location
-     design, lighting, and color palette. Show..."
-   - Apply the SAME camera, film stock, and style references as the
-     establishing shot — visual consistency starts here
+**What to keep consistent across prompts:**
+- The core location description (architecture, materials, key props)
+- Visual Identity Bible production design direction
+- NB2 Style Block values (camera, film stock, lens, style refs)
+- Lighting direction, quality, and color temperature
+- Color palette from Visual Identity Bible color world
+
+**For cinematic projects**, frame each location keyframe as:
+```
+A cinematic screen grab from a feature film. [SHOT DESCRIPTION — vary the
+angle and framing per image, e.g., wide establishing / medium from the
+counter / interior through the doorway]. [CAMERA from NB2 Style Block].
+[LENS — vary focal length: 24mm for wide, 35mm for medium, 50mm for
+tighter framing]. [FILM STOCK from NB2 Style Block]. [LIGHTING from Visual
+Identity Bible light philosophy, matching time of day and weather]. [COLOR
+PALETTE from Visual Identity Bible color world]. [DIRECTOR/DP style reference
+from NB2 Style Block]. Subtle film grain, atmospheric [haze/dust/rain as
+appropriate]. No text.
+```
+
+**Example** — a diner location might get these 4 independent generations:
+1. Wide establishing exterior: full facade, street context, signage
+2. Interior wide from entrance: booths, counter, ceiling fixtures
+3. Interior medium from a booth: table-level view, counter in background
+4. Exterior alternate angle: side alley view, neon glow on wet pavement
 
 After generating each location keyframe, record the asset ID and a short
-label (e.g., "diner_exterior_night", "diner_interior_booth").
+descriptive label (e.g., "diner_ext_wide", "diner_int_entrance",
+"diner_int_booth", "diner_ext_alley").
 
 ### Step 4: Save references to project memory
 
@@ -196,10 +216,10 @@ Save a structured reference document to project memory using
 
 ### [Location Label]
 - Description: [one-line description]
-- Establishing shot asset ID: [asset_id]
-- Variations:
-  - [variation_label]: [asset_id]
-  - [variation_label]: [asset_id]
+- Keyframe images:
+  - [descriptive_label]: [asset_id]
+  - [descriptive_label]: [asset_id]
+  - [descriptive_label]: [asset_id]
 
 ### [Location Label]
 ...
@@ -242,13 +262,19 @@ Follow the Nano Banana 2 prompting principles:
 - Include director/DP name references when the visual identity specifies
   them (e.g., "in the style of Roger Deakins")
 
+- **Always include "No text" in every reference image prompt** — character
+  sheets and location keyframes must never contain rendered text
+
 ## Anti-patterns
 
 Do not:
-- Skip the establishing shot and go straight to angle variations
+- Use `image_urls` when generating location keyframes — all location images
+  must be independent text-to-image generations for maximum visual diversity.
+  Edit mode forces the model to stay close to the input, producing
+  near-identical outputs that overfit downstream shot generation.
 - Use vague descriptions ("a man," "a building") — be hyper-specific
 - Change vocabulary between the character sheet prompt and the identity tag
-- Generate more than 4-5 images per location (diminishing returns)
+- Generate more than 4 images per location (diminishing returns)
 - Forget to include asset IDs in the structured output blocks
 - Use the generated variations as references for further variations — always
   reference back to the original establishing shot or character sheet

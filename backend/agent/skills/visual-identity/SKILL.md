@@ -35,6 +35,10 @@ trigger_keywords:
   - cinematic identity
   - visual system
   - design language
+do_not_trigger_when:
+  - User asks for concrete shot-level prompting (use nano-banana-prompting or cinematography)
+  - User asks for script writing (use film-tv-screenwriting)
+  - User asks for editing existing clips (use tv-film-editing or general-editor)
 ---
 
 ## System Prompt
@@ -106,10 +110,11 @@ Structure your output with these exact sections:
 
 ### 1. Visual Thesis
 One sentence that captures the emotional core of the visual identity. This is
-the north star every department references. Examples from real productions:
-- *Blade Runner 2049*: "A world where beauty and desolation coexist in every frame."
-- *Moonlight*: "The camera loves these characters the way they deserve to be loved."
-- *The Grand Budapest Hotel*: "A confection that conceals a tragedy."
+the north star every department references. Examples from different genres:
+- Prestige drama: "The camera loves these characters the way they deserve to be loved."
+- Horror: "What you can't see is louder than what you can."
+- Commercial/product: "Every surface reflects the precision inside the machine."
+- Music video: "Color is the lyric the song forgot to sing."
 
 ### 2. Reference Films and Visual Touchstones
 List 5-8 reference films/shows with **specific visual reasoning** for each —

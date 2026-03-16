@@ -201,9 +201,29 @@ class TestSelectRefsForShot:
         result = Orchestrator._select_refs_for_shot("Interior of the diner", chars, locs)
         assert "loc1" in result
 
-    def test_fallback_to_first_location(self):
+    def test_up_to_three_matched_locations(self):
         chars = {}
-        locs = {"diner": "loc1", "park": "loc2"}
+        locs = {
+            "diner_ext_wide": "loc1",
+            "diner_int_entrance": "loc2",
+            "diner_int_booth": "loc3",
+            "diner_ext_alley": "loc4",
+        }
+        result = Orchestrator._select_refs_for_shot("Inside the diner", chars, locs)
+        matched = [r for r in result if r.startswith("loc")]
+        assert len(matched) == 3
+
+    def test_fallback_to_two_locations(self):
+        chars = {}
+        locs = {"diner": "loc1", "park": "loc2", "office": "loc3"}
+        result = Orchestrator._select_refs_for_shot("An unrelated scene description", chars, locs)
+        assert "loc1" in result
+        assert "loc2" in result
+        assert "loc3" not in result
+
+    def test_fallback_single_location(self):
+        chars = {}
+        locs = {"diner": "loc1"}
         result = Orchestrator._select_refs_for_shot("An unrelated scene description", chars, locs)
         assert "loc1" in result
 

@@ -376,3 +376,42 @@ descriptor verbatim before the new scene description.
 | Total word limit | Under 400 words total for 99%+ accuracy |
 | Suppress all text | Include "no text" or "no words" — but NEVER use this if you want any text |
 | Multiple text elements | Describe each separately with its own placement and style |
+
+---
+
+## Director / DP / Film Style Reference Lookup
+
+Use these as style modifiers in prompts: "in the style of [name]" or
+"in the style of [film]". Match the reference to the scene's emotional tone.
+
+### Directors and Cinematographers
+
+| Reference | Visual style |
+|---|---|
+| Roger Deakins | Controlled naturalism, motivated light, mathematical compositions, muted palette |
+| Emmanuel Lubezki | Long takes, natural light, wide angles, immersive, transcendent |
+| Denis Villeneuve | Vast scale, geometric compositions, amber/teal palette, atmospheric haze |
+| Ridley Scott | Smoke, shafts of light, layered production design, epic scale |
+| Bradford Young | Underexposed, luminous skin, darkness as texture, intimacy |
+| Robert Richardson | High contrast, bold color, operatic lighting, visceral energy |
+| Hoyte van Hoytema | IMAX scale, natural light, awe, monumental compositions |
+| Janusz Kamiński | Overexposed highlights, blue shadows, emotional realism |
+| Dion Beebe | Cool precision, urban night, digital clarity, noir-adjacent |
+| James Laxton | Intimate, luminous skin, practical colored light, naturalism |
+| Vittorio Storaro | Painterly light, color as emotion, bold chiaroscuro |
+| Darius Khondji | Lush darkness, golden warmth, rich shadow detail |
+| Rodrigo Prieto | Textured realism, handheld intimacy, warm desaturation |
+| Wally Pfister | Architectural light, IMAX scale, grounded spectacle |
+
+### Film Style Anchors
+
+| Film | Visual style |
+|---|---|
+| Blade Runner 2049 | Amber dust, teal fog, neon in darkness, vast emptiness |
+| Sicario | Desert heat, tension in landscape, surveillance, overhead shots |
+| Moonlight | Intimate, luminous skin tones, practical colored light |
+| The Revenant | Natural light, raw landscape, brutal beauty, wide angles |
+| Collateral | Urban night, cool digital precision, taxi cab intimacy |
+| Heat | Wide anamorphic Los Angeles, precision violence, architectural space |
+| Mad Max: Fury Road | Saturated desert, kinetic movement, blown-out skies |
+| Her | Soft pastels, warm intimacy, shallow depth, nostalgic future |

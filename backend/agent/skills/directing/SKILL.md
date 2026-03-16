@@ -33,6 +33,10 @@ trigger_keywords:
   - staging
   - cinematic approach
   - rehearsal
+do_not_trigger_when:
+  - User asks specifically about camera, lens, or lighting technical choices (use cinematography)
+  - User asks for image prompt optimization (use nano-banana-prompting)
+  - User asks for actual clip editing operations (use tv-film-editing)
 ---
 
 ## System Prompt

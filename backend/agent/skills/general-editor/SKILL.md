@@ -29,6 +29,10 @@ trigger_keywords:
   - arrange
   - sequence
   - assemble
+do_not_trigger_when:
+  - User asks for cinematic or film-style editing (use tv-film-editing)
+  - User asks about visual style, lighting, or camera choices (use cinematography)
+  - User asks for marketing or social media edits (use marketing-editor)
 ---
 
 ## System Prompt

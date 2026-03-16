@@ -20,7 +20,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
-from agent.gemini_agent import SYSTEM_PROMPT as BRAIN_SYSTEM_PROMPT
+from agent.gemini_agent import GENERAL_CONTEXT_PROMPT
 from agent.tool_knowledge_base import classify_intent, get_tools_for_categories
 from agent.tool_registry import TOOLS_BY_NAME, tools_to_gemini_declarations
 from agent.types import (
@@ -52,24 +52,26 @@ def _build_system_prompt(
     if is_execution:
         rules = (
             "## Rules\n"
-            "- You MUST execute this task by calling the available tools.\n"
-            "- Do NOT just describe what should be done — actually DO it by calling tools.\n"
-            "- Focus ONLY on the task described above.\n"
-            "- Do NOT attempt work outside your assigned task.\n"
-            "- After executing tools, summarize what you accomplished including any asset IDs or results.\n"
+            "- Execute this task by calling the available tools.\n"
+            "- Call tools to perform the work rather than describing what should happen.\n"
+            "- Stay focused on the task described above — the orchestrator handles "
+            "the broader workflow.\n"
+            "- After executing tools, summarize what you accomplished including "
+            "any asset IDs or results.\n"
             "- Be concise — your output will be reviewed by an orchestrator."
         )
     else:
         rules = (
             "## Rules\n"
             "- Produce the requested creative output as text.\n"
-            "- Be specific and detailed — your output will be used by other agents to execute.\n"
-            "- Focus ONLY on the task described above.\n"
-            "- Do NOT attempt work outside your assigned task.\n"
-            "- After producing your creative output, ALWAYS save it to project memory "
+            "- Be specific and detailed — your output will be used by other "
+            "agents to execute.\n"
+            "- Stay focused on the task described above — the orchestrator "
+            "handles the broader workflow.\n"
+            "- After producing your creative output, save it to project memory "
             "by calling `save_to_project_memory` with an appropriate type "
-            "(e.g. 'script', 'research', 'storyboard', 'notes') and descriptive title. "
-            "This ensures your work is preserved for future reference.\n"
+            "(e.g. 'script', 'research', 'storyboard', 'notes') and descriptive "
+            "title so future agents can reference your work.\n"
             "- When done, summarize what you produced."
         )
 
@@ -94,7 +96,7 @@ def _build_system_prompt(
     return (
         f"You are executing a specific task as part of a larger workflow.\n\n"
         f"## Your Task\n{task.description}\n\n"
-        f"## General Instructions\n{BRAIN_SYSTEM_PROMPT}\n\n"
+        f"## General Instructions\n{GENERAL_CONTEXT_PROMPT}\n\n"
         f"{rules}"
     )
 
@@ -167,38 +169,37 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
         else:
             parts.append(
                 "Execute the task now by calling the available tools. "
-                "Do NOT just describe what to do — actually call the tools."
+                "Call tools to perform the work rather than describing "
+                "what should happen."
             )
 
         if has_script:
             parts.append(
-                "## CRITICAL: Follow the Shot List\n"
-                "The prior tasks contain a NUMBERED shot list. You MUST:\n"
-                "- Generate EVERY shot listed (Shot 1, Shot 2, Shot 3, etc.)\n"
-                "- Follow each shot's visual description EXACTLY\n"
-                "- Do NOT skip any shots\n"
-                "- Do NOT invent new shots that aren't in the list\n"
-                "- For each shot: first call generate_image with the visual "
+                "## Shot Execution\n"
+                "The prior tasks produced a numbered shot list. Generate "
+                "each shot in order because downstream tasks (review, "
+                "timeline assembly) expect this structure.\n"
+                "- Generate every listed shot (Shot 1, Shot 2, Shot 3, etc.)\n"
+                "- Follow each shot's visual description precisely\n"
+                "- For each shot: call generate_image with the visual "
                 "description and aspect_ratio='16:9' for standard landscape "
                 "video framing, then call generate_video with image_to_video "
                 "mode to animate it\n"
-                "- ALWAYS pass aspect_ratio='16:9' to generate_image unless "
-                "the user explicitly requested a different ratio\n"
+                "- Pass aspect_ratio='16:9' to generate_image unless the "
+                "user explicitly requested a different ratio\n"
                 "- Report each shot's asset_id in your summary"
             )
 
         has_refs = _has_reference_assets(context.prior_task_results) if context.prior_task_results else False
         if has_refs:
             parts.append(
-                "## CRITICAL: Use Reference Images for Consistency\n"
-                "Pre-production tasks generated CHARACTER and/or LOCATION "
-                "reference images. When calling `generate_image` for any "
-                "shot, you MUST pass the relevant reference asset IDs in "
-                "the `image_urls` parameter.\n\n"
+                "## Visual Consistency\n"
+                "Pre-production tasks generated character and/or location "
+                "reference images. Pass the relevant reference asset IDs "
+                "in the `image_urls` parameter of `generate_image` calls "
+                "to maintain visual consistency across shots.\n\n"
                 "If the task description includes specific asset IDs to "
-                "use as image_urls, use those EXACTLY. This ensures every "
-                "shot maintains visual consistency with the established "
-                "characters and locations.\n\n"
+                "use as image_urls, use those exactly.\n\n"
                 "In your prompt, anchor character identity in the first "
                 "10 words and use identical vocabulary to the character "
                 "descriptions from pre-production."
@@ -210,11 +211,10 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
         )
         if has_script:
             parts.append(
-                "## CRITICAL: Review Against the Script\n"
-                "The prior tasks contain a NUMBERED shot list and generated "
-                "content. You MUST:\n"
-                "- Compare EACH generated shot against its corresponding "
-                "shot description in the script\n"
+                "## Script Review\n"
+                "The prior tasks contain a numbered shot list and generated "
+                "content. Compare each generated shot against its "
+                "corresponding shot description in the script:\n"
                 "- Reference shots by number (Shot 1, Shot 2, etc.)\n"
                 "- For each shot, state: PASS (matches description) or "
                 "FAIL (explain what's wrong)\n"
@@ -225,9 +225,10 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
     else:
         if "shot" in context.task.description.lower() or "script" in context.task.description.lower():
             parts.append(
-                "## CRITICAL: Structured Output Required\n"
-                "Your output MUST include a NUMBERED shot list using the "
-                "format 'Shot 1:', 'Shot 2:', etc. Each shot must specify:\n"
+                "## Structured Output\n"
+                "Include a numbered shot list using the format "
+                "'Shot 1:', 'Shot 2:', etc. because downstream agents "
+                "parse this structure. Each shot should specify:\n"
                 "- Visual description (what the camera sees)\n"
                 "- Shot type (wide, medium, close-up, detail, POV)\n"
                 "- Camera motion (static, dolly_in, dolly_out, etc.)\n"
