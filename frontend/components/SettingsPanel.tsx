@@ -5,7 +5,7 @@ import {
   FORCED_API_VIDEO_RESOLUTIONS,
   getAllowedForcedApiDurations,
   sanitizeForcedApiVideoSettings,
-} from '../lib/api-video-options'
+} from '@/lib/api-video-options'
 
 export type ImageModelType = 'nano-banana-2' | 'z-image-turbo'
 

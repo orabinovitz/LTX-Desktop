@@ -11,7 +11,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from agent.types import (
     SkillDescriptor,
@@ -540,12 +540,15 @@ def _try_recover_truncated_json(text: str) -> dict[str, Any] | list[dict[str, An
     repaired = text[: last_complete_task_end + 1] + "\n  ]\n}"
     try:
         data = json.loads(repaired)
-        if isinstance(data, dict) and "tasks" in data and len(data["tasks"]) >= 1:
-            logger.warning(
-                "Recovered %d task(s) from truncated planner JSON",
-                len(data["tasks"]),
-            )
-            return data  # type: ignore[return-value]
+        if isinstance(data, dict) and "tasks" in data:
+            d = cast(dict[str, Any], data)
+            tasks: list[Any] = d["tasks"]
+            if len(tasks) >= 1:
+                logger.warning(
+                    "Recovered %d task(s) from truncated planner JSON",
+                    len(tasks),
+                )
+                return d
     except (json.JSONDecodeError, TypeError):
         pass
     return None
@@ -564,28 +567,29 @@ def _parse_planner_response(text: str) -> tuple[list[dict[str, Any]], float | No
         text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
 
     try:
-        data = json.loads(text)
+        data: Any = json.loads(text)
     except json.JSONDecodeError:
         recovered = _try_recover_truncated_json(text)
         if recovered is None:
             raise
-        data = recovered
+        data = cast(Any, recovered)
 
     target_duration: float | None = None
 
     if isinstance(data, dict):
-        raw_duration = data.get("target_duration_seconds")
+        d = cast(dict[str, Any], data)
+        raw_duration: Any = d.get("target_duration_seconds")
         if raw_duration is not None:
             try:
                 target_duration = float(raw_duration)
             except (TypeError, ValueError):
                 pass
-        if "tasks" in data:
-            return data["tasks"], target_duration  # type: ignore[return-value]
+        if "tasks" in d:
+            return cast(list[dict[str, Any]], d["tasks"]), target_duration
 
     if isinstance(data, list):
-        return data, None  # type: ignore[return-value]
-    raise ValueError(f"Unexpected planner response shape: {type(data)}")
+        return cast(list[dict[str, Any]], data), None
+    raise ValueError(f"Unexpected planner response shape: {type(cast(object, data))}")
 
 
 class TaskPlanner:
@@ -660,8 +664,8 @@ class TaskPlanner:
                 )
                 return self._fallback_dag(prompt)
 
-            body = resp.json()
-            text = body["candidates"][0]["content"]["parts"][0]["text"]
+            body = cast(dict[str, Any], resp.json())
+            text: str = body["candidates"][0]["content"]["parts"][0]["text"]
             raw_tasks, target_duration = _parse_planner_response(text)
 
         except Exception:

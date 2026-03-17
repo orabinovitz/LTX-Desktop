@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { Music } from 'lucide-react'
-import { logger } from '../lib/logger'
+import { logger } from '@/lib/logger'
 
 interface AudioClipInfo {
   url: string

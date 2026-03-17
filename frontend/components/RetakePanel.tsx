@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { Film, Play, Pause, Volume2, VolumeX, Loader2, Upload, Trash2, RefreshCw } from 'lucide-react'
-import { logger } from '../lib/logger'
-import { fileUrlToPath } from '../lib/url-to-path'
-import { formatDuration } from '../lib/utils'
+import { logger } from '@/lib/logger'
+import { fileUrlToPath } from '@/lib/url-to-path'
+import { formatDuration } from '@/lib/utils'
 
 interface RetakePanelProps {
   initialVideoUrl?: string | null

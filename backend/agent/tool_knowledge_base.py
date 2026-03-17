@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .tool_registry import ALL_TOOLS, TOOLS_BY_NAME
+from .tool_registry import TOOLS_BY_NAME
 from .types import ToolDefinition
 
 
@@ -34,8 +34,8 @@ class ToolCategory:
     description: str
     keywords: list[str]
     tool_names: list[str]
-    depends_on: list[str] = field(default_factory=list)
-    workflows: list[WorkflowRecipe] = field(default_factory=list)
+    depends_on: list[str] = field(default_factory=lambda: list[str]())
+    workflows: list[WorkflowRecipe] = field(default_factory=lambda: list[WorkflowRecipe]())
 
 
 # ---------------------------------------------------------------------------

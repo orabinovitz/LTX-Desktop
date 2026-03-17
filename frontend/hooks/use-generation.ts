@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
-import type { GenerationSettings } from '../components/SettingsPanel'
-import { backendFetch } from '../lib/backend'
-import { useAppSettings } from '../contexts/AppSettingsContext'
+import type { GenerationSettings } from '@/components/SettingsPanel'
+import { backendFetch } from '@/lib/backend'
+import { useAppSettings } from '@/contexts/AppSettingsContext'
 
 interface GenerationState {
   isGenerating: boolean

@@ -3,9 +3,9 @@ import {
   X, Upload, Video, Image,
   Loader2, Sparkles, RefreshCw, Info
 } from 'lucide-react'
-import { SettingsPanel } from '../../components/SettingsPanel'
-import type { GenerationSettings } from '../../components/SettingsPanel'
-import type { GenerationMode } from '../../components/ModeTabs'
+import { SettingsPanel } from '@/components/SettingsPanel'
+import type { GenerationSettings } from '@/components/SettingsPanel'
+import type { GenerationMode } from '@/components/ModeTabs'
 
 interface TimelineGap {
   trackIndex: number

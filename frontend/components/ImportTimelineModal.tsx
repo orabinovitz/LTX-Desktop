@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { logger } from '../lib/logger'
+import { logger } from '@/lib/logger'
 import { 
   X, FileVideo, FileAudio, Image, Check, AlertTriangle, 
   FolderOpen, RefreshCw, Loader2, FileText, Link2, 
   ChevronDown, ChevronRight, Upload
 } from 'lucide-react'
-import type { ParsedTimeline, ParsedMediaRef } from '../lib/timeline-import'
-import { parseTimelineXml } from '../lib/timeline-import'
+import type { ParsedTimeline, ParsedMediaRef } from '@/lib/timeline-import'
+import { parseTimelineXml } from '@/lib/timeline-import'
 
 interface ImportTimelineModalProps {
   isOpen: boolean

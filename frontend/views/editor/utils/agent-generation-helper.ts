@@ -6,12 +6,12 @@
  * This avoids React state management complexity inside the agent executor.
  */
 
-import type { Asset } from "../../types/project";
-import { copyToAssetFolder } from "../../lib/asset-copy";
-import type { OnToolProgress } from "../../hooks/use-agent";
-import { backendFetch } from "../../lib/backend";
-import { getAllowedForcedApiDurations } from "../../lib/api-video-options";
-import { autoNameAsset } from "../../lib/auto-name-asset";
+import type { Asset } from "@/types/project";
+import { copyToAssetFolder } from "@/lib/asset-copy";
+import type { OnToolProgress } from "@/hooks/use-agent";
+import { backendFetch } from "@/lib/backend";
+import { getAllowedForcedApiDurations } from "@/lib/api-video-options";
+import { autoNameAsset } from "@/lib/auto-name-asset";
 
 export function urlToDataUri(url: string): Promise<string> {
   return new Promise((resolve, reject) => {

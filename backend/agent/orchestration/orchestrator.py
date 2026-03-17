@@ -18,7 +18,7 @@ import time
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from agent.orchestration.complexity_router import (
     RequestComplexity,
@@ -70,16 +70,16 @@ class OrchestratorSession:
     id: str
     dag: TaskDAG
     status: OrchestratorStatus
-    pending_tool_calls: list[ToolCall] = field(default_factory=list)
-    pending_task_ids: list[str] = field(default_factory=list)
-    active_sub_agent_results: dict[str, SubAgentResult] = field(default_factory=dict)
-    task_tool_call_counts: dict[str, int] = field(default_factory=dict)
+    pending_tool_calls: list[ToolCall] = field(default_factory=lambda: list[ToolCall]())
+    pending_task_ids: list[str] = field(default_factory=lambda: list[str]())
+    active_sub_agent_results: dict[str, SubAgentResult] = field(default_factory=lambda: dict[str, SubAgentResult]())
+    task_tool_call_counts: dict[str, int] = field(default_factory=lambda: dict[str, int]())
     timeline_context: str | None = None
     assets_context: str | None = None
     project_id: str | None = None
     view_context: str = "editor"
     last_access: float = field(default_factory=time.monotonic)
-    review_iteration_count: dict[str, int] = field(default_factory=dict)
+    review_iteration_count: dict[str, int] = field(default_factory=lambda: dict[str, int]())
 
 
 _sessions: OrderedDict[str, OrchestratorSession] = OrderedDict()
@@ -623,7 +623,7 @@ class Orchestrator:
                 try:
                     parsed = _json.loads(summary[json_start:json_end + 1])
                     if isinstance(parsed, dict):
-                        target.update(parsed)
+                        target.update(cast(dict[str, str], parsed))
                 except (ValueError, TypeError) as exc:
                     logger.warning(
                         "[orchestrator] failed to parse %s from task %s: %s",

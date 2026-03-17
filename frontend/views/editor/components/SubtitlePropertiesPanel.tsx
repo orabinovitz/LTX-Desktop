@@ -1,7 +1,7 @@
 import React from 'react'
 import { MessageSquare, Trash2 } from 'lucide-react'
-import type { SubtitleClip, SubtitleStyle } from '../../types/project'
-import { DEFAULT_SUBTITLE_STYLE } from '../../types/project'
+import type { SubtitleClip, SubtitleStyle } from '@/types/project'
+import { DEFAULT_SUBTITLE_STYLE } from '@/types/project'
 
 interface SubtitlePropertiesPanelProps {
   selectedSub: SubtitleClip

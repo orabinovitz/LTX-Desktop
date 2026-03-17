@@ -1,7 +1,7 @@
 import { Play, X, Film, Loader2 } from 'lucide-react'
-import { SettingsPanel } from '../../components/SettingsPanel'
-import type { GenerationSettings } from '../../components/SettingsPanel'
-import type { TimelineClip } from '../../types/project'
+import { SettingsPanel } from '@/components/SettingsPanel'
+import type { GenerationSettings } from '@/components/SettingsPanel'
+import type { TimelineClip } from '@/types/project'
 
 interface I2vGenerationModalProps {
   i2vClipId: string | null

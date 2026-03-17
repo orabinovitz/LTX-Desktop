@@ -1,8 +1,8 @@
-import { type MenuDefinition } from '../../components/MenuBar'
-import type { TimelineClip } from '../../types/project'
-import { TEXT_PRESETS } from '../../types/project'
+import { type MenuDefinition } from '@/components/MenuBar'
+import type { TimelineClip } from '@/types/project'
+import { TEXT_PRESETS } from '@/types/project'
 import { getShortcutLabel, type ToolType } from './video-editor-utils'
-import type { KeyboardLayout } from '../../lib/keyboard-shortcuts'
+import type { KeyboardLayout } from '@/lib/keyboard-shortcuts'
 
 export interface MenuDepsParams {
   selectedClip: TimelineClip | null | undefined

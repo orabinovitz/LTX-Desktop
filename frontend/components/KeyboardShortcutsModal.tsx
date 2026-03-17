@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { X, Search, Keyboard, RotateCcw, Save, AlertTriangle, ChevronDown, GripVertical, Trash2 } from 'lucide-react'
-import { useKeyboardShortcuts } from '../contexts/KeyboardShortcutsContext'
+import { useKeyboardShortcuts } from '@/contexts/KeyboardShortcutsContext'
 import {
   ACTION_REGISTRY,
   ActionId,
@@ -8,7 +8,7 @@ import {
   formatKeyCombo,
   findConflicts,
   ActionDefinition,
-} from '../lib/keyboard-shortcuts'
+} from '@/lib/keyboard-shortcuts'
 
 // ── Visual keyboard layout (US QWERTY) ──
 // Each key: { id: lowercase key id matching KeyCombo.key, label: display text, w: width units (1 = standard key) }

@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron'
+import { IpcChannels } from './channels'
 import fs from 'fs'
 import { getLogDir, getCurrentLogFilename } from '../logging-management'
 import { logger, writeLog } from '../logger'
@@ -6,12 +7,12 @@ import { logger, writeLog } from '../logger'
 const VALID_LOG_LEVELS = new Set(['INFO', 'WARNING', 'ERROR', 'DEBUG'])
 
 export function registerLogHandlers(): void {
-  ipcMain.handle('write-log', async (_event, level: string, message: string) => {
+  ipcMain.handle(IpcChannels.LOG_WRITE, async (_event, level: string, message: string) => {
     const upperLevel = String(level).toUpperCase()
     if (!VALID_LOG_LEVELS.has(upperLevel)) return
     writeLog(upperLevel as 'INFO' | 'WARNING' | 'ERROR' | 'DEBUG', 'Renderer', String(message))
   })
-  ipcMain.handle('get-logs', async () => {
+  ipcMain.handle(IpcChannels.LOG_GET, async () => {
     try {
       const logPath = getCurrentLogFilename()
       if (fs.existsSync(logPath)) {
@@ -27,7 +28,7 @@ export function registerLogHandlers(): void {
     }
   })
 
-  ipcMain.handle('open-log-folder', async () => {
+  ipcMain.handle(IpcChannels.LOG_OPEN_FOLDER, async () => {
     const logDir = getLogDir()
     if (fs.existsSync(logDir)) {
       const { shell } = await import('electron')

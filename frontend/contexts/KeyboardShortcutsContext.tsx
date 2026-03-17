@@ -6,7 +6,7 @@ import {
   LTX_DEFAULT_LAYOUT,
   cloneLayout,
   ActionId,
-} from '../lib/keyboard-shortcuts'
+} from '@/lib/keyboard-shortcuts'
 
 interface KeyboardShortcutsState {
   // Current active layout

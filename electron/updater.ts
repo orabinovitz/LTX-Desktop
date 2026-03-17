@@ -1,4 +1,5 @@
 import { autoUpdater, UpdateDownloadedEvent } from 'electron-updater';
+import { IpcChannels } from './ipc/channels';
 import { logger } from './logger';
 import { preDownloadPythonForUpdate } from './python-setup';
 import { getMainWindow } from './window';
@@ -25,7 +26,7 @@ export function initAutoUpdater(
 
     try {
       const didDownload = await preDownloadPythonForUpdate(newVersion, (progress) => {
-        getMainWindow()?.webContents.send('python-update-progress', progress)
+        getMainWindow()?.webContents.send(IpcChannels.PYTHON_UPDATE_PROGRESS, progress)
       })
       logger.info( didDownload
         ? '[updater] Python pre-download complete'

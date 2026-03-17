@@ -1,9 +1,9 @@
 import { AlertCircle, Check, Download, Film, Folder, Info, KeyRound, Settings, Sliders, Sparkles, X, Zap } from 'lucide-react'
 import React, { useEffect, useRef, useState } from 'react'
 import { Button } from './ui/button'
-import { useAppSettings, type AppSettings } from '../contexts/AppSettingsContext'
-import { backendFetch } from '../lib/backend'
-import { logger } from '../lib/logger'
+import { useAppSettings, type AppSettings } from '@/contexts/AppSettingsContext'
+import { backendFetch } from '@/lib/backend'
+import { logger } from '@/lib/logger'
 import { ApiKeyHelperRow, LtxApiKeyInput, LtxApiKeyHelperRow } from './LtxApiKeyInput'
 
 interface TextEncoderStatus {

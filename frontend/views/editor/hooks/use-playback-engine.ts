@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import type { TimelineClip, Track, Asset } from '../../types/project'
+import type { TimelineClip, Track, Asset } from '@/types/project'
 
 export interface UsePlaybackEngineParams {
   isPlaying: boolean

@@ -1602,7 +1602,7 @@ def tools_to_gemini_declarations(
 
     declarations: list[dict[str, object]] = []
     for tool in tools:
-        properties: dict[str, dict[str, str]] = {}
+        properties: dict[str, dict[str, object]] = {}
         required: list[str] = []
 
         for param in tool.parameters:

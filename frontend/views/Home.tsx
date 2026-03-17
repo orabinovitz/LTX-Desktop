@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Plus, Folder, MoreVertical, Trash2, Pencil, Sparkles } from 'lucide-react'
-import { useProjects } from '../contexts/ProjectContext'
-import { LtxLogo } from '../components/LtxLogo'
-import { Button } from '../components/ui/button'
-import type { Project } from '../types/project'
+import { useProjects } from '@/contexts/ProjectContext'
+import { LtxLogo } from '@/components/LtxLogo'
+import { Button } from '@/components/ui/button'
+import type { Project } from '@/types/project'
 
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp)

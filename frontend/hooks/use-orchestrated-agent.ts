@@ -1,12 +1,12 @@
 import { useCallback, useRef, useState, type MutableRefObject } from "react";
-import { logger } from "../lib/logger";
-import { backendFetch } from "../lib/backend";
-import type { TimelineClip } from "../types/project";
+import { logger } from "@/lib/logger";
+import { backendFetch } from "@/lib/backend";
+import type { TimelineClip } from "@/types/project";
 import type {
   ToolCall,
   ToolResult,
-} from "../views/editor/useAgentExecutor";
-import { useAgentProgress } from "./useAgentProgress";
+} from "@/types/agent-progress";
+import { useAgentProgress } from "./use-agent-progress";
 import type {
   AgentProgress,
   AgentTask,
@@ -15,7 +15,7 @@ import type {
   OrchestrateResponse,
   OrchestrateTaskInfo,
   OrchestratorStatus,
-} from "../types/agent-progress";
+} from "@/types/agent-progress";
 
 export type { AgentProgress, ChatMessage, OnToolProgress };
 

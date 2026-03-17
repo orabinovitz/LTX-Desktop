@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { backendFetch, resetBackendCredentials } from '../lib/backend'
+import { backendFetch, resetBackendCredentials } from '@/lib/backend'
 
 interface InferenceSettings {
   steps: number

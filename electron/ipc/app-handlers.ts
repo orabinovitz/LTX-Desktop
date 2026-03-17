@@ -1,4 +1,5 @@
 import { app, dialog, ipcMain } from 'electron'
+import { IpcChannels } from './channels'
 import path from 'path'
 import fs from 'fs'
 import { checkGPU } from '../gpu'
@@ -68,19 +69,19 @@ function markLicenseAccepted(settingsPath: string): void {
 }
 
 export function registerAppHandlers(): void {
-  ipcMain.handle('get-backend', () => {
+  ipcMain.handle(IpcChannels.APP_GET_BACKEND, () => {
     return { url: getBackendUrl() ?? '', token: getAuthToken() ?? '' }
   })
 
-  ipcMain.handle('get-models-path', () => {
+  ipcMain.handle(IpcChannels.APP_GET_MODELS_PATH, () => {
     return getModelsPath()
   })
 
-  ipcMain.handle('check-gpu', async () => {
+  ipcMain.handle(IpcChannels.APP_CHECK_GPU, async () => {
     return await checkGPU()
   })
 
-  ipcMain.handle('get-app-info', () => {
+  ipcMain.handle(IpcChannels.APP_GET_INFO, () => {
     return {
       version: app.getVersion(),
       isPackaged: app.isPackaged,
@@ -89,24 +90,24 @@ export function registerAppHandlers(): void {
     }
   })
 
-  ipcMain.handle('check-first-run', () => {
+  ipcMain.handle(IpcChannels.SETUP_CHECK_FIRST_RUN, () => {
     const settingsPath = path.join(app.getPath('userData'), 'app_state.json')
     return getSetupStatus(settingsPath)
   })
 
-  ipcMain.handle('accept-license', () => {
+  ipcMain.handle(IpcChannels.SETUP_ACCEPT_LICENSE, () => {
     const settingsPath = path.join(app.getPath('userData'), 'app_state.json')
     markLicenseAccepted(settingsPath)
     return true
   })
 
-  ipcMain.handle('complete-setup', () => {
+  ipcMain.handle(IpcChannels.SETUP_COMPLETE, () => {
     const settingsPath = path.join(app.getPath('userData'), 'app_state.json')
     markSetupComplete(settingsPath)
     return true
   })
 
-  ipcMain.handle('fetch-license-text', async () => {
+  ipcMain.handle(IpcChannels.SETUP_FETCH_LICENSE_TEXT, async () => {
     const resp = await fetch('https://huggingface.co/Lightricks/LTX-2.3/raw/main/LICENSE')
     if (!resp.ok) {
       throw new Error(`Failed to fetch license (HTTP ${resp.status})`)
@@ -114,49 +115,49 @@ export function registerAppHandlers(): void {
     return await resp.text()
   })
 
-  ipcMain.handle('get-notices-text', async () => {
+  ipcMain.handle(IpcChannels.SETUP_GET_NOTICES_TEXT, async () => {
     const noticesPath = path.join(app.getAppPath(), 'NOTICES.md')
     return fs.readFileSync(noticesPath, 'utf-8')
   })
 
-  ipcMain.handle('get-resource-path', () => {
+  ipcMain.handle(IpcChannels.APP_GET_RESOURCE_PATH, () => {
     if (!app.isPackaged) {
       return null
     }
     return process.resourcesPath
   })
 
-  ipcMain.handle('check-python-ready', () => {
+  ipcMain.handle(IpcChannels.PYTHON_CHECK_READY, () => {
     return isPythonReady()
   })
 
-  ipcMain.handle('start-python-setup', async () => {
+  ipcMain.handle(IpcChannels.PYTHON_START_SETUP, async () => {
     await downloadPythonEmbed((progress) => {
-      getMainWindow()?.webContents.send('python-setup-progress', progress)
+      getMainWindow()?.webContents.send(IpcChannels.PYTHON_SETUP_PROGRESS, progress)
     })
   })
 
-  ipcMain.handle('start-python-backend', async () => {
+  ipcMain.handle(IpcChannels.PYTHON_START_BACKEND, async () => {
     await startPythonBackend()
   })
 
-  ipcMain.handle('get-backend-health-status', () => {
+  ipcMain.handle(IpcChannels.PYTHON_GET_HEALTH_STATUS, () => {
     return getBackendHealthStatus()
   })
 
-  ipcMain.handle('get-analytics-state', () => {
+  ipcMain.handle(IpcChannels.ANALYTICS_GET_STATE, () => {
     return getAnalyticsState()
   })
 
-  ipcMain.handle('set-analytics-enabled', (_event, enabled: boolean) => {
+  ipcMain.handle(IpcChannels.ANALYTICS_SET_ENABLED, (_event, enabled: boolean) => {
     setAnalyticsEnabled(enabled)
   })
 
-  ipcMain.handle('send-analytics-event', async (_event, eventName: string, extraDetails?: Record<string, unknown> | null) => {
+  ipcMain.handle(IpcChannels.ANALYTICS_SEND_EVENT, async (_event, eventName: string, extraDetails?: Record<string, unknown> | null) => {
     await sendAnalyticsEvent(eventName, extraDetails)
   })
 
-  ipcMain.handle('open-models-dir-change-dialog', async () => {
+  ipcMain.handle(IpcChannels.MODELS_CHANGE_DIR_DIALOG, async () => {
     const mainWindow = getMainWindow()
     if (!mainWindow) return { success: false, error: 'No window' }
 
@@ -186,11 +187,11 @@ export function registerAppHandlers(): void {
     return { success: true, path: newDir }
   })
 
-  ipcMain.handle('store-secure-key', (_event, name: string, value: string) => {
+  ipcMain.handle(IpcChannels.SECURE_STORE_KEY, (_event, name: string, value: string) => {
     storeSecureKey(name, value)
   })
 
-  ipcMain.handle('get-secure-key', (_event, name: string) => {
+  ipcMain.handle(IpcChannels.SECURE_GET_KEY, (_event, name: string) => {
     return getSecureKey(name) ?? ''
   })
 

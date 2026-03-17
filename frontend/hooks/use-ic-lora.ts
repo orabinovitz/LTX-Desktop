@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
-import { backendFetch } from '../lib/backend'
-import { logger } from '../lib/logger'
+import { backendFetch } from '@/lib/backend'
+import { logger } from '@/lib/logger'
 
 export type IcLoraConditioningType = 'canny' | 'depth'
 

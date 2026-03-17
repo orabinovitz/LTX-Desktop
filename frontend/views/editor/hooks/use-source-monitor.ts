@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import type { Asset, TimelineClip, Track } from '../../types/project'
-import { DEFAULT_COLOR_CORRECTION } from '../../types/project'
-import { resolveOverlaps } from './video-editor-utils'
+import type { Asset, TimelineClip, Track } from '@/types/project'
+import { DEFAULT_COLOR_CORRECTION } from '@/types/project'
+import { resolveOverlaps } from '../utils/video-editor-utils'
 
 interface UseSourceMonitorParams {
   currentTime: number

@@ -10,17 +10,19 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def repair_truncated_json(text: str) -> dict:
+def repair_truncated_json(text: str) -> dict[str, Any]:
     """Attempt to salvage valid data from truncated JSON output.
 
     Returns a parsed dict on success or an empty dict if repair fails entirely.
     """
     try:
-        return json.loads(text)
+        parsed: dict[str, Any] = json.loads(text)
+        return parsed
     except json.JSONDecodeError:
         pass
 
@@ -38,7 +40,8 @@ def repair_truncated_json(text: str) -> dict:
         open_braces = truncated.count('{') - truncated.count('}')
         suffix = ']' * max(0, open_brackets) + '}' * max(0, open_braces)
         try:
-            return json.loads(truncated + suffix)
+            result: dict[str, Any] = json.loads(truncated + suffix)
+            return result
         except json.JSONDecodeError:
             pass
 
@@ -46,7 +49,7 @@ def repair_truncated_json(text: str) -> dict:
     return {}
 
 
-def repair_simple_json(text: str) -> dict | None:
+def repair_simple_json(text: str) -> dict[str, Any] | None:
     """Simpler repair for JSON that just needs bracket/brace closing.
 
     Returns the parsed dict on success, or None if repair fails.
@@ -62,7 +65,8 @@ def repair_simple_json(text: str) -> dict | None:
     patched += "]" * max(0, open_brackets)
     patched += "}" * max(0, open_braces)
     try:
-        return json.loads(patched)
+        repaired: dict[str, Any] = json.loads(patched)
+        return repaired
     except Exception:
         logger.debug("JSON simple repair failed for text (len=%d): %s", len(text), text[:200], exc_info=True)
         return None

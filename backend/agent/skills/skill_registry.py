@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -77,7 +77,7 @@ def _parse_skill_file(path: Path) -> SkillContent | None:
         return None
 
     try:
-        meta: dict[str, Any] = yaml.safe_load(fm_match.group(1))
+        meta = yaml.safe_load(fm_match.group(1))
     except yaml.YAMLError:
         logger.warning("Invalid YAML frontmatter in %s", path, exc_info=True)
         return None
@@ -86,23 +86,25 @@ def _parse_skill_file(path: Path) -> SkillContent | None:
         logger.warning("Skill file missing 'id' field: %s", path)
         return None
 
+    m = cast(dict[str, Any], meta)
+
     body = text[fm_match.end():]
     prompt_match = _SYSTEM_PROMPT_RE.search(body)
     system_prompt = prompt_match.group(1).strip() if prompt_match else body.strip()
 
     descriptor = SkillDescriptor(
-        id=meta["id"],
-        name=meta.get("name", meta["id"]),
-        description=meta.get("description", ""),
-        tool_categories=meta.get("tool_categories", []),
-        trigger_keywords=meta.get("trigger_keywords", []),
+        id=m["id"],
+        name=m.get("name", m["id"]),
+        description=m.get("description", ""),
+        tool_categories=m.get("tool_categories", []),
+        trigger_keywords=m.get("trigger_keywords", []),
     )
 
-    tool_overrides: list[str] | None = meta.get("tool_overrides")
+    tool_overrides: list[str] | None = m.get("tool_overrides")
 
     references = _load_references(path.parent)
 
-    enable_search: bool = bool(meta.get("enable_search", False))
+    enable_search: bool = bool(m.get("enable_search", False))
 
     return SkillContent(
         descriptor=descriptor,

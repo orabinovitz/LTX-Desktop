@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { backendFetch } from '../lib/backend'
-import { logger } from '../lib/logger'
-import { formatTimeRemaining } from '../lib/utils'
+import { backendFetch } from '@/lib/backend'
+import { logger } from '@/lib/logger'
+import { formatTimeRemaining } from '@/lib/utils'
 import './FirstRunSetup.css'
 
 interface LaunchGateProps {

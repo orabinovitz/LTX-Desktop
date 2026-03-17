@@ -1,7 +1,7 @@
 import React from 'react'
 import { Plus, X, RefreshCw, ChevronLeft, ChevronRight, Layers, GitMerge, FolderPlus, Folder, Trash2, FolderOpen } from 'lucide-react'
-import type { Asset } from '../../types/project'
-import { COLOR_LABELS } from './video-editor-utils'
+import type { Asset } from '@/types/project'
+import { COLOR_LABELS } from '../utils/video-editor-utils'
 
 export interface AssetContextMenuProps {
   asset: Asset
@@ -25,7 +25,7 @@ export interface AssetContextMenuProps {
   addAsset: (projectId: string, asset: Omit<Asset, 'id' | 'createdAt'>) => void
   deleteAsset: (projectId: string, assetId: string) => void
   deleteTakeFromAsset: (projectId: string, assetId: string, takeIndex: number) => void
-  setClips: React.Dispatch<React.SetStateAction<import('../../types/project').TimelineClip[]>>
+  setClips: React.Dispatch<React.SetStateAction<import('../../../types/project').TimelineClip[]>>
 }
 
 export function AssetContextMenu({

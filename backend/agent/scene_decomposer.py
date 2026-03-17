@@ -37,8 +37,8 @@ class SubClipDefinition:
     title: str
     description: str
     transcript: str
-    topics: list[str] = field(default_factory=list)
-    scene_indices: list[int] = field(default_factory=list)
+    topics: list[str] = field(default_factory=lambda: list[str]())
+    scene_indices: list[int] = field(default_factory=lambda: list[int]())
 
 
 def decompose_to_scenes(
@@ -63,7 +63,7 @@ def decompose_to_scenes(
         segments = _duration_based_segments(sorted_scenes, min_clip_duration, max_clip_duration)
 
     subclips: list[SubClipDefinition] = []
-    for i, seg in enumerate(segments, 1):
+    for _i, seg in enumerate(segments, 1):
         source_in, source_out, title, topic_names, scenes_in_range = seg
         scene_indices = [sorted_scenes.index(s) for s in scenes_in_range]
         transcript = _extract_transcript(metadata.dialogue, source_in, source_out)
@@ -323,7 +323,7 @@ def _extract_transcript(
     end: float,
 ) -> str:
     """Collect dialogue text that overlaps with the given time range."""
-    lines = []
+    lines: list[str] = []
     for dl in dialogue:
         if dl.end_time > start and dl.start_time < end:
             prefix = f"[{dl.speaker}] " if dl.speaker else ""

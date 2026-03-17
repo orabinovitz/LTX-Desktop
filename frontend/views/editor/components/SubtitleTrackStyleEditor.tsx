@@ -1,7 +1,7 @@
 import React from 'react'
 import { X, Palette } from 'lucide-react'
-import type { Track, SubtitleClip, SubtitleStyle } from '../../types/project'
-import { DEFAULT_SUBTITLE_STYLE } from '../../types/project'
+import type { Track, SubtitleClip, SubtitleStyle } from '@/types/project'
+import { DEFAULT_SUBTITLE_STYLE } from '@/types/project'
 
 interface SubtitleTrackStyleEditorProps {
   subtitleTrackStyleIdx: number

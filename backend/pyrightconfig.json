@@ -5,9 +5,14 @@
   "venvPath": ".",
   "venv": ".venv",
   "exclude": [
-    "agent",
     "tests",
     "services/depth_processor_pipeline/depth_anything_v2",
+    "agent/video_analyzer.py",
+    "agent/gemini_agent.py",
+    "agent/brain.py",
+    "agent/types.py",
+    "agent/clarification_generator.py",
+    "agent/orchestration/sub_agent_pool.py",
     ".venv",
     "node_modules",
     "dist"

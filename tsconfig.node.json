@@ -1,14 +1,11 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
-    "skipLibCheck": true,
-    "module": "ESNext",
-    "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
-    "strict": true,
     "outDir": "dist-electron",
     "rootDir": "electron",
     "esModuleInterop": true
   },
-  "include": ["electron/**/*.ts", "vite.config.ts"]
+  "include": ["electron/**/*.ts", "shared/**/*.d.ts", "vite.config.ts"]
 }

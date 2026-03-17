@@ -1,6 +1,6 @@
 import { useRef, useCallback } from 'react'
-import type { Asset, TimelineClip, Track, SubtitleClip } from '../../types/project'
-import { MAX_UNDO_HISTORY, type UndoAction } from './video-editor-utils'
+import type { Asset, TimelineClip, Track, SubtitleClip } from '@/types/project'
+import { MAX_UNDO_HISTORY, type UndoAction } from '../utils/video-editor-utils'
 
 interface UseUndoRedoParams {
   clips: TimelineClip[]

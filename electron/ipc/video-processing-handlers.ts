@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron'
+import { IpcChannels } from './channels'
 import { spawnSync } from 'child_process'
 import os from 'os'
 import path from 'path'
@@ -10,7 +11,7 @@ import { getAllowedRoots } from '../config'
 
 export function registerVideoProcessingHandlers(): void {
   ipcMain.handle(
-    'extract-video-frame',
+    IpcChannels.VIDEO_EXTRACT_FRAME,
     async (
       _event,
       videoUrl: string,

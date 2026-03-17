@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect, useCallback, Fragment } from "react";
 import { X, Send, Loader2, Bot, Undo2, Mic, Phone } from "lucide-react";
-import type { ToolCall, ChatMessage } from "../../hooks/use-agent";
+import type { ToolCall, ChatMessage } from "@/hooks/use-agent";
 
 type LiveAgentStatus = "idle" | "connecting" | "connected" | "error";
-import type { AgentProgress } from "../../types/agent-progress";
-import type { ClarificationAnswer, ClarificationState } from "../../types/clarification";
-import { TaskProgressView } from "../../components/TaskProgressView";
+import type { AgentProgress } from "@/types/agent-progress";
+import type { ClarificationAnswer, ClarificationState } from "@/types/clarification";
+import { TaskProgressView } from "@/components/TaskProgressView";
 import { ClarificationView } from "./ClarificationView";
 
 export type { ChatMessage };

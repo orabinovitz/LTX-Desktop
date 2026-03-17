@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 
 from agent import project_memory
 from agent.orchestration.complexity_router import classify_complexity
@@ -184,7 +184,7 @@ def resolve_intent(
             )
             return _heuristic_fallback(prompt)
 
-        body = resp.json()
+        body = cast(dict[str, Any], resp.json())
         text: str = body["candidates"][0]["content"]["parts"][0]["text"]
         data: dict[str, Any] = json.loads(text)
 
@@ -206,10 +206,10 @@ def _parse_response(data: dict[str, Any], original_prompt: str) -> IntentResolut
     if complexity not in ("simple", "orchestrated"):
         complexity = classify_complexity(original_prompt)
 
-    raw_ids = data.get("relevant_memory_ids", [])
+    raw_ids: Any = data.get("relevant_memory_ids", [])
     memory_ids: list[str] = []
     if isinstance(raw_ids, list):
-        memory_ids = [str(mid) for mid in raw_ids if mid]
+        memory_ids = [str(mid) for mid in cast(list[object], raw_ids) if mid]
 
     intent_summary = str(data.get("intent_summary", ""))
     requires_gen = bool(data.get("requires_generation", False))

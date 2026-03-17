@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { logger } from '../lib/logger'
-import { captureException } from '../lib/sentry'
+import { logger } from '@/lib/logger'
+import { captureException } from '@/lib/sentry'
 
 interface Props {
   children: ReactNode

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { Loader2, CheckCircle2, Download, Clock, ChevronDown, AlertCircle } from 'lucide-react'
-import { backendFetch } from '../lib/backend'
-import { logger } from '../lib/logger'
-import { formatTimeRemaining } from '../lib/utils'
+import { backendFetch } from '@/lib/backend'
+import { logger } from '@/lib/logger'
+import { formatTimeRemaining } from '@/lib/utils'
 
 interface ModelInfo {
   name: string

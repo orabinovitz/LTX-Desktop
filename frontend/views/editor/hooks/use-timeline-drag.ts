@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import type { Asset, TimelineClip, Track } from '../../types/project'
-import { resolveOverlaps, migrateClip, type ToolType } from './video-editor-utils'
+import type { Asset, TimelineClip, Track } from '@/types/project'
+import { resolveOverlaps, migrateClip, type ToolType } from '../utils/video-editor-utils'
 
 export interface DraggingClipState {
   clipId: string

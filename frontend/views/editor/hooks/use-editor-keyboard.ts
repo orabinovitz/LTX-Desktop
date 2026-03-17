@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
-import { resolveAction, type ActionId } from '../../lib/keyboard-shortcuts'
-import type { TimelineClip, Track } from '../../types/project'
-import type { ToolType } from './video-editor-utils'
+import { resolveAction, type ActionId } from '@/lib/keyboard-shortcuts'
+import type { TimelineClip, Track } from '@/types/project'
+import type { ToolType } from '../utils/video-editor-utils'
 
 // Frame duration at 24fps
 const FRAME_DURATION = 1 / 24

@@ -1,4 +1,16 @@
-import type { ToolCall } from "../views/editor/useAgentExecutor";
+export interface ToolCall {
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  call_id?: string;
+}
+
+export interface ToolResult {
+  tool_name: string;
+  success: boolean;
+  result: unknown;
+  error: string | null;
+  call_id?: string;
+}
 
 export interface ChatMessage {
   role: "user" | "agent";

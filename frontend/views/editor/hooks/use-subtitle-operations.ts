@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
-import type { SubtitleClip, Track, TimelineClip } from '../../types/project'
-import { parseSrt, exportSrt } from '../../lib/srt'
+import type { SubtitleClip, Track, TimelineClip } from '@/types/project'
+import { parseSrt, exportSrt } from '@/lib/srt'
 
 export interface UseSubtitleOperationsParams {
   subtitles: SubtitleClip[]

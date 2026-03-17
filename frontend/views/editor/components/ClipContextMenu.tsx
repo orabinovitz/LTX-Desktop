@@ -6,9 +6,9 @@ import {
   ChevronLeft, ChevronRight, Sparkles,
   Video, Camera,
 } from 'lucide-react'
-import type { Asset, TimelineClip, Track, TextOverlayStyle } from '../../types/project'
-import { TEXT_PRESETS } from '../../types/project'
-import { COLOR_LABELS } from './video-editor-utils'
+import type { Asset, TimelineClip, Track, TextOverlayStyle } from '@/types/project'
+import { TEXT_PRESETS } from '@/types/project'
+import { COLOR_LABELS } from '../utils/video-editor-utils'
 
 export interface ClipContextMenuProps {
   clipContextMenu: { clipId: string; x: number; y: number }

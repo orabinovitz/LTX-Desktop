@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
-import { backendFetch } from '../lib/backend'
-import { logger } from '../lib/logger'
+import { backendFetch } from '@/lib/backend'
+import { logger } from '@/lib/logger'
 
 type RetakeMode = 'replace_audio_and_video' | 'replace_video' | 'replace_audio'
 

@@ -3,10 +3,10 @@ import {
   MousePointer2, ChevronRight, Scissors,
   ArrowLeftRight, GitMerge, MoveHorizontal, Gauge,
 } from 'lucide-react'
-import { formatKeyCombo, type ActionId, type KeyboardLayout } from '../../lib/keyboard-shortcuts'
-export type { KeyboardLayout } from '../../lib/keyboard-shortcuts'
-import type { TimelineClip, TransitionType, Track, ClipEffect, EffectMask } from '../../types/project'
-import { DEFAULT_COLOR_CORRECTION } from '../../types/project'
+import { formatKeyCombo, type ActionId, type KeyboardLayout } from '@/lib/keyboard-shortcuts'
+export type { KeyboardLayout } from '@/lib/keyboard-shortcuts'
+import type { TimelineClip, TransitionType, Track, ClipEffect, EffectMask } from '@/types/project'
+import { DEFAULT_COLOR_CORRECTION } from '@/types/project'
 
 // ── Tool types & definitions ────────────────────────────────────────
 
@@ -67,8 +67,8 @@ export const MAX_UNDO_HISTORY = 50
 /** Undo action types */
 export type UndoAction =
   | { type: 'clips'; clips: TimelineClip[] }
-  | { type: 'assets'; assets: import('../../types/project').Asset[] }
-  | { type: 'tracks'; tracks: import('../../types/project').Track[]; clips: TimelineClip[]; subtitles: import('../../types/project').SubtitleClip[] }
+  | { type: 'assets'; assets: import('../../../types/project').Asset[] }
+  | { type: 'tracks'; tracks: import('../../../types/project').Track[]; clips: TimelineClip[]; subtitles: import('../../../types/project').SubtitleClip[] }
 
 /** Tolerance in seconds for detecting adjacent clips (cut points) */
 export const CUT_POINT_TOLERANCE = 0.05

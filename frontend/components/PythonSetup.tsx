@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { formatTimeRemaining } from '../lib/utils'
+import { formatTimeRemaining } from '@/lib/utils'
 
 interface PythonSetupProps {
   onReady: () => void

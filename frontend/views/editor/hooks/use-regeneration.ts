@@ -1,11 +1,11 @@
 import { useState, useCallback, useEffect } from 'react'
-import type { Asset, TimelineClip } from '../../types/project'
-import type { GenerationSettings } from '../../components/SettingsPanel'
-import { copyToAssetFolder } from '../../lib/asset-copy'
-import { backendFetch } from '../../lib/backend'
-import { fileUrlToPath } from '../../lib/url-to-path'
-import { sanitizeForcedApiVideoSettings } from '../../lib/api-video-options'
-import { logger } from '../../lib/logger'
+import type { Asset, TimelineClip } from '@/types/project'
+import type { GenerationSettings } from '@/components/SettingsPanel'
+import { copyToAssetFolder } from '@/lib/asset-copy'
+import { backendFetch } from '@/lib/backend'
+import { fileUrlToPath } from '@/lib/url-to-path'
+import { sanitizeForcedApiVideoSettings } from '@/lib/api-video-options'
+import { logger } from '@/lib/logger'
 
 export interface UseRegenerationParams {
   clips: TimelineClip[]

@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import type { TimelineClip, Track, SubtitleClip, Asset } from '../../types/project'
-import { DEFAULT_COLOR_CORRECTION } from '../../types/project'
-import type { GenerationSettings } from '../../components/SettingsPanel'
-import { copyToAssetFolder } from '../../lib/asset-copy'
-import { backendFetch } from '../../lib/backend'
-import { logger } from '../../lib/logger'
-import { fileUrlToPath } from '../../lib/url-to-path'
+import type { TimelineClip, Track, SubtitleClip, Asset } from '@/types/project'
+import { DEFAULT_COLOR_CORRECTION } from '@/types/project'
+import type { GenerationSettings } from '@/components/SettingsPanel'
+import { copyToAssetFolder } from '@/lib/asset-copy'
+import { backendFetch } from '@/lib/backend'
+import { logger } from '@/lib/logger'
+import { fileUrlToPath } from '@/lib/url-to-path'
 
 interface UseGapGenerationParams {
   clips: TimelineClip[]

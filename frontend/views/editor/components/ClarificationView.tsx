@@ -3,7 +3,7 @@ import { ArrowRight, SkipForward, MessageCircleQuestion } from "lucide-react";
 import type {
   ClarificationQuestion,
   ClarificationAnswer,
-} from "../../types/clarification";
+} from "@/types/clarification";
 
 interface ClarificationViewProps {
   questions: ClarificationQuestion[];

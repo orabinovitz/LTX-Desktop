@@ -1,4 +1,5 @@
 import { ipcMain, dialog } from 'electron'
+import { IpcChannels } from './channels'
 import path from 'path'
 import fs from 'fs'
 import { getAllowedRoots } from '../config'
@@ -65,19 +66,19 @@ function searchDirectoryForFiles(dir: string, filenames: string[]): Record<strin
 
 
 export function registerFileHandlers(): void {
-  ipcMain.handle('open-ltx-api-key-page', async () => {
+  ipcMain.handle(IpcChannels.SHELL_OPEN_LTX_API_KEY_PAGE, async () => {
     const { shell } = await import('electron')
     await shell.openExternal('https://console.ltx.video/api-keys/')
     return true
   })
 
-  ipcMain.handle('open-fal-api-key-page', async () => {
+  ipcMain.handle(IpcChannels.SHELL_OPEN_FAL_API_KEY_PAGE, async () => {
     const { shell } = await import('electron')
     await shell.openExternal('https://fal.ai/dashboard/keys')
     return true
   })
 
-  ipcMain.handle('open-parent-folder-of-file', async (_event, filePath: string) => {
+  ipcMain.handle(IpcChannels.SHELL_OPEN_PARENT_FOLDER, async (_event, filePath: string) => {
     const { shell } = await import('electron')
     const normalizedPath = validatePath(filePath, getAllowedRoots())
     const parentDir = path.dirname(normalizedPath)
@@ -87,13 +88,13 @@ export function registerFileHandlers(): void {
     shell.openPath(parentDir)
   })
 
-  ipcMain.handle('show-item-in-folder', async (_event, filePath: string) => {
+  ipcMain.handle(IpcChannels.SHELL_SHOW_ITEM_IN_FOLDER, async (_event, filePath: string) => {
     const { shell } = await import('electron')
     const normalizedPath = validatePath(filePath, getAllowedRoots())
     shell.showItemInFolder(normalizedPath)
   })
 
-  ipcMain.handle('read-local-file', async (_event, filePath: string) => {
+  ipcMain.handle(IpcChannels.FILE_READ_LOCAL, async (_event, filePath: string) => {
     try {
       const normalizedPath = validatePath(filePath, getAllowedRoots())
 
@@ -108,7 +109,7 @@ export function registerFileHandlers(): void {
     }
   })
 
-  ipcMain.handle('show-save-dialog', async (_event, options: {
+  ipcMain.handle(IpcChannels.FILE_SHOW_SAVE_DIALOG, async (_event, options: {
     title?: string
     defaultPath?: string
     filters?: { name: string; extensions: string[] }[]
@@ -125,7 +126,7 @@ export function registerFileHandlers(): void {
     return result.filePath
   })
 
-  ipcMain.handle('save-file', async (_event, filePath: string, data: string, encoding?: string) => {
+  ipcMain.handle(IpcChannels.FILE_SAVE, async (_event, filePath: string, data: string, encoding?: string) => {
     try {
       validatePath(filePath, getAllowedRoots())
       if (encoding === 'base64') {
@@ -140,7 +141,7 @@ export function registerFileHandlers(): void {
     }
   })
 
-  ipcMain.handle('save-binary-file', async (_event, filePath: string, data: ArrayBuffer) => {
+  ipcMain.handle(IpcChannels.FILE_SAVE_BINARY, async (_event, filePath: string, data: ArrayBuffer) => {
     try {
       validatePath(filePath, getAllowedRoots())
       fs.writeFileSync(filePath, Buffer.from(data))
@@ -151,7 +152,7 @@ export function registerFileHandlers(): void {
     }
   })
 
-  ipcMain.handle('show-open-directory-dialog', async (_event, options: { title?: string }) => {
+  ipcMain.handle(IpcChannels.FILE_SHOW_OPEN_DIR_DIALOG, async (_event, options: { title?: string }) => {
     const mainWindow = getMainWindow()
     if (!mainWindow) return null
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -163,12 +164,12 @@ export function registerFileHandlers(): void {
     return result.filePaths[0]
   })
 
-  ipcMain.handle('search-directory-for-files', async (_event, dir: string, filenames: string[]) => {
+  ipcMain.handle(IpcChannels.FILE_SEARCH_DIRECTORY, async (_event, dir: string, filenames: string[]) => {
     validatePath(dir, getAllowedRoots())
     return searchDirectoryForFiles(dir, filenames)
   })
 
-  ipcMain.handle('copy-to-project-assets', async (_event, srcPath: string, projectId: string) => {
+  ipcMain.handle(IpcChannels.ASSETS_COPY_TO_PROJECT, async (_event, srcPath: string, projectId: string) => {
     try {
       if (!projectId || !/^[a-zA-Z0-9_-]+$/.test(projectId)) {
         throw new Error('Invalid project ID')
@@ -193,11 +194,11 @@ export function registerFileHandlers(): void {
     }
   })
 
-  ipcMain.handle('get-project-assets-path', async () => {
+  ipcMain.handle(IpcChannels.ASSETS_GET_PATH, async () => {
     return getProjectAssetsPath()
   })
 
-  ipcMain.handle('open-project-assets-path-change-dialog', async () => {
+  ipcMain.handle(IpcChannels.ASSETS_CHANGE_PATH_DIALOG, async () => {
     try {
       const mainWindow = getMainWindow()
       if (!mainWindow) return { success: false, error: 'No window' }
@@ -215,7 +216,7 @@ export function registerFileHandlers(): void {
     }
   })
 
-  ipcMain.handle('check-files-exist', async (_event, filePaths: string[]) => {
+  ipcMain.handle(IpcChannels.FILE_CHECK_EXIST, async (_event, filePaths: string[]) => {
     const roots = getAllowedRoots()
     const results: Record<string, boolean> = {}
     for (const p of filePaths) {
@@ -229,7 +230,7 @@ export function registerFileHandlers(): void {
     return results
   })
 
-  ipcMain.handle('show-open-file-dialog', async (_event, options: {
+  ipcMain.handle(IpcChannels.FILE_SHOW_OPEN_FILE_DIALOG, async (_event, options: {
     title?: string
     filters?: { name: string; extensions: string[] }[]
     properties?: string[]

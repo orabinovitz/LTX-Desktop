@@ -1,7 +1,7 @@
 import React from 'react'
 import { Magnet, Type } from 'lucide-react'
-import { PRIMARY_TOOLS, TRIM_TOOLS, ToolType } from './video-editor-utils'
-import { getShortcutLabel, type KeyboardLayout } from './video-editor-utils'
+import { PRIMARY_TOOLS, TRIM_TOOLS, ToolType } from '../utils/video-editor-utils'
+import { getShortcutLabel, type KeyboardLayout } from '../utils/video-editor-utils'
 import { Tooltip } from '@/components/ui/tooltip'
 
 interface ToolsPanelProps {

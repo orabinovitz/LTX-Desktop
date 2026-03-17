@@ -4,13 +4,13 @@ import {
   ChevronLeft, ChevronRight, Pause, Play, Repeat,
   Expand, Shrink,
 } from 'lucide-react'
-import { Button } from '../../components/ui/button'
-import { Tooltip } from '../../components/ui/tooltip'
-import { AudioWaveform } from '../../components/AudioWaveform'
-import { DEFAULT_SUBTITLE_STYLE } from '../../types/project'
-import type { TimelineClip, Track, SubtitleClip } from '../../types/project'
-import { getClipEffectStyles, getTransitionBgColor, formatTime, getShortcutLabel, tooltipLabel, getMaskedEffectOverlays } from './video-editor-utils'
-import type { KeyboardLayout } from '../../lib/keyboard-shortcuts'
+import { Button } from '@/components/ui/button'
+import { Tooltip } from '@/components/ui/tooltip'
+import { AudioWaveform } from '@/components/AudioWaveform'
+import { DEFAULT_SUBTITLE_STYLE } from '@/types/project'
+import type { TimelineClip, Track, SubtitleClip } from '@/types/project'
+import { getClipEffectStyles, getTransitionBgColor, formatTime, getShortcutLabel, tooltipLabel, getMaskedEffectOverlays } from '../utils/video-editor-utils'
+import type { KeyboardLayout } from '@/lib/keyboard-shortcuts'
 
 export interface ProgramMonitorProps {
   // Layout

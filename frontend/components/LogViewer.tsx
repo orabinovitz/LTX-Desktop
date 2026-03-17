@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, FolderOpen, RefreshCw, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import { Button } from './ui/button'
-import { logger } from '../lib/logger'
+import { logger } from '@/lib/logger'
 
 interface LogViewerProps {
   isOpen: boolean

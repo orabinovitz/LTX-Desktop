@@ -5,40 +5,40 @@ import {
   Clock, Monitor, ChevronUp, Scissors, Music,
   ChevronLeft, ChevronRight, Copy, Check, Tag
 } from 'lucide-react'
-import { useProjects } from '../contexts/ProjectContext'
-import type { GenSpaceRetakeSource } from '../contexts/ProjectContext'
-import { useAppSettings } from '../contexts/AppSettingsContext'
-import { useGeneration } from '../hooks/use-generation'
-import { useRetake } from '../hooks/use-retake'
-import { useIcLora } from '../hooks/use-ic-lora'
-import type { ICLoraConditioningType } from '../components/ICLoraPanel'
-import type { Asset } from '../types/project'
-import { GenerationErrorDialog } from '../components/GenerationErrorDialog'
-import { copyToAssetFolder } from '../lib/asset-copy'
-import { fileUrlToPath } from '../lib/url-to-path'
+import { useProjects } from '@/contexts/ProjectContext'
+import type { GenSpaceRetakeSource } from '@/contexts/ProjectContext'
+import { useAppSettings } from '@/contexts/AppSettingsContext'
+import { useGeneration } from '@/hooks/use-generation'
+import { useRetake } from '@/hooks/use-retake'
+import { useIcLora } from '@/hooks/use-ic-lora'
+import type { ICLoraConditioningType } from '@/components/ICLoraPanel'
+import type { Asset } from '@/types/project'
+import { GenerationErrorDialog } from '@/components/GenerationErrorDialog'
+import { copyToAssetFolder } from '@/lib/asset-copy'
+import { fileUrlToPath } from '@/lib/url-to-path'
 import {
   FORCED_API_VIDEO_FPS,
   FORCED_API_VIDEO_RESOLUTIONS,
   getAllowedForcedApiDurations,
   sanitizeForcedApiVideoSettings,
-} from '../lib/api-video-options'
-import { logger } from '../lib/logger'
-import { RetakePanel } from '../components/RetakePanel'
-import { ICLoraPanel, CONDITIONING_TYPES } from '../components/ICLoraPanel'
-import { FreeApiKeyBubble } from '../components/FreeApiKeyBubble'
-import { TagInput, TagPills } from '../components/TagInput'
-import { autoNameAsset } from '../lib/auto-name-asset'
-import { formatDuration } from '../lib/utils'
+} from '@/lib/api-video-options'
+import { logger } from '@/lib/logger'
+import { RetakePanel } from '@/components/RetakePanel'
+import { ICLoraPanel, CONDITIONING_TYPES } from '@/components/ICLoraPanel'
+import { FreeApiKeyBubble } from '@/components/FreeApiKeyBubble'
+import { TagInput, TagPills } from '@/components/TagInput'
+import { autoNameAsset } from '@/lib/auto-name-asset'
+import { formatDuration } from '@/lib/utils'
 
-import { useAgentDispatch } from '../contexts/AgentContext'
-import type { ToolResult } from './editor/useAgentExecutor'
+import { useAgentDispatch } from '@/contexts/AgentContext'
+import type { ToolResult } from '@/types/agent-progress'
 import {
   agentGenerateImage,
   agentGenerateVideo,
   agentCancelGeneration,
   agentGetGenerationStatus,
   urlToDataUri,
-} from './editor/agentGenerationHelper'
+} from './editor/utils/agent-generation-helper'
 
 // Asset card with hover overlays
 function AssetCard({

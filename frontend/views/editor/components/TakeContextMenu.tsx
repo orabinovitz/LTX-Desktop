@@ -1,6 +1,6 @@
 import React from 'react'
 import { Plus, Copy, Eye, Trash2 } from 'lucide-react'
-import type { Asset, AssetTake } from '../../types/project'
+import type { Asset, AssetTake } from '@/types/project'
 
 export interface TakeContextMenuProps {
   tcAsset: Asset
@@ -14,7 +14,7 @@ export interface TakeContextMenuProps {
   setAssetActiveTake: (projectId: string, assetId: string, takeIndex: number) => void
   addAsset: (projectId: string, asset: Omit<Asset, 'id' | 'createdAt'>) => void
   deleteTakeFromAsset: (projectId: string, assetId: string, takeIndex: number) => void
-  setClips: React.Dispatch<React.SetStateAction<import('../../types/project').TimelineClip[]>>
+  setClips: React.Dispatch<React.SetStateAction<import('../../../types/project').TimelineClip[]>>
   setTakeContextMenu: React.Dispatch<React.SetStateAction<{ assetId: string; takeIndex: number; x: number; y: number } | null>>
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useAgentProgress } from "@/hooks/useAgentProgress";
+import { useAgentProgress } from "@/hooks/use-agent-progress";
 
 describe("useAgentProgress", () => {
   it("starts with idle phase and collapsed", () => {

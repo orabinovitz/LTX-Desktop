@@ -6,10 +6,10 @@ import {
   SunDim, Moon, RotateCcw, Film, // EFFECTS HIDDEN: removed EyeOff, Sparkles, Plus, X
   AlignLeft, AlignCenter, AlignRight,
 } from 'lucide-react'
-import type { Asset, TimelineClip, Track, ClipEffect, LetterboxSettings, TextOverlayStyle, TransitionType } from '../../types/project' // EFFECTS HIDDEN: removed EffectMask
-import { DEFAULT_COLOR_CORRECTION, DEFAULT_LETTERBOX, TEXT_PRESETS } from '../../types/project' // EFFECTS HIDDEN: removed EFFECT_DEFINITIONS, DEFAULT_EFFECT_MASK
-import { formatTime } from './video-editor-utils'
-import { Tooltip } from '../../components/ui/tooltip'
+import type { Asset, TimelineClip, Track, ClipEffect, LetterboxSettings, TextOverlayStyle, TransitionType } from '@/types/project' // EFFECTS HIDDEN: removed EffectMask
+import { DEFAULT_COLOR_CORRECTION, DEFAULT_LETTERBOX, TEXT_PRESETS } from '@/types/project' // EFFECTS HIDDEN: removed EFFECT_DEFINITIONS, DEFAULT_EFFECT_MASK
+import { formatTime } from '../utils/video-editor-utils'
+import { Tooltip } from '@/components/ui/tooltip'
 
 interface ClipPropertiesPanelProps {
   selectedClip: TimelineClip

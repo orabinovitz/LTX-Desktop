@@ -1,201 +1,120 @@
 // Using require for Electron preload compatibility
 const { contextBridge, ipcRenderer } = require('electron')
+const { IpcChannels } = require('./ipc/channels')
 
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('electronAPI', {
-  // Get the backend URL and auth token
-  getBackend: (): Promise<{ url: string; token: string }> => ipcRenderer.invoke('get-backend'),
-  
-  // Get the path where models are stored
-  getModelsPath: (): Promise<string> => ipcRenderer.invoke('get-models-path'),
-  
-  // Read a local file and return as base64
-  readLocalFile: (filePath: string): Promise<{ data: string; mimeType: string }> => 
-    ipcRenderer.invoke('read-local-file', filePath),
-  
-  // Check GPU availability
+  getBackend: (): Promise<{ url: string; token: string }> => ipcRenderer.invoke(IpcChannels.APP_GET_BACKEND),
+  getModelsPath: (): Promise<string> => ipcRenderer.invoke(IpcChannels.APP_GET_MODELS_PATH),
+  readLocalFile: (filePath: string): Promise<{ data: string; mimeType: string }> =>
+    ipcRenderer.invoke(IpcChannels.FILE_READ_LOCAL, filePath),
   checkGpu: (): Promise<{ available: boolean; name?: string; vram?: number }> =>
-    ipcRenderer.invoke('check-gpu'),
-  
-  // Get app info
+    ipcRenderer.invoke(IpcChannels.APP_CHECK_GPU),
   getAppInfo: (): Promise<{ version: string; isPackaged: boolean; modelsPath: string; userDataPath: string }> =>
-    ipcRenderer.invoke('get-app-info'),
-  
+    ipcRenderer.invoke(IpcChannels.APP_GET_INFO),
+
   // First-run setup
-  checkFirstRun: (): Promise<{ needsSetup: boolean; needsLicense: boolean }> => ipcRenderer.invoke('check-first-run'),
-  acceptLicense: (): Promise<boolean> => ipcRenderer.invoke('accept-license'),
-  completeSetup: (): Promise<boolean> => ipcRenderer.invoke('complete-setup'),
-  fetchLicenseText: (): Promise<string> => ipcRenderer.invoke('fetch-license-text'),
-  getNoticesText: (): Promise<string> => ipcRenderer.invoke('get-notices-text'),
-  
-  // Open specific app pages / folders
-  openLtxApiKeyPage: (): Promise<boolean> => ipcRenderer.invoke('open-ltx-api-key-page'),
-  openFalApiKeyPage: (): Promise<boolean> => ipcRenderer.invoke('open-fal-api-key-page'),
-  openParentFolderOfFile: (filePath: string): Promise<void> => ipcRenderer.invoke('open-parent-folder-of-file', filePath),
-  
-  // Reveal a specific file in the OS file manager (Explorer/Finder)
-  showItemInFolder: (filePath: string): Promise<void> => ipcRenderer.invoke('show-item-in-folder', filePath),
-  
-  // Log viewer
-  getLogs: (): Promise<LogsResponse> => ipcRenderer.invoke('get-logs'),
-  openLogFolder: (): Promise<boolean> => ipcRenderer.invoke('open-log-folder'),
-  
-  // Get resources path (for video assets in production)
-  getResourcePath: (): Promise<string | null> => ipcRenderer.invoke('get-resource-path'),
-  
+  checkFirstRun: (): Promise<{ needsSetup: boolean; needsLicense: boolean }> => ipcRenderer.invoke(IpcChannels.SETUP_CHECK_FIRST_RUN),
+  acceptLicense: (): Promise<boolean> => ipcRenderer.invoke(IpcChannels.SETUP_ACCEPT_LICENSE),
+  completeSetup: (): Promise<boolean> => ipcRenderer.invoke(IpcChannels.SETUP_COMPLETE),
+  fetchLicenseText: (): Promise<string> => ipcRenderer.invoke(IpcChannels.SETUP_FETCH_LICENSE_TEXT),
+  getNoticesText: (): Promise<string> => ipcRenderer.invoke(IpcChannels.SETUP_GET_NOTICES_TEXT),
+
+  // External links & folders
+  openLtxApiKeyPage: (): Promise<boolean> => ipcRenderer.invoke(IpcChannels.SHELL_OPEN_LTX_API_KEY_PAGE),
+  openFalApiKeyPage: (): Promise<boolean> => ipcRenderer.invoke(IpcChannels.SHELL_OPEN_FAL_API_KEY_PAGE),
+  openParentFolderOfFile: (filePath: string): Promise<void> => ipcRenderer.invoke(IpcChannels.SHELL_OPEN_PARENT_FOLDER, filePath),
+  showItemInFolder: (filePath: string): Promise<void> => ipcRenderer.invoke(IpcChannels.SHELL_SHOW_ITEM_IN_FOLDER, filePath),
+
+  // Logs
+  getLogs: (): Promise<LogsResponse> => ipcRenderer.invoke(IpcChannels.LOG_GET),
+  openLogFolder: (): Promise<boolean> => ipcRenderer.invoke(IpcChannels.LOG_OPEN_FOLDER),
+
+  // Resources
+  getResourcePath: (): Promise<string | null> => ipcRenderer.invoke(IpcChannels.APP_GET_RESOURCE_PATH),
+
   // Project assets
   copyToProjectAssets: (srcPath: string, projectId: string): Promise<{ success: boolean; path?: string; url?: string; error?: string }> =>
-    ipcRenderer.invoke('copy-to-project-assets', srcPath, projectId),
+    ipcRenderer.invoke(IpcChannels.ASSETS_COPY_TO_PROJECT, srcPath, projectId),
   getProjectAssetsPath: (): Promise<string> =>
-    ipcRenderer.invoke('get-project-assets-path'),
+    ipcRenderer.invoke(IpcChannels.ASSETS_GET_PATH),
   openProjectAssetsPathChangeDialog: (): Promise<{ success: boolean; path?: string; error?: string }> =>
-    ipcRenderer.invoke('open-project-assets-path-change-dialog'),
+    ipcRenderer.invoke(IpcChannels.ASSETS_CHANGE_PATH_DIALOG),
 
-  // File save/export
+  // File operations
   showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }): Promise<string | null> =>
-    ipcRenderer.invoke('show-save-dialog', options),
+    ipcRenderer.invoke(IpcChannels.FILE_SHOW_SAVE_DIALOG, options),
   saveFile: (filePath: string, data: string, encoding?: string): Promise<{ success: boolean; path?: string; error?: string }> =>
-    ipcRenderer.invoke('save-file', filePath, data, encoding),
+    ipcRenderer.invoke(IpcChannels.FILE_SAVE, filePath, data, encoding),
   saveBinaryFile: (filePath: string, data: ArrayBuffer): Promise<{ success: boolean; path?: string; error?: string }> =>
-    ipcRenderer.invoke('save-binary-file', filePath, data),
+    ipcRenderer.invoke(IpcChannels.FILE_SAVE_BINARY, filePath, data),
   showOpenDirectoryDialog: (options: { title?: string }): Promise<string | null> =>
-    ipcRenderer.invoke('show-open-directory-dialog', options),
+    ipcRenderer.invoke(IpcChannels.FILE_SHOW_OPEN_DIR_DIALOG, options),
   searchDirectoryForFiles: (dir: string, filenames: string[]): Promise<Record<string, string>> =>
-    ipcRenderer.invoke('search-directory-for-files', dir, filenames),
-  // Check multiple files at once
+    ipcRenderer.invoke(IpcChannels.FILE_SEARCH_DIRECTORY, dir, filenames),
   checkFilesExist: (filePaths: string[]): Promise<Record<string, boolean>> =>
-    ipcRenderer.invoke('check-files-exist', filePaths),
-  
-  // Show open file dialog
+    ipcRenderer.invoke(IpcChannels.FILE_CHECK_EXIST, filePaths),
   showOpenFileDialog: (options: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }): Promise<string[] | null> =>
-    ipcRenderer.invoke('show-open-file-dialog', options),
-  
-  // Video export via ffmpeg (native compositing — no canvas, no frame-by-frame)
+    ipcRenderer.invoke(IpcChannels.FILE_SHOW_OPEN_FILE_DIALOG, options),
+
+  // Video export
   exportNative: (data: {
     clips: { url: string; type: string; startTime: number; duration: number; trimStart: number; speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number; muted: boolean; volume: number }[];
     outputPath: string; codec: string; width: number; height: number; fps: number; quality: number;
     letterbox?: { ratio: number; color: string; opacity: number };
     subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[];
   }): Promise<{ success?: boolean; error?: string }> =>
-    ipcRenderer.invoke('export-native', data),
+    ipcRenderer.invoke(IpcChannels.EXPORT_NATIVE, data),
   exportCancel: (sessionId: string): Promise<{ ok?: boolean }> =>
-    ipcRenderer.invoke('export-cancel', sessionId),
+    ipcRenderer.invoke(IpcChannels.EXPORT_CANCEL, sessionId),
 
-  // Python setup (Windows first-launch download)
-  checkPythonReady: (): Promise<{ ready: boolean }> => ipcRenderer.invoke('check-python-ready'),
-  startPythonSetup: (): Promise<void> => ipcRenderer.invoke('start-python-setup'),
-  startPythonBackend: (): Promise<void> => ipcRenderer.invoke('start-python-backend'),
-  getBackendHealthStatus: (): Promise<BackendHealthStatus | null> => ipcRenderer.invoke('get-backend-health-status'),
+  // Python backend
+  checkPythonReady: (): Promise<{ ready: boolean }> => ipcRenderer.invoke(IpcChannels.PYTHON_CHECK_READY),
+  startPythonSetup: (): Promise<void> => ipcRenderer.invoke(IpcChannels.PYTHON_START_SETUP),
+  startPythonBackend: (): Promise<void> => ipcRenderer.invoke(IpcChannels.PYTHON_START_BACKEND),
+  getBackendHealthStatus: (): Promise<BackendHealthStatus | null> => ipcRenderer.invoke(IpcChannels.PYTHON_GET_HEALTH_STATUS),
   onPythonSetupProgress: (cb: (data: unknown) => void) => {
-    ipcRenderer.on('python-setup-progress', (_: unknown, data: unknown) => cb(data))
+    ipcRenderer.on(IpcChannels.PYTHON_SETUP_PROGRESS, (_: unknown, data: unknown) => cb(data))
   },
   removePythonSetupProgress: () => {
-    ipcRenderer.removeAllListeners('python-setup-progress')
+    ipcRenderer.removeAllListeners(IpcChannels.PYTHON_SETUP_PROGRESS)
   },
   onBackendHealthStatus: (cb: (data: BackendHealthStatus) => void) => {
     const listener = (_: unknown, data: BackendHealthStatus) => cb(data)
-    ipcRenderer.on('backend-health-status', listener)
+    ipcRenderer.on(IpcChannels.PYTHON_BACKEND_HEALTH_STATUS, listener)
     return () => {
-      ipcRenderer.removeListener('backend-health-status', listener)
+      ipcRenderer.removeListener(IpcChannels.PYTHON_BACKEND_HEALTH_STATUS, listener)
     }
   },
 
-  // Extract a single video frame via ffmpeg (returns file path + file:// URL)
+  // Video frame extraction
   extractVideoFrame: (videoUrl: string, seekTime: number, width?: number, quality?: number): Promise<{ path: string; url: string }> =>
-    ipcRenderer.invoke('extract-video-frame', videoUrl, seekTime, width, quality),
+    ipcRenderer.invoke(IpcChannels.VIDEO_EXTRACT_FRAME, videoUrl, seekTime, width, quality),
 
-  // Write a log line to the session log file
+  // Logging
   writeLog: (level: string, message: string): Promise<void> =>
-    ipcRenderer.invoke('write-log', level, message),
+    ipcRenderer.invoke(IpcChannels.LOG_WRITE, level, message),
 
-  // Models directory change (privileged — uses admin token via Electron main process)
+  // Models directory
   openModelsDirChangeDialog: (): Promise<{ success: boolean; path?: string; error?: string }> =>
-    ipcRenderer.invoke('open-models-dir-change-dialog'),
+    ipcRenderer.invoke(IpcChannels.MODELS_CHANGE_DIR_DIALOG),
 
   // Analytics
   getAnalyticsState: (): Promise<{ analyticsEnabled: boolean; installationId: string }> =>
-    ipcRenderer.invoke('get-analytics-state'),
+    ipcRenderer.invoke(IpcChannels.ANALYTICS_GET_STATE),
   setAnalyticsEnabled: (enabled: boolean): Promise<void> =>
-    ipcRenderer.invoke('set-analytics-enabled', enabled),
+    ipcRenderer.invoke(IpcChannels.ANALYTICS_SET_ENABLED, enabled),
   sendAnalyticsEvent: (eventName: string, extraDetails?: Record<string, unknown> | null): Promise<void> =>
-    ipcRenderer.invoke('send-analytics-event', eventName, extraDetails),
+    ipcRenderer.invoke(IpcChannels.ANALYTICS_SEND_EVENT, eventName, extraDetails),
 
-  // Secure storage for API keys (OS keychain encryption)
+  // Secure storage
   storeSecureKey: (name: string, value: string): Promise<void> =>
-    ipcRenderer.invoke('store-secure-key', name, value),
+    ipcRenderer.invoke(IpcChannels.SECURE_STORE_KEY, name, value),
   getSecureKey: (name: string): Promise<string> =>
-    ipcRenderer.invoke('get-secure-key', name),
+    ipcRenderer.invoke(IpcChannels.SECURE_GET_KEY, name),
 
   // Platform info
   platform: process.platform,
 })
-
-interface LogsResponse {
-  logPath: string
-  lines: string[]
-  error?: string
-}
-
-interface BackendHealthStatus {
-  status: 'alive' | 'restarting' | 'dead'
-  exitCode?: number | null
-}
-
-// Type definitions for the exposed API
-declare global {
-  interface Window {
-    electronAPI: {
-      getBackend: () => Promise<{ url: string; token: string }>
-      getModelsPath: () => Promise<string>
-      readLocalFile: (filePath: string) => Promise<{ data: string; mimeType: string }>
-      checkGpu: () => Promise<{ available: boolean; name?: string; vram?: number }>
-      getAppInfo: () => Promise<{ version: string; isPackaged: boolean; modelsPath: string; userDataPath: string }>
-      checkFirstRun: () => Promise<{ needsSetup: boolean; needsLicense: boolean }>
-      acceptLicense: () => Promise<boolean>
-      completeSetup: () => Promise<boolean>
-      fetchLicenseText: () => Promise<string>
-      getNoticesText: () => Promise<string>
-      openLtxApiKeyPage: () => Promise<boolean>
-      openParentFolderOfFile: (filePath: string) => Promise<void>
-      showItemInFolder: (filePath: string) => Promise<void>
-      getLogs: () => Promise<LogsResponse>
-      openLogFolder: () => Promise<boolean>
-      getResourcePath: () => Promise<string | null>
-      copyToProjectAssets: (srcPath: string, projectId: string) => Promise<{ success: boolean; path?: string; url?: string; error?: string }>
-      getProjectAssetsPath: () => Promise<string>
-      openProjectAssetsPathChangeDialog: () => Promise<{ success: boolean; path?: string; error?: string }>
-      showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>
-      saveFile: (filePath: string, data: string, encoding?: string) => Promise<{ success: boolean; path?: string; error?: string }>
-      saveBinaryFile: (filePath: string, data: ArrayBuffer) => Promise<{ success: boolean; path?: string; error?: string }>
-      showOpenDirectoryDialog: (options: { title?: string }) => Promise<string | null>
-      searchDirectoryForFiles: (dir: string, filenames: string[]) => Promise<Record<string, string>>
-      checkFilesExist: (filePaths: string[]) => Promise<Record<string, boolean>>
-      showOpenFileDialog: (options: { title?: string; filters?: { name: string; extensions: string[] }[]; properties?: string[] }) => Promise<string[] | null>
-      exportNative: (data: {
-        clips: { url: string; type: string; startTime: number; duration: number; trimStart: number; speed: number; reversed: boolean; flipH: boolean; flipV: boolean; opacity: number; trackIndex: number; muted: boolean; volume: number }[];
-        outputPath: string; codec: string; width: number; height: number; fps: number; quality: number;
-        letterbox?: { ratio: number; color: string; opacity: number };
-        subtitles?: { text: string; startTime: number; endTime: number; style: { fontSize: number; fontFamily: string; fontWeight: string; color: string; backgroundColor: string; position: string; italic: boolean } }[];
-      }) => Promise<{ success?: boolean; error?: string }>
-      exportCancel: (sessionId: string) => Promise<{ ok?: boolean }>
-      checkPythonReady: () => Promise<{ ready: boolean }>
-      startPythonSetup: () => Promise<void>
-      startPythonBackend: () => Promise<void>
-      getBackendHealthStatus: () => Promise<BackendHealthStatus | null>
-      onPythonSetupProgress: (cb: (data: unknown) => void) => void
-      removePythonSetupProgress: () => void
-      onBackendHealthStatus: (cb: (data: BackendHealthStatus) => void) => (() => void)
-      extractVideoFrame: (videoUrl: string, seekTime: number, width?: number, quality?: number) => Promise<{ path: string; url: string }>
-      writeLog: (level: string, message: string) => Promise<void>
-      openModelsDirChangeDialog: () => Promise<{ success: boolean; path?: string; error?: string }>
-      getAnalyticsState: () => Promise<{ analyticsEnabled: boolean; installationId: string }>
-      setAnalyticsEnabled: (enabled: boolean) => Promise<void>
-      sendAnalyticsEvent: (eventName: string, extraDetails?: Record<string, unknown> | null) => Promise<void>
-      storeSecureKey: (name: string, value: string) => Promise<void>
-      getSecureKey: (name: string) => Promise<string>
-      platform: string
-    }
-  }
-}
 
 export {}

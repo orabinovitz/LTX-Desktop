@@ -4,10 +4,10 @@ import {
   X, RefreshCw, Loader2, Trash2, Music, Layers, Video, Image,
   Plus, FileUp, Film, LayoutGrid, List, ArrowUpDown,
 } from 'lucide-react'
-import type { Asset, TimelineClip, Timeline } from '../../types/project'
+import type { Asset, TimelineClip, Timeline } from '@/types/project'
 import { VideoThumbnailCard } from './VideoThumbnailCard'
-import { getColorLabel, COLOR_LABELS } from './video-editor-utils'
-import { Tooltip } from '../../components/ui/tooltip'
+import { getColorLabel, COLOR_LABELS } from '../utils/video-editor-utils'
+import { Tooltip } from '@/components/ui/tooltip'
 
 export interface LeftPanelProps {
   leftPanelWidth: number

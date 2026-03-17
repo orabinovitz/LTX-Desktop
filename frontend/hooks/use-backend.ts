@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { backendFetch, backendWsUrl, getWsProtocols, resetBackendCredentials } from '../lib/backend'
-import { logger } from '../lib/logger'
+import { backendFetch, backendWsUrl, getWsProtocols, resetBackendCredentials } from '@/lib/backend'
+import { logger } from '@/lib/logger'
 
 interface BackendStatus {
   connected: boolean

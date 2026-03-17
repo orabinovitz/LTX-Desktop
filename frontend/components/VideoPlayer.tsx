@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { Play, Pause, Download, RefreshCw, RotateCcw, Volume2, VolumeX, Maximize2 } from 'lucide-react'
 import { Button } from './ui/button'
-import { logger } from '../lib/logger'
-import { formatDuration } from '../lib/utils'
+import { logger } from '@/lib/logger'
+import { formatDuration } from '@/lib/utils'
 
 interface VideoPlayerProps {
   videoUrl: string | null

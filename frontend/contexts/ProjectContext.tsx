@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
-import type { Project, Asset, AssetTake, ViewType, ProjectTab, Timeline } from '../types/project'
-import { createDefaultTimeline } from '../types/project'
-import { logger } from '../lib/logger'
+import type { Project, Asset, AssetTake, ViewType, ProjectTab, Timeline } from '@/types/project'
+import { createDefaultTimeline } from '@/types/project'
+import { logger } from '@/lib/logger'
 
 interface ProjectContextType {
   // Navigation

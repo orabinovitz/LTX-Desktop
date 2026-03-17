@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useAgentDispatch } from "../contexts/AgentContext";
+import { useAgentDispatch } from "@/contexts/AgentContext";
 
 /**
  * Listens for the agent shortcut (Ctrl+Space or Ctrl+/) globally

@@ -1,9 +1,9 @@
 import { useCallback } from 'react'
-import type { Asset, TimelineClip, Track, TransitionType, SubtitleClip, ClipEffect, EffectType, TextOverlayStyle } from '../../types/project'
-import { DEFAULT_COLOR_CORRECTION, DEFAULT_LETTERBOX, EFFECT_DEFINITIONS, DEFAULT_TEXT_STYLE } from '../../types/project'
-import type { ParsedTimeline } from '../../lib/timeline-import'
-import { exportFcp7Xml } from '../../lib/timeline-import'
-import { resolveOverlaps, DEFAULT_DISSOLVE_DURATION } from './video-editor-utils'
+import type { Asset, TimelineClip, Track, TransitionType, SubtitleClip, ClipEffect, EffectType, TextOverlayStyle } from '@/types/project'
+import { DEFAULT_COLOR_CORRECTION, DEFAULT_LETTERBOX, EFFECT_DEFINITIONS, DEFAULT_TEXT_STYLE } from '@/types/project'
+import type { ParsedTimeline } from '@/lib/timeline-import'
+import { exportFcp7Xml } from '@/lib/timeline-import'
+import { resolveOverlaps, DEFAULT_DISSOLVE_DURATION } from '../utils/video-editor-utils'
 
 interface UseClipOperationsParams {
   clips: TimelineClip[]

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from services.http_client.http_client import HTTPClient
 
@@ -113,14 +113,15 @@ def _parse_response(data: Any) -> AssetMetaSuggestion | None:
     if not isinstance(data, dict):
         return None
 
-    name = str(data.get("name", "")).strip()
-    raw_tags = data.get("tags", [])
+    d = cast(dict[str, Any], data)
+    name = str(d.get("name", "")).strip()
+    raw_tags: Any = d.get("tags", [])
     if not isinstance(raw_tags, list):
         raw_tags = []
 
     tags: list[str] = []
     seen: set[str] = set()
-    for t in raw_tags:
+    for t in cast(list[object], raw_tags):
         tag = str(t).strip().lower()[:30]
         if tag and tag not in seen:
             tags.append(tag)

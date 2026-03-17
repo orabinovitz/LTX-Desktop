@@ -1,12 +1,12 @@
 import { ArrowLeft, Sparkles, Film, BookOpen } from 'lucide-react'
-import { useProjects } from '../contexts/ProjectContext'
-import { useProjectMemory } from '../contexts/ProjectMemoryContext'
-import { LtxLogo } from '../components/LtxLogo'
-import { Button } from '../components/ui/button'
-import { MemoryPanel } from '../components/memory/MemoryPanel'
+import { useProjects } from '@/contexts/ProjectContext'
+import { useProjectMemory } from '@/contexts/ProjectMemoryContext'
+import { LtxLogo } from '@/components/LtxLogo'
+import { Button } from '@/components/ui/button'
+import { MemoryPanel } from '@/components/memory/MemoryPanel'
 import { GenSpace } from './GenSpace'
 import { VideoEditor } from './VideoEditor'
-import type { ProjectTab } from '../types/project'
+import type { ProjectTab } from '@/types/project'
 
 export function Project() {
   const { currentProject, currentTab, setCurrentTab, goHome } = useProjects()

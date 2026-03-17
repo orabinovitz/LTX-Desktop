@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Play, Pause, Square, SkipBack, SkipForward, ChevronLeft, ChevronRight, Video, Music, X } from 'lucide-react'
-import type { Asset } from '../../types/project'
-import { formatTime } from './video-editor-utils'
-import { Tooltip } from '../../components/ui/tooltip'
+import type { Asset } from '@/types/project'
+import { formatTime } from '../utils/video-editor-utils'
+import { Tooltip } from '@/components/ui/tooltip'
 
 export interface SourceMonitorProps {
   sourceAsset: Asset | null

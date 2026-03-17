@@ -3,9 +3,9 @@ import {
   Upload, Loader2, Film, Sparkles,
   RefreshCw, Download, AlertCircle, Trash2,
 } from 'lucide-react'
-import { backendFetch } from '../lib/backend'
-import { logger } from '../lib/logger'
-import { fileUrlToPath } from '../lib/url-to-path'
+import { backendFetch } from '@/lib/backend'
+import { logger } from '@/lib/logger'
+import { fileUrlToPath } from '@/lib/url-to-path'
 
 export type ICLoraConditioningType = 'canny' | 'depth'
 

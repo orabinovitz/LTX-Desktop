@@ -6,19 +6,19 @@ import {
   useRef,
   useState,
 } from "react";
-import { useAgent, type ChatMessage, type OnToolProgress, type AgentMessage } from "../hooks/use-agent";
-import { useOrchestratedAgent } from "../hooks/use-orchestrated-agent";
-import type { AgentProgress } from "../types/agent-progress";
-import type { ToolCall, ToolResult } from "../views/editor/useAgentExecutor";
-import type { TimelineClip, ProjectTab } from "../types/project";
+import { useAgent, type ChatMessage, type OnToolProgress, type AgentMessage } from "@/hooks/use-agent";
+import { useOrchestratedAgent } from "@/hooks/use-orchestrated-agent";
+import type { AgentProgress } from "@/types/agent-progress";
+import type { ToolCall, ToolResult } from "@/types/agent-progress";
+import type { TimelineClip, ProjectTab } from "@/types/project";
 import type {
   ClarificationAnswer,
   ClarificationState,
   ClarifyResponse,
-} from "../types/clarification";
+} from "@/types/clarification";
 import { useProjects } from "./ProjectContext";
-import { logger } from "../lib/logger";
-import { backendFetch } from "../lib/backend";
+import { logger } from "@/lib/logger";
+import { backendFetch } from "@/lib/backend";
 
 type ViewContext = "editor" | "genspace" | "playground";
 

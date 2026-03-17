@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron'
+import { IpcChannels } from '../ipc/channels'
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
@@ -13,7 +14,7 @@ import { buildVideoFilterGraph } from './video-filter'
 import { mixAudioToPcm } from './audio-mix'
 
 export function registerExportHandlers(): void {
-  ipcMain.handle('export-native', async (_event, data: {
+  ipcMain.handle(IpcChannels.EXPORT_NATIVE, async (_event, data: {
     clips: ExportClip[]; outputPath: string; codec: string; width: number; height: number; fps: number; quality: number;
     letterbox?: { ratio: number; color: string; opacity: number };
     subtitles?: ExportSubtitle[];
@@ -129,7 +130,7 @@ export function registerExportHandlers(): void {
     }
   })
 
-  ipcMain.handle('export-cancel', async () => {
+  ipcMain.handle(IpcChannels.EXPORT_CANCEL, async () => {
     stopExportProcess()
     return { ok: true }
   })

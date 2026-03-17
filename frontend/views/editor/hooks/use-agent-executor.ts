@@ -5,34 +5,19 @@ import type {
   Asset,
   Timeline,
   TransitionType,
-} from "../../types/project";
-import { logger } from "../../lib/logger";
-import type { OnToolProgress } from "../../hooks/use-agent";
+} from "@/types/project";
+import type { ToolCall, ToolResult } from "@/types/agent-progress";
+import { logger } from "@/lib/logger";
+import type { OnToolProgress } from "@/hooks/use-agent";
 import {
   agentGenerateVideo,
   agentGenerateImage,
   agentRetakeSection,
   agentCancelGeneration,
   agentGetGenerationStatus,
-} from "./agentGenerationHelper";
+} from "../utils/agent-generation-helper";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface ToolCall {
-  tool_name: string;
-  arguments: Record<string, unknown>;
-  call_id?: string;
-}
-
-export interface ToolResult {
-  tool_name: string;
-  success: boolean;
-  result: unknown;
-  error: string | null;
-  call_id?: string;
-}
+export type { ToolCall, ToolResult };
 
 export interface AgentExecutorDeps {
   clipsRef: React.RefObject<TimelineClip[]>;

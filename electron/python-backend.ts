@@ -1,4 +1,5 @@
 import { ChildProcess, spawn } from 'child_process'
+import { IpcChannels } from './ipc/channels'
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
@@ -38,7 +39,7 @@ let latestBackendHealthStatus: BackendHealthStatus | null = null
 
 function publishBackendHealthStatus(status: BackendHealthStatus): void {
   latestBackendHealthStatus = status
-  getMainWindow()?.webContents.send('backend-health-status', status)
+  getMainWindow()?.webContents.send(IpcChannels.PYTHON_BACKEND_HEALTH_STATUS, status)
 }
 
 export function getBackendHealthStatus(): BackendHealthStatus | null {

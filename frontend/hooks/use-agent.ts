@@ -1,19 +1,19 @@
 import { useCallback, useRef, useState } from "react";
-import { logger } from "../lib/logger";
-import { backendFetch, backendSSE } from "../lib/backend";
-import type { TimelineClip } from "../types/project";
+import { logger } from "@/lib/logger";
+import { backendFetch, backendSSE } from "@/lib/backend";
+import type { TimelineClip } from "@/types/project";
 import type {
   ToolCall,
   ToolResult,
-} from "../views/editor/useAgentExecutor";
-import { useAgentProgress } from "./useAgentProgress";
+} from "@/types/agent-progress";
+import { useAgentProgress } from "./use-agent-progress";
 import {
   parsePlanToTasks,
   groupToolCalls,
   mapGroupsToTasks,
   resetTaskIdCounter,
-} from "../lib/parse-plan";
-import type { AgentProgress, AgentTask, ChatMessage, OnToolProgress } from "../types/agent-progress";
+} from "@/lib/parse-plan";
+import type { AgentProgress, AgentTask, ChatMessage, OnToolProgress } from "@/types/agent-progress";
 
 export type { ToolCall };
 export type { AgentProgress };
