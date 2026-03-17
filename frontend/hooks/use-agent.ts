@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { logger } from "../lib/logger";
-import { backendFetch } from "../lib/backend";
+import { backendFetch, backendSSE } from "../lib/backend";
 import type { TimelineClip } from "../types/project";
 import type {
   ToolCall,
@@ -148,6 +148,8 @@ export function useAgent() {
 
   const progressActions = useAgentProgress();
   const { progress } = progressActions;
+  const progressActionsRef = useRef(progressActions);
+  progressActionsRef.current = progressActions;
 
   const sendPrompt = useCallback(
     async (
@@ -168,7 +170,8 @@ export function useAgent() {
       const { signal } = abortRef.current;
 
       resetTaskIdCounter();
-      progressActions.startSession();
+      const pa = progressActionsRef.current;
+      pa.startSession();
 
       setMessages((prev) => [...prev, { role: "user", content: displayPrompt ?? prompt }]);
       conversationRef.current.push({ role: "user", content: prompt });
@@ -181,33 +184,60 @@ export function useAgent() {
           trackCount,
           currentTime,
         );
-        progressActions.setThinking("Sending request to AI...");
+        pa.setThinking("Sending request to AI...");
 
         const effectiveHistory = externalConversationHistory
           ? [...externalConversationHistory, ...conversationRef.current]
           : conversationRef.current;
 
-        const res = await backendFetch("/api/agent/execute", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompt,
-            ...(clips.length > 0 ? { timeline_state: timelineState } : {}),
-            ...(projectId ? { project_id: projectId } : {}),
-            ...(viewContext ? { view_context: viewContext } : {}),
-            ...(assetsContext ? { assets_context: assetsContext } : {}),
-            ...(sessionIdRef.current
-              ? { session_id: sessionIdRef.current }
-              : { conversation_history: effectiveHistory }),
-          }),
-          signal,
+        const requestBody = JSON.stringify({
+          prompt,
+          ...(clips.length > 0 ? { timeline_state: timelineState } : {}),
+          ...(projectId ? { project_id: projectId } : {}),
+          ...(viewContext ? { view_context: viewContext } : {}),
+          ...(assetsContext ? { assets_context: assetsContext } : {}),
+          ...(sessionIdRef.current
+            ? { session_id: sessionIdRef.current }
+            : { conversation_history: effectiveHistory }),
         });
 
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({})) as { error?: string };
-          throw new Error(body.error ?? `Agent API error: ${res.status}`);
+        let response: AgentResponse;
+        try {
+          // Use SSE streaming for real-time status during the Gemini call
+          let sseResult: AgentResponse | null = null;
+          for await (const event of backendSSE("/api/agent/execute/stream", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: requestBody,
+            signal,
+          })) {
+            if (event.event === "thinking") {
+              pa.setThinking("AI is thinking...");
+            } else if (event.event === "result") {
+              sseResult = event.data as AgentResponse;
+            } else if (event.event === "error") {
+              const err = event.data as { message?: string };
+              throw new Error(err.message ?? "Agent streaming error");
+            }
+          }
+          if (!sseResult) throw new Error("No result from SSE stream");
+          response = sseResult;
+        } catch (sseErr) {
+          if (sseErr instanceof DOMException && sseErr.name === "AbortError") throw sseErr;
+          // Fallback to regular endpoint if SSE fails
+          logger.warn(`[agent] SSE failed, falling back to regular endpoint: ${sseErr instanceof Error ? sseErr.message : sseErr}`);
+          const res = await backendFetch("/api/agent/execute", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: requestBody,
+            signal,
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({})) as { error?: string };
+            throw new Error(body.error ?? `Agent API error: ${res.status}`);
+          }
+          response = await res.json();
         }
-        let response: AgentResponse = await res.json();
 
         if (response.session_id) {
           sessionIdRef.current = response.session_id;
@@ -217,7 +247,7 @@ export function useAgent() {
         }
 
         if (response.done) {
-          progressActions.endSession();
+          pa.endSession();
         }
 
         // Agentic loop
@@ -225,17 +255,17 @@ export function useAgent() {
         let currentTasks: AgentTask[] = [];
         while (!response.done && turns < 20) {
           turns++;
-          progressActions.incrementTurn();
+          pa.incrementTurn();
 
           // Parse plan into tasks + reasoning on the first turn that has one
           if (response.plan) {
-            progressActions.setThinking("Planning your edit...");
+            pa.setThinking("Planning your edit...");
             const parsed = parsePlanToTasks(response.plan);
             currentTasks = parsed.tasks;
             if (parsed.reasoning) {
-              progressActions.setReasoning(parsed.reasoning);
+              pa.setReasoning(parsed.reasoning);
             }
-            progressActions.setPlan(currentTasks);
+            pa.setPlan(currentTasks);
 
             setMessages((prev) => [
               ...prev,
@@ -260,7 +290,7 @@ export function useAgent() {
                 label: groups[gi].label,
                 status: "pending",
               };
-              progressActions.addAdHocTask(adHocTask);
+              pa.addAdHocTask(adHocTask);
               groupTaskMap.set(gi, adHocTask.id);
             }
           }
@@ -276,7 +306,7 @@ export function useAgent() {
             const isParallel =
               PARALLEL_SAFE_TOOLS.has(group.toolName) && count > 1;
 
-            progressActions.startTask(
+            pa.startTask(
               taskId,
               count > 1 ? `0/${count} complete` : undefined,
             );
@@ -290,7 +320,7 @@ export function useAgent() {
                   count > 1
                     ? `${completedInGroup}/${count} complete`
                     : detail;
-                progressActions.updateTaskProgress(taskId, p, groupDetail);
+                pa.updateTaskProgress(taskId, p, groupDetail);
               };
               const result = await executeTool(tc, onProgress);
               results[toolIdx] = result;
@@ -299,7 +329,7 @@ export function useAgent() {
                 const avgProgress = Math.round(
                   (completedInGroup / count) * 100,
                 );
-                progressActions.updateTaskProgress(
+                pa.updateTaskProgress(
                   taskId,
                   avgProgress,
                   `${completedInGroup}/${count} complete`,
@@ -314,10 +344,10 @@ export function useAgent() {
               );
               const allOk = groupResults.every((r) => r.success);
               if (allOk) {
-                progressActions.completeTask(taskId);
+                pa.completeTask(taskId);
               } else {
                 const firstErr = groupResults.find((r) => !r.success);
-                progressActions.failTask(
+                pa.failTask(
                   taskId,
                   firstErr?.error ?? "Unknown error",
                 );
@@ -328,14 +358,14 @@ export function useAgent() {
                 const result = await executeOne(idx);
                 if (!result.success && !groupFailed) {
                   groupFailed = true;
-                  progressActions.failTask(
+                  pa.failTask(
                     taskId,
                     result.error ?? "Unknown error",
                   );
                 }
               }
               if (!groupFailed) {
-                progressActions.completeTask(taskId);
+                pa.completeTask(taskId);
               }
             }
           }
@@ -357,7 +387,7 @@ export function useAgent() {
             });
           }
 
-          progressActions.setThinking("Continuing conversation...");
+          pa.setThinking("Continuing conversation...");
 
           const MUTATION_TOOLS = new Set([
             "delete_asset", "batch_delete_assets", "organize_asset",
@@ -413,7 +443,7 @@ export function useAgent() {
 
         const finalText = response.message || response.plan || "Done.";
 
-        progressActions.endSession();
+        pa.endSession();
 
         setMessages((prev) => {
           const updated = [...prev];
@@ -434,12 +464,12 @@ export function useAgent() {
         conversationRef.current.push({ role: "assistant", content: finalText });
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
-          progressActions.reset();
+          progressActionsRef.current.reset();
           return;
         }
         const errorMsg = err instanceof Error ? err.message : "Unknown error";
         logger.error(`[agent] error after ${((performance.now() - t0) / 1000).toFixed(1)}s: ${errorMsg}`);
-        progressActions.endSession(errorMsg);
+        progressActionsRef.current.endSession(errorMsg);
         setMessages((prev) => [
           ...prev,
           {
@@ -452,7 +482,7 @@ export function useAgent() {
         window.dispatchEvent(new CustomEvent('agent-action-complete'));
       }
     },
-    [progressActions],
+    [],
   );
 
   const clearChat = useCallback(() => {
@@ -460,8 +490,8 @@ export function useAgent() {
     setMessages([]);
     conversationRef.current = [];
     sessionIdRef.current = null;
-    progressActions.reset();
-  }, [progressActions]);
+    progressActionsRef.current.reset();
+  }, []);
 
   return {
     messages,

@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import queue
+import threading
+from collections.abc import Generator
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from agent import project_memory
 from agent.types import (
@@ -44,6 +51,70 @@ def route_agent_execute(
     handler: AppHandler = Depends(get_state_service),
 ) -> AgentExecuteResponse:
     return handler.agent.execute(req)
+
+
+def _sse_event(event: str, data: Any) -> str:
+    """Format a Server-Sent Event."""
+    payload = json.dumps(data, default=str)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+def _run_agent_streamed(
+    handler: AppHandler,
+    req: AgentExecuteRequest,
+    event_queue: queue.Queue[str | None],
+) -> None:
+    """Run agent.execute in a thread, posting SSE events to the queue."""
+    try:
+        event_queue.put(_sse_event("thinking", {"status": "started"}))
+        response = handler.agent.execute(req)
+        event_queue.put(_sse_event("result", response.model_dump(mode="json")))
+    except Exception as exc:
+        event_queue.put(_sse_event("error", {"message": str(exc)}))
+    finally:
+        event_queue.put(None)
+
+
+@router.post("/agent/execute/stream")
+def route_agent_execute_stream(
+    req: AgentExecuteRequest,
+    handler: AppHandler = Depends(get_state_service),
+) -> StreamingResponse:
+    """SSE streaming version of /agent/execute.
+
+    Events:
+      - ``thinking``: agent has started processing
+      - ``result``: final AgentExecuteResponse payload
+      - ``error``: an error occurred
+    """
+    event_queue: queue.Queue[str | None] = queue.Queue()
+
+    thread = threading.Thread(
+        target=_run_agent_streamed,
+        args=(handler, req, event_queue),
+        daemon=True,
+    )
+    thread.start()
+
+    def event_generator() -> Generator[str, None, None]:
+        while True:
+            try:
+                event = event_queue.get(timeout=1.0)
+            except queue.Empty:
+                yield ": keepalive\n\n"
+                continue
+            if event is None:
+                break
+            yield event
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/agent/continue", response_model=AgentExecuteResponse)

@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import json
 import logging
+import random
+import threading
 import time
 import uuid
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
@@ -58,6 +60,8 @@ _FALLBACK_MODEL = "gemini-3-flash-preview"
 
 
 _ROLE_MAP: dict[str, str] = {"user": "user", "agent": "model", "assistant": "model", "model": "model"}
+
+_backend_tool_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="backend-tool")
 
 SYSTEM_PROMPT = """\
 You are a senior video editor with years of professional editing experience, \
@@ -588,22 +592,24 @@ When generating videos, choose model and duration intelligently:
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
 _RATE_LIMIT_MAX_CALLS = 30
 
-_rate_limit_timestamps: list[float] = []
+_rate_limit_timestamps: deque[float] = deque()
+_rate_limit_lock = threading.Lock()
 
 
 def _check_rate_limit() -> None:
     """Raise if too many Gemini calls have been made in the current window."""
-    now = time.monotonic()
-    cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
-    while _rate_limit_timestamps and _rate_limit_timestamps[0] < cutoff:
-        _rate_limit_timestamps.pop(0)
-    if len(_rate_limit_timestamps) >= _RATE_LIMIT_MAX_CALLS:
-        logger.warning("Agent rate limit exceeded (%d calls in %.0fs)", _RATE_LIMIT_MAX_CALLS, _RATE_LIMIT_WINDOW_SECONDS)
-        raise RuntimeError(
-            f"Rate limit exceeded: maximum {_RATE_LIMIT_MAX_CALLS} agent calls "
-            f"per {int(_RATE_LIMIT_WINDOW_SECONDS)}s. Please wait a moment."
-        )
-    _rate_limit_timestamps.append(now)
+    with _rate_limit_lock:
+        now = time.monotonic()
+        cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+        while _rate_limit_timestamps and _rate_limit_timestamps[0] < cutoff:
+            _rate_limit_timestamps.popleft()
+        if len(_rate_limit_timestamps) >= _RATE_LIMIT_MAX_CALLS:
+            logger.warning("Agent rate limit exceeded (%d calls in %.0fs)", _RATE_LIMIT_MAX_CALLS, _RATE_LIMIT_WINDOW_SECONDS)
+            raise RuntimeError(
+                f"Rate limit exceeded: maximum {_RATE_LIMIT_MAX_CALLS} agent calls "
+                f"per {int(_RATE_LIMIT_WINDOW_SECONDS)}s. Please wait a moment."
+            )
+        _rate_limit_timestamps.append(now)
 
 
 # ---------------------------------------------------------------------------
@@ -612,6 +618,11 @@ def _check_rate_limit() -> None:
 
 _MAX_SESSIONS = 50
 _SESSION_TTL_SECONDS = 1800  # 30 minutes
+_MAX_HISTORY_TURNS = 20
+"""Keep at most this many conversation entries (user/model/function).
+
+When the history exceeds this, the oldest entries (after the first user
+message which contains timeline context) are dropped to bound memory."""
 
 @dataclass
 class _SessionData:
@@ -650,6 +661,15 @@ def _get_session(session_id: str) -> _SessionData | None:
     return sd
 
 
+def _truncate_history(contents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Trim conversation history to bound memory, keeping the first user
+    message (which carries timeline/brain context) and the most recent turns."""
+    if len(contents) <= _MAX_HISTORY_TURNS:
+        return contents
+    # Always keep the first message (initial context) + last N-1 turns
+    return [contents[0]] + contents[-((_MAX_HISTORY_TURNS) - 1):]
+
+
 def _set_session(
     session_id: str,
     contents: list[dict[str, Any]],
@@ -664,7 +684,7 @@ def _set_session(
     vc = view_context or (existing.view_context if existing else "editor")
     pid = project_id or (existing.project_id if existing else None)
     _sessions[session_id] = _SessionData(
-        contents=contents,
+        contents=_truncate_history(contents),
         scoped_categories=cats,
         view_context=vc,
         last_access=time.monotonic(),
@@ -1015,9 +1035,9 @@ def _call_gemini(
             )
             if response.status_code != 503:
                 break
-            wait = 5 * (2 ** _attempt)
+            wait = min(1 * (2 ** _attempt) + random.random(), 10)
             logger.warning(
-                "[agent] session=%s | Gemini returned 503, retrying in %ds (attempt %d/%d)",
+                "[agent] session=%s | Gemini returned 503, retrying in %.1fs (attempt %d/%d)",
                 session_id[:8], wait, _attempt + 1, _MAX_RETRIES,
             )
             time.sleep(wait)
@@ -1112,10 +1132,11 @@ def _call_gemini(
             done=True,
         )
 
-    # Append the model turn to history
+    # Append the model turn to history and truncate if oversized
     sd_model = _get_session(session_id)
     if sd_model is not None:
         sd_model.contents.append({"role": "model", "parts": parts})
+        sd_model.contents = _truncate_history(sd_model.contents)
 
     # -- Separate text from function calls --------------------------------
     text_fragments: list[str] = []
@@ -1178,11 +1199,10 @@ def _call_gemini(
                 _execute_backend_tool(backend_tool_calls[0], api_key=api_key, http_client=http_client, session_id=session_id, project_id=project_id)
             ]
         else:
-            with ThreadPoolExecutor(max_workers=min(4, len(backend_tool_calls))) as pool:
-                backend_results = list(pool.map(
-                    lambda tc: _execute_backend_tool(tc, api_key=api_key, http_client=http_client, session_id=session_id, project_id=project_id),
-                    backend_tool_calls,
-                ))
+            backend_results = list(_backend_tool_pool.map(
+                lambda tc: _execute_backend_tool(tc, api_key=api_key, http_client=http_client, session_id=session_id, project_id=project_id),
+                backend_tool_calls,
+            ))
 
         # Feed results back into conversation
         fn_response_parts: list[dict[str, Any]] = []

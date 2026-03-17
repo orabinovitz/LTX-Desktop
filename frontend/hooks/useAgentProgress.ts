@@ -1,6 +1,8 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { AgentProgress, AgentTask } from "@/types/agent-progress";
 import { INITIAL_PROGRESS } from "@/types/agent-progress";
+
+const PROGRESS_THROTTLE_MS = 200;
 
 export function useAgentProgress() {
   const [progress, setProgress] = useState<AgentProgress>(INITIAL_PROGRESS);
@@ -113,8 +115,15 @@ export function useAgentProgress() {
     [updateTask],
   );
 
+  const lastProgressUpdateRef = useRef<Record<string, number>>({});
+
   const updateTaskProgress = useCallback(
     (taskId: string, progressValue: number, detail?: string) => {
+      const now = Date.now();
+      const last = lastProgressUpdateRef.current[taskId] ?? 0;
+      if (now - last < PROGRESS_THROTTLE_MS && progressValue < 100) return;
+      lastProgressUpdateRef.current[taskId] = now;
+
       const patch: Partial<AgentTask> = { progress: progressValue };
       if (detail !== undefined) patch.detail = detail;
       updateTask(taskId, patch);
@@ -174,24 +183,36 @@ export function useAgentProgress() {
     setProgress(INITIAL_PROGRESS);
   }, []);
 
-  return {
-    progress,
-    progressRef,
-    update,
-    updateTask,
-    startSession,
-    setThinking,
-    setReasoning,
-    setPlan,
-    setCollapsed,
-    startTask,
-    completeTask,
-    failTask,
-    updateTaskProgress,
-    skipTask,
-    addAdHocTask,
-    incrementTurn,
-    endSession,
-    reset,
-  };
+  const actions = useMemo(
+    () => ({
+      progressRef,
+      update,
+      updateTask,
+      startSession,
+      setThinking,
+      setReasoning,
+      setPlan,
+      setCollapsed,
+      startTask,
+      completeTask,
+      failTask,
+      updateTaskProgress,
+      skipTask,
+      addAdHocTask,
+      incrementTurn,
+      endSession,
+      reset,
+    }),
+    [
+      update, updateTask, startSession, setThinking, setReasoning,
+      setPlan, setCollapsed, startTask, completeTask, failTask,
+      updateTaskProgress, skipTask, addAdHocTask, incrementTurn,
+      endSession, reset,
+    ],
+  );
+
+  return useMemo(
+    () => ({ progress, ...actions }),
+    [progress, actions],
+  );
 }

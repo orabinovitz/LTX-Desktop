@@ -28,6 +28,58 @@ export async function backendFetch(path: string, init?: RequestInit): Promise<Re
   return fetch(`${url}${path}`, { ...init, headers })
 }
 
+export interface SSEEvent {
+  event: string;
+  data: unknown;
+}
+
+/**
+ * POST to a backend SSE endpoint and yield parsed events.
+ * Falls back to a normal fetch if the response is not text/event-stream.
+ */
+export async function* backendSSE(
+  path: string,
+  init?: RequestInit,
+): AsyncGenerator<SSEEvent, void, undefined> {
+  const response = await backendFetch(path, init);
+  if (!response.ok) throw new Error(`SSE request failed: ${response.status}`);
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() ?? "";
+
+      for (const part of parts) {
+        if (!part.trim() || part.startsWith(": ")) continue;
+        let eventType = "message";
+        let data = "";
+        for (const line of part.split("\n")) {
+          if (line.startsWith("event: ")) eventType = line.slice(7);
+          else if (line.startsWith("data: ")) data = line.slice(6);
+        }
+        if (data) {
+          try {
+            yield { event: eventType, data: JSON.parse(data) };
+          } catch {
+            yield { event: eventType, data };
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function backendWsUrl(path: string): Promise<string> {
   const { url } = await getBackendCredentials()
   const ws = url.replace('http://', 'ws://')

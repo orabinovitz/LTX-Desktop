@@ -172,6 +172,8 @@ export function useOrchestratedAgent() {
 
   const progressActions = useAgentProgress();
   const { progress } = progressActions;
+  const progressActionsRef = useRef(progressActions);
+  progressActionsRef.current = progressActions;
 
   const sendPrompt = useCallback(
     async (
@@ -191,8 +193,9 @@ export function useOrchestratedAgent() {
       abortRef.current = new AbortController();
       const { signal } = abortRef.current;
 
-      progressActions.startSession();
-      progressActions.update({
+      const pa = progressActionsRef.current;
+      pa.startSession();
+      pa.update({
         isOrchestrated: true,
         orchestratorStatus: "planning" as OrchestratorStatus,
         thinkingLine: "Decomposing your request into tasks...",
@@ -232,8 +235,8 @@ export function useOrchestratedAgent() {
         }
 
         const orchestratedTasks = response.tasks.map(taskInfoToAgentTask);
-        progressActions.setPlan(orchestratedTasks);
-        progressActions.update({
+        pa.setPlan(orchestratedTasks);
+        pa.update({
           isOrchestrated: true,
           orchestratorStatus: response.status as OrchestratorStatus,
         });
@@ -243,9 +246,9 @@ export function useOrchestratedAgent() {
 
         while (!response.done && turns < 50) {
           if (stoppedRef.current) {
-            syncTaskStatuses(response.tasks, progressActions, progressActions.progressRef);
-            cancelRemainingPendingTasks(progressActions);
-            progressActions.endSession("Stopped by user");
+            syncTaskStatuses(response.tasks, pa, pa.progressRef);
+            cancelRemainingPendingTasks(pa);
+            pa.endSession("Stopped by user");
             setMessages((prev) => [
               ...prev,
               { role: "agent", content: "Agent stopped. Completed tasks are preserved." },
@@ -254,19 +257,19 @@ export function useOrchestratedAgent() {
           }
 
           turns++;
-          progressActions.incrementTurn();
-          syncTaskStatuses(response.tasks, progressActions, progressActions.progressRef);
+          pa.incrementTurn();
+          syncTaskStatuses(response.tasks, pa, pa.progressRef);
           lastMessageAdded = false;
 
-          progressActions.update({
+          pa.update({
             orchestratorStatus: response.status as OrchestratorStatus,
           });
 
           if (response.tool_calls.length > 0) {
-            progressActions.update({ thinkingLine: "" });
+            pa.update({ thinkingLine: "" });
 
             if (response.current_task_id) {
-              progressActions.startTask(response.current_task_id);
+              pa.startTask(response.current_task_id);
             }
 
             const results: ToolResult[] = [];
@@ -274,7 +277,7 @@ export function useOrchestratedAgent() {
             const toolNames = [...new Set(toolCalls.map((tc) => tc.tool_name))];
 
             if (response.current_task_id) {
-              progressActions.updateTask(response.current_task_id, {
+              pa.updateTask(response.current_task_id, {
                 activeToolCalls: toolNames,
               });
             }
@@ -335,12 +338,12 @@ export function useOrchestratedAgent() {
             }
 
             if (response.current_task_id) {
-              progressActions.updateTask(response.current_task_id, {
+              pa.updateTask(response.current_task_id, {
                 activeToolCalls: undefined,
               });
             }
 
-            progressActions.setThinking("Continuing orchestration...");
+            pa.setThinking("Continuing orchestration...");
 
             const contRes = await backendFetch(
               "/api/agent/orchestrate/continue",
@@ -375,7 +378,7 @@ export function useOrchestratedAgent() {
               lastMessageAdded = true;
             }
 
-            progressActions.setThinking("Advancing to next task...");
+            pa.setThinking("Advancing to next task...");
 
             const contRes = await backendFetch(
               "/api/agent/orchestrate/continue",
@@ -403,8 +406,8 @@ export function useOrchestratedAgent() {
           }
         }
 
-        syncTaskStatuses(response.tasks, progressActions, progressActions.progressRef);
-        progressActions.endSession();
+        syncTaskStatuses(response.tasks, pa, pa.progressRef);
+        pa.endSession();
 
         const finalText = response.message || "All tasks completed.";
         if (!lastMessageAdded || finalText !== response.message) {
@@ -415,14 +418,14 @@ export function useOrchestratedAgent() {
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
-          progressActions.reset();
+          progressActionsRef.current.reset();
           return;
         }
         const errorMsg = err instanceof Error ? err.message : "Unknown error";
         logger.error(
           `[orchestrated-agent] error after ${((performance.now() - t0) / 1000).toFixed(1)}s: ${errorMsg}`,
         );
-        progressActions.endSession(errorMsg);
+        progressActionsRef.current.endSession(errorMsg);
         setMessages((prev) => [
           ...prev,
           {
@@ -435,7 +438,7 @@ export function useOrchestratedAgent() {
         window.dispatchEvent(new CustomEvent('agent-action-complete'));
       }
     },
-    [progressActions],
+    [],
   );
 
   const stop = useCallback(() => {
@@ -445,7 +448,8 @@ export function useOrchestratedAgent() {
   const skipTask = useCallback(
     async (taskId: string) => {
       if (!sessionIdRef.current) return;
-      progressActions.skipTask(taskId);
+      const pa = progressActionsRef.current;
+      pa.skipTask(taskId);
       try {
         const res = await backendFetch("/api/agent/orchestrate/skip-task", {
           method: "POST",
@@ -457,13 +461,13 @@ export function useOrchestratedAgent() {
         });
         if (res.ok) {
           const data: OrchestrateResponse = await res.json();
-          syncTaskStatuses(data.tasks, progressActions, progressActions.progressRef);
+          syncTaskStatuses(data.tasks, pa, pa.progressRef);
         }
       } catch {
         logger.warn("[orchestrated-agent] skip-task request failed");
       }
     },
-    [progressActions],
+    [],
   );
 
   const clearChat = useCallback(() => {
@@ -471,8 +475,8 @@ export function useOrchestratedAgent() {
     stoppedRef.current = false;
     setMessages([]);
     sessionIdRef.current = null;
-    progressActions.reset();
-  }, [progressActions]);
+    progressActionsRef.current.reset();
+  }, []);
 
   return {
     messages,

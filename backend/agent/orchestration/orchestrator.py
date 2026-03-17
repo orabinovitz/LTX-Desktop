@@ -401,10 +401,19 @@ class Orchestrator:
         session.task_tool_call_counts = {}
         return self._execute_next(session)
 
+    @staticmethod
+    def _release_session_memory(session: OrchestratorSession) -> None:
+        """Free heavyweight state that is no longer needed."""
+        session.active_sub_agent_results.clear()
+        session.task_tool_call_counts.clear()
+        session.pending_tool_calls.clear()
+        session.pending_task_ids.clear()
+
     def _execute_next(self, session: OrchestratorSession) -> OrchestrateResponse:
         if session.dag.is_complete():
             session.status = OrchestratorStatus.DONE
             summary = self._build_final_summary(session)
+            self._release_session_memory(session)
             logger.info("[orchestrator] session=%s | all tasks done", session.id[:8])
             return _build_response(
                 session, self._registry,
@@ -423,6 +432,7 @@ class Orchestrator:
                 )
 
             session.status = OrchestratorStatus.ERROR
+            self._release_session_memory(session)
             return _build_response(
                 session, self._registry,
                 message="No tasks can proceed. Some tasks may have failed.",

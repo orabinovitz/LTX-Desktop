@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import random as _random
 import threading
 import time
 from pathlib import Path
@@ -645,12 +646,12 @@ def _call_gemini_for_topics(
         except HttpTimeoutError:
             logger.error("Brain topic extraction timed out (attempt %d)", attempt + 1, exc_info=True)
             if attempt < max_attempts - 1:
-                time.sleep(5 * (attempt + 1))
+                time.sleep(min(1 * (2 ** attempt) + _random.random(), 8))
             continue
         except Exception:
             logger.error("Brain topic extraction failed (attempt %d)", attempt + 1, exc_info=True)
             if attempt < max_attempts - 1:
-                time.sleep(5 * (attempt + 1))
+                time.sleep(min(1 * (2 ** attempt) + _random.random(), 8))
             continue
 
         if response.status_code != 200:

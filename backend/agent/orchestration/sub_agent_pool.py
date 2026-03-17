@@ -15,6 +15,7 @@ continue its workflow (e.g. generate_image -> see asset_id -> generate_video).
 from __future__ import annotations
 
 import logging
+import random
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 _SUB_AGENT_MODEL = "gemini-3-flash-preview"
 _MAX_WORKERS = 10
 _MAX_SUB_AGENT_TURNS = 30
+_backend_tool_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="sub-backend-tool")
 
 
 def _build_system_prompt(
@@ -315,6 +317,38 @@ def _execute_backend_tool_inline(
     )
 
 
+def _execute_backend_tools_parallel(
+    backend_calls: list[ToolCall],
+    *,
+    api_key: str,
+    http_client: HTTPClient,
+    project_id: str | None = None,
+) -> tuple[list[ToolResult], list[dict[str, Any]]]:
+    """Execute backend tools in parallel and return (results, fn_response_parts)."""
+    if len(backend_calls) == 1:
+        results = [_execute_backend_tool_inline(
+            backend_calls[0], api_key=api_key, http_client=http_client, project_id=project_id,
+        )]
+    else:
+        results = list(_backend_tool_pool.map(
+            lambda bc: _execute_backend_tool_inline(
+                bc, api_key=api_key, http_client=http_client, project_id=project_id,
+            ),
+            backend_calls,
+        ))
+
+    fn_parts: list[dict[str, Any]] = []
+    for br in results:
+        payload: dict[str, Any] = (
+            {"result": br.result} if br.success
+            else {"error": br.error or "unknown"}
+        )
+        fn_parts.append(
+            {"functionResponse": {"name": br.call_id, "response": payload}}
+        )
+    return results, fn_parts
+
+
 def _run_gemini_turn(
     contents: list[dict[str, Any]],
     system_prompt: str,
@@ -334,13 +368,6 @@ def _run_gemini_turn(
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{_SUB_AGENT_MODEL}:generateContent"
     )
-    # #region agent log
-    import pathlib as _pathlib_dbg
-    _dbg_path = _pathlib_dbg.Path("/Users/orabinovitz/Projects/ltx-desktop/.cursor/debug-2a94fd.log")
-    with open(_dbg_path, "a") as _f:
-        import json as _json_dbg
-        _f.write(_json_dbg.dumps({"sessionId":"2a94fd","hypothesisId":"B","location":"sub_agent_pool.py:318","message":"tools_config","data":{"enable_search":enable_search,"num_declarations":len(tool_declarations),"task_id":task_id,"turn":turn},"timestamp":__import__('time').time()}) + "\n")
-    # #endregion
     if enable_search:
         tools: list[dict[str, Any]] = [{"google_search": {}}]
     else:
@@ -369,9 +396,9 @@ def _run_gemini_turn(
             )
             if resp.status_code != 503:
                 break
-            wait = 3 * (2 ** _attempt)
+            wait = min(1 * (2 ** _attempt) + random.random(), 8)
             logger.warning(
-                "[sub-agent] task=%s turn=%d | 503, retrying in %ds (attempt %d/%d)",
+                "[sub-agent] task=%s turn=%d | 503, retrying in %.1fs (attempt %d/%d)",
                 task_id, turn, wait, _attempt + 1, _MAX_RETRIES,
             )
             time.sleep(wait)
@@ -489,19 +516,10 @@ def execute_sub_agent(
             break
 
         if backend_calls:
-            fn_response_parts: list[dict[str, Any]] = []
-            for bc in backend_calls:
-                br = _execute_backend_tool_inline(
-                    bc, api_key=api_key, http_client=http_client, project_id=context.project_id,
-                )
-                all_backend_results.append(br)
-                result_payload: dict[str, Any] = (
-                    {"result": br.result} if br.success
-                    else {"error": br.error or "unknown"}
-                )
-                fn_response_parts.append(
-                    {"functionResponse": {"name": bc.tool_name, "response": result_payload}}
-                )
+            batch_results, fn_response_parts = _execute_backend_tools_parallel(
+                backend_calls, api_key=api_key, http_client=http_client, project_id=context.project_id,
+            )
+            all_backend_results.extend(batch_results)
             contents.append({"role": "function", "parts": fn_response_parts})
 
         if frontend_calls:
@@ -601,19 +619,10 @@ def resume_sub_agent(
             break
 
         if backend_calls:
-            fn_resp: list[dict[str, Any]] = []
-            for bc in backend_calls:
-                br = _execute_backend_tool_inline(
-                    bc, api_key=api_key, http_client=http_client, project_id=project_id,
-                )
-                all_backend_results.append(br)
-                rp: dict[str, Any] = (
-                    {"result": br.result} if br.success
-                    else {"error": br.error or "unknown"}
-                )
-                fn_resp.append(
-                    {"functionResponse": {"name": bc.tool_name, "response": rp}}
-                )
+            batch_results, fn_resp = _execute_backend_tools_parallel(
+                backend_calls, api_key=api_key, http_client=http_client, project_id=project_id,
+            )
+            all_backend_results.extend(batch_results)
             contents.append({"role": "function", "parts": fn_resp})
 
         if frontend_calls:
