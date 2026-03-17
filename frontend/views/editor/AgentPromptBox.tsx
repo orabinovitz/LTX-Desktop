@@ -21,6 +21,8 @@ interface AgentPromptBoxProps {
   canUndo?: boolean;
   clarificationState?: ClarificationState | null;
   onSubmitClarification?: (answers: ClarificationAnswer[]) => void;
+  onSkipTask?: (taskId: string) => void;
+  onStop?: () => void;
   voiceStatus?: LiveAgentStatus;
   voiceIsSpeaking?: boolean;
   voiceError?: string | null;
@@ -136,6 +138,8 @@ export function AgentPromptBox({
   canUndo = false,
   clarificationState = null,
   onSubmitClarification,
+  onSkipTask,
+  onStop,
   voiceStatus = "idle" as LiveAgentStatus,
   voiceIsSpeaking = false,
   voiceError = null,
@@ -348,7 +352,12 @@ export function AgentPromptBox({
           {/* Orchestrated progress — sticky above messages */}
           {showProgressView && showOrchestratedSticky && (
             <div className="flex-shrink-0 overflow-y-auto border-b border-zinc-800/60 px-3 py-2" style={{ maxHeight: "40%" }}>
-              <TaskProgressView progress={progress} onSetCollapsed={onSetCollapsed} />
+              <TaskProgressView
+                progress={progress}
+                onSetCollapsed={onSetCollapsed}
+                onSkipTask={onSkipTask}
+                onStop={onStop}
+              />
             </div>
           )}
 
@@ -418,7 +427,12 @@ export function AgentPromptBox({
 
             {/* Non-orchestrated progress stays inline */}
             {showProgressView && !showOrchestratedSticky && (
-              <TaskProgressView progress={progress} onSetCollapsed={onSetCollapsed} />
+              <TaskProgressView
+                progress={progress}
+                onSetCollapsed={onSetCollapsed}
+                onSkipTask={onSkipTask}
+                onStop={onStop}
+              />
             )}
 
             {showOldThinking && !clarificationState && (

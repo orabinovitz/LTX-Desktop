@@ -43,6 +43,8 @@ interface AgentDispatchValue {
   clearChat: () => void;
   registerExecutor: (executor: AgentViewExecutor) => void;
   unregisterExecutor: (viewContext: ViewContext) => void;
+  stopAgent: () => void;
+  skipTask: (taskId: string) => void;
 }
 
 interface AgentStateValue {
@@ -451,6 +453,17 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     setActiveMode("simple");
   }, [simpleAgent, orchestratedAgent]);
 
+  const stopAgent = useCallback(() => {
+    orchestratedAgent.stop();
+  }, [orchestratedAgent]);
+
+  const skipTask = useCallback(
+    (taskId: string) => {
+      orchestratedAgent.skipTask(taskId);
+    },
+    [orchestratedAgent],
+  );
+
   const dispatch = useMemo<AgentDispatchValue>(
     () => ({
       setAgentOpen,
@@ -459,8 +472,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       clearChat,
       registerExecutor,
       unregisterExecutor,
+      stopAgent,
+      skipTask,
     }),
-    [setAgentOpen, sendAgentPrompt, submitClarification, clearChat, registerExecutor, unregisterExecutor],
+    [setAgentOpen, sendAgentPrompt, submitClarification, clearChat, registerExecutor, unregisterExecutor, stopAgent, skipTask],
   );
 
   const state = useMemo<AgentStateValue>(

@@ -7,6 +7,7 @@ import {
   Ban,
   GitBranch,
   AlertCircle,
+  Square,
 } from "lucide-react";
 import { useEffect, useRef, useState, useMemo } from "react";
 import type { AgentProgress, AgentTask } from "@/types/agent-progress";
@@ -17,6 +18,8 @@ const COMPLETED_COLLAPSE_THRESHOLD = 3;
 interface TaskProgressViewProps {
   progress: AgentProgress;
   onSetCollapsed: (value: boolean) => void;
+  onSkipTask?: (taskId: string) => void;
+  onStop?: () => void;
 }
 
 function useElapsedTime(startedAt: number, completedAt?: number): string {
@@ -103,10 +106,12 @@ function CompactProgressBar({
   progress,
   collapsed,
   onToggle,
+  onStop,
 }: {
   progress: AgentProgress;
   collapsed: boolean;
   onToggle: () => void;
+  onStop?: () => void;
 }) {
   const isFinished = progress.phase === "done" || progress.phase === "error";
   const isError = progress.phase === "error";
@@ -204,6 +209,19 @@ function CompactProgressBar({
           <span className="flex-shrink-0 text-[10px] tabular-nums text-zinc-600">
             {totalElapsed}
           </span>
+        )}
+
+        {!isFinished && onStop && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onStop();
+            }}
+            className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-red-500/20 hover:text-red-400"
+            title="Stop agent"
+          >
+            <Square className="h-3 w-3" />
+          </button>
         )}
       </div>
 
@@ -340,10 +358,12 @@ function PendingTaskCard({
   task,
   allTasks,
   index,
+  onSkip,
 }: {
   task: AgentTask;
   allTasks: AgentTask[];
   index: number;
+  onSkip?: (taskId: string) => void;
 }) {
   const waitingOn = useMemo(() => {
     if (!task.dependsOn || task.dependsOn.length === 0) return [];
@@ -360,7 +380,7 @@ function PendingTaskCard({
 
   return (
     <div
-      className="flex items-start gap-2 rounded-md border-l-[3px] border-l-zinc-700 px-2.5 py-1.5 transition-all duration-300"
+      className="group flex items-start gap-2 rounded-md border-l-[3px] border-l-zinc-700 px-2.5 py-1.5 transition-all duration-300"
       style={{ animationDelay: `${index * 50}ms` }}
     >
       <div className="mt-px">
@@ -384,6 +404,15 @@ function PendingTaskCard({
           </div>
         )}
       </div>
+      {onSkip && (
+        <button
+          onClick={() => onSkip(task.id)}
+          className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-zinc-600 opacity-0 transition-all hover:bg-zinc-700 hover:text-zinc-300 group-hover:opacity-100"
+          title="Skip this task"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 }
@@ -525,6 +554,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 export function TaskProgressView({
   progress,
   onSetCollapsed,
+  onSkipTask,
+  onStop,
 }: TaskProgressViewProps) {
   const collapsed = progress.collapsed;
   const isFinished = progress.phase === "done" || progress.phase === "error";
@@ -578,7 +609,6 @@ export function TaskProgressView({
 
   if (progress.phase === "idle") return null;
 
-  // Non-orchestrated mode: use the old simple layout
   if (!isOrchestrated) {
     return (
       <SimpleTaskProgressView progress={progress} onSetCollapsed={onSetCollapsed} />
@@ -602,6 +632,7 @@ export function TaskProgressView({
         progress={progress}
         collapsed={collapsed}
         onToggle={() => onSetCollapsed(!collapsed)}
+        onStop={onStop}
       />
 
       <div
@@ -659,6 +690,7 @@ export function TaskProgressView({
                     task={task}
                     allTasks={progress.tasks}
                     index={i}
+                    onSkip={onSkipTask}
                   />
                 ))}
                 {hiddenPendingCount > 0 && (

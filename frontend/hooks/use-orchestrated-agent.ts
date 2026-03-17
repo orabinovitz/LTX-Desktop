@@ -175,6 +175,7 @@ export function useOrchestratedAgent() {
   const [isProcessing, setIsProcessing] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const stoppedRef = useRef(false);
 
   const progressActions = useAgentProgress();
   const { progress } = progressActions;
@@ -192,6 +193,7 @@ export function useOrchestratedAgent() {
       displayPrompt?: string,
     ) => {
       setIsProcessing(true);
+      stoppedRef.current = false;
       abortRef.current?.abort();
       abortRef.current = new AbortController();
       const { signal } = abortRef.current;
@@ -244,6 +246,17 @@ export function useOrchestratedAgent() {
         let lastMessageAdded = false;
 
         while (!response.done && turns < 50) {
+          if (stoppedRef.current) {
+            syncTaskStatuses(response.tasks, progressActions, progressActions.progressRef);
+            cancelRemainingPendingTasks(progressActions);
+            progressActions.endSession("Stopped by user");
+            setMessages((prev) => [
+              ...prev,
+              { role: "agent", content: "Agent stopped. Completed tasks are preserved." },
+            ]);
+            return;
+          }
+
           turns++;
           progressActions.incrementTurn();
           syncTaskStatuses(response.tasks, progressActions, progressActions.progressRef);
@@ -290,7 +303,6 @@ export function useOrchestratedAgent() {
               }
             }
 
-            // BUG-4 fix: send updated context after mutation tools
             let updatedContext: string | undefined;
             const hadMutations = toolCalls.some((tc) =>
               MUTATION_TOOLS.has(tc.tool_name),
@@ -357,8 +369,6 @@ export function useOrchestratedAgent() {
               window.dispatchEvent(new CustomEvent('memory-updated'));
             }
           } else if (!response.done) {
-            // BUG-1 fix: when no tool calls but not done, call continue
-            // to let the orchestrator advance to the next task.
             if (response.message) {
               setMessages((prev) => [
                 ...prev,
@@ -396,7 +406,6 @@ export function useOrchestratedAgent() {
         syncTaskStatuses(response.tasks, progressActions, progressActions.progressRef);
         progressActions.endSession();
 
-        // BUG-9 fix: only add final message if we didn't already add it
         const finalText = response.message || "All tasks completed.";
         if (!lastMessageAdded || finalText !== response.message) {
           setMessages((prev) => [
@@ -429,8 +438,37 @@ export function useOrchestratedAgent() {
     [progressActions],
   );
 
+  const stop = useCallback(() => {
+    stoppedRef.current = true;
+  }, []);
+
+  const skipTask = useCallback(
+    async (taskId: string) => {
+      if (!sessionIdRef.current) return;
+      progressActions.skipTask(taskId);
+      try {
+        const res = await backendFetch("/api/agent/orchestrate/skip-task", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: sessionIdRef.current,
+            task_id: taskId,
+          }),
+        });
+        if (res.ok) {
+          const data: OrchestrateResponse = await res.json();
+          syncTaskStatuses(data.tasks, progressActions, progressActions.progressRef);
+        }
+      } catch {
+        logger.warn("[orchestrated-agent] skip-task request failed");
+      }
+    },
+    [progressActions],
+  );
+
   const clearChat = useCallback(() => {
     abortRef.current?.abort();
+    stoppedRef.current = false;
     setMessages([]);
     sessionIdRef.current = null;
     progressActions.reset();
@@ -444,6 +482,8 @@ export function useOrchestratedAgent() {
     setMessages,
     progress,
     setCollapsed: progressActions.setCollapsed,
+    stop,
+    skipTask,
   };
 }
 
@@ -499,6 +539,17 @@ function groupByToolName(toolCalls: ToolCall[]): ToolCallGroup[] {
     }
   }
   return groups;
+}
+
+function cancelRemainingPendingTasks(
+  actions: ReturnType<typeof useAgentProgress>,
+) {
+  const tasks = actions.progressRef.current.tasks;
+  for (const task of tasks) {
+    if (task.status === "pending") {
+      actions.skipTask(task.id);
+    }
+  }
 }
 
 function syncTaskStatuses(

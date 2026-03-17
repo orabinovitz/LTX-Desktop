@@ -122,6 +122,17 @@ export function useAgentProgress() {
     [updateTask],
   );
 
+  const skipTask = useCallback(
+    (taskId: string) => {
+      updateTask(taskId, {
+        status: "cancelled",
+        completedAt: Date.now(),
+        error: "Skipped",
+      });
+    },
+    [updateTask],
+  );
+
   const addAdHocTask = useCallback((task: AgentTask) => {
     setProgress((prev) => {
       const next = { ...prev, tasks: [...prev.tasks, task] };
@@ -177,6 +188,7 @@ export function useAgentProgress() {
     completeTask,
     failTask,
     updateTaskProgress,
+    skipTask,
     addAdHocTask,
     incrementTurn,
     endSession,

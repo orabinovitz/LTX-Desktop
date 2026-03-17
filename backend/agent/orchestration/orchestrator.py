@@ -226,6 +226,40 @@ class Orchestrator:
             message="Plan ready. Starting execution.",
         )
 
+    def skip_task(self, session_id: str, task_id: str) -> OrchestrateResponse:
+        """Mark a pending task as cancelled (skipped by user).
+
+        Does NOT cascade to dependents — downstream tasks can still proceed
+        since CANCELLED is a terminal state in ``get_ready_tasks()``.
+        """
+        session = _get_session(session_id)
+        if session is None:
+            return OrchestrateResponse(
+                session_id=session_id,
+                status="error",
+                message="Session not found or expired.",
+                done=True,
+            )
+
+        task = session.dag.get_task(task_id)
+        if task is None:
+            return _build_response(
+                session, self._registry,
+                message=f"Task '{task_id}' not found.",
+            )
+
+        if task.status != TaskStatus.PENDING:
+            return _build_response(
+                session, self._registry,
+                message=f"Task '{task_id}' is {task.status.value}, only pending tasks can be skipped.",
+            )
+
+        task.status = TaskStatus.CANCELLED
+        task.error = "Skipped by user"
+        logger.info("[orchestrator] session=%s | task %s skipped by user", session_id[:8], task_id)
+
+        return _build_response(session, self._registry)
+
     def continue_with_results(
         self,
         session_id: str,

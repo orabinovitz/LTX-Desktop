@@ -30,8 +30,10 @@ from agent.types import (
     OrchestrateContinueRequest,
     OrchestrateRequest,
     OrchestrateResponse,
+    SkipTaskRequest,
     VideoMetadata,
 )
+from api_types import SuggestAssetMetaRequest, SuggestAssetMetaResponse
 from agent.brain import ProjectBrain
 from agent.scene_decomposer import SubClipDefinition
 from handlers.base import StateHandlerBase
@@ -119,6 +121,23 @@ class AgentHandler(StateHandlerBase):
             updated_context=request.updated_context,
         )
 
+    def skip_task(self, request: SkipTaskRequest) -> OrchestrateResponse:
+        """Skip a pending task in an orchestration session."""
+        api_key = self._state.app_settings.gemini_api_key
+        if not api_key:
+            return OrchestrateResponse(
+                message="Gemini API key not configured.",
+                done=True,
+                status="error",
+            )
+
+        from agent.orchestration.orchestrator import Orchestrator
+        orch = Orchestrator(api_key=api_key, http_client=self._http)
+        return orch.skip_task(
+            session_id=request.session_id,
+            task_id=request.task_id,
+        )
+
     def classify_request_complexity(self, prompt: str) -> str:
         """Classify whether a request needs orchestration or the simple agent."""
         from agent.orchestration.complexity_router import classify_complexity
@@ -164,6 +183,24 @@ class AgentHandler(StateHandlerBase):
             gemini_api_key=api_key,
             http_client=self._http,
         )
+
+    def suggest_asset_meta(self, request: SuggestAssetMetaRequest) -> SuggestAssetMetaResponse:
+        """Suggest a short display name and tags for a generated asset."""
+        api_key = self._state.app_settings.gemini_api_key
+        if not api_key:
+            return SuggestAssetMetaResponse()
+
+        from agent import asset_namer
+        result = asset_namer.suggest_asset_meta(
+            prompt=request.prompt,
+            asset_type=request.asset_type,
+            existing_tags=request.existing_tags,
+            gemini_api_key=api_key,
+            http_client=self._http,
+        )
+        if result is None:
+            return SuggestAssetMetaResponse()
+        return SuggestAssetMetaResponse(name=result.name, tags=result.tags)
 
     def analyze_video(self, request: AnalyzeVideoRequest) -> AnalyzeVideoResponse:
         """Start background video analysis."""

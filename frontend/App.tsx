@@ -39,6 +39,8 @@ function AppContent() {
     submitClarification,
     clarificationState,
     activeExecutor,
+    stopAgent,
+    skipTask,
   } = useAgentContext()
 
   useGlobalAgentShortcut()
@@ -480,6 +482,8 @@ function AppContent() {
         canUndo={activeExecutor?.canUndo ?? false}
         clarificationState={clarificationState}
         onSubmitClarification={submitClarification}
+        onSkipTask={skipTask}
+        onStop={stopAgent}
       />
 
       {showGlobalControls && (

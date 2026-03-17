@@ -26,10 +26,12 @@ from agent.types import (
     OrchestrateRequest,
     OrchestrateResponse,
     SaveDocumentRequest,
+    SkipTaskRequest,
     SubClipInfo,
     UpdateContextRequest,
     UpdateDocumentRequest,
 )
+from api_types import SuggestAssetMetaRequest, SuggestAssetMetaResponse
 from app_handler import AppHandler
 from state import get_state_service
 
@@ -172,6 +174,14 @@ def route_orchestrate_continue(
     return handler.agent.orchestrate_continue(req)
 
 
+@router.post("/agent/orchestrate/skip-task", response_model=OrchestrateResponse)
+def route_orchestrate_skip_task(
+    req: SkipTaskRequest,
+    handler: AppHandler = Depends(get_state_service),
+) -> OrchestrateResponse:
+    return handler.agent.skip_task(req)
+
+
 @router.get("/agent/classify-complexity")
 def route_classify_complexity(
     prompt: str,
@@ -198,6 +208,15 @@ def route_clarify(
 ) -> ClarifyResponse:
     """Generate clarification questions for a complex request."""
     return handler.agent.clarify(req)
+
+
+@router.post("/agent/suggest-asset-meta", response_model=SuggestAssetMetaResponse)
+def route_suggest_asset_meta(
+    req: SuggestAssetMetaRequest,
+    handler: AppHandler = Depends(get_state_service),
+) -> SuggestAssetMetaResponse:
+    """Suggest a short name and tags for a generated asset."""
+    return handler.agent.suggest_asset_meta(req)
 
 
 @router.post("/agent/live-token", response_model=LiveTokenResponse)

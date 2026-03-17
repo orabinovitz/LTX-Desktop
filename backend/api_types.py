@@ -307,3 +307,14 @@ class IcLoraGenerateRequest(BaseModel):
     cfg_guidance_scale: float = 1.0
     negative_prompt: str = ""
     images: list[IcLoraImageInput] = Field(default_factory=_default_ic_lora_images)
+
+
+class SuggestAssetMetaRequest(BaseModel):
+    prompt: str
+    asset_type: str
+    existing_tags: list[str] = []
+
+
+class SuggestAssetMetaResponse(BaseModel):
+    name: str | None = None
+    tags: list[str] = []

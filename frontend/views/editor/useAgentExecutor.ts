@@ -865,6 +865,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
 
       generationAbortRef.current = new AbortController();
       try {
+        const curTags = [...new Set((assetsRef.current ?? []).flatMap(a => a.tags ?? []))];
         const result = await agentGenerateVideo(
           {
             prompt, mode: mode as "text_to_video" | "image_to_video" | "audio_to_video",
@@ -879,6 +880,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           addAsset, currentProjectId, assetSavePath,
           generationAbortRef.current.signal,
           onProgress,
+          updateAsset ? { updateAsset, projectTags: curTags } : undefined,
         );
         return ok("generate_video", result);
       } catch (e) {
@@ -907,6 +909,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
 
       generationAbortRef.current = new AbortController();
       try {
+        const imgTags = [...new Set((assetsRef.current ?? []).flatMap(a => a.tags ?? []))];
         const result = await agentGenerateImage(
           {
             prompt,
@@ -919,6 +922,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           addAsset, currentProjectId, assetSavePath,
           generationAbortRef.current.signal,
           onProgress,
+          updateAsset ? { updateAsset, projectTags: imgTags } : undefined,
         );
         return ok("generate_image", result);
       } catch (e) {
@@ -979,12 +983,16 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
 
       generationAbortRef.current = new AbortController();
       try {
+        const gapTags = [...new Set((assetsRef.current ?? []).flatMap(a => a.tags ?? []))];
+        const gapAutoNaming = updateAsset ? { updateAsset, projectTags: gapTags } : undefined;
         let result;
         if (mode === "text_to_image") {
           result = await agentGenerateImage(
             { prompt: prompt ?? "A scene that connects the surrounding clips" },
             addAsset, currentProjectId, assetSavePath,
             generationAbortRef.current.signal,
+            undefined,
+            gapAutoNaming,
           );
         } else {
           result = await agentGenerateVideo(
@@ -995,6 +1003,8 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
             },
             addAsset, currentProjectId, assetSavePath,
             generationAbortRef.current.signal,
+            undefined,
+            gapAutoNaming,
           );
         }
 

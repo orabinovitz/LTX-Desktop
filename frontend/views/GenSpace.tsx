@@ -27,6 +27,7 @@ import { RetakePanel } from '../components/RetakePanel'
 import { ICLoraPanel, CONDITIONING_TYPES } from '../components/ICLoraPanel'
 import { FreeApiKeyBubble } from '../components/FreeApiKeyBubble'
 import { TagInput, TagPills } from '../components/TagInput'
+import { autoNameAsset } from '../lib/auto-name-asset'
 
 import { useAgentDispatch } from '../contexts/AgentContext'
 import type { ToolResult } from './editor/useAgentExecutor'
@@ -137,121 +138,124 @@ function AssetCard({
 
   return (
     <div
-      className="relative group cursor-pointer rounded-xl overflow-hidden bg-zinc-900"
+      className="relative group cursor-pointer rounded-xl bg-zinc-900"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={onPlay}
       draggable={asset.type === 'image'}
       onDragStart={(e) => asset.type === 'image' && onDragStart(e, asset)}
     >
-      {asset.type === 'video' ? (
-        <video 
-          ref={videoRef}
-          src={asset.url} 
-          className="w-full aspect-video object-contain"
-          muted={isMuted}
-          loop
-          onTimeUpdate={handleTimeUpdate}
-        />
-      ) : (
-        <img src={asset.url} alt="" className="w-full aspect-video object-contain" />
-      )}
-      
-      {/* Favorite heart - always visible when favorited */}
-      {isFavorite && !isHovered && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleFavorite?.() }}
-          className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white transition-colors z-10"
-        >
-          <Heart className="h-3.5 w-3.5 fill-current" />
-        </button>
-      )}
-      
-      {/* Hover overlay */}
-      <div className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 transition-opacity duration-200 ${
-        isHovered ? 'opacity-100' : 'opacity-0'
-      }`}>
-        {/* Top buttons */}
-        <div className="absolute top-2 left-2 right-2 flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={(e) => { e.stopPropagation(); onToggleFavorite?.() }}
-              className={`p-1.5 rounded-lg backdrop-blur-md transition-colors ${
-                isFavorite ? 'bg-white/20 text-white' : 'bg-black/40 text-white hover:bg-black/60'
-              }`}
-            >
-              <Heart className={`h-3.5 w-3.5 ${isFavorite ? 'fill-current' : ''}`} />
-            </button>
-            
-            {asset.type === 'image' && (
-              <>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onCreateVideo?.(asset) }}
-                  className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
-                >
-                  <Film className="h-3 w-3" />
-                  Create video
-                </button>
-              </>
-            )}
-            {asset.type === 'video' && (
-              <>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onRetake?.(asset) }}
-                  className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
-                >
-                  <Scissors className="h-3 w-3" />
-                  Retake
-                </button>
-                {onIcLora && (
+      {/* Media wrapper — overflow-hidden here so rounded corners clip the image, not the whole card */}
+      <div className="relative rounded-t-xl overflow-hidden">
+        {asset.type === 'video' ? (
+          <video 
+            ref={videoRef}
+            src={asset.url} 
+            className="w-full aspect-video object-contain"
+            muted={isMuted}
+            loop
+            onTimeUpdate={handleTimeUpdate}
+          />
+        ) : (
+          <img src={asset.url} alt="" className="w-full aspect-video object-contain" />
+        )}
+        
+        {/* Favorite heart - always visible when favorited */}
+        {isFavorite && !isHovered && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleFavorite?.() }}
+            className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white transition-colors z-10"
+          >
+            <Heart className="h-3.5 w-3.5 fill-current" />
+          </button>
+        )}
+        
+        {/* Hover overlay */}
+        <div className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 transition-opacity duration-200 ${
+          isHovered ? 'opacity-100' : 'opacity-0'
+        }`}>
+          {/* Top buttons */}
+          <div className="absolute top-2 left-2 right-2 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleFavorite?.() }}
+                className={`p-1.5 rounded-lg backdrop-blur-md transition-colors ${
+                  isFavorite ? 'bg-white/20 text-white' : 'bg-black/40 text-white hover:bg-black/60'
+                }`}
+              >
+                <Heart className={`h-3.5 w-3.5 ${isFavorite ? 'fill-current' : ''}`} />
+              </button>
+              
+              {asset.type === 'image' && (
+                <>
                   <button
-                    onClick={(e) => { e.stopPropagation(); onIcLora(asset) }}
+                    onClick={(e) => { e.stopPropagation(); onCreateVideo?.(asset) }}
                     className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
                   >
-                    <Sparkles className="h-3 w-3" />
-                    IC-LoRA
+                    <Film className="h-3 w-3" />
+                    Create video
                   </button>
-                )}
-              </>
-            )}
-          </div>
-          
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleDownload}
-              className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors"
-            >
-              <Download className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete() }}
-              className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white/70 hover:bg-red-500/80 hover:text-white transition-colors"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-        
-        {/* Bottom controls for video */}
-        {asset.type === 'video' && (
-          <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+                </>
+              )}
+              {asset.type === 'video' && (
+                <>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRetake?.(asset) }}
+                    className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
+                  >
+                    <Scissors className="h-3 w-3" />
+                    Retake
+                  </button>
+                  {onIcLora && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onIcLora(asset) }}
+                      className="px-2.5 py-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors flex items-center gap-1.5 text-xs font-medium whitespace-nowrap"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      IC-LoRA
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+            
             <div className="flex items-center gap-1.5">
-              <div className="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-md text-white text-xs font-mono">
-                {formatTime(currentTime)}
-              </div>
               <button
-                onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted) }}
+                onClick={handleDownload}
                 className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors"
               >
-                {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                <Download className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete() }}
+                className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white/70 hover:bg-red-500/80 hover:text-white transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
-        )}
+          
+          {/* Bottom controls for video */}
+          {asset.type === 'video' && (
+            <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <div className="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-md text-white text-xs font-mono">
+                  {formatTime(currentTime)}
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted) }}
+                  className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors"
+                >
+                  {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Bottom info bar: name + tags */}
-      <div className="px-2 py-1.5 bg-zinc-900" onClick={(e) => e.stopPropagation()}>
+      {/* Bottom info bar: name + tags — outside overflow-hidden so popover is not clipped */}
+      <div className="px-2 py-1.5 bg-zinc-900 rounded-b-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-1">
           {isEditingName ? (
             <input
@@ -282,7 +286,7 @@ function AssetCard({
           {!isEditingName && (
             <div className="relative">
               <button
-                className="p-0.5 rounded text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors opacity-0 group-hover:opacity-100"
+                className="p-0.5 rounded text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
                 onClick={() => setShowTagPopover(!showTagPopover)}
                 title="Add tags"
               >
@@ -291,7 +295,7 @@ function AssetCard({
               {showTagPopover && (
                 <div
                   ref={tagPopoverRef}
-                  className="absolute right-0 top-full mt-1 z-50 w-48 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-2"
+                  className="absolute right-0 bottom-full mb-1 z-50 w-48 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-2"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <TagInput
@@ -1317,6 +1321,8 @@ export function GenSpace() {
                 cameraMotion: (args.camera_motion as string) ?? 'none',
               },
               addAsset, currentProjectId,
+              undefined, undefined, undefined,
+              { updateAsset, projectTags },
             )
             return ok(result)
           } catch (e) {
@@ -1349,6 +1355,8 @@ export function GenSpace() {
                 imageUrls: resolvedImageUrls,
               },
               addAsset, currentProjectId,
+              undefined, undefined, undefined,
+              { updateAsset, projectTags },
             )
             return ok(result)
           } catch (e) {
@@ -1618,7 +1626,7 @@ export function GenSpace() {
         const copied = await copyToAssetFolder(videoPath, currentProjectId)
         const finalPath = copied?.path ?? videoPath
         const finalUrl = copied?.url ?? videoUrl
-        addAsset(currentProjectId, {
+        const newVideoAsset = addAsset(currentProjectId, {
           type: 'video',
           path: finalPath,
           url: finalUrl,
@@ -1646,6 +1654,7 @@ export function GenSpace() {
           }],
           activeTakeIndex: 0,
         })
+        autoNameAsset(currentProjectId, newVideoAsset.id, effectivePrompt, 'video', projectTags, updateAsset)
         reset()
       } catch (err) {
         persistedVideoKeyRef.current = null
@@ -1686,7 +1695,7 @@ export function GenSpace() {
           }
         }
       } else {
-        addAsset(currentProjectId, {
+        const newRetakeAsset = addAsset(currentProjectId, {
           type: 'video',
           path: finalPath,
           url: finalUrl,
@@ -1710,6 +1719,7 @@ export function GenSpace() {
           takes: [{ url: finalUrl, path: finalPath, createdAt: Date.now() }],
           activeTakeIndex: 0,
         })
+        autoNameAsset(currentProjectId, newRetakeAsset.id, usedPrompt, 'video', projectTags, updateAsset)
         setMode('video')
       }
 
@@ -1747,7 +1757,7 @@ export function GenSpace() {
           }
         }
       } else {
-        addAsset(currentProjectId, {
+        const newIcLoraAsset = addAsset(currentProjectId, {
           type: 'video',
           path: finalPath,
           url: finalUrl,
@@ -1769,6 +1779,7 @@ export function GenSpace() {
           takes: [{ url: finalUrl, path: finalPath, createdAt: Date.now() }],
           activeTakeIndex: 0,
         })
+        autoNameAsset(currentProjectId, newIcLoraAsset.id, submission.prompt, 'video', projectTags, updateAsset)
       }
 
       setActiveIcLoraSource(null)
@@ -1790,7 +1801,7 @@ export function GenSpace() {
             const copied = imgPath ? await copyToAssetFolder(imgPath, currentProjectId) : null
             const finalPath = copied?.path ?? imgPath ?? imageUrl
             const finalUrl = copied?.url ?? imageUrl
-            addAsset(currentProjectId, {
+            const newImgAsset = addAsset(currentProjectId, {
               type: 'image',
               path: finalPath,
               url: finalUrl,
@@ -1815,6 +1826,7 @@ export function GenSpace() {
               }],
               activeTakeIndex: 0,
             })
+            autoNameAsset(currentProjectId, newImgAsset.id, effectiveImgPrompt, 'image', projectTags, updateAsset)
           }
         }
       })()

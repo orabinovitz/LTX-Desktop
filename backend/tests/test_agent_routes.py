@@ -249,6 +249,69 @@ class TestOrchestrate:
         assert data["done"] is True
         assert "not found" in data["message"].lower() or "expired" in data["message"].lower()
 
+    def test_skip_pending_task(self, client, test_state, fake_services):
+        test_state.state.app_settings.gemini_api_key = "test-key"
+        fake_services.http.queue("post", _planner_response([
+            {"id": "task-1", "description": "Write script", "task_type": "creative",
+             "depends_on": [], "tool_categories": [], "context_requirements": []},
+            {"id": "task-2", "description": "Generate video", "task_type": "execution",
+             "depends_on": ["task-1"], "tool_categories": ["generation"],
+             "context_requirements": []},
+        ]))
+
+        resp = client.post("/api/agent/orchestrate", json={
+            "prompt": "Create a video",
+        })
+        assert resp.status_code == 200
+        session_id = resp.json()["session_id"]
+
+        resp = client.post("/api/agent/orchestrate/skip-task", json={
+            "session_id": session_id,
+            "task_id": "task-2",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        task_2 = next(t for t in data["tasks"] if t["id"] == "task-2")
+        assert task_2["status"] == "cancelled"
+        assert task_2["error"] == "Skipped by user"
+
+    def test_skip_nonpending_task_rejected(self, client, test_state, fake_services):
+        test_state.state.app_settings.gemini_api_key = "test-key"
+        fake_services.http.queue("post", _planner_response([
+            {"id": "task-1", "description": "Write script", "task_type": "creative",
+             "depends_on": [], "tool_categories": [], "context_requirements": []},
+        ]))
+
+        resp = client.post("/api/agent/orchestrate", json={
+            "prompt": "Create a video",
+        })
+        session_id = resp.json()["session_id"]
+
+        from agent.types import TaskStatus
+        session = _sessions[session_id]
+        task = session.dag.get_task("task-1")
+        assert task is not None
+        task.status = TaskStatus.RUNNING
+
+        resp = client.post("/api/agent/orchestrate/skip-task", json={
+            "session_id": session_id,
+            "task_id": "task-1",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "running" in data["message"].lower()
+
+    def test_skip_expired_session(self, client, test_state):
+        test_state.state.app_settings.gemini_api_key = "test-key"
+        resp = client.post("/api/agent/orchestrate/skip-task", json={
+            "session_id": "nonexistent",
+            "task_id": "task-1",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["done"] is True
+        assert "not found" in data["message"].lower() or "expired" in data["message"].lower()
+
 
 # ====================================================================
 # /api/agent/brain

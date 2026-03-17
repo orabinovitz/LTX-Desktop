@@ -447,6 +447,13 @@ class OrchestrateContinueRequest(BaseModel):
     updated_context: str | None = None
 
 
+class SkipTaskRequest(BaseModel):
+    """Request to skip (cancel) a pending task in an orchestration session."""
+
+    session_id: str
+    task_id: str
+
+
 # ============================================================
 # Clarification
 # ============================================================

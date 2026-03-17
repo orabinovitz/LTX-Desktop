@@ -11,6 +11,7 @@ import { copyToAssetFolder } from "../../lib/asset-copy";
 import type { OnToolProgress } from "../../hooks/use-agent";
 import { backendFetch } from "../../lib/backend";
 import { getAllowedForcedApiDurations } from "../../lib/api-video-options";
+import { autoNameAsset } from "../../lib/auto-name-asset";
 
 export function urlToDataUri(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -146,6 +147,10 @@ export async function agentGenerateVideo(
   _assetSavePath?: string | undefined | null,
   signal?: AbortSignal,
   onProgress?: OnToolProgress,
+  autoNaming?: {
+    updateAsset: (projectId: string, assetId: string, updates: Partial<Asset>) => void;
+    projectTags: string[];
+  },
 ): Promise<GenerationResult> {
   const stopPolling = startProgressPolling(onProgress, signal);
 
@@ -226,6 +231,10 @@ export async function agentGenerateVideo(
     },
   });
 
+  if (autoNaming) {
+    autoNameAsset(projectId, newAsset.id, params.prompt, 'video', autoNaming.projectTags, autoNaming.updateAsset);
+  }
+
   return {
     assetId: newAsset.id,
     type: "video",
@@ -244,6 +253,10 @@ export async function agentGenerateImage(
   _assetSavePath?: string | undefined | null,
   signal?: AbortSignal,
   onProgress?: OnToolProgress,
+  autoNaming?: {
+    updateAsset: (projectId: string, assetId: string, updates: Partial<Asset>) => void;
+    projectTags: string[];
+  },
 ): Promise<GenerationResult> {
   const stopPolling = startProgressPolling(onProgress, signal);
   const imageModel = params.model ?? "nano-banana-2";
@@ -345,6 +358,10 @@ export async function agentGenerateImage(
       imageSteps: isNb2 ? 0 : 8,
     },
   });
+
+  if (autoNaming) {
+    autoNameAsset(projectId, newAsset.id, params.prompt, 'image', autoNaming.projectTags, autoNaming.updateAsset);
+  }
 
   return {
     assetId: newAsset.id,
