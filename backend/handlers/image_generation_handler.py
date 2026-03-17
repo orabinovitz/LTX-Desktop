@@ -154,25 +154,26 @@ class ImageGenerationHandler(StateHandlerBase):
         num_images: int,
         image_urls: list[str] | None,
     ) -> GenerateImageResponse:
-        generation_id = uuid.uuid4().hex[:8]
+        """Generate images via the FAL NB2 API.
+
+        Unlike GPU and ZIT-API paths, this does NOT use the shared
+        single-slot generation state (start/complete/fail) because
+        multiple NB2 requests run concurrently and would overwrite
+        each other.  Cancellation is still honoured via the global
+        cancellation flag.
+        """
         output_paths: list[Path] = []
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         settings = self.state.app_settings.model_copy(deep=True)
         has_images = bool(image_urls)
 
+        if not settings.fal_api_key.strip():
+            raise HTTPError(500, "FAL_API_KEY_NOT_CONFIGURED")
+
         try:
-            self._generation.start_api_generation(generation_id)
-            self._generation.update_progress("validating_request", 5, None, None)
-
-            if not settings.fal_api_key.strip():
-                raise HTTPError(500, "FAL_API_KEY_NOT_CONFIGURED")
-
             for idx in range(num_images):
                 if self._generation.is_generation_cancelled():
                     raise RuntimeError("Generation was cancelled")
-
-                inference_progress = 15 + int((idx / num_images) * 60)
-                self._generation.update_progress("inference", inference_progress, None, None)
 
                 if has_images:
                     image_bytes = self._nb2_api_client.edit_images(
@@ -195,21 +196,12 @@ class ImageGenerationHandler(StateHandlerBase):
                 if self._generation.is_generation_cancelled():
                     raise RuntimeError("Generation was cancelled")
 
-                download_progress = 75 + int(((idx + 1) / num_images) * 20)
-                self._generation.update_progress("downloading_output", download_progress, None, None)
-
                 output_path = self.config.outputs_dir / f"nb2_image_{timestamp}_{uuid.uuid4().hex[:8]}.png"
                 output_path.write_bytes(image_bytes)
                 output_paths.append(output_path)
 
-            self._generation.update_progress("complete", 100, None, None)
-            self._generation.complete_generation([str(path) for path in output_paths])
-            return GenerateImageResponse(status="complete", image_paths=[str(path) for path in output_paths])
-        except HTTPError as e:
-            self._generation.fail_generation(e.detail)
-            raise
+            return GenerateImageResponse(status="complete", image_paths=[str(p) for p in output_paths])
         except Exception as e:
-            self._generation.fail_generation(str(e))
             if "cancelled" in str(e).lower():
                 for path in output_paths:
                     path.unlink(missing_ok=True)

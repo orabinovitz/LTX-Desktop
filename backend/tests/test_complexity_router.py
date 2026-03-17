@@ -229,3 +229,40 @@ def test_moodboard_is_orchestrated() -> None:
 
 def test_character_sheet_is_orchestrated() -> None:
     assert classify_complexity("create a character sheet for the detective") == "orchestrated"
+
+
+# --- Character pre-production natural language → orchestrated ---
+
+
+def test_characters_visuals_is_orchestrated() -> None:
+    """Plural 'characters' + 'visuals' is pre-production work."""
+    assert classify_complexity("now lets work on the characters visuals") == "orchestrated"
+
+
+def test_character_visual_singular_is_orchestrated() -> None:
+    assert classify_complexity("develop the character visual") == "orchestrated"
+
+
+def test_character_look_is_orchestrated() -> None:
+    assert classify_complexity("establish the character look") == "orchestrated"
+
+
+def test_character_appearance_is_orchestrated() -> None:
+    assert classify_complexity("define character appearance") == "orchestrated"
+
+
+def test_work_on_character_visuals_is_orchestrated() -> None:
+    """Verb-driven pattern: 'work on ... character ... visual'."""
+    assert classify_complexity("work on the character visuals now") == "orchestrated"
+
+
+# --- Regression: simple character image requests stay simple ---
+
+
+def test_generate_character_image_is_simple() -> None:
+    """A request to generate an image that mentions 'character' stays simple."""
+    assert classify_complexity("generate an image of a detective character") == "simple"
+
+
+def test_show_character_is_simple() -> None:
+    assert classify_complexity("show me the character") == "simple"

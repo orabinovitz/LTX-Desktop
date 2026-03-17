@@ -64,6 +64,8 @@ const PARALLEL_SAFE_TOOLS = new Set([
   "toggle_favorite",
 ]);
 
+const MAX_PARALLEL_GENERATIONS = 10;
+
 const MUTATION_TOOLS = new Set([
   "add_clip_to_timeline",
   "trim_clip",
@@ -273,8 +275,10 @@ export function useOrchestratedAgent() {
                 PARALLEL_SAFE_TOOLS.has(group.toolName) && group.calls.length > 1;
 
               if (isParallel) {
-                const groupResults = await Promise.all(
-                  group.calls.map((tc) => executeTool(tc)),
+                const groupResults = await executeParallelWithLimit(
+                  group.calls,
+                  executeTool,
+                  MAX_PARALLEL_GENERATIONS,
                 );
                 results.push(...groupResults);
               } else {
@@ -438,6 +442,38 @@ export function useOrchestratedAgent() {
 }
 
 // --- Helpers ---
+
+async function executeParallelWithLimit(
+  calls: ToolCall[],
+  executeTool: ExecuteToolFn,
+  limit: number,
+): Promise<ToolResult[]> {
+  const results: ToolResult[] = new Array(calls.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < calls.length) {
+      const idx = nextIndex++;
+      try {
+        results[idx] = await executeTool(calls[idx]);
+      } catch (e) {
+        results[idx] = {
+          tool_name: calls[idx].tool_name,
+          success: false,
+          result: null,
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(limit, calls.length) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+  return results;
+}
 
 interface ToolCallGroup {
   toolName: string;

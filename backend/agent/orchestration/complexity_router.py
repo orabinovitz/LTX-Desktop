@@ -71,7 +71,8 @@ _CREATIVE_PLANNING_SIGNALS = re.compile(
     | \blook\s+dev(?:elopment)?\b
     | \bstoryboard\b
     | \bpre[- ]?production\b
-    | \bcharacter\s+(?:sheet|ref|design)\b
+    | \bcharacters?\s+(?:sheet|ref|design|visuals?|looks?|appearances?)\b
+    | \b(?:work|develop|establish)\b.{0,20}\bcharacters?\b.{0,20}\bvisual
     | \blocation\s+(?:ref|scout|design)\b
     | \bshot\s+list\b
     | \bmood\s*board\b

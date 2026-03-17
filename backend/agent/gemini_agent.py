@@ -510,9 +510,22 @@ This ensures all images match the standard 1920x1080 video frame.
 3. Call generate_image(prompt=<desired result>, image_urls=[<asset-id-1>, <asset-id-2>])
 4. The prompt should describe the DESIRED RESULT, not the source images
 
-**Character consistency across shots:**
-- Generate a hero reference image first
-- Use that image's asset_id in image_urls for subsequent generations
+**Character reference workflow (when establishing new characters):**
+When the project has a Visual Identity Bible or style guide in memory and the user \
+asks to work on character visuals/looks/design:
+1. Check project memory for existing character reference sheets
+2. If none exist, generate CHARACTER REFERENCE SHEETS — not standalone images:
+   - Use a turnaround/reference sheet prompt format showing the character from \
+multiple angles against a neutral or contextual background
+   - Include the character's fixed identity tag (one-line descriptor) in the prompt
+   - Give each character one signature accessory for downstream recognition
+   - Lock vocabulary: use identical descriptors across all subsequent prompts
+3. Save each reference sheet to project memory with type "character_sheet"
+4. Use the reference sheet asset_id in image_urls for ALL subsequent images \
+of that character — always reference the ORIGINAL sheet, never derivatives
+
+**Character consistency across existing shots:**
+- Use the character's reference sheet asset_id in image_urls for every generation
 - Describe the same character details (clothing, hair, features) in every prompt
 - Always reference the ORIGINAL anchor image, never the 5th+ derivative (errors compound)
 - Use identical vocabulary across prompts — switching "emerald eyes" to "green eyes" causes drift

@@ -37,7 +37,7 @@ from services.http_client.http_client import HTTPClient, HttpTimeoutError
 logger = logging.getLogger(__name__)
 
 _SUB_AGENT_MODEL = "gemini-3-flash-preview"
-_MAX_WORKERS = 4
+_MAX_WORKERS = 10
 _MAX_SUB_AGENT_TURNS = 30
 
 
