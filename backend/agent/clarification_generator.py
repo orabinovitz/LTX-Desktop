@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from agent.types import (
@@ -137,6 +138,7 @@ def generate_questions(
         },
     }
 
+    t0 = time.monotonic()
     try:
         resp = http_client.post(
             url,
@@ -147,6 +149,8 @@ def generate_questions(
             json_payload=payload,
             timeout=30,
         )
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        logger.info("[clarification] Gemini responded HTTP %d in %dms", resp.status_code, elapsed_ms)
 
         if resp.status_code != 200:
             logger.warning(
@@ -161,7 +165,8 @@ def generate_questions(
         data: Any = json.loads(text)
 
     except Exception:
-        logger.warning("Clarification question generation failed", exc_info=True)
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        logger.warning("Clarification generation failed after %dms", elapsed_ms, exc_info=True)
         return ClarifyResponse(needs_clarification=False)
 
     return _parse_response(data)

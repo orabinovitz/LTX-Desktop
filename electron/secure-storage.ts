@@ -1,6 +1,7 @@
 import { safeStorage, app } from 'electron'
 import fs from 'fs'
 import path from 'path'
+import { logger } from './logger'
 
 const SECURE_KEYS_FILE = 'secure-keys.json'
 
@@ -16,14 +17,23 @@ function readRawStore(): SecureKeysOnDisk {
     if (fs.existsSync(p)) {
       return JSON.parse(fs.readFileSync(p, 'utf-8')) as SecureKeysOnDisk
     }
-  } catch {
-    // Corrupt file — start fresh
+  } catch (err) {
+    logger.warn(`Failed to read secure keys store (starting fresh): ${err instanceof Error ? err.message : String(err)}`)
   }
   return {}
 }
 
 function writeRawStore(store: SecureKeysOnDisk): void {
-  fs.writeFileSync(getSecureKeysPath(), JSON.stringify(store, null, 2))
+  const target = getSecureKeysPath()
+  const tmp = `${target}.tmp`
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(store, null, 2))
+    fs.renameSync(tmp, target)
+  } catch (err) {
+    logger.error(`Failed to write secure keys store: ${err instanceof Error ? err.message : String(err)}`)
+    try { fs.unlinkSync(tmp) } catch { /* best-effort cleanup */ }
+    throw err
+  }
 }
 
 export function storeSecureKey(name: string, value: string): void {
@@ -50,7 +60,8 @@ export function getSecureKey(name: string): string | null {
   try {
     const buf = Buffer.from(b64, 'base64')
     return safeStorage.decryptString(buf)
-  } catch {
+  } catch (err) {
+    logger.warn(`Failed to decrypt secure key "${name}": ${err instanceof Error ? err.message : String(err)}`)
     return null
   }
 }
@@ -65,8 +76,8 @@ export function getAllSecureKeys(): Record<string, string> {
     try {
       const buf = Buffer.from(b64, 'base64')
       result[name] = safeStorage.decryptString(buf)
-    } catch {
-      // Skip keys that fail to decrypt
+    } catch (err) {
+      logger.warn(`Failed to decrypt key "${name}": ${err instanceof Error ? err.message : String(err)}`)
     }
   }
   return result
@@ -98,8 +109,8 @@ export function migrateApiKeysFromSettings(settingsJsonPath: string): void {
     if (modified) {
       fs.writeFileSync(settingsJsonPath, JSON.stringify(raw, null, 2))
     }
-  } catch {
-    // Don't crash on migration failure
+  } catch (err) {
+    logger.warn(`API key migration from settings failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 

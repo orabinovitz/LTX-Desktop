@@ -321,7 +321,7 @@ export function ClipWaveform({ url, className = '', color = 'rgba(52, 211, 153, 
     let cancelled = false
     computeWaveform(url, 200).then(p => {
       if (!cancelled) setPeaks(p)
-    }).catch(() => {})
+    }).catch((err: unknown) => logger.warn(`Failed to compute waveform: ${err}`))
     return () => { cancelled = true }
   }, [url])
 

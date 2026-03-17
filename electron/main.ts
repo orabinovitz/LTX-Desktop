@@ -1,5 +1,5 @@
 import './app-paths'
-import { app } from 'electron'
+import { app, dialog } from 'electron'
 import { setupCSP } from './csp'
 import { registerExportHandlers } from './export/export-handler'
 import { stopExportProcess } from './export/ffmpeg-utils'
@@ -12,12 +12,27 @@ import { stopPythonBackend } from './python-backend'
 import { initAutoUpdater } from './updater'
 import { createWindow, getMainWindow } from './window'
 import { sendAnalyticsEvent } from './analytics'
+import { logger } from './logger'
+import { initSentry, captureException } from './sentry'
+
+initSentry()
+
+process.on('uncaughtException', (error) => {
+  captureException(error)
+  logger.error(`Uncaught exception: ${error.message}\n${error.stack ?? ''}`)
+})
+
+process.on('unhandledRejection', (reason) => {
+  captureException(reason)
+  const message = reason instanceof Error ? `${reason.message}\n${reason.stack ?? ''}` : String(reason)
+  logger.error(`Unhandled promise rejection: ${message}`)
+})
 
 function logAppVersion(): void {
   if (!app.isPackaged) {
-    console.log('[LTX Desktop] Running in development mode')
+    logger.info('[LTX Desktop] Running in development mode')
   } else {
-    console.log(`[LTX Desktop] Version ${app.getVersion()}`)
+    logger.info(`[LTX Desktop] Version ${app.getVersion()}`)
   }
 }
 
@@ -60,6 +75,10 @@ if (!gotLock) {
 
     // Fire analytics event (no-op if user hasn't opted in)
     void sendAnalyticsEvent('ltxdesktop_app_launched')
+  }).catch((err: unknown) => {
+    logger.error(`Fatal error during app startup: ${err instanceof Error ? err.message : String(err)}`)
+    dialog.showErrorBox('LTX Desktop failed to start', String(err))
+    app.quit()
   })
 
   app.on('window-all-closed', () => {

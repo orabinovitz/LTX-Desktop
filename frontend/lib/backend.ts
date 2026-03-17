@@ -9,10 +9,22 @@ export function resetBackendCredentials(): void {
   cached = null
 }
 
+let _requestCounter = 0
+
+function generateRequestId(): string {
+  _requestCounter += 1
+  const ts = Date.now().toString(36)
+  const seq = _requestCounter.toString(36)
+  return `${ts}-${seq}`
+}
+
 export async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
   const { url, token } = await getBackendCredentials()
   const headers = new Headers(init?.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
+  if (!headers.has('X-Request-ID')) {
+    headers.set('X-Request-ID', generateRequestId())
+  }
   return fetch(`${url}${path}`, { ...init, headers })
 }
 

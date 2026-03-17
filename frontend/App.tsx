@@ -6,6 +6,7 @@ import { KeyboardShortcutsProvider } from './contexts/KeyboardShortcutsContext'
 import { AppSettingsProvider, useAppSettings } from './contexts/AppSettingsContext'
 import { AgentProvider, useAgentContext } from './contexts/AgentContext'
 import { ProjectMemoryProvider } from './contexts/ProjectMemoryContext'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal'
 import { AgentPromptBox } from './views/editor/AgentPromptBox'
 import { useGlobalAgentShortcut } from './hooks/useGlobalAgentShortcut'
@@ -568,17 +569,19 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ProjectProvider>
-      <KeyboardShortcutsProvider>
-        <AppSettingsProvider>
-          <AgentProvider>
-            <ProjectMemoryProvider>
-              <AppContent />
-              <KeyboardShortcutsModal />
-            </ProjectMemoryProvider>
-          </AgentProvider>
-        </AppSettingsProvider>
-      </KeyboardShortcutsProvider>
-    </ProjectProvider>
+    <ErrorBoundary>
+      <ProjectProvider>
+        <KeyboardShortcutsProvider>
+          <AppSettingsProvider>
+            <AgentProvider>
+              <ProjectMemoryProvider>
+                <AppContent />
+                <KeyboardShortcutsModal />
+              </ProjectMemoryProvider>
+            </AgentProvider>
+          </AppSettingsProvider>
+        </KeyboardShortcutsProvider>
+      </ProjectProvider>
+    </ErrorBoundary>
   )
 }

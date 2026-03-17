@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from typing import Any
 
@@ -637,6 +638,7 @@ class TaskPlanner:
             },
         }
 
+        t0 = time.monotonic()
         try:
             resp = self._http_client.post(
                 url,
@@ -647,6 +649,8 @@ class TaskPlanner:
                 json_payload=payload,
                 timeout=60,
             )
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            logger.info("[task-planner] Gemini responded HTTP %d in %dms", resp.status_code, elapsed_ms)
 
             if resp.status_code != 200:
                 logger.error(
@@ -661,7 +665,8 @@ class TaskPlanner:
             raw_tasks, target_duration = _parse_planner_response(text)
 
         except Exception:
-            logger.error("Task planner failed", exc_info=True)
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            logger.error("Task planner failed after %dms", elapsed_ms, exc_info=True)
             return self._fallback_dag(prompt)
 
         task_type_map = {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hmac
+import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,8 @@ from fastapi.responses import JSONResponse
 from starlette.responses import Response as StarletteResponse
 
 from _routes._errors import HTTPError
+
+_logger = logging.getLogger(__name__)
 from _routes.agent import router as agent_router
 from _routes.generation import router as generation_router
 from _routes.health import router as health_router
@@ -89,7 +92,11 @@ def create_app(
                 if _token_matches(password):
                     return await call_next(request)
             except Exception:
-                pass
+                _logger.warning(
+                    "Malformed Basic auth on %s %s",
+                    request.method,
+                    request.url.path,
+                )
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
 
     _FALLBACK = "An unexpected error occurred"

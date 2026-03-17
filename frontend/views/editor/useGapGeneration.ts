@@ -4,6 +4,7 @@ import { DEFAULT_COLOR_CORRECTION } from '../../types/project'
 import type { GenerationSettings } from '../../components/SettingsPanel'
 import { copyToAssetFolder } from '../../lib/asset-copy'
 import { backendFetch } from '../../lib/backend'
+import { logger } from '../../lib/logger'
 import { fileUrlToPath } from '../../lib/url-to-path'
 
 interface UseGapGenerationParams {
@@ -411,7 +412,7 @@ export function useGapGeneration({
             framePromises.push(
               window.electronAPI.extractVideoFrame(clipSrc, Math.max(0, seekTime), 512, 3)
                 .then(result => { beforeFrame = result.path; beforeFrameUrl = result.url })
-                .catch(() => {})
+                .catch((err: unknown) => { logger.warn(`Failed to extract before-frame: ${err}`) })
             )
           } else if (clipBefore.asset?.type === 'image') {
             beforeFrame = fileUrlToPath(clipSrc) || ''
@@ -428,7 +429,7 @@ export function useGapGeneration({
             framePromises.push(
               window.electronAPI.extractVideoFrame(clipSrc, clipAfter.trimStart + 0.1, 512, 3)
                 .then(result => { afterFrame = result.path; afterFrameUrl = result.url })
-                .catch(() => {})
+                .catch((err: unknown) => { logger.warn(`Failed to extract after-frame: ${err}`) })
             )
           } else if (clipAfter.asset?.type === 'image') {
             afterFrame = fileUrlToPath(clipSrc) || ''

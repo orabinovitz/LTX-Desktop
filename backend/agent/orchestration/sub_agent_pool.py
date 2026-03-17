@@ -353,22 +353,37 @@ def _run_gemini_turn(
         "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192},
     }
 
+    _MAX_RETRIES = 3
     t0 = time.monotonic()
-    try:
-        resp = http_client.post(
-            url,
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": api_key,
-            },
-            json_payload=payload,
-            timeout=120,
-        )
-    except HttpTimeoutError:
-        logger.error("Sub-agent timed out for task %s (turn %d)", task_id, turn)
-        return None
-    except Exception:
-        logger.error("Sub-agent request failed for task %s", task_id, exc_info=True)
+    resp = None
+    for _attempt in range(_MAX_RETRIES):
+        try:
+            resp = http_client.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key,
+                },
+                json_payload=payload,
+                timeout=120,
+            )
+            if resp.status_code != 503:
+                break
+            wait = 3 * (2 ** _attempt)
+            logger.warning(
+                "[sub-agent] task=%s turn=%d | 503, retrying in %ds (attempt %d/%d)",
+                task_id, turn, wait, _attempt + 1, _MAX_RETRIES,
+            )
+            time.sleep(wait)
+        except HttpTimeoutError:
+            logger.error("Sub-agent timed out for task %s (turn %d)", task_id, turn)
+            return None
+        except Exception:
+            logger.error("Sub-agent request failed for task %s", task_id, exc_info=True)
+            return None
+
+    if resp is None:
+        logger.error("[sub-agent] task=%s | no response after retries", task_id)
         return None
 
     elapsed = time.monotonic() - t0

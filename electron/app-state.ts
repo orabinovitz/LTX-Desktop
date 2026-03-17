@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import fs from 'fs'
 import path from 'path'
+import { logger } from './logger'
 
 interface AppState {
   analyticsEnabled?: boolean
@@ -20,7 +21,7 @@ export function readAppState(): AppState {
       return JSON.parse(fs.readFileSync(statePath, 'utf-8')) as AppState
     }
   } catch (err) {
-    console.warn('[app-state] failed to read app state:', err)
+    logger.warn(`[app-state] failed to read app state: ${err instanceof Error ? err.message : String(err)}`)
   }
   return {}
 }

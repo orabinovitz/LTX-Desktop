@@ -203,7 +203,10 @@ export function useAgent() {
           signal,
         });
 
-        if (!res.ok) throw new Error(`Agent API error: ${res.status}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(body.error ?? `Agent API error: ${res.status}`);
+        }
         let response: AgentResponse = await res.json();
 
         if (response.session_id) {
@@ -398,8 +401,10 @@ export function useAgent() {
             signal,
           });
 
-          if (!contRes.ok)
-            throw new Error(`Agent continue error: ${contRes.status}`);
+          if (!contRes.ok) {
+            const contBody = await contRes.json().catch(() => ({})) as { error?: string };
+            throw new Error(contBody.error ?? `Agent continue error: ${contRes.status}`);
+          }
           response = await contRes.json();
           if (response.memory_updated) {
             window.dispatchEvent(new CustomEvent('memory-updated'));
@@ -439,7 +444,7 @@ export function useAgent() {
           ...prev,
           {
             role: "agent",
-            content: "Something went wrong. Please try again.",
+            content: errorMsg !== "Unknown error" ? errorMsg : "Something went wrong. Please try again.",
           },
         ]);
       } finally {

@@ -67,7 +67,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   // Fetch app version when About tab is shown
   useEffect(() => {
     if (activeTab !== 'about' || appVersion) return
-    window.electronAPI.getAppInfo().then(info => setAppVersion(info.version)).catch(() => {})
+    window.electronAPI.getAppInfo().then(info => setAppVersion(info.version)).catch((err: unknown) => logger.warn(`Failed to get app info: ${err}`))
   }, [activeTab, appVersion])
 
   // Fetch analytics state when modal opens
@@ -75,10 +75,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     if (!isOpen) return
     window.electronAPI.getAnalyticsState()
       .then((state: { analyticsEnabled: boolean }) => setAnalyticsEnabled(state.analyticsEnabled))
-      .catch(() => {})
+      .catch((err: unknown) => logger.warn(`Failed to get analytics state: ${err}`))
     window.electronAPI.getProjectAssetsPath()
       .then((p: string) => setProjectAssetsPath(p))
-      .catch(() => {})
+      .catch((err: unknown) => logger.warn(`Failed to get project assets path: ${err}`))
   }, [isOpen])
 
   // Fetch text encoder status when modal opens
@@ -212,7 +212,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const handleToggleAnalytics = () => {
     const next = !analyticsEnabled
     setAnalyticsEnabled(next)
-    window.electronAPI.setAnalyticsEnabled(next).catch(() => {})
+    window.electronAPI.setAnalyticsEnabled(next).catch((err: unknown) => logger.warn(`Failed to toggle analytics: ${err}`))
   }
 
   // Seed handlers

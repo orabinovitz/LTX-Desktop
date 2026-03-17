@@ -3,6 +3,7 @@ import { X, Download, FolderOpen, Film, Package, Loader2, Check, AlertCircle, Ch
 import { Button } from './ui/button'
 import type { Track, Timeline, TimelineClip } from '../types/project'
 import { DEFAULT_SUBTITLE_STYLE } from '../types/project'
+import { logger } from '../lib/logger'
 
 interface ExportModalProps {
   open: boolean
@@ -313,7 +314,7 @@ export function ExportModal({ open, onClose, clips, tracks, timeline, projectNam
 
   const handleCancel = useCallback(async () => {
     abortRef.current = true
-    window.electronAPI?.exportCancel('current').catch(() => {})
+    window.electronAPI?.exportCancel('current').catch((err: unknown) => logger.warn(`Failed to cancel export: ${err}`))
     setExportStatus('idle')
   }, [])
 

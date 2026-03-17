@@ -12,6 +12,10 @@ class HttpTimeoutError(Exception):
     """Raised by HTTP service implementations when a request times out."""
 
 
+class HttpConnectionError(Exception):
+    """Raised by HTTP service implementations on network/connection failures."""
+
+
 class HttpResponseLike(Protocol):
     @property
     def status_code(self) -> int:

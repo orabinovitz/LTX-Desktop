@@ -77,6 +77,7 @@ def has_memory(project_id: str, assets_path: str | None = None) -> bool:
     try:
         return _memory_dir(project_id, assets_path).exists()
     except ValueError:
+        logger.warning("has_memory: invalid project_id %r", project_id)
         return False
 
 
@@ -206,6 +207,7 @@ def get_manifest(
         manifest.project_id = project_id
         return manifest
     except ValueError:
+        logger.warning("get_manifest: invalid project_id %r", project_id)
         return None
 
 
@@ -233,6 +235,7 @@ def read_document(
     try:
         mdir = _memory_dir(project_id, assets_path)
     except ValueError:
+        logger.warning("read_document: invalid project_id %r", project_id)
         return None
     manifest = _load_manifest(mdir)
     meta = next((d for d in manifest.documents if d.id == doc_id), None)
@@ -319,6 +322,7 @@ def update_document(
     try:
         mdir = _memory_dir(project_id, assets_path)
     except ValueError:
+        logger.warning("update_document: invalid project_id %r", project_id)
         return None
 
     manifest = _load_manifest(mdir)
@@ -369,6 +373,7 @@ def delete_document(
     try:
         mdir = _memory_dir(project_id, assets_path)
     except ValueError:
+        logger.warning("delete_document: invalid project_id %r", project_id)
         return False
 
     manifest = _load_manifest(mdir)
@@ -400,6 +405,7 @@ def read_context(
     try:
         mdir = _memory_dir(project_id, assets_path)
     except ValueError:
+        logger.warning("read_context: invalid project_id %r", project_id)
         return ""
     path = mdir / "context.md"
     if not path.exists():
@@ -432,6 +438,7 @@ def read_memory_log(
     try:
         mdir = _memory_dir(project_id, assets_path)
     except ValueError:
+        logger.warning("read_memory_log: invalid project_id %r", project_id)
         return ""
     path = mdir / "memory.md"
     if not path.exists():
@@ -451,6 +458,7 @@ def clear_memory_log(
     try:
         mdir = _memory_dir(project_id, assets_path)
     except ValueError:
+        logger.warning("clear_memory_log: invalid project_id %r", project_id)
         return
     path = mdir / "memory.md"
     if path.exists():
@@ -489,6 +497,7 @@ def clear_all_memory(
     try:
         mdir = _memory_dir(project_id, assets_path)
     except ValueError:
+        logger.warning("clear_all_memory: invalid project_id %r", project_id)
         return
 
     manifest = _load_manifest(mdir)
@@ -654,6 +663,7 @@ def get_project_digest(
     try:
         mdir = _memory_dir(project_id, assets_path)
     except ValueError:
+        logger.warning("get_project_digest: invalid project_id %r", project_id)
         return ""
 
     digest_path = mdir / "digest.yaml"

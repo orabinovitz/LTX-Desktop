@@ -348,7 +348,6 @@ export async function startPythonBackend(): Promise<void> {
 
     pythonProcess.stdout?.on('data', (data: Buffer) => {
       const output = data.toString()
-      console.log(`[Python] ${output}`)
       for (const line of output.split('\n')) {
         const trimmed = line.trimEnd()
         if (trimmed) writeLog('INFO', 'Backend', trimmed)
@@ -358,7 +357,6 @@ export async function startPythonBackend(): Promise<void> {
 
     pythonProcess.stderr?.on('data', (data: Buffer) => {
       const output = data.toString()
-      console.error(`[Python Error] ${output}`)
       for (const line of output.split('\n')) {
         const trimmed = line.trimEnd()
         if (trimmed) writeLog('ERROR', 'Backend', trimmed)

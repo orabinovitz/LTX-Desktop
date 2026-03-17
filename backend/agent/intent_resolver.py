@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from agent import project_memory
@@ -161,6 +162,7 @@ def resolve_intent(
         },
     }
 
+    t0 = time.monotonic()
     try:
         resp = http_client.post(
             url,
@@ -171,6 +173,8 @@ def resolve_intent(
             json_payload=payload,
             timeout=10,
         )
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        logger.info("[intent-resolver] Gemini responded HTTP %d in %dms", resp.status_code, elapsed_ms)
 
         if resp.status_code != 200:
             logger.warning(
@@ -185,7 +189,8 @@ def resolve_intent(
         data: dict[str, Any] = json.loads(text)
 
     except Exception:
-        logger.warning("Intent resolver failed, using heuristic fallback", exc_info=True)
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        logger.warning("Intent resolver failed after %dms, using heuristic fallback", elapsed_ms, exc_info=True)
         return _heuristic_fallback(prompt)
 
     return _parse_response(data, prompt)
