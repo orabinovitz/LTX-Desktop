@@ -175,6 +175,17 @@ class Orchestrator:
             if project_memory.has_memory(request.project_id):
                 memory_ctx = project_memory.format_memory_for_agent(request.project_id)
 
+        conversation_ctx: str | None = None
+        if request.conversation_history:
+            recent = request.conversation_history[-3:]
+            conv_lines: list[str] = []
+            for msg in recent:
+                content = msg.content[:500]
+                if len(msg.content) > 500:
+                    content += "..."
+                conv_lines.append(f"[{msg.role}]: {content}")
+            conversation_ctx = "\n".join(conv_lines)
+
         logger.info(
             "[orchestrator] session=%s | planning: %.80s",
             session_id[:8], request.prompt,
@@ -186,6 +197,7 @@ class Orchestrator:
             timeline_context=timeline_ctx,
             assets_context=assets_ctx,
             memory_context=memory_ctx,
+            conversation_context=conversation_ctx,
         )
 
         if len(dag.tasks) > _MAX_DAG_TASKS:

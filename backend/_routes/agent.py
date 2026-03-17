@@ -16,6 +16,8 @@ from agent.types import (
     ClarifyResponse,
     DecomposeVideoResponse,
     DocumentMeta,
+    IntentResolveRequest,
+    IntentResolveResponse,
     LiveConfigResponse,
     LiveTokenResponse,
     MemoryManifest,
@@ -75,12 +77,27 @@ def route_get_brain(
     project_id: str,
     handler: AppHandler = Depends(get_state_service),
 ) -> dict[str, object]:
-    """Get the project brain summary."""
+    """Get the project brain data and formatted summary for display."""
     b = handler.agent.get_brain(project_id)
     if b is None:
-        return {"status": "not_found"}
+        return {
+            "status": "not_found",
+            "suppressed": handler.agent.is_brain_suppressed(project_id),
+        }
     result: dict[str, object] = b.model_dump(mode="json")
+    result["formatted_summary"] = handler.agent.get_brain_summary(project_id)
+    result["suppressed"] = handler.agent.is_brain_suppressed(project_id)
     return result
+
+
+@router.delete("/agent/brain/{project_id}")
+def route_clear_brain(
+    project_id: str,
+    handler: AppHandler = Depends(get_state_service),
+) -> dict[str, str]:
+    """Clear the brain for a project and suppress auto-rebuild."""
+    handler.agent.clear_brain(project_id)
+    return {"status": "cleared"}
 
 
 @router.post("/agent/brain/{project_id}/build")
@@ -163,6 +180,15 @@ def route_classify_complexity(
     """Classify whether a prompt needs orchestration or the simple agent."""
     complexity = handler.agent.classify_request_complexity(prompt)
     return {"complexity": complexity}
+
+
+@router.post("/agent/resolve-intent", response_model=IntentResolveResponse)
+def route_resolve_intent(
+    req: IntentResolveRequest,
+    handler: AppHandler = Depends(get_state_service),
+) -> IntentResolveResponse:
+    """Resolve user intent by grounding the prompt against project context."""
+    return handler.agent.resolve_intent(req)
 
 
 @router.post("/agent/clarify", response_model=ClarifyResponse)

@@ -168,6 +168,7 @@ export function useAgent() {
       viewContext?: "editor" | "genspace" | "playground",
       assetsContext?: Record<string, unknown> | null,
       externalConversationHistory?: AgentMessage[],
+      displayPrompt?: string,
     ) => {
       setIsProcessing(true);
       abortRef.current?.abort();
@@ -177,7 +178,7 @@ export function useAgent() {
       resetTaskIdCounter();
       progressActions.startSession();
 
-      setMessages((prev) => [...prev, { role: "user", content: prompt }]);
+      setMessages((prev) => [...prev, { role: "user", content: displayPrompt ?? prompt }]);
       conversationRef.current.push({ role: "user", content: prompt });
 
       const t0 = performance.now();
@@ -378,9 +379,15 @@ export function useAgent() {
               arguments: {},
             });
             if (contextResult.success && contextResult.result) {
-              const r = contextResult.result as { assetCount?: number; assets?: Array<{ id: string; type: string; prompt?: string }> };
+              const r = contextResult.result as { assetCount?: number; assets?: Array<{ id: string; type: string; name?: string | null; tags?: string[]; prompt?: string }> };
               const assetSummary = (r.assets ?? [])
-                .map((a) => `  - ${a.id}: ${a.type}${a.prompt ? `, "${a.prompt.slice(0, 60)}"` : ""}`)
+                .map((a) => {
+                  let label = `  - ${a.id}: ${a.type}`;
+                  if (a.name) label += `, name="${a.name}"`;
+                  if (a.tags && a.tags.length > 0) label += `, tags=[${a.tags.join(', ')}]`;
+                  if (a.prompt) label += `, "${a.prompt.slice(0, 60)}"`;
+                  return label;
+                })
                 .join("\n");
               updatedContext =
                 `## Updated Project State (after tool execution)\n` +
@@ -466,5 +473,7 @@ export function useAgent() {
     clearChat,
     progress,
     setCollapsed: progressActions.setCollapsed,
+    setMessages,
+    setIsProcessing,
   };
 }

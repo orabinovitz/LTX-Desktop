@@ -38,6 +38,9 @@ _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 _format_cache: dict[str, tuple[float, str]] = {}
 _FORMAT_CACHE_TTL = 30.0
 
+_digest_cache: dict[str, tuple[float, str]] = {}
+_DIGEST_CACHE_TTL = 60.0
+
 
 # ---------------------------------------------------------------------------
 # Path resolution
@@ -78,9 +81,20 @@ def has_memory(project_id: str, assets_path: str | None = None) -> bool:
 
 
 def invalidate_cache(project_id: str, assets_path: str | None = None) -> None:
-    """Clear the format cache after writes so the next read sees fresh data."""
+    """Clear all caches after writes so the next read sees fresh data.
+
+    Also removes the persisted ``digest.yaml`` from disk so stale summaries
+    are never served after the underlying data has changed.
+    """
     cache_key = f"{project_id}:{assets_path or ''}"
     _format_cache.pop(cache_key, None)
+    invalidate_digest_cache(project_id, assets_path)
+    try:
+        digest_path = _memory_dir(project_id, assets_path) / "digest.yaml"
+        if digest_path.exists():
+            digest_path.unlink()
+    except (ValueError, OSError):
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -493,11 +507,15 @@ def clear_all_memory(
     if log_path.exists():
         log_path.unlink()
 
+    digest_path = mdir / "digest.yaml"
+    if digest_path.exists():
+        digest_path.unlink()
+
     from agent import brain as brain_module
     brain_module.clear_brain(project_id)
 
     invalidate_cache(project_id, assets_path)
-    logger.info("Cleared all memory (docs, log, context, brain) for project %s", project_id[:8])
+    logger.info("Cleared all memory (docs, log, context, brain, digest) for project %s", project_id[:8])
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +525,7 @@ def clear_all_memory(
 _CONTEXT_MAX_CHARS = 800
 _CATALOG_MAX_DOCS = 20
 _LOG_MAX_ENTRIES = 10
+_DIGEST_MAX_CHARS = 600
 
 
 def format_memory_for_agent(
@@ -555,3 +574,115 @@ def format_memory_for_agent(
     result = ("## Project Memory\n\n" + "\n".join(lines)) if lines else ""
     _format_cache[cache_key] = (time.monotonic(), result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Project Digest — compact structured summary (~200 tokens)
+# ---------------------------------------------------------------------------
+
+
+def invalidate_digest_cache(project_id: str, assets_path: str | None = None) -> None:
+    """Clear the digest cache so the next read regenerates."""
+    cache_key = f"digest:{project_id}:{assets_path or ''}"
+    _digest_cache.pop(cache_key, None)
+
+
+def _build_deterministic_digest(
+    project_id: str,
+    assets_path: str | None = None,
+) -> str:
+    """Build a compact YAML-style digest from metadata alone (no LLM).
+
+    Always available, even without an API key.  ~150-250 tokens.
+    """
+    context = read_context(project_id, assets_path)
+    docs = list_documents(project_id, assets_path)
+    log = read_memory_log(project_id, assets_path)
+
+    lines: list[str] = ["## Project Digest"]
+
+    if context:
+        first_line = context.strip().split("\n")[0].strip("# ").strip()
+        if first_line:
+            lines.append(f"summary: {first_line[:200]}")
+
+    if docs:
+        doc_types: dict[str, list[str]] = {}
+        for d in docs:
+            doc_types.setdefault(d.type.value, []).append(d.title)
+        for dtype, titles in doc_types.items():
+            titles_str = ", ".join(titles[:5])
+            lines.append(f"{dtype}: [{titles_str}]")
+
+        all_tags: list[str] = []
+        for d in docs:
+            all_tags.extend(d.tags[:3])
+        unique_tags = list(dict.fromkeys(all_tags))[:10]
+        if unique_tags:
+            lines.append(f"tags: [{', '.join(unique_tags)}]")
+
+    if log:
+        log_lines = [line for line in log.strip().split("\n") if line.startswith("- [")]
+        if log_lines:
+            last_entries = log_lines[-3:]
+            for entry in last_entries:
+                bracket_end = entry.find("]", 3)
+                if bracket_end > 0:
+                    note = entry[bracket_end + 1:].strip()
+                    if note:
+                        lines.append(f"recent_decision: {note[:120]}")
+
+    lines.append(f"document_count: {len(docs)}")
+    return "\n".join(lines)
+
+
+def get_project_digest(
+    project_id: str,
+    assets_path: str | None = None,
+) -> str:
+    """Return a compact project digest, using cache when fresh.
+
+    The digest is a structured ~200-token summary suitable for injection
+    into every agent call.  Falls back to a deterministic build from
+    metadata when no LLM-generated digest is cached on disk.
+    """
+    cache_key = f"digest:{project_id}:{assets_path or ''}"
+    cached = _digest_cache.get(cache_key)
+    if cached and (time.monotonic() - cached[0]) < _DIGEST_CACHE_TTL:
+        return cached[1]
+
+    try:
+        mdir = _memory_dir(project_id, assets_path)
+    except ValueError:
+        return ""
+
+    digest_path = mdir / "digest.yaml"
+    if digest_path.exists():
+        try:
+            stored = digest_path.read_text(encoding="utf-8")
+            if stored.strip():
+                _digest_cache[cache_key] = (time.monotonic(), stored)
+                return stored
+        except Exception:
+            logger.warning("Failed to read digest.yaml for %s", project_id[:8], exc_info=True)
+
+    if not has_memory(project_id, assets_path):
+        return ""
+
+    digest = _build_deterministic_digest(project_id, assets_path)
+    _digest_cache[cache_key] = (time.monotonic(), digest)
+    return digest
+
+
+def save_project_digest(
+    project_id: str,
+    digest: str,
+    assets_path: str | None = None,
+) -> None:
+    """Persist an LLM-generated digest to disk."""
+    mdir = _memory_dir(project_id, assets_path)
+    _ensure_dirs(mdir)
+    _atomic_write(mdir / "digest.yaml", digest)
+    cache_key = f"digest:{project_id}:{assets_path or ''}"
+    _digest_cache[cache_key] = (time.monotonic(), digest)
+    logger.info("Saved project digest for %s", project_id[:8])

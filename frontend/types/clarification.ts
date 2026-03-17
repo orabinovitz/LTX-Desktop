@@ -25,4 +25,5 @@ export interface ClarificationAnswer {
 export interface ClarificationState {
   questions: ClarificationQuestion[];
   originalPrompt: string;
+  displayPrompt: string;
 }

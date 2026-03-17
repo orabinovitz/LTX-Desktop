@@ -53,6 +53,8 @@ export interface Asset {
   sourceOut?: number // Sub-clip source out-point (seconds)
   transcript?: string // Transcript text for this clip/segment
   topics?: string[] // Topic tags for content-based organization
+  name?: string // User-assigned display name (e.g. "Elara v3 - casual")
+  tags?: string[] // User-created freeform tags for identification
 }
 
 export interface Track {

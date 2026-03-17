@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react'
 import {
   Trash2, Download, Image, Video, X,
   Heart, Film, Volume2, VolumeX, Sparkles,
   Clock, Monitor, ChevronUp, Scissors, Music,
-  ChevronLeft, ChevronRight, Copy, Check
+  ChevronLeft, ChevronRight, Copy, Check, Tag
 } from 'lucide-react'
 import { useProjects } from '../contexts/ProjectContext'
 import type { GenSpaceRetakeSource } from '../contexts/ProjectContext'
@@ -26,6 +26,7 @@ import { logger } from '../lib/logger'
 import { RetakePanel } from '../components/RetakePanel'
 import { ICLoraPanel, CONDITIONING_TYPES } from '../components/ICLoraPanel'
 import { FreeApiKeyBubble } from '../components/FreeApiKeyBubble'
+import { TagInput, TagPills } from '../components/TagInput'
 
 import { useAgentDispatch } from '../contexts/AgentContext'
 import type { ToolResult } from './editor/useAgentExecutor'
@@ -46,7 +47,10 @@ function AssetCard({
   onCreateVideo,
   onRetake,
   onIcLora,
-  onToggleFavorite
+  onToggleFavorite,
+  onUpdateName,
+  onUpdateTags,
+  projectTags,
 }: {
   asset: Asset
   onDelete: () => void
@@ -56,12 +60,48 @@ function AssetCard({
   onRetake?: (asset: Asset) => void
   onIcLora?: (asset: Asset) => void
   onToggleFavorite?: () => void
+  onUpdateName?: (name: string) => void
+  onUpdateTags?: (tags: string[]) => void
+  projectTags?: string[]
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isHovered, setIsHovered] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [isMuted, setIsMuted] = useState(true)
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [editNameValue, setEditNameValue] = useState(asset.name || '')
+  const [showTagPopover, setShowTagPopover] = useState(false)
+  const nameInputRef = useRef<HTMLInputElement>(null)
+  const tagPopoverRef = useRef<HTMLDivElement>(null)
   const isFavorite = asset.favorite || false
+
+  const displayName = asset.name || asset.prompt?.slice(0, 40) || 'Untitled'
+  const hasCustomName = !!asset.name
+  const assetTags = asset.tags || []
+
+  const saveName = useCallback(() => {
+    const trimmed = editNameValue.trim()
+    onUpdateName?.(trimmed)
+    setIsEditingName(false)
+  }, [editNameValue, onUpdateName])
+
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus()
+      nameInputRef.current.select()
+    }
+  }, [isEditingName])
+
+  useEffect(() => {
+    if (!showTagPopover) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (tagPopoverRef.current && !tagPopoverRef.current.contains(e.target as Node)) {
+        setShowTagPopover(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showTagPopover])
 
   useEffect(() => {
     if (asset.type === 'video' && videoRef.current) {
@@ -183,7 +223,12 @@ function AssetCard({
             >
               <Download className="h-3.5 w-3.5" />
             </button>
-            {/* Tools button hidden for now */}
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              className="p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white/70 hover:bg-red-500/80 hover:text-white transition-colors"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
         
@@ -203,19 +248,124 @@ function AssetCard({
             </div>
           </div>
         )}
+      </div>
 
-        {/* Delete button (subtle, bottom right) */}
-        {(
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete() }}
-            className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/40 backdrop-blur-md text-white/70 hover:bg-red-500/80 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+      {/* Bottom info bar: name + tags */}
+      <div className="px-2 py-1.5 bg-zinc-900" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1">
+          {isEditingName ? (
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={editNameValue}
+              onChange={(e) => setEditNameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveName()
+                if (e.key === 'Escape') { setIsEditingName(false); setEditNameValue(asset.name || '') }
+              }}
+              onBlur={saveName}
+              className="flex-1 bg-zinc-800 text-xs text-zinc-200 rounded px-1.5 py-0.5 outline-none ring-1 ring-zinc-600 focus:ring-violet-500 min-w-0"
+              maxLength={60}
+              placeholder="Add a name..."
+            />
+          ) : (
+            <button
+              className={`flex-1 text-left text-xs truncate min-w-0 rounded px-1 py-0.5 hover:bg-zinc-800 transition-colors ${
+                hasCustomName ? 'text-zinc-200' : 'text-zinc-500 italic'
+              }`}
+              onClick={() => { setEditNameValue(asset.name || ''); setIsEditingName(true) }}
+              title={hasCustomName ? displayName : 'Click to add a name'}
+            >
+              {displayName}
+            </button>
+          )}
+          {!isEditingName && (
+            <div className="relative">
+              <button
+                className="p-0.5 rounded text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors opacity-0 group-hover:opacity-100"
+                onClick={() => setShowTagPopover(!showTagPopover)}
+                title="Add tags"
+              >
+                <Tag className="h-3 w-3" />
+              </button>
+              {showTagPopover && (
+                <div
+                  ref={tagPopoverRef}
+                  className="absolute right-0 top-full mt-1 z-50 w-48 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl p-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <TagInput
+                    tags={assetTags}
+                    onTagsChange={(tags) => onUpdateTags?.(tags)}
+                    suggestions={projectTags}
+                    compact
+                    placeholder="Add tag..."
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {assetTags.length > 0 && (
+          <div className="mt-0.5">
+            <TagPills tags={assetTags} max={3} compact />
+          </div>
         )}
       </div>
-      
     </div>
+  )
+}
+
+// Inline name editor for the preview modal
+function ModalNameEditor({ asset, onSave }: { asset: Asset; onSave: (name: string) => void }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [value, setValue] = useState(asset.name || '')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setValue(asset.name || '')
+  }, [asset.id, asset.name])
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [isEditing])
+
+  const save = () => {
+    onSave(value.trim())
+    setIsEditing(false)
+  }
+
+  if (isEditing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') save()
+          if (e.key === 'Escape') { setIsEditing(false); setValue(asset.name || '') }
+        }}
+        onBlur={save}
+        className="bg-zinc-800 text-lg text-zinc-100 font-medium rounded-lg px-3 py-1.5 outline-none ring-1 ring-zinc-600 focus:ring-violet-500 text-center max-w-md w-full"
+        maxLength={60}
+        placeholder="Add a name..."
+      />
+    )
+  }
+
+  return (
+    <button
+      onClick={() => setIsEditing(true)}
+      className={`text-lg font-medium rounded-lg px-3 py-1.5 hover:bg-zinc-800/60 transition-colors max-w-md truncate ${
+        asset.name ? 'text-zinc-100' : 'text-zinc-500 italic'
+      }`}
+    >
+      {asset.name || 'Add a name...'}
+    </button>
   )
 }
 
@@ -1030,6 +1180,7 @@ export function GenSpace() {
     addAsset,
     addTakeToAsset,
     deleteAsset,
+    updateAsset,
     toggleFavorite,
     genSpaceEditImageUrl,
     setGenSpaceEditImageUrl,
@@ -1132,6 +1283,7 @@ export function GenSpace() {
             assetCount: projectAssets.length,
             assets: projectAssets.map((a) => ({
               id: a.id, type: a.type, prompt: a.prompt,
+              name: a.name ?? null, tags: a.tags ?? [],
               duration: a.duration ?? null, resolution: a.resolution,
               path: a.path, favorite: a.favorite ?? false,
               bin: a.bin ?? null, parentAssetId: a.parentAssetId ?? null,
@@ -1246,11 +1398,25 @@ export function GenSpace() {
           toggleFavorite(currentProjectId, assetId)
           return ok({ toggled: assetId })
         }
+        case 'organize_asset': {
+          const assetId = args.asset_id as string
+          if (!assetId || !currentProjectId) return fail('Missing asset_id or project')
+          if (args.favorite !== undefined) {
+            toggleFavorite(currentProjectId, assetId)
+          }
+          const updates: Partial<Asset> = {}
+          if (args.name !== undefined) updates.name = (args.name as string) || undefined
+          if (args.tags !== undefined) updates.tags = args.tags as string[]
+          if (Object.keys(updates).length > 0) updateAsset(currentProjectId, assetId, updates)
+          return ok({
+            assetId, name: args.name, tags: args.tags, bin: args.bin, favorite: args.favorite,
+          })
+        }
         default:
           return fail(`Tool "${tool_name}" is not available in Gen Space`)
       }
     },
-    [currentProjectId, addAsset, deleteAsset, toggleFavorite, shouldVideoGenerateWithLtxApi],
+    [currentProjectId, addAsset, deleteAsset, updateAsset, toggleFavorite, shouldVideoGenerateWithLtxApi],
   )
 
   useLayoutEffect(() => {
@@ -1275,6 +1441,8 @@ export function GenSpace() {
             .map(a => ({
               id: a.id,
               type: a.type,
+              name: a.name ?? null,
+              tags: a.tags ?? [],
               prompt: a.prompt,
               createdAt: a.createdAt,
             })),
@@ -1417,6 +1585,15 @@ export function GenSpace() {
 
   // Only show assets that were generated (have generationParams), not imported files
   const assets = (currentProject?.assets || []).filter(a => a.generationParams)
+
+  const projectTags = useMemo(() => {
+    const tagSet = new Set<string>()
+    for (const a of currentProject?.assets || []) {
+      for (const t of a.tags || []) tagSet.add(t)
+    }
+    return Array.from(tagSet).sort()
+  }, [currentProject?.assets])
+
   const [lastPrompt, setLastPrompt] = useState('')
   const agentPromptRef = useRef<string | null>(null)
   
@@ -1973,6 +2150,9 @@ export function GenSpace() {
                   onRetake={handleRetake}
                   onIcLora={!forceApiGenerations ? handleIcLora : undefined}
                   onToggleFavorite={() => currentProjectId && toggleFavorite(currentProjectId, asset.id)}
+                  onUpdateName={(name) => currentProjectId && updateAsset(currentProjectId, asset.id, { name: name || undefined })}
+                  onUpdateTags={(tags) => currentProjectId && updateAsset(currentProjectId, asset.id, { tags })}
+                  projectTags={projectTags}
                 />
               ))}
             </div>
@@ -2115,26 +2295,59 @@ export function GenSpace() {
                 className="w-full rounded-xl object-contain max-h-[75vh]"
               />
             )}
-            <div className="mt-4 text-center">
-              <div className="inline-flex items-start gap-2 max-w-full">
-                <p className="text-zinc-300">{selectedAsset.prompt}</p>
-                {selectedAsset.prompt && (
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(selectedAsset.prompt)
-                      setCopiedPrompt(true)
-                      setTimeout(() => setCopiedPrompt(false), 2000)
-                    }}
-                    className="shrink-0 p-1 rounded hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
-                    title="Copy prompt"
-                  >
-                    {copiedPrompt ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
-                  </button>
-                )}
+            <div className="mt-4">
+              {/* Editable name */}
+              <div className="flex justify-center mb-2">
+                <ModalNameEditor
+                  asset={selectedAsset}
+                  onSave={(name) => {
+                    if (currentProjectId) {
+                      updateAsset(currentProjectId, selectedAsset.id, { name: name || undefined })
+                      setSelectedAsset({ ...selectedAsset, name: name || undefined })
+                    }
+                  }}
+                />
               </div>
-              <p className="text-zinc-500 text-sm mt-1">
-                {selectedAsset.resolution} • {selectedAsset.duration ? `${selectedAsset.duration}s` : 'Image'}
-              </p>
+
+              {/* Tags */}
+              <div className="flex justify-center mb-3">
+                <div className="max-w-md w-full">
+                  <TagInput
+                    tags={selectedAsset.tags || []}
+                    onTagsChange={(tags) => {
+                      if (currentProjectId) {
+                        updateAsset(currentProjectId, selectedAsset.id, { tags })
+                        setSelectedAsset({ ...selectedAsset, tags })
+                      }
+                    }}
+                    suggestions={projectTags}
+                    placeholder="Add tag..."
+                  />
+                </div>
+              </div>
+
+              {/* Prompt */}
+              <div className="text-center">
+                <div className="inline-flex items-start gap-2 max-w-full">
+                  <p className="text-zinc-400 text-sm">{selectedAsset.prompt}</p>
+                  {selectedAsset.prompt && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedAsset.prompt)
+                        setCopiedPrompt(true)
+                        setTimeout(() => setCopiedPrompt(false), 2000)
+                      }}
+                      className="shrink-0 p-1 rounded hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
+                      title="Copy prompt"
+                    >
+                      {copiedPrompt ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  )}
+                </div>
+                <p className="text-zinc-500 text-sm mt-1">
+                  {selectedAsset.resolution} • {selectedAsset.duration ? `${selectedAsset.duration}s` : 'Image'}
+                </p>
+              </div>
             </div>
           </div>
         </div>

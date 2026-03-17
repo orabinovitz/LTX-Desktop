@@ -189,6 +189,7 @@ export function useOrchestratedAgent() {
       projectId?: string | null,
       viewContext?: "editor" | "genspace" | "playground",
       assetsContext?: Record<string, unknown> | null,
+      displayPrompt?: string,
     ) => {
       setIsProcessing(true);
       abortRef.current?.abort();
@@ -202,7 +203,7 @@ export function useOrchestratedAgent() {
         thinkingLine: "Decomposing your request into tasks...",
       });
 
-      setMessages((prev) => [...prev, { role: "user", content: prompt }]);
+      setMessages((prev) => [...prev, { role: "user", content: displayPrompt ?? prompt }]);
 
       const t0 = performance.now();
 
@@ -305,14 +306,19 @@ export function useOrchestratedAgent() {
                   assets?: Array<{
                     id: string;
                     type: string;
+                    name?: string | null;
+                    tags?: string[];
                     prompt?: string;
                   }>;
                 };
                 const assetSummary = (r.assets ?? [])
-                  .map(
-                    (a) =>
-                      `  - ${a.id}: ${a.type}${a.prompt ? `, "${a.prompt.slice(0, 60)}"` : ""}`,
-                  )
+                  .map((a) => {
+                    let label = `  - ${a.id}: ${a.type}`;
+                    if (a.name) label += `, name="${a.name}"`;
+                    if (a.tags && a.tags.length > 0) label += `, tags=[${a.tags.join(', ')}]`;
+                    if (a.prompt) label += `, "${a.prompt.slice(0, 60)}"`;
+                    return label;
+                  })
                   .join("\n");
                 updatedContext =
                   `## Updated Project State\n` +

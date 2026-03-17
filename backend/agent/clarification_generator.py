@@ -106,9 +106,23 @@ def generate_questions(
     if request.timeline_state is not None:
         timeline_context = _format_timeline_context(request.timeline_state)
 
-    system_prompt = _SYSTEM_PROMPT.replace("{timeline_context}", timeline_context)
+    project_context = ""
+    if request.project_id:
+        from agent import project_memory
+        digest = project_memory.get_project_digest(request.project_id)
+        if digest:
+            project_context = f"\n\n## Project Context\n{digest}"
+
+    system_prompt = _SYSTEM_PROMPT.replace(
+        "{timeline_context}", timeline_context + project_context,
+    )
 
     user_message = f"User request:\n{request.prompt}"
+    if request.project_id:
+        from agent import project_memory as pm
+        memory_ctx = pm.format_memory_for_agent(request.project_id)
+        if memory_ctx:
+            user_message += f"\n\n{memory_ctx}"
     if request.assets_context:
         user_message += f"\n\nAvailable assets context:\n{json.dumps(request.assets_context, default=str)[:2000]}"
 

@@ -460,7 +460,7 @@ class TestSubAgentConditionalMemory:
         msg = _build_user_message(ctx, ["save_to_project_memory"])
         assert "Heist film" in msg
 
-    def test_execution_task_context_excludes_memory(self, memory_root: Path) -> None:
+    def test_execution_task_context_includes_memory(self, memory_root: Path) -> None:
         from agent.orchestration.sub_agent_pool import _build_user_message
         from agent.types import TaskNode, TaskType, TaskStatus, SubAgentContext
 
@@ -472,4 +472,151 @@ class TestSubAgentConditionalMemory:
         )
         ctx = SubAgentContext(task=task, project_id="proj-sub-2")
         msg = _build_user_message(ctx, ["trim_clip"])
-        assert "Heist film" not in msg
+        assert "Heist film" in msg
+
+
+# ===================================================================
+# Project Digest tests
+# ===================================================================
+
+
+class TestProjectDigest:
+    def test_empty_project_returns_empty(self, memory_root: Path) -> None:
+        assert project_memory.get_project_digest("nonexistent") == ""
+
+    def test_deterministic_digest_with_context(self, memory_root: Path) -> None:
+        project_memory.update_context(
+            "proj-digest-1",
+            "# The Paneled Room\n\nA liminal horror short film.",
+        )
+        digest = project_memory.get_project_digest("proj-digest-1")
+        assert "## Project Digest" in digest
+        assert "The Paneled Room" in digest
+
+    def test_deterministic_digest_with_docs(self, memory_root: Path) -> None:
+        project_memory.write_document(
+            "proj-digest-2", "Visual Identity Bible",
+            MemoryDocumentType.REFERENCE, "content",
+            tags=["horror", "a24"],
+        )
+        project_memory.write_document(
+            "proj-digest-2", "Script Draft",
+            MemoryDocumentType.SCRIPT, "content",
+            tags=["script"],
+        )
+
+        digest = project_memory.get_project_digest("proj-digest-2")
+        assert "Visual Identity Bible" in digest
+        assert "Script Draft" in digest
+        assert "document_count: 2" in digest
+
+    def test_deterministic_digest_with_log(self, memory_root: Path) -> None:
+        project_memory.update_context("proj-digest-3", "# Horror Film")
+        project_memory.append_memory_entry("proj-digest-3", "No handheld camera")
+        project_memory.append_memory_entry("proj-digest-3", "1.66:1 aspect ratio")
+
+        digest = project_memory.get_project_digest("proj-digest-3")
+        assert "No handheld camera" in digest
+
+    def test_digest_cache_works(self, memory_root: Path) -> None:
+        project_memory._digest_cache.clear()
+        project_memory.update_context("proj-digest-4", "# Test Project")
+
+        digest1 = project_memory.get_project_digest("proj-digest-4")
+        assert "Test Project" in digest1
+
+        # Direct disk change behind cache
+        mdir = memory_root / "proj-digest-4"
+        (mdir / "context.md").write_text("# Changed")
+
+        digest2 = project_memory.get_project_digest("proj-digest-4")
+        assert digest2 == digest1  # still cached
+
+    def test_write_invalidates_digest_cache(self, memory_root: Path) -> None:
+        project_memory._digest_cache.clear()
+        project_memory.update_context("proj-digest-5", "# Original")
+        project_memory.get_project_digest("proj-digest-5")
+
+        digest_key = "digest:proj-digest-5:"
+        assert digest_key in project_memory._digest_cache
+
+        project_memory.write_document(
+            "proj-digest-5", "New Doc",
+            MemoryDocumentType.NOTES, "content",
+        )
+        assert digest_key not in project_memory._digest_cache
+
+    def test_save_and_load_digest(self, memory_root: Path) -> None:
+        project_memory._digest_cache.clear()
+        project_memory.update_context("proj-digest-6", "# Placeholder")
+        project_memory.save_project_digest(
+            "proj-digest-6", "## Project Digest\nproject: Test\ngenre: Horror",
+        )
+
+        digest = project_memory.get_project_digest("proj-digest-6")
+        assert "genre: Horror" in digest
+
+
+# ===================================================================
+# Intent Resolver tests
+# ===================================================================
+
+
+class TestIntentResolver:
+    def test_heuristic_fallback_returns_raw_prompt(self) -> None:
+        from agent.intent_resolver import _heuristic_fallback
+        result = _heuristic_fallback("trim the first clip")
+        assert result.grounded_prompt == "trim the first clip"
+        assert result.complexity == "simple"
+
+    def test_heuristic_fallback_orchestrated(self) -> None:
+        from agent.intent_resolver import _heuristic_fallback
+        result = _heuristic_fallback(
+            "create a visual identity bible for this horror film"
+        )
+        assert result.complexity == "orchestrated"
+
+    def test_parse_valid_response(self) -> None:
+        from agent.intent_resolver import _parse_response
+        data = {
+            "grounded_prompt": "Modify the Visual Identity Bible for The Paneled Room",
+            "complexity": "orchestrated",
+            "relevant_memory_ids": ["doc-123"],
+            "intent_summary": "User wants to edit the visual identity",
+            "requires_generation": False,
+        }
+        result = _parse_response(data, "original prompt")
+        assert result.grounded_prompt == "Modify the Visual Identity Bible for The Paneled Room"
+        assert result.complexity == "orchestrated"
+        assert result.relevant_memory_ids == ["doc-123"]
+        assert result.intent_summary == "User wants to edit the visual identity"
+        assert not result.requires_generation
+
+    def test_parse_empty_grounded_prompt_falls_back(self) -> None:
+        from agent.intent_resolver import _parse_response
+        data = {"grounded_prompt": "", "complexity": "simple"}
+        result = _parse_response(data, "original prompt")
+        assert result.grounded_prompt == "original prompt"
+
+    def test_parse_invalid_complexity_falls_back(self) -> None:
+        from agent.intent_resolver import _parse_response
+        data = {"grounded_prompt": "test", "complexity": "banana"}
+        result = _parse_response(data, "test")
+        assert result.complexity in ("simple", "orchestrated")
+
+    def test_no_context_returns_heuristic(self) -> None:
+        from agent.intent_resolver import resolve_intent
+        from agent.types import ViewContext
+        from tests.fakes.services import FakeHTTPClient
+
+        result = resolve_intent(
+            prompt="trim clip",
+            project_id=None,
+            conversation_history=None,
+            view_context=ViewContext.EDITOR,
+            assets_context=None,
+            gemini_api_key="fake-key",
+            http_client=FakeHTTPClient(),
+        )
+        assert result.grounded_prompt == "trim clip"
+        assert result.complexity == "simple"

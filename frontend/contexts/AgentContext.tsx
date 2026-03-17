@@ -82,21 +82,55 @@ function waitForExecutorSwitch(
   });
 }
 
-async function classifyComplexity(
+interface IntentResolution {
+  grounded_prompt: string;
+  complexity: "simple" | "orchestrated";
+  relevant_memory_ids: string[];
+  intent_summary: string;
+  requires_generation: boolean;
+}
+
+async function resolveIntent(
   prompt: string,
-): Promise<"simple" | "orchestrated"> {
+  projectId: string | null,
+  viewContext?: string,
+  conversationHistory?: AgentMessage[],
+  assetsContext?: Record<string, unknown> | null,
+): Promise<IntentResolution> {
   try {
-    const res = await backendFetch(
-      `/api/agent/classify-complexity?prompt=${encodeURIComponent(prompt)}`,
-    );
+    const body: Record<string, unknown> = { prompt };
+    if (projectId) body.project_id = projectId;
+    if (viewContext) body.view_context = viewContext;
+    if (assetsContext) body.assets_context = assetsContext;
+    if (conversationHistory && conversationHistory.length > 0) {
+      body.conversation_history = conversationHistory.slice(-10);
+    }
+
+    const res = await backendFetch("/api/agent/resolve-intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
     if (res.ok) {
-      const data = await res.json();
-      return data.complexity === "orchestrated" ? "orchestrated" : "simple";
+      const data: IntentResolution = await res.json();
+      return {
+        grounded_prompt: data.grounded_prompt || prompt,
+        complexity: data.complexity === "orchestrated" ? "orchestrated" : "simple",
+        relevant_memory_ids: data.relevant_memory_ids ?? [],
+        intent_summary: data.intent_summary ?? "",
+        requires_generation: data.requires_generation ?? false,
+      };
     }
   } catch {
-    logger.warn("[agent-context] complexity classification failed, defaulting to simple");
+    logger.warn("[agent-context] intent resolution failed, using raw prompt");
   }
-  return "simple";
+  return {
+    grounded_prompt: prompt,
+    complexity: "simple",
+    relevant_memory_ids: [],
+    intent_summary: "",
+    requires_generation: false,
+  };
 }
 
 async function fetchClarification(
@@ -278,6 +312,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       prompt: string,
       complexity: "simple" | "orchestrated",
       ctx: ReturnType<typeof getExecutorContext>,
+      originalPrompt?: string,
     ) => {
       setActiveMode(complexity);
       const { executor, timelineState, wrappedExecuteTool, viewCtx } = ctx;
@@ -296,6 +331,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           executor?.viewContext,
           viewCtx,
           priorHistory.length > 0 ? priorHistory : undefined,
+          originalPrompt,
         );
       } else {
         orchestratedAgent.sendPrompt(
@@ -307,6 +343,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           executor?.projectId ?? null,
           executor?.viewContext,
           viewCtx,
+          originalPrompt,
         );
       }
     },
@@ -318,16 +355,45 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       setClarificationState(null);
       const ctx = getExecutorContext();
 
-      const complexity = await classifyComplexity(prompt);
+      // Show the user message immediately so the UI feels responsive.
+      // The active agent is "simple" by default; we add a placeholder
+      // message and a processing indicator while intent resolution runs.
+      simpleAgent.setMessages((prev) => [...prev, { role: "user", content: prompt }]);
+      simpleAgent.setIsProcessing(true);
 
-      if (complexity === "orchestrated") {
+      const allMessages = [
+        ...simpleAgent.messages,
+        ...orchestratedAgent.messages,
+      ];
+      const conversationHistory = chatMessagesToConversationHistory(allMessages);
+
+      const intent = await resolveIntent(
+        prompt,
+        ctx.executor?.projectId ?? null,
+        ctx.executor?.viewContext,
+        conversationHistory,
+        ctx.viewCtx as Record<string, unknown> | null,
+      );
+
+      logger.info(
+        `[agent-context] intent resolved: complexity=${intent.complexity}, summary="${intent.intent_summary}"`,
+      );
+
+      const groundedPrompt = intent.grounded_prompt;
+
+      // Remove the optimistic user message before handing off to the
+      // actual agent hook, which adds its own copy.
+      simpleAgent.setMessages((prev) => prev.slice(0, -1));
+      simpleAgent.setIsProcessing(false);
+
+      if (intent.complexity === "orchestrated") {
         logger.info("[agent-context] orchestrated request — checking if clarification needed");
 
         orchestratedAgent.setMessages((prev) => [...prev, { role: "user", content: prompt }]);
         setActiveMode("orchestrated");
 
         const clarification = await fetchClarification(
-          prompt,
+          groundedPrompt,
           ctx.timelineState ?? null,
           ctx.executor?.projectId ?? null,
           ctx.executor?.viewContext,
@@ -338,19 +404,20 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           logger.info(`[agent-context] clarification needed — ${clarification.questions.length} questions`);
           setClarificationState({
             questions: clarification.questions,
-            originalPrompt: prompt,
+            originalPrompt: groundedPrompt,
+            displayPrompt: prompt,
           });
           return;
         }
 
         logger.info("[agent-context] no clarification needed — executing directly");
         orchestratedAgent.setMessages([]);
-        executePrompt(prompt, complexity, ctx);
+        executePrompt(groundedPrompt, intent.complexity, ctx, prompt);
       } else {
-        executePrompt(prompt, complexity, ctx);
+        executePrompt(groundedPrompt, intent.complexity, ctx, prompt);
       }
     },
-    [getExecutorContext, executePrompt, orchestratedAgent],
+    [getExecutorContext, executePrompt, simpleAgent, orchestratedAgent],
   );
 
   const submitClarification = useCallback(
@@ -369,9 +436,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         enrichedPrompt = `${clarificationState.originalPrompt}\n\n${clarificationContext}`;
       }
 
+      const displayPrompt = clarificationState.displayPrompt;
       setClarificationState(null);
       orchestratedAgent.setMessages([]);
-      executePrompt(enrichedPrompt, "orchestrated", ctx);
+      executePrompt(enrichedPrompt, "orchestrated", ctx, displayPrompt);
     },
     [clarificationState, getExecutorContext, executePrompt, orchestratedAgent],
   );

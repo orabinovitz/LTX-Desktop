@@ -44,6 +44,7 @@ _MAX_SUB_AGENT_TURNS = 30
 def _build_system_prompt(
     task: TaskNode,
     skill_content: SkillContent | None,
+    project_id: str | None = None,
 ) -> str:
     """Build the system prompt for a sub-agent."""
     task_type = getattr(task, "task_type", "execution")
@@ -75,13 +76,24 @@ def _build_system_prompt(
             "- When done, summarize what you produced."
         )
 
+    digest_section = ""
+    if project_id:
+        from agent import project_memory
+        digest = project_memory.get_project_digest(project_id)
+        if digest:
+            digest_section = f"\n\n{digest}\n"
+
     if skill_content:
         parts = [
             "You are executing a specific task as part of a larger workflow.\n",
+        ]
+        if digest_section:
+            parts.append(digest_section)
+        parts.extend([
             f"## Your Task\n{task.description}\n",
             f"## Your Expertise\n{skill_content.system_prompt}\n",
             rules,
-        ]
+        ])
         if skill_content.references:
             parts.append("\n\n# Reference Material\n")
             parts.append(
@@ -93,12 +105,17 @@ def _build_system_prompt(
                 parts.append(f"\n## Reference: {filename}\n\n{content}")
         return "\n\n".join(parts)
 
-    return (
-        f"You are executing a specific task as part of a larger workflow.\n\n"
-        f"## Your Task\n{task.description}\n\n"
-        f"## General Instructions\n{GENERAL_CONTEXT_PROMPT}\n\n"
-        f"{rules}"
-    )
+    parts = [
+        "You are executing a specific task as part of a larger workflow.\n",
+    ]
+    if digest_section:
+        parts.append(digest_section)
+    parts.extend([
+        f"## Your Task\n{task.description}\n",
+        f"## General Instructions\n{GENERAL_CONTEXT_PROMPT}\n",
+        rules,
+    ])
+    return "\n\n".join(parts)
 
 
 def _has_shot_list(prior_results: dict[str, str]) -> bool:
@@ -139,9 +156,7 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
     if context.assets_context:
         parts.append(f"## Available Assets\n{context.assets_context}")
 
-    task_type_val = getattr(context.task, "task_type", "execution")
-    task_type_str = task_type_val.value if hasattr(task_type_val, "value") else str(task_type_val)
-    if context.project_id and task_type_str in ("creative", "review"):
+    if context.project_id:
         from agent import project_memory
         memory_ctx = project_memory.format_memory_for_agent(context.project_id)
         if memory_ctx:
@@ -413,7 +428,7 @@ def execute_sub_agent(
     orchestrator can later resume this session via
     ``resume_sub_agent`` with the frontend tool results.
     """
-    system_prompt = _build_system_prompt(task, skill_content)
+    system_prompt = _build_system_prompt(task, skill_content, context.project_id)
     tool_declarations, tool_names = _get_scoped_tools(task, skill_content)
     user_message = _build_user_message(context, tool_names)
     search_enabled = skill_content.enable_search if skill_content else False

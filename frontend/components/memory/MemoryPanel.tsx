@@ -10,11 +10,13 @@ import {
   Clock,
   Tag,
   Loader2,
+  Brain,
+  RotateCcw,
 } from 'lucide-react'
 import { useProjectMemory, type DocumentMeta } from '@/contexts/ProjectMemoryContext'
 import { Button } from '@/components/ui/button'
 
-type MemoryTab = 'context' | 'log' | 'documents'
+type MemoryTab = 'context' | 'log' | 'documents' | 'brain'
 
 const DOC_TYPE_ICONS: Record<string, string> = {
   script: '📝',
@@ -337,13 +339,119 @@ function DocumentsTab() {
   )
 }
 
+function BrainTab() {
+  const { brainSummary, isBrainSuppressed, clearBrain, rebuildBrain, isLoading, refreshMemory } = useProjectMemory()
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [isRebuilding, setIsRebuilding] = useState(false)
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (confirmTimer.current) clearTimeout(confirmTimer.current)
+    }
+  }, [])
+
+  const handleClear = async () => {
+    if (!confirmClear) {
+      setConfirmClear(true)
+      if (confirmTimer.current) clearTimeout(confirmTimer.current)
+      confirmTimer.current = setTimeout(() => setConfirmClear(false), 3000)
+      return
+    }
+    if (confirmTimer.current) clearTimeout(confirmTimer.current)
+    await clearBrain()
+    setConfirmClear(false)
+  }
+
+  const handleRebuild = async () => {
+    setIsRebuilding(true)
+    try {
+      await rebuildBrain()
+      setTimeout(() => void refreshMemory(), 5000)
+    } finally {
+      setIsRebuilding(false)
+    }
+  }
+
+  if (!brainSummary && !isBrainSuppressed) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12">
+        <Brain className="h-10 w-10 text-zinc-600 mb-3" />
+        <p className="text-sm text-zinc-400 mb-1">No project brain yet.</p>
+        <p className="text-xs text-zinc-500 mb-4">
+          The brain is auto-generated from video analysis and gives the AI context about your clips.
+        </p>
+      </div>
+    )
+  }
+
+  if (isBrainSuppressed && !brainSummary) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12">
+        <Brain className="h-10 w-10 text-zinc-600 mb-3" />
+        <p className="text-sm text-zinc-400 mb-1">Brain cleared.</p>
+        <p className="text-xs text-zinc-500 mb-4">
+          Auto-rebuild is paused. Rebuild when ready to let the AI re-analyze your clips.
+        </p>
+        <Button variant="outline" size="sm" onClick={handleRebuild} disabled={isLoading || isRebuilding}>
+          {isRebuilding ? (
+            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+          ) : (
+            <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+          )}
+          Rebuild Brain
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto p-4">
+        <p className="text-xs text-zinc-500 mb-3">
+          This is what the AI &quot;knows&quot; about your clips. It is auto-generated from video analysis.
+        </p>
+        <div className="text-sm text-zinc-300 whitespace-pre-wrap font-mono leading-relaxed">
+          {brainSummary}
+        </div>
+      </div>
+      <div className="p-3 border-t border-zinc-800 space-y-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={handleRebuild}
+          disabled={isLoading || isRebuilding}
+        >
+          {isRebuilding ? (
+            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+          ) : (
+            <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+          )}
+          Rebuild Brain
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className={`w-full ${confirmClear ? 'border-red-600 text-red-400 hover:bg-red-950' : ''}`}
+          onClick={handleClear}
+          disabled={isLoading}
+        >
+          <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+          {confirmClear ? 'Click again to confirm' : 'Clear Brain'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export function MemoryPanel() {
-  const { isPanelOpen, setPanelOpen, refreshMemory, clearAllMemory, isLoading, documents, masterContext, memoryLog } = useProjectMemory()
+  const { isPanelOpen, setPanelOpen, refreshMemory, clearAllMemory, isLoading, documents, masterContext, memoryLog, brainSummary } = useProjectMemory()
   const [activeTab, setActiveTab] = useState<MemoryTab>('documents')
   const [confirmClearAll, setConfirmClearAll] = useState(false)
   const clearAllTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const hasAnyMemory = documents.length > 0 || !!masterContext || !!memoryLog
+  const hasAnyMemory = documents.length > 0 || !!masterContext || !!memoryLog || !!brainSummary
 
   const handleClearAll = async () => {
     if (!confirmClearAll) {
@@ -363,6 +471,7 @@ export function MemoryPanel() {
     { id: 'context', label: 'Context', icon: <BookOpen className="h-3.5 w-3.5" /> },
     { id: 'log', label: 'Log', icon: <ScrollText className="h-3.5 w-3.5" /> },
     { id: 'documents', label: `Docs (${documents.length})`, icon: <FileText className="h-3.5 w-3.5" /> },
+    { id: 'brain', label: 'Brain', icon: <Brain className="h-3.5 w-3.5" /> },
   ]
 
   return (
@@ -415,6 +524,7 @@ export function MemoryPanel() {
         {activeTab === 'context' && <ContextTab />}
         {activeTab === 'log' && <LogTab />}
         {activeTab === 'documents' && <DocumentsTab />}
+        {activeTab === 'brain' && <BrainTab />}
       </div>
 
       {hasAnyMemory && (

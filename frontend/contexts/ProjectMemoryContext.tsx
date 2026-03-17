@@ -33,6 +33,8 @@ interface ProjectMemoryState {
   documents: DocumentMeta[]
   masterContext: string
   memoryLog: string
+  brainSummary: string
+  isBrainSuppressed: boolean
   isLoading: boolean
   selectedDocumentId: string | null
   selectedDocument: MemoryDocument | null
@@ -59,6 +61,8 @@ interface ProjectMemoryActions {
   appendMemoryNote: (entry: string) => Promise<void>
   clearMemoryLog: () => Promise<void>
   clearAllMemory: () => Promise<void>
+  clearBrain: () => Promise<void>
+  rebuildBrain: () => Promise<void>
   setPanelOpen: (open: boolean) => void
   togglePanel: () => void
 }
@@ -74,6 +78,8 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
   const [documents, setDocuments] = useState<DocumentMeta[]>([])
   const [masterContext, setMasterContext] = useState('')
   const [memoryLog, setMemoryLog] = useState('')
+  const [brainSummary, setBrainSummary] = useState('')
+  const [isBrainSuppressed, setIsBrainSuppressed] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [selectedDocument, setSelectedDocument] = useState<MemoryDocument | null>(null)
@@ -83,10 +89,11 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
     if (!projectId) return
     setIsLoading(true)
     try {
-      const [manifestRes, contextRes, logRes] = await Promise.all([
+      const [manifestRes, contextRes, logRes, brainRes] = await Promise.all([
         backendFetch(`/api/agent/memory/${projectId}`),
         backendFetch(`/api/agent/memory/${projectId}/context`),
         backendFetch(`/api/agent/memory/${projectId}/log`),
+        backendFetch(`/api/agent/brain/${projectId}`),
       ])
 
       if (manifestRes.ok) {
@@ -100,6 +107,15 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
       if (logRes.ok) {
         const log = (await logRes.json()) as { content: string }
         setMemoryLog(log.content ?? '')
+      }
+      if (brainRes.ok) {
+        const brain = (await brainRes.json()) as {
+          formatted_summary?: string
+          suppressed?: boolean
+          status?: string
+        }
+        setBrainSummary(brain.formatted_summary ?? '')
+        setIsBrainSuppressed(brain.suppressed ?? false)
       }
     } catch (e) {
       logger.error(`Failed to refresh project memory: ${e}`)
@@ -115,6 +131,8 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
       setDocuments([])
       setMasterContext('')
       setMemoryLog('')
+      setBrainSummary('')
+      setIsBrainSuppressed(false)
       setSelectedDocumentId(null)
       setSelectedDocument(null)
     }
@@ -255,8 +273,29 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
     setDocuments([])
     setMasterContext('')
     setMemoryLog('')
+    setBrainSummary('')
+    setIsBrainSuppressed(true)
     setSelectedDocumentId(null)
     setSelectedDocument(null)
+  }, [projectId])
+
+  const clearBrain = useCallback(async () => {
+    if (!projectId) return
+    const res = await backendFetch(`/api/agent/brain/${projectId}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error(`Failed to clear brain: ${res.status}`)
+    setBrainSummary('')
+    setIsBrainSuppressed(true)
+  }, [projectId])
+
+  const rebuildBrain = useCallback(async () => {
+    if (!projectId) return
+    const res = await backendFetch(`/api/agent/brain/${projectId}/build`, {
+      method: 'POST',
+    })
+    if (!res.ok) throw new Error(`Failed to rebuild brain: ${res.status}`)
+    setIsBrainSuppressed(false)
   }, [projectId])
 
   const togglePanel = useCallback(() => {
@@ -268,6 +307,8 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
       documents,
       masterContext,
       memoryLog,
+      brainSummary,
+      isBrainSuppressed,
       isLoading,
       selectedDocumentId,
       selectedDocument,
@@ -282,6 +323,8 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
       appendMemoryNote,
       clearMemoryLog,
       clearAllMemory,
+      clearBrain,
+      rebuildBrain,
       setPanelOpen: setIsPanelOpen,
       togglePanel,
     }),
@@ -289,6 +332,8 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
       documents,
       masterContext,
       memoryLog,
+      brainSummary,
+      isBrainSuppressed,
       isLoading,
       selectedDocumentId,
       selectedDocument,
@@ -303,6 +348,8 @@ export function ProjectMemoryProvider({ children }: { children: ReactNode }) {
       appendMemoryNote,
       clearMemoryLog,
       clearAllMemory,
+      clearBrain,
+      rebuildBrain,
       togglePanel,
     ],
   )

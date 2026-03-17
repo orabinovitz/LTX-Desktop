@@ -61,6 +61,7 @@ export interface AgentExecutorDeps {
     asset: Omit<Asset, "id" | "createdAt">,
   ) => Asset;
   deleteAsset?: (projectId: string, assetId: string) => void;
+  updateAsset?: (projectId: string, assetId: string, updates: Partial<Asset>) => void;
   toggleFavorite?: (projectId: string, assetId: string) => void;
   assetSavePath?: string | null;
   selectedClipIds?: string[];
@@ -99,6 +100,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     getMaxClipDuration,
     addAsset,
     deleteAsset,
+    updateAsset,
     toggleFavorite,
     assetSavePath,
     selectedClipIds,
@@ -180,6 +182,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       assetCount: assets.length,
       assets: assets.map((a) => ({
         id: a.id, type: a.type, prompt: a.prompt,
+        name: a.name ?? null, tags: a.tags ?? [],
         duration: a.duration ?? null, resolution: a.resolution,
         path: a.path, favorite: a.favorite ?? false,
         bin: a.bin ?? null, parentAssetId: a.parentAssetId ?? null,
@@ -806,9 +809,17 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       if (args.favorite !== undefined && toggleFavorite && currentProjectId) {
         toggleFavorite(currentProjectId, assetId);
       }
-      return ok("organize_asset", { assetId, bin: args.bin, favorite: args.favorite });
+      if (currentProjectId && updateAsset) {
+        const updates: Partial<Asset> = {};
+        if (args.name !== undefined) updates.name = (args.name as string) || undefined;
+        if (args.tags !== undefined) updates.tags = args.tags as string[];
+        if (Object.keys(updates).length > 0) updateAsset(currentProjectId, assetId, updates);
+      }
+      return ok("organize_asset", {
+        assetId, name: args.name, tags: args.tags, bin: args.bin, favorite: args.favorite,
+      });
     },
-    [toggleFavorite, currentProjectId],
+    [toggleFavorite, updateAsset, currentProjectId],
   );
 
   const handleSetActiveTake = useCallback(

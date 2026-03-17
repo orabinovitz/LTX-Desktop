@@ -601,6 +601,7 @@ class TaskPlanner:
         timeline_context: str | None = None,
         assets_context: str | None = None,
         memory_context: str | None = None,
+        conversation_context: str | None = None,
     ) -> TaskDAG:
         """Break a user request into a validated TaskDAG.
 
@@ -611,6 +612,8 @@ class TaskPlanner:
         system_prompt = _PLANNER_SYSTEM_PROMPT.format(skill_catalog=skill_catalog)
 
         user_parts: list[str] = []
+        if conversation_context:
+            user_parts.append(f"## Recent Conversation\n{conversation_context}")
         if timeline_context:
             user_parts.append(f"## Current Timeline\n{timeline_context}")
         if assets_context:

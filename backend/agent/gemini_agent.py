@@ -737,10 +737,11 @@ def execute_prompt(
             if meta is not None:
                 context_parts.append(_format_video_metadata(meta))
 
-    # Inject project brain summary — schedule async build if none exists yet
+    # Inject project brain summary — schedule async build if none exists yet.
+    # Skip auto-rebuild for suppressed projects (user explicitly cleared the brain).
     if request.project_id:
         project_brain = brain_module.get_brain(request.project_id)
-        if project_brain is None:
+        if project_brain is None and not brain_module.is_suppressed(request.project_id):
             all_meta = video_analyzer.get_all_complete_metadata()
             if all_meta and gemini_api_key:
                 logger.info(
@@ -1679,9 +1680,17 @@ def _format_assets_context(ctx: dict[str, object]) -> str:
                 continue
             a_id = asset.get("id", "?")
             a_type = asset.get("type", "?")
+            a_name = asset.get("name")
+            a_tags = asset.get("tags", [])
             a_prompt = asset.get("prompt", "")
+            parts = [f"{a_id}: {a_type}"]
+            if a_name:
+                parts.append(f'name="{a_name}"')
+            if a_tags:
+                parts.append(f"tags=[{', '.join(str(t) for t in a_tags)}]")
             prompt_preview = a_prompt[:80] if a_prompt else "(no prompt)"
-            lines.append(f"  - {a_id}: {a_type}, prompt \"{prompt_preview}\"")
+            parts.append(f'prompt="{prompt_preview}"')
+            lines.append(f"  - {', '.join(parts)}")
     else:
         lines.append("**Visible assets**: (none)")
 

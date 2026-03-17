@@ -782,12 +782,28 @@ batch_delete_assets = _tool(
 organize_asset = _tool(
     name="organize_asset",
     description=(
-        "Organize an asset by setting its bin and/or toggling its favorite status."
+        "Organize an asset by setting its display name, tags, bin, "
+        "and/or toggling its favorite status. Use name and tags to "
+        "give assets human-readable identifiers the user can reference."
     ),
     execution_target=ExecutionTarget.FRONTEND,
     category="asset_mgmt",
     parameters=[
         _param("asset_id", "string", "ID of the asset."),
+        _param(
+            "name",
+            "string",
+            "Display name for the asset (e.g. 'Elara v3 - casual').",
+            required=False,
+        ),
+        _param(
+            "tags",
+            "array",
+            "Tags to set on the asset (replaces existing tags). "
+            "Lowercase freeform strings, e.g. ['character', 'casual'].",
+            required=False,
+            items={"type": "string"},
+        ),
         _param("bin", "string", "Bin name to move asset to.", required=False),
         _param("favorite", "boolean", "true = favorite, false = unfavorite.", required=False),
     ],

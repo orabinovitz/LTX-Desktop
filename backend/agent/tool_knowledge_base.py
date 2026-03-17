@@ -208,7 +208,7 @@ CATEGORIES: dict[str, ToolCategory] = {
         keywords=[
             "import", "asset", "bin", "favorite", "take", "organize",
             "media", "file", "browse", "sub-clip", "subclip",
-            "delete", "remove",
+            "delete", "remove", "name", "rename", "tag", "label",
         ],
         tool_names=[
             "create_subclip_assets", "import_media", "delete_asset",

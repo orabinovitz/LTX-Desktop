@@ -573,6 +573,7 @@ export function VideoEditor() {
     getMaxClipDuration: agentGetMaxClipDuration,
     addAsset,
     deleteAsset,
+    updateAsset,
     assetSavePath: currentProject?.assetSavePath,
     selectedClipIds: [...selectedClipIds],
     setSelectedClipIds: (ids: string[]) => setSelectedClipIds(new Set(ids)),

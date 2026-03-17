@@ -23,6 +23,8 @@ from agent.types import (
     AnalyzeVideoResponse,
     ClarifyRequest,
     ClarifyResponse,
+    IntentResolveRequest,
+    IntentResolveResponse,
     LiveConfigResponse,
     LiveTokenResponse,
     OrchestrateContinueRequest,
@@ -122,6 +124,34 @@ class AgentHandler(StateHandlerBase):
         from agent.orchestration.complexity_router import classify_complexity
         return classify_complexity(prompt)
 
+    def resolve_intent(self, request: IntentResolveRequest) -> IntentResolveResponse:
+        """Resolve user intent by grounding prompt against project context."""
+        api_key = self._state.app_settings.gemini_api_key
+        if not api_key:
+            from agent.orchestration.complexity_router import classify_complexity
+            return IntentResolveResponse(
+                grounded_prompt=request.prompt,
+                complexity=classify_complexity(request.prompt),
+            )
+
+        from agent.intent_resolver import resolve_intent
+        result = resolve_intent(
+            prompt=request.prompt,
+            project_id=request.project_id,
+            conversation_history=request.conversation_history,
+            view_context=request.view_context,
+            assets_context=request.assets_context,
+            gemini_api_key=api_key,
+            http_client=self._http,
+        )
+        return IntentResolveResponse(
+            grounded_prompt=result.grounded_prompt,
+            complexity=result.complexity,
+            relevant_memory_ids=result.relevant_memory_ids,
+            intent_summary=result.intent_summary,
+            requires_generation=result.requires_generation,
+        )
+
     def clarify(self, request: ClarifyRequest) -> ClarifyResponse:
         """Generate clarification questions for a complex request."""
         api_key = self._state.app_settings.gemini_api_key
@@ -179,6 +209,21 @@ class AgentHandler(StateHandlerBase):
             project_id, all_metadata, api_key, self._http, project_save_path,
         )
         return "building"
+
+    def clear_brain(self, project_id: str) -> bool:
+        """Clear the brain for a project (suppresses auto-rebuild)."""
+        return brain_module.clear_brain(project_id, suppress=True)
+
+    def get_brain_summary(self, project_id: str) -> str:
+        """Return the formatted brain summary text for display."""
+        brain = brain_module.get_brain(project_id)
+        if brain is None:
+            return ""
+        return brain_module.format_brain_for_agent(brain)
+
+    def is_brain_suppressed(self, project_id: str) -> bool:
+        """Check whether brain auto-rebuild is suppressed."""
+        return brain_module.is_suppressed(project_id)
 
     def mark_brain_dirty(self, project_id: str) -> None:
         """Notify the brain that scenes have been decomposed."""

@@ -495,6 +495,31 @@ class ClarificationAnswer(BaseModel):
 
 
 # ============================================================
+# Intent Resolution
+# ============================================================
+
+
+class IntentResolveRequest(BaseModel):
+    """Request to resolve user intent against project context."""
+
+    prompt: str = Field(description="User's raw natural-language instruction", max_length=10000)
+    project_id: str | None = Field(default=None, description="Project ID for context lookup")
+    conversation_history: list[AgentMessage] = Field(default_factory=list, max_length=20)
+    view_context: ViewContext = Field(default=ViewContext.EDITOR)
+    assets_context: dict[str, object] | None = None
+
+
+class IntentResolveResponse(BaseModel):
+    """Response from the intent resolver with grounded prompt and routing."""
+
+    grounded_prompt: str = Field(description="Disambiguated, self-contained prompt")
+    complexity: str = Field(description="'simple' or 'orchestrated'")
+    relevant_memory_ids: list[str] = Field(default_factory=list, description="Memory doc IDs the agent should read")
+    intent_summary: str = Field(default="", description="One-sentence summary of what the user wants")
+    requires_generation: bool = Field(default=False, description="Whether the request involves image/video generation")
+
+
+# ============================================================
 # Project Memory
 # ============================================================
 

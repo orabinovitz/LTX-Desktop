@@ -83,6 +83,8 @@ class ProjectBrain(BaseModel):
 _brains: dict[str, ProjectBrain] = {}
 _brain_lock = threading.Lock()
 
+_suppressed_projects: set[str] = set()
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -95,9 +97,20 @@ def get_all_project_ids() -> list[str]:
         return list(_brains.keys())
 
 
-def get_brain(project_id: str) -> ProjectBrain | None:
-    """Return the brain for a project, loading from disk if needed."""
+def is_suppressed(project_id: str) -> bool:
+    """True if the brain was explicitly cleared and should not auto-rebuild."""
     with _brain_lock:
+        return project_id in _suppressed_projects
+
+
+def get_brain(project_id: str) -> ProjectBrain | None:
+    """Return the brain for a project, loading from disk if needed.
+
+    Returns ``None`` for suppressed projects (explicitly cleared by user).
+    """
+    with _brain_lock:
+        if project_id in _suppressed_projects:
+            return None
         brain = _brains.get(project_id)
     if brain is not None:
         return brain
@@ -105,6 +118,8 @@ def get_brain(project_id: str) -> ProjectBrain | None:
     loaded = _load_from_disk(project_id)
     if loaded is not None:
         with _brain_lock:
+            if project_id in _suppressed_projects:
+                return None
             _brains[project_id] = loaded
         return loaded
     return None
@@ -120,7 +135,9 @@ def build_brain(
     """Build a brain from scratch using all available metadata.
 
     This makes a single Gemini call to extract topics and group clips.
+    Calling this explicitly lifts suppression for the project.
     """
+    unsuppress_brain(project_id)
     clips = _metadata_to_clip_entries(all_metadata)
     if not clips:
         brain = ProjectBrain(
@@ -266,10 +283,17 @@ def format_brain_for_agent(brain: ProjectBrain) -> str:
     return "\n".join(lines)
 
 
-def clear_brain(project_id: str) -> bool:
-    """Remove a project's brain from memory and disk. Returns True if deleted."""
+def clear_brain(project_id: str, *, suppress: bool = True) -> bool:
+    """Remove a project's brain from memory and disk. Returns True if deleted.
+
+    When *suppress* is True (default), auto-rebuild is blocked until the user
+    explicitly triggers a rebuild via ``unsuppress_brain()`` or a new
+    ``build_brain()`` / ``schedule_brain_build()`` call.
+    """
     with _brain_lock:
         _brains.pop(project_id, None)
+        if suppress:
+            _suppressed_projects.add(project_id)
     path = _disk_path(project_id)
     if path.exists():
         try:
@@ -280,6 +304,12 @@ def clear_brain(project_id: str) -> bool:
             logger.warning("Failed to delete brain cache for %s", project_id[:8], exc_info=True)
             return False
     return False
+
+
+def unsuppress_brain(project_id: str) -> None:
+    """Allow auto-rebuild for a previously suppressed project."""
+    with _brain_lock:
+        _suppressed_projects.discard(project_id)
 
 
 def mark_dirty(project_id: str) -> None:
@@ -298,7 +328,11 @@ def schedule_brain_build(
     http_client: HTTPClient,
     project_save_path: str | None = None,
 ) -> None:
-    """Schedule a brain build/update in a background thread."""
+    """Schedule a brain build/update in a background thread.
+
+    Lifts suppression so the build can proceed.
+    """
+    unsuppress_brain(project_id)
     thread = threading.Thread(
         target=_background_build,
         args=(project_id, all_metadata, gemini_api_key, http_client, project_save_path),
