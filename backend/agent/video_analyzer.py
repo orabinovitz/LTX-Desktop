@@ -267,6 +267,7 @@ def get_structural_metadata(file_path: str) -> dict[str, float | tuple[int, int]
     """Run ffprobe to extract duration, resolution and fps."""
     cmd = [
         "ffprobe",
+        "-protocol_whitelist", "file,pipe,data",
         "-v", "quiet",
         "-print_format", "json",
         "-show_format", "-show_streams",
@@ -990,7 +991,9 @@ def _create_analysis_proxy(file_path: str) -> str | None:
     )
 
     cmd = [
-        ffmpeg, "-y", "-i", file_path,
+        ffmpeg, "-y",
+        "-protocol_whitelist", "file,pipe,data",
+        "-i", file_path,
         "-vf", "scale=-2:720",
         "-c:v", "libx264", "-crf", "28",
         "-preset", "fast",
@@ -1227,6 +1230,7 @@ def _extract_audio_mp3(video_path: str, output_path: str) -> str:
 
     cmd = [
         ffmpeg, "-y",
+        "-protocol_whitelist", "file,pipe,data",
         "-i", video_path,
         "-vn",
         "-acodec", "libmp3lame",
@@ -1261,6 +1265,7 @@ def _split_audio_chunks(
 
     probe_cmd = [
         ffmpeg.replace("ffmpeg", "ffprobe") if "ffmpeg" in ffmpeg else "ffprobe",
+        "-protocol_whitelist", "file,pipe,data",
         "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", audio_path,
     ]
@@ -1280,6 +1285,7 @@ def _split_audio_chunks(
         chunk_path = str(parent / f"chunk_{chunk_idx:03d}.mp3")
         cmd = [
             ffmpeg, "-y",
+            "-protocol_whitelist", "file,pipe,data",
             "-ss", str(offset),
             "-t", str(chunk_duration),
             "-i", audio_path,

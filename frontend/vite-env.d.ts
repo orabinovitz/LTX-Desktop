@@ -60,6 +60,8 @@ interface Window {
     getAnalyticsState: () => Promise<{ analyticsEnabled: boolean; installationId: string }>
     setAnalyticsEnabled: (enabled: boolean) => Promise<void>
     sendAnalyticsEvent: (eventName: string, extraDetails?: Record<string, unknown> | null) => Promise<void>
+    storeSecureKey: (name: string, value: string) => Promise<void>
+    getSecureKey: (name: string) => Promise<string>
     platform: string
   }
 }

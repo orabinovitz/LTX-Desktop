@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { backendFetch, backendWsUrl, resetBackendCredentials } from '../lib/backend'
+import { backendFetch, backendWsUrl, getWsProtocols, resetBackendCredentials } from '../lib/backend'
 import { logger } from '../lib/logger'
 
 interface BackendStatus {
@@ -105,9 +105,9 @@ export function useBackend(): UseBackendReturn {
 
   const downloadModel = useCallback(async (modelId: string) => {
     try {
-      // Connect to WebSocket for download progress
       const wsUrl = await backendWsUrl(`/ws/download/${modelId}`)
-      const ws = new WebSocket(wsUrl)
+      const protocols = await getWsProtocols()
+      const ws = new WebSocket(wsUrl, protocols)
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data)

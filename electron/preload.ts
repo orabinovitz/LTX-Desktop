@@ -120,6 +120,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendAnalyticsEvent: (eventName: string, extraDetails?: Record<string, unknown> | null): Promise<void> =>
     ipcRenderer.invoke('send-analytics-event', eventName, extraDetails),
 
+  // Secure storage for API keys (OS keychain encryption)
+  storeSecureKey: (name: string, value: string): Promise<void> =>
+    ipcRenderer.invoke('store-secure-key', name, value),
+  getSecureKey: (name: string): Promise<string> =>
+    ipcRenderer.invoke('get-secure-key', name),
+
   // Platform info
   platform: process.platform,
 })
@@ -185,6 +191,8 @@ declare global {
       getAnalyticsState: () => Promise<{ analyticsEnabled: boolean; installationId: string }>
       setAnalyticsEnabled: (enabled: boolean) => Promise<void>
       sendAnalyticsEvent: (eventName: string, extraDetails?: Record<string, unknown> | null) => Promise<void>
+      storeSecureKey: (name: string, value: string) => Promise<void>
+      getSecureKey: (name: string) => Promise<string>
       platform: string
     }
   }

@@ -10,6 +10,7 @@ import time
 
 from api_types import RetakeRequest, RetakeResponse
 from _routes._errors import HTTPError
+from server_utils.media_validation import sanitize_media_path
 from handlers.base import StateHandlerBase
 from handlers.generation_handler import GenerationHandler
 from handlers.pipelines_handler import PipelinesHandler
@@ -50,7 +51,7 @@ class RetakeHandler(StateHandlerBase):
         if duration < 2:
             raise HTTPError(400, "duration must be at least 2 seconds")
 
-        video_file = Path(video_path)
+        video_file = sanitize_media_path(video_path)
         if not video_file.exists():
             raise HTTPError(400, f"Video file not found: {video_path}")
 

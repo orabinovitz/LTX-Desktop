@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import logging
 import pickle
 import time
@@ -9,6 +10,48 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
 import torch
+
+
+# ---------------------------------------------------------------------------
+# Safe deserialization — restricted unpickler for torch tensor data
+# ---------------------------------------------------------------------------
+
+_ALLOWED_GLOBALS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("builtins", "set"),
+        ("builtins", "frozenset"),
+        ("collections", "OrderedDict"),
+        ("torch", "BFloat16Storage"),
+        ("torch", "BoolStorage"),
+        ("torch", "ByteStorage"),
+        ("torch", "CharStorage"),
+        ("torch", "ComplexDoubleStorage"),
+        ("torch", "ComplexFloatStorage"),
+        ("torch", "DoubleStorage"),
+        ("torch", "FloatStorage"),
+        ("torch", "HalfStorage"),
+        ("torch", "IntStorage"),
+        ("torch", "LongStorage"),
+        ("torch", "ShortStorage"),
+        ("torch", "Size"),
+        ("torch", "Tensor"),
+        ("torch._utils", "_rebuild_tensor_v2"),
+        ("torch.storage", "TypedStorage"),
+        ("torch.storage", "UntypedStorage"),
+        ("torch.storage", "_load_from_bytes"),
+    }
+)
+
+
+class _RestrictedUnpickler(pickle.Unpickler):
+    """Unpickler that only allows torch tensor reconstruction and basic types."""
+
+    def find_class(self, module: str, name: str) -> Any:
+        if (module, name) in _ALLOWED_GLOBALS:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(
+            f"Blocked disallowed class: {module}.{name}"
+        )
 
 from services.http_client.http_client import HTTPClient
 from services.services_utils import PromptInput, TensorOrNone, sync_device
@@ -226,7 +269,7 @@ class LTXTextEncoder:
                 logger.warning("LTX API error %s: %s", response.status_code, response.text)
                 return None
 
-            conditioning = pickle.loads(response.content)  # noqa: S301
+            conditioning = _RestrictedUnpickler(io.BytesIO(response.content)).load()
             if not conditioning or len(conditioning) == 0:
                 logger.warning("LTX API returned unexpected conditioning format")
                 return None

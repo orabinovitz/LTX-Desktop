@@ -8,6 +8,7 @@ import { logger, writeLog } from './logger'
 import { getCurrentLogFilename } from './logging-management'
 import { getPythonDir } from './python-setup'
 import { getMainWindow } from './window'
+import { migrateApiKeysFromSettings, getDecryptedApiKeys } from './secure-storage'
 
 let pythonProcess: ChildProcess | null = null
 let isIntentionalShutdown = false
@@ -42,6 +43,25 @@ function publishBackendHealthStatus(status: BackendHealthStatus): void {
 
 export function getBackendHealthStatus(): BackendHealthStatus | null {
   return latestBackendHealthStatus
+}
+
+async function injectSecureApiKeys(): Promise<void> {
+  if (!backendUrl || !authToken) return
+  const keys = getDecryptedApiKeys()
+  if (Object.keys(keys).length === 0) return
+  try {
+    await fetch(`${backendUrl}/api/settings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify(keys),
+    })
+    logger.info('Injected %d encrypted API key(s) into backend', Object.keys(keys).length)
+  } catch (err) {
+    logger.error('Failed to inject secure API keys: %s', err)
+  }
 }
 
 function getBackendPath(): string {
@@ -235,24 +255,49 @@ export async function startPythonBackend(): Promise<void> {
       pythonArgs = isDev ? ['-Xfrozen_modules=off', '-u', mainPy] : ['-u', mainPy]
     }
 
+    // Migrate any plaintext API keys from settings.json into OS-encrypted storage
+    const settingsJsonPath = path.join(getAppDataDir(), 'settings.json')
+    migrateApiKeysFromSettings(settingsJsonPath)
+
     // Generate auth token and admin token for this backend session
     authToken = crypto.randomBytes(32).toString('base64url')
     adminToken = crypto.randomBytes(32).toString('base64url')
 
+    // Build a minimal environment instead of inheriting everything from the
+    // parent process.  This avoids leaking unrelated secrets (GH_TOKEN,
+    // AWS_ACCESS_KEY_ID, etc.) into the Python backend process.
+    const minimalEnv: Record<string, string> = {}
+    const PASSTHROUGH_KEYS = [
+      // Required for basic OS operation
+      'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'TEMP', 'TMP',
+      'LANG', 'LC_ALL', 'LC_CTYPE',
+      // Windows essentials
+      'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'APPDATA', 'LOCALAPPDATA',
+      'PROGRAMDATA', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'USERPROFILE',
+      // GPU / CUDA
+      'CUDA_HOME', 'CUDA_PATH', 'CUDA_VISIBLE_DEVICES', 'LD_LIBRARY_PATH',
+      'DYLD_LIBRARY_PATH', 'DYLD_FALLBACK_LIBRARY_PATH',
+      // Python / dev
+      'VIRTUAL_ENV', 'CONDA_PREFIX', 'CONDA_DEFAULT_ENV',
+      // Debug flags (only forwarded if set by developer)
+      'BACKEND_DEBUG', 'USE_SAGE_ATTENTION',
+    ]
+    for (const key of PASSTHROUGH_KEYS) {
+      if (process.env[key]) minimalEnv[key] = process.env[key]!
+    }
+
     pythonProcess = spawn(pythonPath, pythonArgs, {
       cwd: backendPath,
       env: {
-        ...process.env,
+        ...minimalEnv,
         PYTHONUNBUFFERED: '1',
         PYTHONNOUSERSITE: '1',
-        // Only pass LTX_PORT when the developer explicitly set it
         ...(process.env.LTX_PORT ? { LTX_PORT: process.env.LTX_PORT } : {}),
         LTX_AUTH_TOKEN: authToken,
         LTX_ADMIN_TOKEN: adminToken,
         LTX_LOG_FILE: getCurrentLogFilename(),
         LTX_APP_DATA_DIR: getAppDataDir(),
         PYTORCH_ENABLE_MPS_FALLBACK: '1',
-        // Set PYTHONHOME for bundled Python on macOS so it finds its stdlib
         ...(!isDev && process.platform !== 'win32' ? {
           PYTHONHOME: getPythonDir(),
         } : {}),
@@ -289,6 +334,7 @@ export async function startPythonBackend(): Promise<void> {
           started = true
           backendOwnership = 'managed'
           publishBackendHealthStatus({ status: 'alive' })
+          void injectSecureApiKeys()
           settleResolve()
         } else if (output.includes('Uvicorn running')) {
           // Fallback for legacy/dev uvicorn output

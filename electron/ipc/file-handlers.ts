@@ -89,8 +89,8 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle('show-item-in-folder', async (_event, filePath: string) => {
     const { shell } = await import('electron')
-    validatePath(filePath, getAllowedRoots())
-    shell.showItemInFolder(filePath)
+    const normalizedPath = validatePath(filePath, getAllowedRoots())
+    shell.showItemInFolder(normalizedPath)
   })
 
   ipcMain.handle('read-local-file', async (_event, filePath: string) => {
@@ -170,9 +170,16 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle('copy-to-project-assets', async (_event, srcPath: string, projectId: string) => {
     try {
+      if (!projectId || !/^[a-zA-Z0-9_-]+$/.test(projectId)) {
+        throw new Error('Invalid project ID')
+      }
       const resolvedSrc = validatePath(srcPath, getAllowedRoots())
       const assetsRoot = getProjectAssetsPath()
       const destDir = path.join(assetsRoot, projectId)
+      const resolvedDest = path.resolve(destDir)
+      if (!resolvedDest.startsWith(path.resolve(assetsRoot) + path.sep) && resolvedDest !== path.resolve(assetsRoot)) {
+        throw new Error('Destination path escapes assets root')
+      }
       fs.mkdirSync(destDir, { recursive: true })
       const fileName = path.basename(resolvedSrc)
       const destPath = path.join(destDir, fileName)

@@ -11,6 +11,7 @@ from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING
 
+from server_utils.media_validation import sanitize_media_path
 from api_types import (
     IcLoraExtractRequest,
     IcLoraExtractResponse,
@@ -79,7 +80,7 @@ class IcLoraHandler(StateHandlerBase):
         return lora_path, depth_model_path
 
     def extract_conditioning(self, req: IcLoraExtractRequest) -> IcLoraExtractResponse:
-        video_file = Path(req.video_path)
+        video_file = sanitize_media_path(req.video_path)
         if not video_file.exists():
             raise HTTPError(400, f"Video not found: {req.video_path}")
 
@@ -122,7 +123,7 @@ class IcLoraHandler(StateHandlerBase):
         if self._generation.is_generation_running():
             raise HTTPError(409, "Generation already in progress")
 
-        video_path = Path(req.video_path)
+        video_path = sanitize_media_path(req.video_path)
         if not video_path.exists():
             raise HTTPError(400, f"Video not found: {req.video_path}")
         lora_path, depth_model_path = self._require_ic_lora_model_paths()

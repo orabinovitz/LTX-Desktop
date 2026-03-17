@@ -28,6 +28,7 @@ from agent.tool_knowledge_base import (
 )
 from agent.tool_registry import TOOLS_BY_NAME, tools_to_gemini_declarations
 from agent.types import (
+    DESTRUCTIVE_TOOLS,
     MEMORY_WRITE_TOOLS,
     AgentExecuteRequest,
     AgentExecuteResponse,
@@ -581,6 +582,31 @@ When generating videos, choose model and duration intelligently:
 """
 
 # ---------------------------------------------------------------------------
+# Rate limiting — sliding window on Gemini API calls
+# ---------------------------------------------------------------------------
+
+_RATE_LIMIT_WINDOW_SECONDS = 60.0
+_RATE_LIMIT_MAX_CALLS = 30
+
+_rate_limit_timestamps: list[float] = []
+
+
+def _check_rate_limit() -> None:
+    """Raise if too many Gemini calls have been made in the current window."""
+    now = time.monotonic()
+    cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+    while _rate_limit_timestamps and _rate_limit_timestamps[0] < cutoff:
+        _rate_limit_timestamps.pop(0)
+    if len(_rate_limit_timestamps) >= _RATE_LIMIT_MAX_CALLS:
+        logger.warning("Agent rate limit exceeded (%d calls in %.0fs)", _RATE_LIMIT_MAX_CALLS, _RATE_LIMIT_WINDOW_SECONDS)
+        raise RuntimeError(
+            f"Rate limit exceeded: maximum {_RATE_LIMIT_MAX_CALLS} agent calls "
+            f"per {int(_RATE_LIMIT_WINDOW_SECONDS)}s. Please wait a moment."
+        )
+    _rate_limit_timestamps.append(now)
+
+
+# ---------------------------------------------------------------------------
 # Session storage
 # ---------------------------------------------------------------------------
 
@@ -904,6 +930,8 @@ def _call_gemini(
     results are fed back (recursive call).  Frontend tool calls are returned
     to the caller.  Recursion is capped at ``_MAX_TURNS``.
     """
+    _check_rate_limit()
+
     if _depth >= _MAX_TURNS:
         logger.warning(
             "Session %s hit max turns (%d) — forcing completion",
@@ -1178,12 +1206,14 @@ def _call_gemini(
 
     # -- If there are frontend tool calls, return them to the caller ------
     if frontend_tool_calls:
+        has_destructive = any(tc.tool_name in DESTRUCTIVE_TOOLS for tc in frontend_tool_calls)
         logger.info(
-            "[agent] session=%s turn=%d | returning %d frontend tool(s) to UI: %s",
+            "[agent] session=%s turn=%d | returning %d frontend tool(s) to UI: %s (destructive=%s)",
             session_id[:8],
             _depth,
             len(frontend_tool_calls),
             [tc.tool_name for tc in frontend_tool_calls],
+            has_destructive,
         )
         return AgentExecuteResponse(
             plan=combined_text,
@@ -1191,6 +1221,7 @@ def _call_gemini(
             message=combined_text,
             done=False,
             memory_updated=had_memory_writes,
+            requires_confirmation=has_destructive,
         )
 
     # -- Only backend tools were called — recurse to continue the loop ----

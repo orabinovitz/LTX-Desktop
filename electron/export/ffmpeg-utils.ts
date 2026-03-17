@@ -40,7 +40,7 @@ export function findFfmpegPath(): string | null {
 /** Check if a video file contains an audio stream using ffprobe/ffmpeg */
 export function fileHasAudio(ffmpegPath: string, filePath: string): boolean {
   try {
-    const result = spawnSync(ffmpegPath, ['-i', filePath, '-hide_banner'], {
+    const result = spawnSync(ffmpegPath, ['-protocol_whitelist', 'file,pipe,data', '-i', filePath, '-hide_banner'], {
       encoding: 'utf8',
       timeout: 5000,
     })

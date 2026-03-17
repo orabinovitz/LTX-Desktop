@@ -5,6 +5,8 @@ import path from 'path'
 import fs from 'fs'
 import { findFfmpegPath, urlToFilePath } from '../export/ffmpeg-utils'
 import { logger } from '../logger'
+import { validatePath } from '../path-validation'
+import { getAllowedRoots } from '../config'
 
 export function registerVideoProcessingHandlers(): void {
   ipcMain.handle(
@@ -21,7 +23,8 @@ export function registerVideoProcessingHandlers(): void {
         throw new Error('ffmpeg not found')
       }
 
-      const inputPath = urlToFilePath(videoUrl)
+      const rawPath = urlToFilePath(videoUrl)
+      const inputPath = validatePath(rawPath, getAllowedRoots())
       if (!fs.existsSync(inputPath)) {
         throw new Error(`Video file not found: ${inputPath}`)
       }
@@ -30,6 +33,7 @@ export function registerVideoProcessingHandlers(): void {
       const outputPath = path.join(os.tmpdir(), outputName)
 
       const args: string[] = [
+        '-protocol_whitelist', 'file,pipe,data',
         '-ss', String(Math.max(0, seekTime)),
         '-i', inputPath,
         ...(width ? ['-vf', `scale=${width}:-2`] : []),

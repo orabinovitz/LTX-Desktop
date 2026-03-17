@@ -17,8 +17,13 @@ export async function backendFetch(path: string, init?: RequestInit): Promise<Re
 }
 
 export async function backendWsUrl(path: string): Promise<string> {
-  const { url, token } = await getBackendCredentials()
+  const { url } = await getBackendCredentials()
   const ws = url.replace('http://', 'ws://')
-  const sep = path.includes('?') ? '&' : '?'
-  return `${ws}${path}${sep}token=${token}`
+  return `${ws}${path}`
+}
+
+export async function getWsProtocols(): Promise<string[]> {
+  const { token } = await getBackendCredentials()
+  if (!token) return []
+  return [`bearer.${token}`]
 }

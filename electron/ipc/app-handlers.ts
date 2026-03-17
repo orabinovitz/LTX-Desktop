@@ -6,6 +6,7 @@ import { isPythonReady, downloadPythonEmbed } from '../python-setup'
 import { getBackendHealthStatus, getBackendUrl, getAuthToken, getAdminToken, startPythonBackend } from '../python-backend'
 import { getMainWindow } from '../window'
 import { getAnalyticsState, setAnalyticsEnabled, sendAnalyticsEvent } from '../analytics'
+import { storeSecureKey, getSecureKey } from '../secure-storage'
 
 function getModelsPath(): string {
   const modelsPath = path.join(app.getPath('userData'), 'models')
@@ -183,6 +184,14 @@ export function registerAppHandlers(): void {
     if (!resp.ok) return { success: false, error: await resp.text() }
 
     return { success: true, path: newDir }
+  })
+
+  ipcMain.handle('store-secure-key', (_event, name: string, value: string) => {
+    storeSecureKey(name, value)
+  })
+
+  ipcMain.handle('get-secure-key', (_event, name: string) => {
+    return getSecureKey(name) ?? ''
   })
 
 }

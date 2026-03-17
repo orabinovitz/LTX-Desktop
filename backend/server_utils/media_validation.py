@@ -6,6 +6,7 @@ return HTTP 400 for invalid user-supplied paths instead of leaking exceptions.
 
 from __future__ import annotations
 
+import platform
 from pathlib import Path
 
 from PIL import Image
@@ -17,6 +18,38 @@ _MAX_AUDIO_BYTES = 100 * 1024 * 1024
 _MAX_IMAGE_PIXELS = 50_000_000
 
 _ALLOWED_IMAGE_FORMATS = {"PNG", "JPEG", "WEBP", "GIF", "BMP", "TIFF"}
+
+_BLOCKED_PREFIXES_UNIX = ("/dev", "/proc", "/sys")
+_BLOCKED_PREFIXES_WIN = ("\\\\", "\\\\.\\")
+
+
+def sanitize_media_path(raw_path: str) -> Path:
+    """Resolve a user-supplied path and reject dangerous locations.
+
+    Normalises ``..`` and symlinks via ``Path.resolve()`` and blocks
+    system-sensitive directories (``/dev``, ``/proc``, ``/sys`` on Unix;
+    UNC device paths on Windows).
+    """
+    if not raw_path or not raw_path.strip():
+        raise HTTPError(400, "Empty file path")
+
+    try:
+        resolved = Path(raw_path).resolve()
+    except (OSError, ValueError):
+        raise HTTPError(400, "Invalid file path") from None
+
+    resolved_str = str(resolved)
+
+    if platform.system() != "Windows":
+        for prefix in _BLOCKED_PREFIXES_UNIX:
+            if resolved_str == prefix or resolved_str.startswith(prefix + "/"):
+                raise HTTPError(400, "Access to system paths is not allowed")
+    else:
+        for prefix in _BLOCKED_PREFIXES_WIN:
+            if resolved_str.startswith(prefix):
+                raise HTTPError(400, "Access to system paths is not allowed")
+
+    return resolved
 
 
 def normalize_optional_path(value: str | None) -> str | None:
@@ -50,11 +83,7 @@ def _assert_max_bytes(file_path: Path, *, limit_bytes: int, error_detail: str) -
 def validate_image_file(path: str) -> Path:
     """Validate that `path` points to a supported image file on disk."""
 
-    try:
-        file_path = Path(path)
-    except Exception:
-        raise HTTPError(400, f"Image file not found: {path}") from None
-
+    file_path = sanitize_media_path(path)
     _assert_is_file(file_path, kind="Image", raw_path=path)
     _assert_max_bytes(file_path, limit_bytes=_MAX_IMAGE_BYTES, error_detail=f"Image file too large: {path}")
 
@@ -120,11 +149,7 @@ def _sniff_audio(header: bytes, ext: str) -> bool:
 def validate_audio_file(path: str) -> Path:
     """Validate that `path` points to a supported audio file on disk."""
 
-    try:
-        file_path = Path(path)
-    except Exception:
-        raise HTTPError(400, f"Audio file not found: {path}") from None
-
+    file_path = sanitize_media_path(path)
     _assert_is_file(file_path, kind="Audio", raw_path=path)
     _assert_max_bytes(file_path, limit_bytes=_MAX_AUDIO_BYTES, error_detail=f"Audio file too large: {path}")
 

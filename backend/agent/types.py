@@ -14,6 +14,14 @@ MEMORY_WRITE_TOOLS: frozenset[str] = frozenset({
     "update_project_context",
 })
 
+DESTRUCTIVE_TOOLS: frozenset[str] = frozenset({
+    "batch_delete_assets",
+    "delete_asset",
+    "delete_clip",
+    "delete_track",
+    "create_timeline",
+})
+
 
 # ============================================================
 # Video Analysis
@@ -196,6 +204,7 @@ class AgentExecuteResponse(BaseModel):
     done: bool = Field(default=False, description="True when the agent has finished all steps")
     session_id: str = Field(default="", description="Session ID for continuing the conversation")
     memory_updated: bool = Field(default=False, description="True when project memory was modified during this turn")
+    requires_confirmation: bool = Field(default=False, description="True when the tool calls include destructive operations that should be confirmed by the user")
 
 
 class AgentContinueRequest(BaseModel):

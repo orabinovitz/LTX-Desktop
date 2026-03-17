@@ -68,8 +68,13 @@ def create_app(
         def _token_matches(candidate: str) -> bool:
             return hmac.compare_digest(candidate, auth_token)
 
-        # WebSocket: check query param
+        # WebSocket: check Sec-WebSocket-Protocol header (bearer.<token>) or query param (legacy)
         if request.headers.get("upgrade", "").lower() == "websocket":
+            ws_protocols = request.headers.get("sec-websocket-protocol", "")
+            for proto in ws_protocols.split(","):
+                proto = proto.strip()
+                if proto.startswith("bearer.") and _token_matches(proto[7:]):
+                    return await call_next(request)
             if _token_matches(request.query_params.get("token", "")):
                 return await call_next(request)
             return JSONResponse(status_code=401, content={"error": "Unauthorized"})
@@ -93,16 +98,18 @@ def create_app(
         if isinstance(exc, HTTPError):
             log_http_error(request, exc)
             return JSONResponse(status_code=exc.status_code, content={"error": exc.detail or _FALLBACK})
-        return JSONResponse(status_code=500, content={"error": str(exc) or _FALLBACK})
+        return JSONResponse(status_code=500, content={"error": _FALLBACK})
+
+    _VALIDATION_MSG = "Invalid request parameters"
 
     async def _validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
         if isinstance(exc, RequestValidationError):
-            return JSONResponse(status_code=422, content={"error": str(exc) or _FALLBACK})
-        return JSONResponse(status_code=422, content={"error": str(exc) or _FALLBACK})
+            return JSONResponse(status_code=422, content={"error": _VALIDATION_MSG})
+        return JSONResponse(status_code=422, content={"error": _VALIDATION_MSG})
 
     async def _route_generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
         log_unhandled_exception(request, exc)
-        return JSONResponse(status_code=500, content={"error": str(exc) or _FALLBACK})
+        return JSONResponse(status_code=500, content={"error": _FALLBACK})
 
     app.add_exception_handler(RequestValidationError, _validation_error_handler)
     app.add_exception_handler(HTTPError, _route_http_error_handler)

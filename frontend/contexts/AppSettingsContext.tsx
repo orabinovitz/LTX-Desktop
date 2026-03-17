@@ -244,6 +244,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       const detail = await response.text()
       throw new Error(detail || 'Failed to save LTX API key.')
     }
+    await window.electronAPI?.storeSecureKey('ltx_api_key', value)
     await refreshSettings()
   }, [refreshSettings])
 
@@ -257,6 +258,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       const detail = await response.text()
       throw new Error(detail || 'Failed to save Gemini API key.')
     }
+    await window.electronAPI?.storeSecureKey('gemini_api_key', value)
     await refreshSettings()
   }, [refreshSettings])
 
@@ -270,6 +272,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       const detail = await response.text()
       throw new Error(detail || 'Failed to save FAL API key.')
     }
+    await window.electronAPI?.storeSecureKey('fal_api_key', value)
     await refreshSettings()
   }, [refreshSettings])
 
