@@ -199,7 +199,7 @@ export const LTX_DEFAULT_LAYOUT: KeyboardLayout = {
 // ═══════════════════════════════════════════
 // ── PRESET: Adobe Premiere Pro ──
 // ═══════════════════════════════════════════
-export const PREMIERE_LAYOUT: KeyboardLayout = {
+const PREMIERE_LAYOUT: KeyboardLayout = {
   // Tools (Premiere defaults)
   'tool.select':       [k('v')],
   'tool.blade':        [k('c')],         // Premiere uses C for razor
@@ -253,7 +253,7 @@ export const PREMIERE_LAYOUT: KeyboardLayout = {
 // ═══════════════════════════════════════════
 // ── PRESET: DaVinci Resolve ──
 // ═══════════════════════════════════════════
-export const DAVINCI_LAYOUT: KeyboardLayout = {
+const DAVINCI_LAYOUT: KeyboardLayout = {
   // Tools
   'tool.select':       [k('a')],         // DaVinci: A = selection
   'tool.blade':        [k('b')],         // DaVinci: B = blade
@@ -307,7 +307,7 @@ export const DAVINCI_LAYOUT: KeyboardLayout = {
 // ═══════════════════════════════════════════
 // ── PRESET: Avid Media Composer ──
 // ═══════════════════════════════════════════
-export const AVID_LAYOUT: KeyboardLayout = {
+const AVID_LAYOUT: KeyboardLayout = {
   // Tools
   'tool.select':       [k('v')],
   'tool.blade':        [k('/')],         // Avid uses different paradigm but closest

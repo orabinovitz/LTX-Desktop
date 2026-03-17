@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { Play, Pause, Download, RefreshCw, RotateCcw, Volume2, VolumeX, Maximize2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { logger } from '../lib/logger'
+import { formatDuration } from '../lib/utils'
 
 interface VideoPlayerProps {
   videoUrl: string | null
@@ -10,12 +11,6 @@ interface VideoPlayerProps {
   isGenerating: boolean
   progress: number
   statusMessage: string
-}
-
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
 export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating, progress, statusMessage }: VideoPlayerProps) {
@@ -479,7 +474,7 @@ export function VideoPlayer({ videoUrl, videoPath, videoResolution, isGenerating
                   
                   {/* Time display */}
                   <span className="text-xs text-zinc-400 font-mono min-w-[80px]">
-                    {formatTime(currentTime)} / {formatTime(duration)}
+                    {formatDuration(currentTime, { pad: false })} / {formatDuration(duration, { pad: false })}
                   </span>
                 </div>
                 

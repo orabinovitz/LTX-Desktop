@@ -28,10 +28,8 @@ interface Window {
     openParentFolderOfFile: (filePath: string) => Promise<void>
     showItemInFolder: (filePath: string) => Promise<void>
     getLogs: () => Promise<LogsResponse>
-    getLogPath: () => Promise<{ logPath: string; logDir: string }>
     openLogFolder: () => Promise<boolean>
     getResourcePath: () => Promise<string | null>
-    getDownloadsPath: () => Promise<string>
     copyToProjectAssets: (srcPath: string, projectId: string) => Promise<{ success: boolean; path?: string; url?: string; error?: string }>
     getProjectAssetsPath: () => Promise<string>
     openProjectAssetsPathChangeDialog: () => Promise<{ success: boolean; path?: string; error?: string }>

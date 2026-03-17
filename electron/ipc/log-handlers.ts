@@ -27,12 +27,6 @@ export function registerLogHandlers(): void {
     }
   })
 
-  ipcMain.handle('get-log-path', async () => {
-    const logPath = getCurrentLogFilename()
-    const logDir = getLogDir()
-    return { logPath, logDir }
-  })
-
   ipcMain.handle('open-log-folder', async () => {
     const logDir = getLogDir()
     if (fs.existsSync(logDir)) {

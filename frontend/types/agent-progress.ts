@@ -1,3 +1,14 @@
+import type { ToolCall } from "../views/editor/useAgentExecutor";
+
+export interface ChatMessage {
+  role: "user" | "agent";
+  content: string;
+  toolCalls?: ToolCall[];
+  isExecuting?: boolean;
+}
+
+export type OnToolProgress = (progress: number, detail?: string) => void;
+
 export interface AgentTask {
   id: string;
   label: string;

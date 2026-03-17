@@ -10,24 +10,17 @@ import { useAgentProgress } from "./useAgentProgress";
 import type {
   AgentProgress,
   AgentTask,
+  ChatMessage,
+  OnToolProgress,
   OrchestrateResponse,
   OrchestrateTaskInfo,
   OrchestratorStatus,
 } from "../types/agent-progress";
 
-export type { AgentProgress };
-
-export type OnToolProgress = (progress: number, detail?: string) => void;
+export type { AgentProgress, ChatMessage, OnToolProgress };
 
 interface ExecuteToolFn {
   (toolCall: ToolCall, onProgress?: OnToolProgress): Promise<ToolResult>;
-}
-
-export interface ChatMessage {
-  role: "user" | "agent";
-  content: string;
-  toolCalls?: ToolCall[];
-  isExecuting?: boolean;
 }
 
 interface TimelineClipInfo {

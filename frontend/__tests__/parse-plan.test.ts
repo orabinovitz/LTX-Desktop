@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   parsePlanToTasks,
-  mapToolsToTasks,
   mapGroupsToTasks,
   groupToolCalls,
   toolToLabel,
@@ -240,19 +239,3 @@ describe("mapGroupsToTasks", () => {
   });
 });
 
-describe("mapToolsToTasks (deprecated)", () => {
-  it("still works for backward compatibility", () => {
-    resetTaskIdCounter();
-    const { tasks } = parsePlanToTasks(`- Generate 6 images
-- Add clips to timeline`);
-
-    const toolCalls = [
-      { tool_name: "generate_image" },
-      { tool_name: "add_clip_to_track" },
-    ];
-
-    const mapping = mapToolsToTasks(toolCalls, tasks);
-    expect(mapping.get(0)).toBe(tasks[0].id);
-    expect(mapping.get(1)).toBe(tasks[1].id);
-  });
-});

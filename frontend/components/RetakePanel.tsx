@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { Film, Play, Pause, Volume2, VolumeX, Loader2, Upload, Trash2, RefreshCw } from 'lucide-react'
 import { logger } from '../lib/logger'
 import { fileUrlToPath } from '../lib/url-to-path'
+import { formatDuration } from '../lib/utils'
 
 interface RetakePanelProps {
   initialVideoUrl?: string | null
@@ -22,12 +23,6 @@ interface RetakePanelProps {
 }
 
 const MIN_DURATION = 2
-
-function formatTimecode(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${String(m).padStart(2, '0')}:${s.toFixed(2).padStart(5, '0')}`
-}
 
 function pathToFileUrl(filePath: string): string {
   const normalized = filePath.replace(/\\/g, '/')
@@ -467,7 +462,7 @@ export function RetakePanel({
                 {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
               </button>
               <span className="text-xs font-mono text-zinc-400">
-                {formatTimecode(currentTime)} / {formatTimecode(videoDuration)}
+                {formatDuration(currentTime, { decimals: 2 })} / {formatDuration(videoDuration, { decimals: 2 })}
               </span>
             </div>
 
@@ -584,15 +579,15 @@ export function RetakePanel({
                 }}
               >
                 <span className="text-[11px] font-mono text-zinc-700 bg-white/90 rounded px-2 py-0.5 font-semibold shadow">
-                  {formatTimecode(selDuration)}
+                  {formatDuration(selDuration, { decimals: 2 })}
                 </span>
               </div>
             </div>
 
               <div className="flex justify-between mt-1.5">
-                <span className="text-[10px] font-mono text-blue-400">{formatTimecode(selStart)}</span>
-                <span className="text-[10px] font-mono text-zinc-500">Duration: {formatTimecode(selDuration)}</span>
-                <span className="text-[10px] font-mono text-blue-400">{formatTimecode(selEnd)}</span>
+                <span className="text-[10px] font-mono text-blue-400">{formatDuration(selStart, { decimals: 2 })}</span>
+                <span className="text-[10px] font-mono text-zinc-500">Duration: {formatDuration(selDuration, { decimals: 2 })}</span>
+                <span className="text-[10px] font-mono text-blue-400">{formatDuration(selEnd, { decimals: 2 })}</span>
               </div>
             </div>
 

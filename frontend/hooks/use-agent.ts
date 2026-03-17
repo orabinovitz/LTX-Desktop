@@ -13,10 +13,11 @@ import {
   mapGroupsToTasks,
   resetTaskIdCounter,
 } from "../lib/parse-plan";
-import type { AgentProgress, AgentTask } from "../types/agent-progress";
+import type { AgentProgress, AgentTask, ChatMessage, OnToolProgress } from "../types/agent-progress";
 
 export type { ToolCall };
 export type { AgentProgress };
+export type { ChatMessage, OnToolProgress };
 
 const PARALLEL_SAFE_TOOLS = new Set([
   "generate_image",
@@ -67,15 +68,6 @@ interface AgentResponse {
   session_id: string;
   memory_updated?: boolean;
 }
-
-export interface ChatMessage {
-  role: "user" | "agent";
-  content: string;
-  toolCalls?: ToolCall[];
-  isExecuting?: boolean;
-}
-
-export type OnToolProgress = (progress: number, detail?: string) => void;
 
 interface ExecuteToolFn {
   (toolCall: ToolCall, onProgress?: OnToolProgress): Promise<ToolResult>;

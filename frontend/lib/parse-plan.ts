@@ -216,29 +216,6 @@ export function mapGroupsToTasks(
   return mapping;
 }
 
-/** @deprecated Use groupToolCalls + mapGroupsToTasks instead */
-export function mapToolsToTasks(
-  toolCalls: ToolCallLike[],
-  existingTasks: AgentTask[],
-): Map<number, string> {
-  const mapping = new Map<number, string>();
-  const usedTaskIds = new Set<string>();
-
-  for (let i = 0; i < toolCalls.length; i++) {
-    const tc = toolCalls[i];
-    const matchedTask = findMatchingTask(
-      tc.tool_name,
-      existingTasks,
-      usedTaskIds,
-    );
-    if (matchedTask) {
-      mapping.set(i, matchedTask.id);
-      usedTaskIds.add(matchedTask.id);
-    }
-  }
-
-  return mapping;
-}
 
 function findMatchingTask(
   toolName: string,

@@ -889,7 +889,7 @@ function parseFcpXml(doc: Document): ParsedTimeline | null {
 
 type ImportFormat = 'fcp7xml' | 'fcpxml' | 'aaf' | 'unknown'
 
-export function detectFormat(content: string, filename: string): ImportFormat {
+function detectFormat(content: string, filename: string): ImportFormat {
   const ext = filename.split('.').pop()?.toLowerCase() || ''
   
   if (ext === 'aaf') return 'aaf'

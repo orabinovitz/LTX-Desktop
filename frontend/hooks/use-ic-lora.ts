@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react'
 import { backendFetch } from '../lib/backend'
 import { logger } from '../lib/logger'
 
-export type IcLoraConditioningType = 'canny' | 'depth' | 'pose'
+export type IcLoraConditioningType = 'canny' | 'depth'
 
 export interface IcLoraSubmitParams {
   videoPath: string

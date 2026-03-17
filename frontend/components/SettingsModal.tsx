@@ -1260,4 +1260,4 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   )
 }
 
-export type { AppSettings, TabId as SettingsTabId }
+export type { TabId as SettingsTabId }

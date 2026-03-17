@@ -28,6 +28,7 @@ import { ICLoraPanel, CONDITIONING_TYPES } from '../components/ICLoraPanel'
 import { FreeApiKeyBubble } from '../components/FreeApiKeyBubble'
 import { TagInput, TagPills } from '../components/TagInput'
 import { autoNameAsset } from '../lib/auto-name-asset'
+import { formatDuration } from '../lib/utils'
 
 import { useAgentDispatch } from '../contexts/AgentContext'
 import type { ToolResult } from './editor/useAgentExecutor'
@@ -120,12 +121,6 @@ function AssetCard({
     if (videoRef.current) {
       setCurrentTime(videoRef.current.currentTime)
     }
-  }
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
   const handleDownload = (e: React.MouseEvent) => {
@@ -240,7 +235,7 @@ function AssetCard({
             <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <div className="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-md text-white text-xs font-mono">
-                  {formatTime(currentTime)}
+                  {formatDuration(currentTime)}
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted) }}

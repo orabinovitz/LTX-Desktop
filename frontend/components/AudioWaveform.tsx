@@ -16,7 +16,7 @@ interface AudioWaveformProps {
 }
 
 // Global waveform cache: URL → Float32Array of peak amplitudes (one per pixel-bucket)
-export const waveformCache = new Map<string, Float32Array>()
+const waveformCache = new Map<string, Float32Array>()
 const pendingDecodes = new Set<string>()
 
 // Convert a base64 string to an ArrayBuffer
@@ -30,7 +30,7 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 }
 
 // Decode audio file and extract amplitude envelope
-export async function computeWaveform(url: string, buckets: number = 800): Promise<Float32Array> {
+async function computeWaveform(url: string, buckets: number = 800): Promise<Float32Array> {
   if (waveformCache.has(url)) return waveformCache.get(url)!
 
   if (pendingDecodes.has(url)) {

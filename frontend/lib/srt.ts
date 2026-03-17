@@ -1,6 +1,6 @@
 // SRT subtitle format parsing and export utilities
 
-export interface SrtCue {
+interface SrtCue {
   index: number
   startTime: number  // in seconds
   endTime: number    // in seconds

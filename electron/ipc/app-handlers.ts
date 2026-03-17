@@ -88,10 +88,6 @@ export function registerAppHandlers(): void {
     }
   })
 
-  ipcMain.handle('get-downloads-path', () => {
-    return app.getPath('downloads')
-  })
-
   ipcMain.handle('check-first-run', () => {
     const settingsPath = path.join(app.getPath('userData'), 'app_state.json')
     return getSetupStatus(settingsPath)

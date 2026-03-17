@@ -1,8 +1,8 @@
-"""Pydantic request/response models and TypedDicts for ltx2_server."""
+"""Pydantic request/response models for ltx2_server."""
 
 from __future__ import annotations
 
-from typing import Literal, NamedTuple, TypeAlias, TypedDict
+from typing import Literal, NamedTuple, TypeAlias
 from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints
@@ -28,22 +28,6 @@ class ImageConditioningInput(NamedTuple):
     frame_idx: int
     strength: float
 
-
-# ============================================================
-# TypedDicts for module-level state globals
-# ============================================================
-
-
-class GenerationState(TypedDict):
-    id: str | None
-    cancelled: bool
-    result: str | list[str] | None
-    error: str | None
-    status: str  # "idle" | "running" | "complete" | "cancelled" | "error"
-    phase: str
-    progress: int
-    current_step: int
-    total_steps: int
 
 
 JsonObject: TypeAlias = dict[str, object]

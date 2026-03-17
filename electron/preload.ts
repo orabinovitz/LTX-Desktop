@@ -38,14 +38,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Log viewer
   getLogs: (): Promise<LogsResponse> => ipcRenderer.invoke('get-logs'),
-  getLogPath: (): Promise<{ logPath: string; logDir: string }> => ipcRenderer.invoke('get-log-path'),
   openLogFolder: (): Promise<boolean> => ipcRenderer.invoke('open-log-folder'),
   
   // Get resources path (for video assets in production)
   getResourcePath: (): Promise<string | null> => ipcRenderer.invoke('get-resource-path'),
   
-  // Paths
-  getDownloadsPath: (): Promise<string> => ipcRenderer.invoke('get-downloads-path'),
   // Project assets
   copyToProjectAssets: (srcPath: string, projectId: string): Promise<{ success: boolean; path?: string; url?: string; error?: string }> =>
     ipcRenderer.invoke('copy-to-project-assets', srcPath, projectId),
@@ -156,10 +153,8 @@ declare global {
       openParentFolderOfFile: (filePath: string) => Promise<void>
       showItemInFolder: (filePath: string) => Promise<void>
       getLogs: () => Promise<LogsResponse>
-      getLogPath: () => Promise<{ logPath: string; logDir: string }>
       openLogFolder: () => Promise<boolean>
       getResourcePath: () => Promise<string | null>
-      getDownloadsPath: () => Promise<string>
       copyToProjectAssets: (srcPath: string, projectId: string) => Promise<{ success: boolean; path?: string; url?: string; error?: string }>
       getProjectAssetsPath: () => Promise<string>
       openProjectAssetsPathChangeDialog: () => Promise<{ success: boolean; path?: string; error?: string }>
