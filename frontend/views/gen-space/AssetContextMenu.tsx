@@ -63,6 +63,28 @@ export function AssetContextMenu({
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
   const [showBinSubmenu, setShowBinSubmenu] = useState(false)
+  const [adjustedPos, setAdjustedPos] = useState(position)
+  const [submenuFlip, setSubmenuFlip] = useState(false)
+
+  useEffect(() => {
+    setAdjustedPos(position)
+    setSubmenuFlip(false)
+    requestAnimationFrame(() => {
+      if (!menuRef.current) return
+      const rect = menuRef.current.getBoundingClientRect()
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      let { x, y } = position
+      if (x + rect.width > vw - 8) {
+        x = Math.max(8, vw - rect.width - 8)
+        setSubmenuFlip(true)
+      }
+      if (y + rect.height > vh - 8) {
+        y = Math.max(8, vh - rect.height - 8)
+      }
+      if (x !== position.x || y !== position.y) setAdjustedPos({ x, y })
+    })
+  }, [position])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -83,8 +105,8 @@ export function AssetContextMenu({
 
   const menuStyle: React.CSSProperties = {
     position: 'fixed',
-    left: position.x,
-    top: position.y,
+    left: adjustedPos.x,
+    top: adjustedPos.y,
     zIndex: 9999,
   }
 
@@ -135,7 +157,9 @@ export function AssetContextMenu({
           </button>
 
           {showBinSubmenu && (
-            <div className="absolute left-full top-0 ml-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-2xl py-1.5 min-w-[180px]">
+            <div className={`absolute top-0 bg-zinc-800 border border-zinc-700 rounded-lg shadow-2xl py-1.5 min-w-[180px] ${
+              submenuFlip ? 'right-full mr-1' : 'left-full ml-1'
+            }`}>
               {currentBin && (
                 <button
                   onClick={() => { onMoveToBin(undefined); onClose() }}

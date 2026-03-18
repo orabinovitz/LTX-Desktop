@@ -122,6 +122,7 @@ export function BinSidebar({
               e.preventDefault()
               setContextMenu({ binName: name, x: e.clientX, y: e.clientY })
             }}
+            title={name}
             className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${
               activeBin === name
                 ? 'bg-zinc-800 text-white font-medium'
