@@ -826,7 +826,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   // =======================================================================
 
   const handleGenerateVideo = useCallback(
-    async (args: Record<string, unknown>, onProgress?: OnToolProgress): Promise<ToolResult> => {
+    async (args: Record<string, unknown>, onProgress?: OnToolProgress, externalSignal?: AbortSignal): Promise<ToolResult> => {
       if (!currentProjectId) return fail("generate_video", "No active project");
       const prompt = args.prompt as string;
       if (!prompt) return fail("generate_video", "Missing prompt");
@@ -849,6 +849,11 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       }
 
       generationAbortRef.current = new AbortController();
+      const localAbort = generationAbortRef.current;
+      if (externalSignal) {
+        if (externalSignal.aborted) { localAbort.abort(); }
+        else { externalSignal.addEventListener("abort", () => localAbort.abort(), { once: true }); }
+      }
       try {
         const curTags = [...new Set((assetsRef.current ?? []).flatMap(a => a.tags ?? []))];
         const result = await agentGenerateVideo(
@@ -863,7 +868,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
             cameraMotion: args.camera_motion as string | undefined,
           },
           addAsset, currentProjectId, assetSavePath,
-          generationAbortRef.current.signal,
+          localAbort.signal,
           onProgress,
           updateAsset ? { updateAsset, projectTags: curTags } : undefined,
         );
@@ -876,7 +881,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   );
 
   const handleGenerateImage = useCallback(
-    async (args: Record<string, unknown>, onProgress?: OnToolProgress): Promise<ToolResult> => {
+    async (args: Record<string, unknown>, onProgress?: OnToolProgress, externalSignal?: AbortSignal): Promise<ToolResult> => {
       if (!currentProjectId) return fail("generate_image", "No active project");
       const prompt = args.prompt as string;
       if (!prompt) return fail("generate_image", "Missing prompt");
@@ -893,6 +898,11 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       }
 
       generationAbortRef.current = new AbortController();
+      const localAbort = generationAbortRef.current;
+      if (externalSignal) {
+        if (externalSignal.aborted) { localAbort.abort(); }
+        else { externalSignal.addEventListener("abort", () => localAbort.abort(), { once: true }); }
+      }
       try {
         const imgTags = [...new Set((assetsRef.current ?? []).flatMap(a => a.tags ?? []))];
         const result = await agentGenerateImage(
@@ -905,7 +915,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
             imageUrls: resolvedImageUrls,
           },
           addAsset, currentProjectId, assetSavePath,
-          generationAbortRef.current.signal,
+          localAbort.signal,
           onProgress,
           updateAsset ? { updateAsset, projectTags: imgTags } : undefined,
         );
@@ -918,7 +928,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   );
 
   const handleRetakeSection = useCallback(
-    async (args: Record<string, unknown>, onProgress?: OnToolProgress): Promise<ToolResult> => {
+    async (args: Record<string, unknown>, onProgress?: OnToolProgress, externalSignal?: AbortSignal): Promise<ToolResult> => {
       if (!currentProjectId) return fail("retake_section", "No active project");
       const videoAssetId = args.video_asset_id as string;
       if (!videoAssetId) return fail("retake_section", "Missing video_asset_id");
@@ -928,6 +938,11 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       if (!videoAsset) return fail("retake_section", `Asset not found: ${videoAssetId}`);
 
       generationAbortRef.current = new AbortController();
+      const localAbort = generationAbortRef.current;
+      if (externalSignal) {
+        if (externalSignal.aborted) { localAbort.abort(); }
+        else { externalSignal.addEventListener("abort", () => localAbort.abort(), { once: true }); }
+      }
       try {
         const result = await agentRetakeSection(
           {
@@ -938,7 +953,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
             mode: args.mode as string | undefined,
           },
           addAsset, currentProjectId, assetSavePath,
-          generationAbortRef.current.signal,
+          localAbort.signal,
           onProgress,
         );
         return ok("retake_section", result);
@@ -961,12 +976,17 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   }, []);
 
   const handleFillTimelineGap = useCallback(
-    async (args: Record<string, unknown>): Promise<ToolResult> => {
+    async (args: Record<string, unknown>, _onProgress?: OnToolProgress, externalSignal?: AbortSignal): Promise<ToolResult> => {
       if (!currentProjectId) return fail("fill_timeline_gap", "No active project");
       const prompt = args.prompt as string | undefined;
       const mode = (args.mode as string) ?? "text_to_video";
 
       generationAbortRef.current = new AbortController();
+      const localAbort = generationAbortRef.current;
+      if (externalSignal) {
+        if (externalSignal.aborted) { localAbort.abort(); }
+        else { externalSignal.addEventListener("abort", () => localAbort.abort(), { once: true }); }
+      }
       try {
         const gapTags = [...new Set((assetsRef.current ?? []).flatMap(a => a.tags ?? []))];
         const gapAutoNaming = updateAsset ? { updateAsset, projectTags: gapTags } : undefined;
@@ -975,7 +995,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           result = await agentGenerateImage(
             { prompt: prompt ?? "A scene that connects the surrounding clips" },
             addAsset, currentProjectId, assetSavePath,
-            generationAbortRef.current.signal,
+            localAbort.signal,
             undefined,
             gapAutoNaming,
           );
@@ -987,7 +1007,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
               duration: args.gap_duration ? Number(args.gap_duration) : 5,
             },
             addAsset, currentProjectId, assetSavePath,
-            generationAbortRef.current.signal,
+            localAbort.signal,
             undefined,
             gapAutoNaming,
           );
@@ -1169,7 +1189,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   // =======================================================================
 
   const executeTool = useCallback(
-    async (call: ToolCall, onProgress?: OnToolProgress): Promise<ToolResult> => {
+    async (call: ToolCall, onProgress?: OnToolProgress, signal?: AbortSignal): Promise<ToolResult> => {
       const t0 = performance.now();
       try {
         const args = sanitizeArgs(call.arguments);
@@ -1223,12 +1243,12 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           case "set_active_take": return handleSetActiveTake(safe.arguments);
           case "regenerate_asset": return handleRegenerateAsset(safe.arguments);
           // Generation
-          case "generate_video": return await handleGenerateVideo(safe.arguments, onProgress);
-          case "generate_image": return await handleGenerateImage(safe.arguments, onProgress);
-          case "retake_section": return await handleRetakeSection(safe.arguments, onProgress);
+          case "generate_video": return await handleGenerateVideo(safe.arguments, onProgress, signal);
+          case "generate_image": return await handleGenerateImage(safe.arguments, onProgress, signal);
+          case "retake_section": return await handleRetakeSection(safe.arguments, onProgress, signal);
           case "cancel_generation": return await handleCancelGeneration();
           case "get_generation_status": return await handleGetGenerationStatus();
-          case "fill_timeline_gap": return await handleFillTimelineGap(safe.arguments);
+          case "fill_timeline_gap": return await handleFillTimelineGap(safe.arguments, undefined, signal);
           // Subtitles
           case "add_subtitle": return handleAddSubtitle(safe.arguments);
           case "edit_subtitle": return handleEditSubtitle(safe.arguments);

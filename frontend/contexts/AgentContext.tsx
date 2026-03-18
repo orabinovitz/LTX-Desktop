@@ -24,7 +24,7 @@ type ViewContext = "editor" | "genspace" | "playground";
 
 export interface AgentViewExecutor {
   viewContext: ViewContext;
-  executeTool: (toolCall: ToolCall, onProgress?: OnToolProgress) => Promise<ToolResult>;
+  executeTool: (toolCall: ToolCall, onProgress?: OnToolProgress, signal?: AbortSignal) => Promise<ToolResult>;
   getTimelineState: () => {
     clips: TimelineClip[];
     trackCount: number;
@@ -290,13 +290,14 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     const wrappedExecuteTool = async (
       tc: ToolCall,
       onProgress?: OnToolProgress,
+      signal?: AbortSignal,
     ): Promise<ToolResult> => {
       if (tc.tool_name === "switch_view") {
         return handleSwitchView(tc);
       }
       const currentExecutor = executorRef.current;
       if (currentExecutor) {
-        return currentExecutor.executeTool(tc, onProgress);
+        return currentExecutor.executeTool(tc, onProgress, signal);
       }
       return baseExecuteTool(tc, onProgress);
     };

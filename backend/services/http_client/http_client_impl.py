@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import httpx
@@ -14,6 +15,8 @@ from services.services_utils import JSONValue, RequestData
 
 logger = logging.getLogger(__name__)
 
+_MAX_RETRIES = 2
+_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
 
 class _HttpxResponseAdapter:
     """Thin adapter so httpx.Response satisfies the HttpResponseLike protocol."""
@@ -49,6 +52,9 @@ class HTTPClientImpl:
     httpx provides HTTP/2 support and persistent connection pooling out of
     the box, reducing TCP+TLS handshake overhead across repeated calls to
     the same host (e.g. Gemini API).
+
+    Transient connection errors (EAGAIN, ConnectionTerminated) are retried
+    up to _MAX_RETRIES times with exponential backoff before propagating.
     """
 
     def __init__(self) -> None:
@@ -75,6 +81,36 @@ class HTTPClientImpl:
             return None, dict(data)
         return data, None
 
+    def _with_retry(
+        self,
+        method: str,
+        url: str,
+        fn: Callable[[], httpx.Response],
+    ) -> _HttpxResponseAdapter:
+        last_exc: httpx.HTTPError | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                return _HttpxResponseAdapter(fn())
+            except httpx.TimeoutException as exc:
+                logger.error("HTTP %s timed out: %s", method, url)
+                raise HttpTimeoutError(str(exc)) from exc
+            except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as exc:
+                last_exc = exc
+                if attempt < _MAX_RETRIES:
+                    delay = _RETRY_BACKOFF_SECONDS[attempt]
+                    logger.warning(
+                        "HTTP %s transient error on %s (attempt %d/%d, retrying in %.1fs): %s",
+                        method, url, attempt + 1, _MAX_RETRIES + 1, delay, exc,
+                    )
+                    time.sleep(delay)
+                    continue
+                logger.error("HTTP %s failed after %d attempts: %s (%s)", method, url, attempt + 1, exc)
+            except httpx.HTTPError as exc:
+                logger.error("HTTP %s failed: %s (%s)", method, url, type(exc).__name__)
+                raise HttpConnectionError(str(exc)) from exc
+
+        raise HttpConnectionError(str(last_exc)) from last_exc
+
     def post(
         self,
         url: str,
@@ -84,25 +120,14 @@ class HTTPClientImpl:
         timeout: int = 30,
     ) -> _HttpxResponseAdapter:
         content, form_data = self._split_data(data)
-        try:
-            resp = self._client.post(
-                url,
-                headers=headers,
-                json=dict(json_payload) if json_payload is not None else None,
-                content=content,
-                data=form_data,
-                timeout=float(timeout),
-            )
-            return _HttpxResponseAdapter(resp)
-        except httpx.TimeoutException as exc:
-            logger.error("HTTP POST timed out: %s", url)
-            raise HttpTimeoutError(str(exc)) from exc
-        except httpx.ConnectError as exc:
-            logger.error("HTTP POST connection failed: %s (%s)", url, type(exc).__name__)
-            raise HttpConnectionError(str(exc)) from exc
-        except httpx.HTTPError as exc:
-            logger.error("HTTP POST failed: %s (%s)", url, type(exc).__name__)
-            raise HttpConnectionError(str(exc)) from exc
+        return self._with_retry("POST", url, lambda: self._client.post(
+            url,
+            headers=headers,
+            json=dict(json_payload) if json_payload is not None else None,
+            content=content,
+            data=form_data,
+            timeout=float(timeout),
+        ))
 
     def get(
         self,
@@ -110,18 +135,9 @@ class HTTPClientImpl:
         headers: dict[str, str] | None = None,
         timeout: int = 30,
     ) -> _HttpxResponseAdapter:
-        try:
-            resp = self._client.get(url, headers=headers, timeout=float(timeout))
-            return _HttpxResponseAdapter(resp)
-        except httpx.TimeoutException as exc:
-            logger.error("HTTP GET timed out: %s", url)
-            raise HttpTimeoutError(str(exc)) from exc
-        except httpx.ConnectError as exc:
-            logger.error("HTTP GET connection failed: %s (%s)", url, type(exc).__name__)
-            raise HttpConnectionError(str(exc)) from exc
-        except httpx.HTTPError as exc:
-            logger.error("HTTP GET failed: %s (%s)", url, type(exc).__name__)
-            raise HttpConnectionError(str(exc)) from exc
+        return self._with_retry("GET", url, lambda: self._client.get(
+            url, headers=headers, timeout=float(timeout),
+        ))
 
     def put(
         self,
@@ -131,15 +147,6 @@ class HTTPClientImpl:
         timeout: int = 300,
     ) -> _HttpxResponseAdapter:
         content, form_data = self._split_data(data)
-        try:
-            resp = self._client.put(url, content=content, data=form_data, headers=headers, timeout=float(timeout))
-            return _HttpxResponseAdapter(resp)
-        except httpx.TimeoutException as exc:
-            logger.error("HTTP PUT timed out: %s", url)
-            raise HttpTimeoutError(str(exc)) from exc
-        except httpx.ConnectError as exc:
-            logger.error("HTTP PUT connection failed: %s (%s)", url, type(exc).__name__)
-            raise HttpConnectionError(str(exc)) from exc
-        except httpx.HTTPError as exc:
-            logger.error("HTTP PUT failed: %s (%s)", url, type(exc).__name__)
-            raise HttpConnectionError(str(exc)) from exc
+        return self._with_retry("PUT", url, lambda: self._client.put(
+            url, content=content, data=form_data, headers=headers, timeout=float(timeout),
+        ))

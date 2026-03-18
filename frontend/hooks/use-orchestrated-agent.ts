@@ -20,7 +20,7 @@ import type {
 export type { AgentProgress, ChatMessage, OnToolProgress };
 
 interface ExecuteToolFn {
-  (toolCall: ToolCall, onProgress?: OnToolProgress): Promise<ToolResult>;
+  (toolCall: ToolCall, onProgress?: OnToolProgress, signal?: AbortSignal): Promise<ToolResult>;
 }
 
 interface TimelineClipInfo {
@@ -284,6 +284,8 @@ export function useOrchestratedAgent() {
 
             const groups = groupByToolName(toolCalls);
             for (const group of groups) {
+              if (stoppedRef.current) break;
+
               const isParallel =
                 PARALLEL_SAFE_TOOLS.has(group.toolName) && group.calls.length > 1;
 
@@ -292,11 +294,13 @@ export function useOrchestratedAgent() {
                   group.calls,
                   executeTool,
                   MAX_PARALLEL_GENERATIONS,
+                  signal,
                 );
                 results.push(...groupResults);
               } else {
                 for (const tc of group.calls) {
-                  const result = await executeTool(tc);
+                  if (stoppedRef.current) break;
+                  const result = await executeTool(tc, undefined, signal);
                   results.push(result);
                 }
               }
@@ -418,7 +422,17 @@ export function useOrchestratedAgent() {
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
-          progressActionsRef.current.reset();
+          const pa = progressActionsRef.current;
+          if (stoppedRef.current) {
+            cancelRemainingPendingTasks(pa);
+            pa.endSession("Stopped by user");
+            setMessages((prev) => [
+              ...prev,
+              { role: "agent", content: "Agent stopped. Completed tasks are preserved." },
+            ]);
+          } else {
+            pa.reset();
+          }
           return;
         }
         const errorMsg = err instanceof Error ? err.message : "Unknown error";
@@ -443,6 +457,8 @@ export function useOrchestratedAgent() {
 
   const stop = useCallback(() => {
     stoppedRef.current = true;
+    abortRef.current?.abort();
+    backendFetch("/api/generate/cancel", { method: "POST" }).catch(() => {});
   }, []);
 
   const skipTask = useCallback(
@@ -497,6 +513,7 @@ async function executeParallelWithLimit(
   calls: ToolCall[],
   executeTool: ExecuteToolFn,
   limit: number,
+  signal?: AbortSignal,
 ): Promise<ToolResult[]> {
   const results: ToolResult[] = new Array(calls.length);
   let nextIndex = 0;
@@ -505,7 +522,7 @@ async function executeParallelWithLimit(
     while (nextIndex < calls.length) {
       const idx = nextIndex++;
       try {
-        results[idx] = await executeTool(calls[idx]);
+        results[idx] = await executeTool(calls[idx], undefined, signal);
       } catch (e) {
         results[idx] = {
           tool_name: calls[idx].tool_name,
