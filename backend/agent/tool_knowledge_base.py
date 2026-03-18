@@ -204,15 +204,18 @@ CATEGORIES: dict[str, ToolCategory] = {
     "asset_mgmt": ToolCategory(
         name="asset_mgmt",
         display_name="Asset Management",
-        description="Import, delete, organize assets; manage takes and sub-clips",
+        description="Import, delete, organize, archive assets; manage bins, takes, and sub-clips",
         keywords=[
             "import", "asset", "bin", "favorite", "take", "organize",
             "media", "file", "browse", "sub-clip", "subclip",
             "delete", "remove", "name", "rename", "tag", "label",
+            "archive", "folder", "color", "move",
         ],
         tool_names=[
             "create_subclip_assets", "import_media", "delete_asset",
-            "batch_delete_assets", "organize_asset", "set_active_take",
+            "batch_delete_assets", "organize_asset", "create_bin",
+            "list_bins", "rename_bin", "set_bin_color",
+            "batch_organize_assets", "set_active_take",
             "regenerate_asset",
         ],
     ),

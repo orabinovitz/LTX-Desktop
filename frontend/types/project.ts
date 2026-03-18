@@ -55,6 +55,12 @@ export interface Asset {
   topics?: string[] // Topic tags for content-based organization
   name?: string // User-assigned display name (e.g. "Elara v3 - casual")
   tags?: string[] // User-created freeform tags for identification
+  archived?: boolean // Hidden from default view; agent ignores archived assets
+}
+
+export interface BinMetadata {
+  color?: string // one of the colorLabel values (e.g. 'violet', 'blue', 'green', 'yellow', 'red', 'rose', 'orange', 'mango')
+  createdAt: number
 }
 
 export interface Track {
@@ -406,6 +412,7 @@ export interface Project {
   timelines: Timeline[]
   activeTimelineId?: string
   assetSavePath?: string // Folder where generated assets are saved
+  bins?: Record<string, BinMetadata> // key = bin name
 }
 
 export type ViewType = 'home' | 'project' | 'playground'

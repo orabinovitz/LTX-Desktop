@@ -69,7 +69,8 @@ Each task is one of three types:
 - **transitions**: add_dissolve
 - **subtitles**: add_subtitle, edit_subtitle, set_subtitle_style
 - **clip_properties**: set_clip_volume, set_clip_opacity, set_color_correction
-- **asset_mgmt**: create_subclip_assets, organize_asset
+- **asset_mgmt**: create_subclip_assets, organize_asset, create_bin, list_bins, \
+  rename_bin, set_bin_color, batch_organize_assets
 - **analysis**: get_video_metadata, query_project_brain, get_full_transcript
 - **review**: review_edit_quality, review_edit_structure
 - **memory**: save_to_project_memory, update_project_memory, \
@@ -431,6 +432,23 @@ This is the ONLY type of request that warrants the full pipeline.
       "depends_on": ["task-6", "task-7"],
       "tool_categories": ["timeline_mgmt", "clip_editing", "transitions"],
       "context_requirements": ["prior_results", "timeline_state"]
+    }}
+  ]
+}}
+
+### Example 8 — Asset organization
+User: "Create bins for characters, locations, and storyboard, then organize \
+my assets into them based on their content"
+
+{{"tasks": [
+    {{
+      "id": "task-1",
+      "description": "List all project assets with get_project_assets, then create three bins using create_bin: 'Characters', 'Locations', 'Storyboard'. For each asset, examine its name, tags, and prompt to determine the best bin, then call organize_asset with the appropriate bin name. Archive any duplicate or low-quality assets.",
+      "skill_id": null,
+      "task_type": "execution",
+      "depends_on": [],
+      "tool_categories": ["asset_mgmt"],
+      "context_requirements": []
     }}
   ]
 }}

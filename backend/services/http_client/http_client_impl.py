@@ -104,7 +104,7 @@ class HTTPClientImpl:
                     )
                     time.sleep(delay)
                     continue
-                logger.error("HTTP %s failed after %d attempts: %s (%s)", method, url, attempt + 1, exc)
+                logger.error("HTTP %s %s failed after %d attempts: %s", method, url, attempt + 1, exc)
             except httpx.HTTPError as exc:
                 logger.error("HTTP %s failed: %s (%s)", method, url, type(exc).__name__)
                 raise HttpConnectionError(str(exc)) from exc

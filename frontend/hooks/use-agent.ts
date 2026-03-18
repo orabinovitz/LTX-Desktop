@@ -392,6 +392,7 @@ export function useAgent() {
           const MUTATION_TOOLS = new Set([
             "delete_asset", "batch_delete_assets", "organize_asset",
             "toggle_favorite", "create_subclip_assets", "import_media",
+            "create_bin", "rename_bin", "set_bin_color", "batch_organize_assets",
           ]);
           const hadMutations = response.tool_calls.some(
             (tc) => MUTATION_TOOLS.has(tc.tool_name),

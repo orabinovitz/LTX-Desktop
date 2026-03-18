@@ -70,14 +70,21 @@ get_timeline_state = _tool(
 get_project_assets = _tool(
     name="get_project_assets",
     description=(
-        "List every asset in the current project. Each asset includes: id, "
-        "type (video/image/audio/adjustment), path, url, prompt, resolution, "
-        "duration (for videos), thumbnail, and generation parameters. Use "
-        "the returned asset IDs with add_clip_to_timeline or "
-        "get_video_metadata."
+        "List assets in the current project. By default archived assets are "
+        "excluded. Each asset includes: id, type, path, prompt, resolution, "
+        "duration, name, tags, bin, archived status. Use the returned asset "
+        "IDs with add_clip_to_timeline or get_video_metadata."
     ),
     execution_target=ExecutionTarget.FRONTEND,
     category="core",
+    parameters=[
+        _param(
+            "include_archived",
+            "boolean",
+            "If true, include archived assets in the result. Default false.",
+            required=False,
+        ),
+    ],
 )
 
 switch_view = _tool(
@@ -783,8 +790,10 @@ organize_asset = _tool(
     name="organize_asset",
     description=(
         "Organize an asset by setting its display name, tags, bin, "
-        "and/or toggling its favorite status. Use name and tags to "
-        "give assets human-readable identifiers the user can reference."
+        "archive status, and/or toggling its favorite status. Use name "
+        "and tags to give assets human-readable identifiers the user can "
+        "reference. Archived assets are hidden from the default view and "
+        "excluded from agent context."
     ),
     execution_target=ExecutionTarget.FRONTEND,
     category="asset_mgmt",
@@ -806,6 +815,95 @@ organize_asset = _tool(
         ),
         _param("bin", "string", "Bin name to move asset to.", required=False),
         _param("favorite", "boolean", "true = favorite, false = unfavorite.", required=False),
+        _param(
+            "archived",
+            "boolean",
+            "true = archive (hide from view), false = unarchive.",
+            required=False,
+        ),
+    ],
+)
+
+create_bin = _tool(
+    name="create_bin",
+    description=(
+        "Create a new bin (folder) in the project for organizing assets. "
+        "Bins appear in the sidebar and assets can be moved into them."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[
+        _param("name", "string", "Name for the new bin."),
+        _param(
+            "color",
+            "string",
+            "Color for the bin dot indicator. One of: violet, blue, green, "
+            "yellow, red, rose, orange, mango.",
+            required=False,
+        ),
+    ],
+)
+
+list_bins = _tool(
+    name="list_bins",
+    description=(
+        "List all bins in the project with their asset counts. "
+        "Use this to understand how assets are organized before "
+        "moving or creating bins."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[],
+)
+
+rename_bin = _tool(
+    name="rename_bin",
+    description="Rename a bin. All assets in the bin are updated automatically.",
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[
+        _param("old_name", "string", "Current bin name."),
+        _param("new_name", "string", "New bin name."),
+    ],
+)
+
+set_bin_color = _tool(
+    name="set_bin_color",
+    description="Set the color indicator for a bin in the sidebar.",
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[
+        _param("bin_name", "string", "Name of the bin."),
+        _param(
+            "color",
+            "string",
+            "Color name. One of: violet, blue, green, yellow, red, rose, orange, mango.",
+        ),
+    ],
+)
+
+batch_organize_assets = _tool(
+    name="batch_organize_assets",
+    description=(
+        "Move multiple assets to a bin and/or set their archive status "
+        "in one call. More efficient than calling organize_asset repeatedly."
+    ),
+    execution_target=ExecutionTarget.FRONTEND,
+    category="asset_mgmt",
+    parameters=[
+        ToolParameter(
+            name="asset_ids",
+            type="array",
+            description="Array of asset IDs to organize.",
+            items={"type": "string"},
+        ),
+        _param("bin", "string", "Bin name to move assets to.", required=False),
+        _param(
+            "archived",
+            "boolean",
+            "true = archive all, false = unarchive all.",
+            required=False,
+        ),
     ],
 )
 
@@ -1516,6 +1614,11 @@ ALL_TOOLS: list[ToolDefinition] = [
     delete_asset,
     batch_delete_assets,
     organize_asset,
+    create_bin,
+    list_bins,
+    rename_bin,
+    set_bin_color,
+    batch_organize_assets,
     set_active_take,
     regenerate_asset,
     # Generation

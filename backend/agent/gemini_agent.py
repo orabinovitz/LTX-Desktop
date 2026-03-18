@@ -44,7 +44,7 @@ from agent import brain as brain_module
 from agent import project_memory
 from agent import video_analyzer
 from agent.scene_decomposer import decompose_to_scenes
-from services.http_client.http_client import HTTPClient, HttpTimeoutError
+from services.http_client.http_client import HTTPClient, HttpConnectionError, HttpTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -1018,7 +1018,7 @@ def _call_gemini(
         "generationConfig": {"temperature": 0.4, "maxOutputTokens": 16384},
     }
 
-    # -- HTTP call with retry on 503 ------------------------------------
+    # -- HTTP call with retry on 503 / connection errors ------------------
     t0 = time.monotonic()
     response = None
     _MAX_RETRIES = 3
@@ -1046,6 +1046,21 @@ def _call_gemini(
             logger.error("[agent] session=%s | Gemini timed out after %.1fs", session_id[:8], elapsed, exc_info=True)
             return AgentExecuteResponse(
                 message="The AI service timed out. Please try again.",
+                done=True,
+            )
+        except HttpConnectionError:
+            if _attempt < _MAX_RETRIES - 1:
+                wait = min(2 * (2 ** _attempt) + random.random(), 15)
+                logger.warning(
+                    "[agent] session=%s | Gemini connection error, retrying in %.1fs (attempt %d/%d)",
+                    session_id[:8], wait, _attempt + 1, _MAX_RETRIES,
+                )
+                time.sleep(wait)
+                continue
+            elapsed = time.monotonic() - t0
+            logger.error("[agent] session=%s | Gemini connection failed after %d attempts (%.1fs)", session_id[:8], _MAX_RETRIES, elapsed, exc_info=True)
+            return AgentExecuteResponse(
+                message="Failed to reach the AI service. Please check your connection and try again.",
                 done=True,
             )
         except Exception:
@@ -1716,6 +1731,7 @@ def _format_assets_context(ctx: dict[str, object]) -> str:
     gen_mode = ctx.get("generationMode", "unknown")
     prompt_bar = ctx.get("promptBarText", "")
     selected_id = ctx.get("selectedAssetId")
+    active_bin = ctx.get("activeBin", "all")
     visible = ctx.get("visibleAssets", [])
 
     lines.append(f"**Generation mode**: {gen_mode}")
@@ -1723,27 +1739,41 @@ def _format_assets_context(ctx: dict[str, object]) -> str:
         lines.append(f"**Prompt bar**: \"{prompt_bar}\"")
     if selected_id:
         lines.append(f"**Selected asset**: {selected_id}")
+    if active_bin and active_bin != "all":
+        lines.append(f"**Active bin**: {active_bin}")
 
     if isinstance(visible, list) and visible:
-        lines.append(f"**Visible assets** ({len(visible)}, most recent first):")
+        # Group assets by bin for better comprehension
+        by_bin: dict[str, list[dict[str, object]]] = {}
         for asset in visible:
             if not isinstance(asset, dict):
                 continue
-            a_id = asset.get("id", "?")
-            a_type = asset.get("type", "?")
-            a_name = asset.get("name")
-            a_tags = asset.get("tags", [])
-            a_prompt = asset.get("prompt", "")
-            parts = [f"{a_id}: {a_type}"]
-            if a_name:
-                parts.append(f'name="{a_name}"')
-            if a_tags:
-                parts.append(f"tags=[{', '.join(str(t) for t in a_tags)}]")
-            prompt_preview = a_prompt[:80] if a_prompt else "(no prompt)"
-            parts.append(f'prompt="{prompt_preview}"')
-            lines.append(f"  - {', '.join(parts)}")
+            bin_name = str(asset.get("bin") or "Unorganized")
+            by_bin.setdefault(bin_name, []).append(asset)
+
+        total = sum(len(v) for v in by_bin.values())
+        lines.append(f"**Assets** ({total}, most recent first, archived excluded):")
+
+        for bin_name, assets in by_bin.items():
+            if len(by_bin) > 1:
+                lines.append(f"  [{bin_name}]")
+            for asset in assets:
+                a_id = asset.get("id", "?")
+                a_type = asset.get("type", "?")
+                a_name = asset.get("name")
+                a_tags = asset.get("tags", [])
+                a_prompt = asset.get("prompt", "")
+                parts = [f"{a_id}: {a_type}"]
+                if a_name:
+                    parts.append(f'name="{a_name}"')
+                if a_tags:
+                    parts.append(f"tags=[{', '.join(str(t) for t in a_tags)}]")
+                prompt_preview = a_prompt[:80] if a_prompt else "(no prompt)"
+                parts.append(f'prompt="{prompt_preview}"')
+                indent = "    " if len(by_bin) > 1 else "  "
+                lines.append(f"{indent}- {', '.join(parts)}")
     else:
-        lines.append("**Visible assets**: (none)")
+        lines.append("**Assets**: (none)")
 
     return "\n".join(lines)
 

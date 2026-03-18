@@ -5,6 +5,7 @@ import type {
   Asset,
   Timeline,
   TransitionType,
+  BinMetadata,
 } from "@/types/project";
 import type { ToolCall, ToolResult } from "@/types/agent-progress";
 import { logger } from "@/lib/logger";
@@ -48,6 +49,9 @@ export interface AgentExecutorDeps {
   deleteAsset?: (projectId: string, assetId: string) => void;
   updateAsset?: (projectId: string, assetId: string, updates: Partial<Asset>) => void;
   toggleFavorite?: (projectId: string, assetId: string) => void;
+  updateBinMeta?: (projectId: string, binName: string, meta: Partial<BinMetadata>) => void;
+  renameBin?: (projectId: string, oldName: string, newName: string) => void;
+  projectBins?: Record<string, BinMetadata>;
   assetSavePath?: string | null;
   selectedClipIds?: string[];
   setSelectedClipIds?: (ids: string[]) => void;
@@ -87,6 +91,9 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     deleteAsset,
     updateAsset,
     toggleFavorite,
+    updateBinMeta,
+    renameBin: renameBinFn,
+    projectBins,
     assetSavePath,
     selectedClipIds,
     setSelectedClipIds,
@@ -161,8 +168,10 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
     });
   }, [clipsRef, tracksRef, currentTimeRef]);
 
-  const handleGetProjectAssets = useCallback((): ToolResult => {
-    const assets = assetsRef.current ?? [];
+  const handleGetProjectAssets = useCallback((args?: Record<string, unknown>): ToolResult => {
+    const allAssets = assetsRef.current ?? [];
+    const includeArchived = args?.include_archived as boolean | undefined;
+    const assets = includeArchived ? allAssets : allAssets.filter(a => !a.archived);
     return ok("get_project_assets", {
       assetCount: assets.length,
       assets: assets.map((a) => ({
@@ -170,7 +179,8 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
         name: a.name ?? null, tags: a.tags ?? [],
         duration: a.duration ?? null, resolution: a.resolution,
         path: a.path, favorite: a.favorite ?? false,
-        bin: a.bin ?? null, parentAssetId: a.parentAssetId ?? null,
+        bin: a.bin ?? null, archived: a.archived ?? false,
+        parentAssetId: a.parentAssetId ?? null,
         sourceIn: a.sourceIn ?? null, sourceOut: a.sourceOut ?? null,
         topics: a.topics ?? [],
       })),
@@ -798,13 +808,82 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
         const updates: Partial<Asset> = {};
         if (args.name !== undefined) updates.name = (args.name as string) || undefined;
         if (args.tags !== undefined) updates.tags = args.tags as string[];
+        if (args.bin !== undefined) updates.bin = (args.bin as string) || undefined;
+        if (args.archived !== undefined) updates.archived = args.archived as boolean;
         if (Object.keys(updates).length > 0) updateAsset(currentProjectId, assetId, updates);
       }
       return ok("organize_asset", {
-        assetId, name: args.name, tags: args.tags, bin: args.bin, favorite: args.favorite,
+        assetId, name: args.name, tags: args.tags, bin: args.bin, archived: args.archived, favorite: args.favorite,
       });
     },
     [toggleFavorite, updateAsset, currentProjectId],
+  );
+
+  const handleCreateBin = useCallback(
+    (args: Record<string, unknown>): ToolResult => {
+      const name = args.name as string | undefined;
+      if (!name || !currentProjectId) return fail("create_bin", "Missing name or project");
+      const normalizedName = name.trim();
+      if (!normalizedName) return fail("create_bin", "Bin name cannot be empty");
+      if (updateBinMeta) {
+        updateBinMeta(currentProjectId, normalizedName, { color: (args.color as string) || undefined, createdAt: Date.now() });
+      }
+      return ok("create_bin", { created: normalizedName, color: args.color });
+    },
+    [updateBinMeta, currentProjectId],
+  );
+
+  const handleListBins = useCallback(
+    (): ToolResult => {
+      const bins = projectBins || {};
+      const assets = assetsRef.current ?? [];
+      const binList = Object.entries(bins).map(([name, meta]) => ({
+        name,
+        color: meta.color ?? null,
+        assetCount: assets.filter(a => a.bin === name && !a.archived).length,
+      }));
+      return ok("list_bins", { bins: binList, totalAssets: assets.filter(a => !a.archived).length });
+    },
+    [projectBins, assetsRef],
+  );
+
+  const handleRenameBin = useCallback(
+    (args: Record<string, unknown>): ToolResult => {
+      const oldName = args.old_name as string | undefined;
+      const newName = args.new_name as string | undefined;
+      if (!oldName || !newName || !currentProjectId) return fail("rename_bin", "Missing old_name, new_name, or project");
+      if (renameBinFn) renameBinFn(currentProjectId, oldName, newName.trim());
+      return ok("rename_bin", { renamed: { from: oldName, to: newName.trim() } });
+    },
+    [renameBinFn, currentProjectId],
+  );
+
+  const handleSetBinColor = useCallback(
+    (args: Record<string, unknown>): ToolResult => {
+      const binName = args.bin_name as string | undefined;
+      const color = args.color as string | undefined;
+      if (!binName || !color || !currentProjectId) return fail("set_bin_color", "Missing bin_name, color, or project");
+      if (updateBinMeta) updateBinMeta(currentProjectId, binName, { color });
+      return ok("set_bin_color", { binName, color });
+    },
+    [updateBinMeta, currentProjectId],
+  );
+
+  const handleBatchOrganizeAssets = useCallback(
+    (args: Record<string, unknown>): ToolResult => {
+      const assetIds = args.asset_ids as string[] | undefined;
+      if (!assetIds?.length || !currentProjectId) return fail("batch_organize_assets", "Missing asset_ids or project");
+      const updates: Partial<Asset> = {};
+      if (args.bin !== undefined) updates.bin = (args.bin as string) || undefined;
+      if (args.archived !== undefined) updates.archived = args.archived as boolean;
+      if (updateAsset) {
+        for (const id of assetIds) {
+          updateAsset(currentProjectId, id, updates);
+        }
+      }
+      return ok("batch_organize_assets", { updated: assetIds.length, bin: args.bin, archived: args.archived });
+    },
+    [updateAsset, currentProjectId],
   );
 
   const handleSetActiveTake = useCallback(
@@ -1198,7 +1277,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
         switch (safe.tool_name) {
           // Core
           case "get_timeline_state": return handleGetTimelineState();
-          case "get_project_assets": return handleGetProjectAssets();
+          case "get_project_assets": return handleGetProjectAssets(safe.arguments);
           // Clip editing
           case "trim_clip": return handleTrimClip(safe.arguments);
           case "split_clip": return handleSplitClip(safe.arguments);
@@ -1240,6 +1319,11 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           case "delete_asset": return handleDeleteAsset(safe.arguments);
           case "batch_delete_assets": return handleBatchDeleteAssets(safe.arguments);
           case "organize_asset": return handleOrganizeAsset(safe.arguments);
+          case "create_bin": return handleCreateBin(safe.arguments);
+          case "list_bins": return handleListBins();
+          case "rename_bin": return handleRenameBin(safe.arguments);
+          case "set_bin_color": return handleSetBinColor(safe.arguments);
+          case "batch_organize_assets": return handleBatchOrganizeAssets(safe.arguments);
           case "set_active_take": return handleSetActiveTake(safe.arguments);
           case "regenerate_asset": return handleRegenerateAsset(safe.arguments);
           // Generation

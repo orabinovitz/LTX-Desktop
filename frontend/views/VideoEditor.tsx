@@ -82,6 +82,7 @@ export function VideoEditor() {
     setCurrentTab, setGenSpaceEditImageUrl, setGenSpaceEditMode, setGenSpaceAudioUrl,
     setGenSpaceRetakeSource, pendingRetakeUpdate, setPendingRetakeUpdate,
     setGenSpaceIcLoraSource, pendingIcLoraUpdate, setPendingIcLoraUpdate,
+    updateBinMeta, renameBin,
   } = useProjects()
 
   const { activeLayout: kbLayout, isEditorOpen: isKbEditorOpen, setEditorOpen: setKbEditorOpen } = useKeyboardShortcuts()
@@ -574,6 +575,9 @@ export function VideoEditor() {
     addAsset,
     deleteAsset,
     updateAsset,
+    updateBinMeta,
+    renameBin,
+    projectBins: currentProject?.bins,
     assetSavePath: currentProject?.assetSavePath,
     selectedClipIds: [...selectedClipIds],
     setSelectedClipIds: (ids: string[]) => setSelectedClipIds(new Set(ids)),

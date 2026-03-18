@@ -279,7 +279,7 @@ def _get_scoped_tools(
 
     if not categories:
         inferred = classify_intent(task.description)
-        categories = inferred if inferred else ["core", "generation", "clip_editing", "timeline_mgmt"]
+        categories = inferred if inferred else ["core", "generation", "clip_editing", "timeline_mgmt", "asset_mgmt"]
         logger.info(
             "[sub-agent] task=%s | no categories, inferred: %s",
             task.id, categories,

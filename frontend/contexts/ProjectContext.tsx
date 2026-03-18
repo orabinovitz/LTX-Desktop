@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
-import type { Project, Asset, AssetTake, ViewType, ProjectTab, Timeline } from '@/types/project'
+import type { Project, Asset, AssetTake, ViewType, ProjectTab, Timeline, BinMetadata } from '@/types/project'
 import { createDefaultTimeline } from '@/types/project'
 import { logger } from '@/lib/logger'
 
@@ -27,6 +27,11 @@ interface ProjectContextType {
   deleteTakeFromAsset: (projectId: string, assetId: string, takeIndex: number) => void
   setAssetActiveTake: (projectId: string, assetId: string, takeIndex: number) => void
   toggleFavorite: (projectId: string, assetId: string) => void
+
+  // Bins
+  updateBinMeta: (projectId: string, binName: string, meta: Partial<BinMetadata>) => void
+  renameBin: (projectId: string, oldName: string, newName: string) => void
+  deleteBin: (projectId: string, binName: string) => void
   
   // Timelines
   addTimeline: (projectId: string, name?: string) => Timeline
@@ -365,7 +370,46 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         : p
     ))
   }, [])
-  
+
+  // --- Bin CRUD ---
+
+  const updateBinMeta = useCallback((projectId: string, binName: string, meta: Partial<BinMetadata>) => {
+    setProjects(prev => prev.map(p => {
+      if (p.id !== projectId) return p
+      const bins = { ...(p.bins || {}) }
+      bins[binName] = { ...(bins[binName] || { createdAt: Date.now() }), ...meta }
+      return { ...p, bins, updatedAt: Date.now() }
+    }))
+  }, [])
+
+  const renameBin = useCallback((projectId: string, oldName: string, newName: string) => {
+    if (oldName === newName) return
+    setProjects(prev => prev.map(p => {
+      if (p.id !== projectId) return p
+      const bins = { ...(p.bins || {}) }
+      if (bins[oldName]) {
+        bins[newName] = bins[oldName]
+        delete bins[oldName]
+      }
+      const assets = p.assets.map(a =>
+        a.bin === oldName ? { ...a, bin: newName } : a
+      )
+      return { ...p, bins, assets, updatedAt: Date.now() }
+    }))
+  }, [])
+
+  const deleteBin = useCallback((projectId: string, binName: string) => {
+    setProjects(prev => prev.map(p => {
+      if (p.id !== projectId) return p
+      const bins = { ...(p.bins || {}) }
+      delete bins[binName]
+      const assets = p.assets.map(a =>
+        a.bin === binName ? { ...a, bin: undefined } : a
+      )
+      return { ...p, bins, assets, updatedAt: Date.now() }
+    }))
+  }, [])
+
   // --- Timeline CRUD ---
   
   const addTimeline = useCallback((projectId: string, name?: string): Timeline => {
@@ -514,6 +558,9 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       deleteTakeFromAsset,
       setAssetActiveTake,
       toggleFavorite,
+      updateBinMeta,
+      renameBin,
+      deleteBin,
       addTimeline,
       deleteTimeline,
       renameTimeline,
