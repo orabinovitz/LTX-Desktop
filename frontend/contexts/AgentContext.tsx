@@ -319,6 +319,9 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     ) => {
       setActiveMode(complexity);
       const { executor, timelineState, wrappedExecuteTool, viewCtx } = ctx;
+      logger.info(
+        `[agent-context] routing to ${complexity} agent (view=${executor?.viewContext ?? "none"})`,
+      );
 
       if (complexity === "simple") {
         const priorHistory = chatMessagesToConversationHistory(
@@ -429,6 +432,9 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
       const ctx = getExecutorContext();
       const allSkipped = answers.every((a) => a.skipped);
+      logger.info(
+        `[agent-context] clarification submitted — ${answers.length} answer(s), all_skipped=${allSkipped}`,
+      );
 
       let enrichedPrompt = clarificationState.originalPrompt;
       if (!allSkipped) {

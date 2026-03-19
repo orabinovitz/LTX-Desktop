@@ -1270,6 +1270,7 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   const executeTool = useCallback(
     async (call: ToolCall, onProgress?: OnToolProgress, signal?: AbortSignal): Promise<ToolResult> => {
       const t0 = performance.now();
+      logger.info(`[agent-exec] dispatching: ${call.tool_name}`);
       try {
         const args = sanitizeArgs(call.arguments);
         const safe = { ...call, arguments: args };

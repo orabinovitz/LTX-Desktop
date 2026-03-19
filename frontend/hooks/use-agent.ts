@@ -177,6 +177,7 @@ export function useAgent() {
       conversationRef.current.push({ role: "user", content: prompt });
 
       const t0 = performance.now();
+      logger.info(`[agent] session start — prompt: ${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}`);
 
       try {
         const timelineState = buildTimelineState(
@@ -212,9 +213,11 @@ export function useAgent() {
             signal,
           })) {
             if (event.event === "thinking") {
+              logger.info("[agent] SSE: thinking event received");
               pa.setThinking("AI is thinking...");
             } else if (event.event === "result") {
               sseResult = event.data as AgentResponse;
+              logger.info(`[agent] SSE: result received — done=${sseResult.done}, tools=${sseResult.tool_calls.length}`);
             } else if (event.event === "error") {
               const err = event.data as { message?: string };
               throw new Error(err.message ?? "Agent streaming error");
@@ -255,6 +258,7 @@ export function useAgent() {
         let currentTasks: AgentTask[] = [];
         while (!response.done && turns < 20) {
           turns++;
+          logger.info(`[agent] turn ${turns} — tool_calls=${response.tool_calls.length}, has_plan=${!!response.plan}`);
           pa.incrementTurn();
 
           // Parse plan into tasks + reasoning on the first turn that has one
@@ -315,6 +319,8 @@ export function useAgent() {
 
             const executeOne = async (toolIdx: number) => {
               const tc = response.tool_calls[toolIdx];
+              const toolT0 = performance.now();
+              logger.info(`[agent] executing tool: ${tc.tool_name}`);
               const onProgress: OnToolProgress = (p, detail) => {
                 const groupDetail =
                   count > 1
@@ -323,6 +329,8 @@ export function useAgent() {
                 pa.updateTaskProgress(taskId, p, groupDetail);
               };
               const result = await executeTool(tc, onProgress);
+              const toolElapsed = ((performance.now() - toolT0) / 1000).toFixed(1);
+              logger.info(`[agent] tool ${tc.tool_name} ${result.success ? "completed" : "FAILED"} in ${toolElapsed}s`);
               results[toolIdx] = result;
               completedInGroup++;
               if (count > 1) {
@@ -443,6 +451,8 @@ export function useAgent() {
         }
 
         const finalText = response.message || response.plan || "Done.";
+        const totalElapsed = ((performance.now() - t0) / 1000).toFixed(1);
+        logger.info(`[agent] session complete — ${turns} turn(s) in ${totalElapsed}s`);
 
         pa.endSession();
 

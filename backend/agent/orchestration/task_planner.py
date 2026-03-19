@@ -713,11 +713,16 @@ class TaskPlanner:
 
         tasks = _validate_dag(tasks)
 
+        task_summaries = [
+            f"  {t.id} ({t.task_type.value}): {t.description[:60]}"
+            for t in tasks
+        ]
         logger.info(
-            "Task planner produced %d task(s) for prompt: %.80s | target_duration=%s",
+            "[task-planner] produced %d task(s) for prompt: %.80s | target_duration=%s\n%s",
             len(tasks),
             prompt,
             target_duration,
+            "\n".join(task_summaries),
         )
         return TaskDAG(
             tasks=tasks,

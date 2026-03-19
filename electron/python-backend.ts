@@ -351,7 +351,10 @@ export async function startPythonBackend(): Promise<void> {
       const output = data.toString()
       for (const line of output.split('\n')) {
         const trimmed = line.trimEnd()
-        if (trimmed) writeLog('INFO', 'Backend', trimmed)
+        if (trimmed) {
+          console.log(`[Backend] ${trimmed}`)
+          writeLog('INFO', 'Backend', trimmed)
+        }
       }
       checkStarted(output)
     })
@@ -360,7 +363,10 @@ export async function startPythonBackend(): Promise<void> {
       const output = data.toString()
       for (const line of output.split('\n')) {
         const trimmed = line.trimEnd()
-        if (trimmed) writeLog('ERROR', 'Backend', trimmed)
+        if (trimmed) {
+          console.error(`[Backend] ${trimmed}`)
+          writeLog('ERROR', 'Backend', trimmed)
+        }
       }
       checkStarted(output)
     })

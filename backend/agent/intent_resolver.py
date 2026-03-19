@@ -193,7 +193,14 @@ def resolve_intent(
         logger.warning("Intent resolver failed after %dms, using heuristic fallback", elapsed_ms, exc_info=True)
         return _heuristic_fallback(prompt)
 
-    return _parse_response(data, prompt)
+    resolution = _parse_response(data, prompt)
+    logger.info(
+        "[intent-resolver] result: complexity=%s, intent=%s, grounded=%.80s",
+        resolution.complexity,
+        resolution.intent_summary or "(none)",
+        resolution.grounded_prompt,
+    )
+    return resolution
 
 
 def _parse_response(data: dict[str, Any], original_prompt: str) -> IntentResolution:
@@ -226,6 +233,10 @@ def _parse_response(data: dict[str, Any], original_prompt: str) -> IntentResolut
 def _heuristic_fallback(prompt: str) -> IntentResolution:
     """Fall back to heuristic classification with the raw prompt."""
     complexity = classify_complexity(prompt)
+    logger.info(
+        "[intent-resolver] heuristic fallback: complexity=%s, prompt=%.80s",
+        complexity, prompt,
+    )
     return IntentResolution(
         grounded_prompt=prompt,
         complexity=complexity,

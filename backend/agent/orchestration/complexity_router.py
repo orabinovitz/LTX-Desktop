@@ -6,8 +6,11 @@ Heuristic-based: no LLM call required.  Keeps simple requests fast
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 RequestComplexity = Literal["simple", "orchestrated"]
 
@@ -133,9 +136,11 @@ def classify_complexity(prompt: str) -> RequestComplexity:
     word_count = len(prompt_lower.split())
 
     if _MULTI_STEP_SIGNALS.search(prompt_lower):
+        logger.info("[complexity] orchestrated (multi-step language): %.80s", prompt)
         return "orchestrated"
 
     if _CREATIVE_PLANNING_SIGNALS.search(prompt_lower):
+        logger.info("[complexity] orchestrated (creative planning): %.80s", prompt)
         return "orchestrated"
 
     matched_domains: set[str] = set()
@@ -146,14 +151,18 @@ def classify_complexity(prompt: str) -> RequestComplexity:
                 break
 
     if len(matched_domains) >= 2:
+        logger.info("[complexity] orchestrated (multi-domain: %s): %.80s", matched_domains, prompt)
         return "orchestrated"
 
     has_style = any(kw in prompt_lower for kw in _STYLE_KEYWORDS)
     has_production_signal = bool(_FULL_PRODUCTION_SIGNALS.search(prompt_lower))
     if has_style and has_production_signal:
+        logger.info("[complexity] orchestrated (style + production): %.80s", prompt)
         return "orchestrated"
 
     if word_count > _MAX_SIMPLE_WORD_COUNT:
+        logger.info("[complexity] orchestrated (long prompt, %d words): %.80s", word_count, prompt)
         return "orchestrated"
 
+    logger.info("[complexity] simple: %.80s", prompt)
     return "simple"

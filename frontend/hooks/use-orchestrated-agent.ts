@@ -208,6 +208,7 @@ export function useOrchestratedAgent() {
       setMessages((prev) => [...prev, { role: "user", content: displayPrompt ?? prompt }]);
 
       const t0 = performance.now();
+      logger.info(`[orchestrated-agent] session start — prompt: ${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}`);
 
       try {
         const timelineState = buildTimelineState(clips, trackCount, currentTime);
@@ -239,6 +240,7 @@ export function useOrchestratedAgent() {
         }
 
         const orchestratedTasks = response.tasks.map(taskInfoToAgentTask);
+        logger.info(`[orchestrated-agent] plan received — ${orchestratedTasks.length} task(s), status=${response.status}`);
         pa.setPlan(orchestratedTasks);
         pa.update({
           isOrchestrated: true,
@@ -261,6 +263,9 @@ export function useOrchestratedAgent() {
           }
 
           turns++;
+          logger.info(
+            `[orchestrated-agent] turn ${turns} — status=${response.status}, tool_calls=${response.tool_calls.length}, current_task=${response.current_task_id ?? "none"}`,
+          );
           pa.incrementTurn();
           syncTaskStatuses(response.tasks, pa, pa.progressRef);
           lastMessageAdded = false;
@@ -292,6 +297,9 @@ export function useOrchestratedAgent() {
 
               const isParallel =
                 PARALLEL_SAFE_TOOLS.has(group.toolName) && group.calls.length > 1;
+              logger.info(
+                `[orchestrated-agent] executing ${group.calls.length}x ${group.toolName} (${isParallel ? "parallel" : "sequential"})`,
+              );
 
               if (isParallel) {
                 const groupResults = await executeParallelWithLimit(
@@ -415,6 +423,8 @@ export function useOrchestratedAgent() {
         }
 
         syncTaskStatuses(response.tasks, pa, pa.progressRef);
+        const totalElapsed = ((performance.now() - t0) / 1000).toFixed(1);
+        logger.info(`[orchestrated-agent] session complete — ${turns} turn(s) in ${totalElapsed}s`);
         pa.endSession();
 
         const finalText = response.message || "All tasks completed.";

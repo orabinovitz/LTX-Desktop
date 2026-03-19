@@ -164,6 +164,7 @@ class Orchestrator:
         _evict_stale_sessions()
 
         session_id = uuid.uuid4().hex
+        t0 = time.monotonic()
         descriptors = self._registry.get_all_descriptors()
 
         timeline_ctx = self._format_timeline(request.timeline_state) if request.timeline_state else None
@@ -214,10 +215,12 @@ class Orchestrator:
         )
         _sessions[session_id] = session
 
+        planning_elapsed = time.monotonic() - t0
         logger.info(
-            "[orchestrator] session=%s | DAG has %d task(s): %s",
+            "[orchestrator] session=%s | DAG has %d task(s) (planned in %.1fs): %s",
             session_id[:8],
             len(dag.tasks),
+            planning_elapsed,
             [(t.id, t.task_type.value) for t in dag.tasks],
         )
 
@@ -414,7 +417,13 @@ class Orchestrator:
             session.status = OrchestratorStatus.DONE
             summary = self._build_final_summary(session)
             self._release_session_memory(session)
-            logger.info("[orchestrator] session=%s | all tasks done", session.id[:8])
+            completed = sum(1 for t in session.dag.tasks if t.status == TaskStatus.COMPLETED)
+            failed = sum(1 for t in session.dag.tasks if t.status == TaskStatus.FAILED)
+            cancelled = sum(1 for t in session.dag.tasks if t.status == TaskStatus.CANCELLED)
+            logger.info(
+                "[orchestrator] session=%s | all tasks done — %d completed, %d failed, %d cancelled",
+                session.id[:8], completed, failed, cancelled,
+            )
             return _build_response(
                 session, self._registry,
                 message=summary,
@@ -483,7 +492,7 @@ class Orchestrator:
             "[orchestrator] session=%s | dispatching %d task(s): %s",
             session.id[:8],
             len(tasks_to_dispatch),
-            [t[0].id for t in tasks_to_dispatch],
+            [(t[0].id, t[0].skill_id or "general") for t in tasks_to_dispatch],
         )
 
         results = self._pool.execute_parallel(tasks_to_dispatch)
