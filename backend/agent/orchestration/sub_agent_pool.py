@@ -244,13 +244,17 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
             parts.append(
                 "## Structured Output\n"
                 "Include a numbered shot list using the format "
-                "'Shot 1:', 'Shot 2:', etc. because downstream agents "
-                "parse this structure. Each shot should specify:\n"
+                "'Shot 1 (Ns):', 'Shot 2 (Ns):', etc. because downstream "
+                "agents parse this structure. Each shot should specify:\n"
                 "- Visual description (what the camera sees)\n"
                 "- Shot type (wide, medium, close-up, detail, POV)\n"
                 "- Camera motion (static, dolly_in, dolly_out, etc.)\n"
-                "- Duration in seconds\n"
-                "- Any dialogue or text overlay\n\n"
+                "- Duration as (Ns) in the shot header — e.g., Shot 3 (10s): "
+                "Valid durations: 6, 8, 10, 12, 14, 16, 18, or 20 seconds. "
+                "Dialogue shots need 8-12s minimum.\n"
+                "- Any dialogue as quoted speech — e.g., "
+                "BUGS: \"What's up, doc?\" — so downstream agents can "
+                "show speaking characters\n\n"
                 "Produce the creative output now."
             )
         else:
@@ -279,7 +283,10 @@ def _get_scoped_tools(
 
     if not categories:
         inferred = classify_intent(task.description)
-        categories = inferred if inferred else ["core", "generation", "clip_editing", "timeline_mgmt", "asset_mgmt"]
+        if not inferred or len(inferred) > 6:
+            categories = ["core", "generation", "clip_editing", "timeline_mgmt"]
+        else:
+            categories = inferred
         logger.info(
             "[sub-agent] task=%s | no categories, inferred: %s",
             task.id, categories,

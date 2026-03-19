@@ -7,7 +7,9 @@ import pytest
 from agent.orchestration.task_planner import (
     TaskPlanner,
     _build_skill_catalog,
+    _ensure_execution_categories,
     _parse_planner_response,
+    _structured_fallback_dag,
     _validate_dag,
 )
 from agent.types import SkillDescriptor, TaskDAG, TaskNode, TaskStatus, TaskType
@@ -207,3 +209,125 @@ def test_fallback_dag_creates_single_task_with_prompt() -> None:
     assert dag.tasks[0].depends_on == []
     assert dag.original_prompt == prompt
     assert dag.target_duration_seconds is None
+
+
+# ---------------------------------------------------------------------------
+# _ensure_execution_categories
+# ---------------------------------------------------------------------------
+
+
+def _exec_task(
+    id: str,
+    description: str,
+    task_type: TaskType = TaskType.EXECUTION,
+    tool_categories: list[str] | None = None,
+) -> TaskNode:
+    return TaskNode(
+        id=id,
+        description=description,
+        skill_id=None,
+        depends_on=[],
+        status=TaskStatus.PENDING,
+        task_type=task_type,
+        tool_categories=tool_categories or [],
+    )
+
+
+class TestEnsureExecutionCategories:
+    def test_fills_empty_execution_categories(self) -> None:
+        tasks = [_exec_task("t1", "Generate a video of a sunset")]
+        result = _ensure_execution_categories(tasks)
+        assert len(result[0].tool_categories) > 0
+
+    def test_preserves_existing_categories(self) -> None:
+        tasks = [_exec_task("t1", "Generate video", tool_categories=["generation"])]
+        result = _ensure_execution_categories(tasks)
+        assert result[0].tool_categories == ["generation"]
+
+    def test_skips_creative_tasks(self) -> None:
+        tasks = [_exec_task("t1", "Write a script", task_type=TaskType.CREATIVE)]
+        result = _ensure_execution_categories(tasks)
+        assert result[0].tool_categories == []
+
+    def test_skips_review_tasks(self) -> None:
+        tasks = [_exec_task("t1", "Review quality", task_type=TaskType.REVIEW)]
+        result = _ensure_execution_categories(tasks)
+        assert result[0].tool_categories == []
+
+    def test_multiple_tasks_selective(self) -> None:
+        tasks = [
+            _exec_task("t1", "Write a script", task_type=TaskType.CREATIVE),
+            _exec_task("t2", "Generate video of a car"),
+            _exec_task("t3", "Trim the clip", tool_categories=["clip_editing"]),
+        ]
+        result = _ensure_execution_categories(tasks)
+        assert result[0].tool_categories == []
+        assert len(result[1].tool_categories) > 0
+        assert result[2].tool_categories == ["clip_editing"]
+
+
+# ---------------------------------------------------------------------------
+# _structured_fallback_dag
+# ---------------------------------------------------------------------------
+
+
+class TestStructuredFallbackDag:
+    def test_script_generation_editing_produces_three_tasks(self) -> None:
+        prompt = (
+            "create a short script, then do text to video to create "
+            "a 1-2 minutes scene of bugs bunny, then edit a scene from it"
+        )
+        dag = _structured_fallback_dag(prompt)
+        assert dag is not None
+        assert len(dag.tasks) == 3
+        assert dag.tasks[0].task_type == TaskType.CREATIVE
+        assert dag.tasks[1].task_type == TaskType.EXECUTION
+        assert dag.tasks[2].task_type == TaskType.EXECUTION
+        assert dag.tasks[1].depends_on == ["task-1"]
+        assert dag.tasks[2].depends_on == ["task-2"]
+        assert "generation" in dag.tasks[1].tool_categories
+        assert "timeline_mgmt" in dag.tasks[2].tool_categories
+
+    def test_script_and_generation_produces_two_tasks(self) -> None:
+        prompt = "write a script then generate the video"
+        dag = _structured_fallback_dag(prompt)
+        assert dag is not None
+        assert len(dag.tasks) == 2
+        assert dag.tasks[0].task_type == TaskType.CREATIVE
+        assert dag.tasks[1].task_type == TaskType.EXECUTION
+
+    def test_generation_and_editing_produces_two_tasks(self) -> None:
+        prompt = "generate a video then edit the timeline"
+        dag = _structured_fallback_dag(prompt)
+        assert dag is not None
+        assert len(dag.tasks) == 2
+        assert dag.tasks[0].task_type == TaskType.EXECUTION
+        assert dag.tasks[1].task_type == TaskType.EXECUTION
+        assert "generation" in dag.tasks[0].tool_categories
+        assert "clip_editing" in dag.tasks[1].tool_categories
+
+    def test_no_multi_step_returns_none(self) -> None:
+        prompt = "trim this clip"
+        dag = _structured_fallback_dag(prompt)
+        assert dag is None
+
+    def test_script_only_returns_none(self) -> None:
+        prompt = "write me a script about a detective"
+        dag = _structured_fallback_dag(prompt)
+        assert dag is None
+
+    def test_bugs_bunny_full_prompt(self) -> None:
+        prompt = (
+            "create a short script, then do text to video to create a "
+            "1-2 minutes scene of bugs bunny from looney tunes, something "
+            "about the rise of oil prices due to the war with iran - it "
+            "should really capture the looney tunes and bugs bunny feel - "
+            "it should have dialogues, then edit a scene from it"
+        )
+        dag = _structured_fallback_dag(prompt)
+        assert dag is not None
+        assert len(dag.tasks) == 3
+        assert dag.tasks[0].task_type == TaskType.CREATIVE
+        assert dag.tasks[0].skill_id == "film-tv-screenwriting"
+        assert dag.tasks[1].tool_categories == ["generation"]
+        assert "clip_editing" in dag.tasks[2].tool_categories

@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from typing import Any, cast
 
+from agent.orchestration.complexity_router import has_multi_step_signals
+from agent.tool_knowledge_base import classify_intent
 from agent.types import (
     SkillDescriptor,
     TaskDAG,
@@ -100,11 +103,12 @@ Signals for longer durations: dialogue between characters (2-3 min+), \
 multiple locations (3-5 min+), story arc with conflict/resolution (2-4 min+), \
 words like "full scene", "short film", "narrative" (2 min+).
 
-Derive shot count from duration. The video generation API requires \
-each shot to be 6, 8, or 10 seconds (or up to 20s for fast model at 1080p):
-- Fast-paced (ads, montage): 1 shot per 6 seconds
-- Standard pacing: 1 shot per 6-8 seconds
-- Slow/cinematic (drama, arthouse): 1 shot per 8-10 seconds
+Derive shot count from duration. The video generation API supports \
+per-shot durations of 6, 8, 10, 12, 14, 16, 18, or 20 seconds:
+- Fast-paced (ads, montage): 6-8s per shot
+- Standard pacing: 8-10s per shot
+- Slow/cinematic or dialogue: 10-14s per shot
+- Extended takes or monologues: 16-20s per shot
 
 Include `target_duration_seconds` in your output when the request \
 involves video production. Set it to 0 for non-production requests \
@@ -121,7 +125,9 @@ whose trigger does not apply.
    Produces scene descriptions, dialogue, and a numbered shot list \
    where each shot specifies visual description, shot type, camera \
    motion, and duration. Use format "Shot 1:", "Shot 2:", etc. \
-   Valid per-shot durations are 6, 8, or 10 seconds only.
+   Write each shot's duration as (Ns) — e.g., (8s), (12s). \
+   Valid durations: 6, 8, 10, 12, 14, 16, 18, or 20 seconds. \
+   Dialogue shots need 8-12s minimum to show the character speaking.
 
 2. **Visual identity research** (creative) — Trigger: user asks for \
    visual research, look development, or a full cinematic production. \
@@ -226,7 +232,7 @@ visual identity research. Single task.
   "tasks": [
     {{
       "id": "task-1",
-      "description": "Write a script for a 30-second fashion ad. Include a numbered shot list with 4-5 shots. Each shot: visual description, shot type, camera motion, duration. Format: 'Shot 1:', 'Shot 2:', etc. Target 30 seconds total. Valid durations are 6, 8, or 10 seconds per shot.",
+      "description": "Write a script for a 30-second fashion ad. Include a numbered shot list with 4-5 shots. Each shot: visual description, shot type, camera motion, duration as (Ns). Format: 'Shot 1 (8s):', 'Shot 2 (6s):', etc. Target 30 seconds total. Valid durations: 6, 8, 10, 12, 14, 16, 18, or 20 seconds.",
       "skill_id": "advertising-screenwriter",
       "task_type": "creative",
       "depends_on": [],
@@ -314,7 +320,7 @@ Short duration, no characters, no narrative — no pre-production needed.
   "tasks": [
     {{
       "id": "task-1",
-      "description": "Write a script for a 15-second product ad for wireless headphones. Include a NUMBERED shot list with 2-3 shots. Each shot: visual description, shot type, camera motion, duration. Format: 'Shot 1:', 'Shot 2:', etc. Target 15 seconds total. Valid durations are 6, 8, or 10 seconds per shot. Focus on sleek product close-ups and lifestyle context.",
+      "description": "Write a script for a 15-second product ad for wireless headphones. Include a NUMBERED shot list with 2-3 shots. Each shot: visual description, shot type, camera motion, duration as (Ns). Format: 'Shot 1 (8s):', 'Shot 2 (6s):', etc. Target 15 seconds total. Valid durations: 6, 8, 10, 12, 14, 16, 18, or 20 seconds. Focus on sleek product close-ups and lifestyle context.",
       "skill_id": "advertising-screenwriter",
       "task_type": "creative",
       "depends_on": [],
@@ -363,7 +369,7 @@ This is the ONLY type of request that warrants the full pipeline.
   "tasks": [
     {{
       "id": "task-1",
-      "description": "Write a script for a ~90-second noir-style scene: a detective arrives at a rain-soaked crime scene at night. Include a numbered shot list with 12-15 shots. Each shot: visual description, shot type, camera motion, duration. Format 'Shot 1:', 'Shot 2:', etc. Target 90 seconds. Vary durations: 6s for quick detail shots, 8-10s for establishing and atmospheric shots. Valid durations are 6, 8, or 10 seconds per shot. Give the detective a specific physical description for reference sheets.",
+      "description": "Write a script for a ~90-second noir-style scene: a detective arrives at a rain-soaked crime scene at night. Include a numbered shot list with 12-15 shots. Each shot: visual description, shot type, camera motion, duration as (Ns). Format 'Shot 1 (8s):', 'Shot 2 (6s):', etc. Target 90 seconds. Vary durations: (6s) for quick detail shots, (10s)-(14s) for establishing and dialogue shots. Include character dialogue where appropriate. Give the detective a specific physical description for reference sheets.",
       "skill_id": "film-tv-screenwriting",
       "task_type": "creative",
       "depends_on": [],
@@ -519,6 +525,179 @@ def _validate_dag(tasks: list[TaskNode]) -> list[TaskNode]:
                 ]
 
     return tasks
+
+
+def _ensure_execution_categories(tasks: list[TaskNode]) -> list[TaskNode]:
+    """Fill empty tool_categories on execution tasks using keyword classification.
+
+    Execution tasks must have tool_categories so sub-agents receive a
+    focused tool set.  When the planner omits them, infer from the
+    task description.
+    """
+    for task in tasks:
+        if task.task_type != TaskType.EXECUTION:
+            continue
+        if task.tool_categories:
+            continue
+        inferred = classify_intent(task.description)
+        inferred = [c for c in inferred if c != "core"]
+        if inferred:
+            task.tool_categories = inferred
+            logger.info(
+                "[task-planner] inferred tool_categories for %s: %s",
+                task.id, inferred,
+            )
+        else:
+            task.tool_categories = ["generation", "clip_editing", "timeline_mgmt"]
+            logger.info(
+                "[task-planner] default tool_categories for %s: %s",
+                task.id, task.tool_categories,
+            )
+    return tasks
+
+
+_SCRIPT_KEYWORDS = re.compile(
+    r"\bscript\b|\bstory\b|\bshot\s*list\b|\bdialogue\b|\bnarrative\b|\bscene\b",
+    re.IGNORECASE,
+)
+_GENERATION_KEYWORDS = re.compile(
+    r"\bgenerat\w*\b|\btext\s*to\s*video\b|\bimage\s*to\s*video\b"
+    r"|\bt2v\b|\bi2v\b|\bcreate\s+(?:a\s+)?video\b|\banimate\b",
+    re.IGNORECASE,
+)
+_EDITING_KEYWORDS = re.compile(
+    r"\bedit\b|\btrim\b|\bcut\b|\bsplit\b|\btimeline\b|\bassembl\w*\b"
+    r"|\bsequence\b|\bpacing\b|\btransition\b|\bdissolve\b|\bmontage\b",
+    re.IGNORECASE,
+)
+
+
+def _structured_fallback_dag(prompt: str) -> TaskDAG | None:
+    """Build a deterministic multi-task DAG for multi-step prompts.
+
+    Used when the LLM planner collapses a multi-step request into a
+    single task.  Returns ``None`` when no structured fallback applies
+    (i.e. the prompt does not clearly contain multiple step types).
+    """
+    has_script = bool(_SCRIPT_KEYWORDS.search(prompt))
+    has_generation = bool(_GENERATION_KEYWORDS.search(prompt))
+    has_editing = bool(_EDITING_KEYWORDS.search(prompt))
+
+    tasks: list[TaskNode] = []
+
+    if has_script and has_generation and has_editing:
+        tasks = [
+            TaskNode(
+                id="task-1",
+                description=(
+                    f"Write a script with a numbered shot list for: {prompt[:300]}. "
+                    "Format each shot as 'Shot 1:', 'Shot 2:', etc. Include visual "
+                    "descriptions, shot types, camera motion, dialogue, and durations "
+                    "(6, 8, or 10 seconds per shot)."
+                ),
+                skill_id="film-tv-screenwriting",
+                depends_on=[],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.CREATIVE,
+                tool_categories=[],
+                context_requirements=[],
+            ),
+            TaskNode(
+                id="task-2",
+                description=(
+                    "Generate all shots from the script. For each shot: call "
+                    "generate_image with the visual description and aspect_ratio='16:9', "
+                    "then call generate_video with image_to_video mode."
+                ),
+                skill_id=None,
+                depends_on=["task-1"],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.EXECUTION,
+                tool_categories=["generation"],
+                context_requirements=["prior_results"],
+            ),
+            TaskNode(
+                id="task-3",
+                description=(
+                    "Create a timeline, add the generated clips in script order, "
+                    "trim dead frames, close gaps, and adjust pacing."
+                ),
+                skill_id="general-editor",
+                depends_on=["task-2"],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.EXECUTION,
+                tool_categories=["timeline_mgmt", "clip_editing"],
+                context_requirements=["prior_results", "timeline_state"],
+            ),
+        ]
+    elif has_script and has_generation:
+        tasks = [
+            TaskNode(
+                id="task-1",
+                description=(
+                    f"Write a script with a numbered shot list for: {prompt[:300]}. "
+                    "Format each shot as 'Shot 1:', 'Shot 2:', etc. Include visual "
+                    "descriptions, shot types, camera motion, dialogue, and durations."
+                ),
+                skill_id="film-tv-screenwriting",
+                depends_on=[],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.CREATIVE,
+                tool_categories=[],
+                context_requirements=[],
+            ),
+            TaskNode(
+                id="task-2",
+                description=(
+                    "Generate all shots from the script. For each shot: call "
+                    "generate_image then generate_video with image_to_video mode."
+                ),
+                skill_id=None,
+                depends_on=["task-1"],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.EXECUTION,
+                tool_categories=["generation"],
+                context_requirements=["prior_results"],
+            ),
+        ]
+    elif has_generation and has_editing:
+        tasks = [
+            TaskNode(
+                id="task-1",
+                description=(
+                    f"Generate video content for: {prompt[:300]}. "
+                    "Call generate_image then generate_video."
+                ),
+                skill_id=None,
+                depends_on=[],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.EXECUTION,
+                tool_categories=["generation"],
+                context_requirements=[],
+            ),
+            TaskNode(
+                id="task-2",
+                description=(
+                    "Edit the generated content on the timeline: trim, arrange, "
+                    "adjust pacing, and add transitions as needed."
+                ),
+                skill_id="general-editor",
+                depends_on=["task-1"],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.EXECUTION,
+                tool_categories=["timeline_mgmt", "clip_editing"],
+                context_requirements=["prior_results", "timeline_state"],
+            ),
+        ]
+
+    if not tasks:
+        return None
+
+    logger.info(
+        "[task-planner] structured fallback produced %d task(s) for prompt: %.80s",
+        len(tasks), prompt,
+    )
+    return TaskDAG(tasks=tasks, original_prompt=prompt)
 
 
 def _try_recover_truncated_json(text: str) -> dict[str, Any] | list[dict[str, Any]] | None:
@@ -712,6 +891,12 @@ class TaskPlanner:
             ))
 
         tasks = _validate_dag(tasks)
+        tasks = _ensure_execution_categories(tasks)
+
+        if len(tasks) <= 1 and has_multi_step_signals(prompt):
+            fallback = _structured_fallback_dag(prompt)
+            if fallback is not None:
+                return fallback
 
         task_summaries = [
             f"  {t.id} ({t.task_type.value}): {t.description[:60]}"

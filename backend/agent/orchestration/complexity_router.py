@@ -114,6 +114,11 @@ def has_cinematic_intent(prompt: str) -> bool:
             return True
     return False
 
+def has_multi_step_signals(prompt: str) -> bool:
+    """Check whether a prompt contains multi-step language patterns."""
+    return bool(_MULTI_STEP_SIGNALS.search(prompt.lower()))
+
+
 _MAX_SIMPLE_WORD_COUNT = 45
 
 

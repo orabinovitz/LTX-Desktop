@@ -151,6 +151,90 @@ class TestParseShotList:
         result = Orchestrator._parse_shot_list(text)
         assert result[0][2] == 6
 
+    def test_prose_duration_fallback(self):
+        """Prose format 'Duration: 8 seconds' is extracted when (Ns) is absent."""
+        text = "Shot 1: A wide establishing shot. Duration: 8 seconds. Shot 2: Close-up. Duration: 12 seconds."
+        result = Orchestrator._parse_shot_list(text)
+        assert len(result) == 2
+        assert result[0][2] == 8
+        assert result[1][2] == 12
+
+    def test_standalone_seconds_fallback(self):
+        """Standalone '10s' or '10 seconds' in description is extracted."""
+        text = "Shot 1: A slow dolly-in on the character, 10 seconds. Shot 2: Quick detail insert, 6s."
+        result = Orchestrator._parse_shot_list(text)
+        assert len(result) == 2
+        assert result[0][2] == 10
+        assert result[1][2] == 6
+
+    def test_tilde_duration_fallback(self):
+        """Approximate duration '~10s' is extracted."""
+        text = "Shot 1: Establishing shot of the city at night, ~10sec."
+        result = Orchestrator._parse_shot_list(text)
+        assert len(result) == 1
+        assert result[0][2] == 10
+
+    def test_strict_pattern_takes_precedence(self):
+        """When both (Ns) and prose duration exist, (Ns) wins."""
+        text = "Shot 1 (12s): A wide shot of the room. Duration: 8 seconds."
+        result = Orchestrator._parse_shot_list(text)
+        assert len(result) == 1
+        assert result[0][2] == 12
+
+    def test_aspect_ratio_not_matched_as_duration(self):
+        """'16:9' aspect ratio should not be parsed as a duration."""
+        text = "Shot 1: A wide 16:9 shot of the landscape with no duration."
+        result = Orchestrator._parse_shot_list(text)
+        assert len(result) == 1
+        assert result[0][2] == 6  # default, not 16
+
+
+class TestExtractDialogue:
+    def test_double_quoted_dialogue(self):
+        text = 'Bugs turns to camera. BUGS: "Hey, what\'s up doc?" Camera pulls back.'
+        result = Orchestrator._extract_dialogue(text)
+        assert result is not None
+        assert "what's up doc" in result
+
+    def test_single_quoted_character_cue(self):
+        text = "BUGS: 'Eh, these oil prices are killing me, doc!'"
+        result = Orchestrator._extract_dialogue(text)
+        assert result is not None
+        assert "oil prices" in result
+
+    def test_prose_attribution(self):
+        text = 'Bugs says "This is outrageous!" and storms off.'
+        result = Orchestrator._extract_dialogue(text)
+        assert result is not None
+        assert "outrageous" in result
+
+    def test_multiple_dialogue_lines(self):
+        text = 'BUGS: "What\'s up doc?" DAFFY: "You\'re despicable!"'
+        result = Orchestrator._extract_dialogue(text)
+        assert result is not None
+        assert "What's up doc" in result
+        assert "despicable" in result
+        assert " / " in result
+
+    def test_no_dialogue_returns_none(self):
+        text = "A wide establishing shot of the city skyline at sunset."
+        result = Orchestrator._extract_dialogue(text)
+        assert result is None
+
+    def test_short_quoted_text_ignored(self):
+        """Quoted text under 3 chars should not be treated as dialogue."""
+        text = 'The sign reads "OK" on the wall.'
+        result = Orchestrator._extract_dialogue(text)
+        assert result is None
+
+    def test_long_dialogue_truncated(self):
+        long_line = "A" * 250
+        text = f'BUGS: "{long_line}"'
+        result = Orchestrator._extract_dialogue(text)
+        assert result is not None
+        assert len(result) <= 200
+        assert result.endswith("...")
+
 
 class TestParseReferenceAssets:
     def test_character_refs_parsed(self):
@@ -649,3 +733,174 @@ class TestOrchestratorStart:
         resp = orch.start(request)
 
         assert len(resp.tasks) <= 75
+
+    def test_start_structured_fallback_on_single_task_multistep_prompt(self):
+        """When the planner returns 1 task for a multi-step prompt, the
+        structured fallback produces a proper multi-task DAG."""
+        http = FakeHTTPClient()
+        http.queue("post", _planner_response([
+            {"id": "task-1", "description": "Do everything", "task_type": "execution",
+             "depends_on": [], "tool_categories": [], "context_requirements": []},
+        ]))
+
+        prompt = (
+            "create a short script, then do text to video to create a "
+            "1-2 minutes scene of bugs bunny from looney tunes, something "
+            "about the rise of oil prices due to the war with iran - it "
+            "should really capture the looney tunes and bugs bunny feel - "
+            "it should have dialogues, then edit a scene from it"
+        )
+        orch = Orchestrator(api_key="fake-key", http_client=http, skill_registry=SkillRegistry())
+        resp = orch.start(OrchestrateRequest(prompt=prompt))
+
+        assert len(resp.tasks) == 3
+        assert resp.tasks[0].status == TaskStatus.PENDING.value
+
+    def test_start_no_fallback_when_planner_returns_multiple_tasks(self):
+        """When the planner returns a proper multi-task DAG, no fallback is used."""
+        http = FakeHTTPClient()
+        http.queue("post", _planner_response([
+            {"id": "task-1", "description": "Write script", "task_type": "creative",
+             "depends_on": [], "tool_categories": [], "context_requirements": []},
+            {"id": "task-2", "description": "Generate video", "task_type": "execution",
+             "depends_on": ["task-1"], "tool_categories": ["generation"],
+             "context_requirements": ["prior_results"]},
+        ], duration=90))
+
+        prompt = "first write a script then generate a video from it"
+        orch = Orchestrator(api_key="fake-key", http_client=http, skill_registry=SkillRegistry())
+        resp = orch.start(OrchestrateRequest(prompt=prompt))
+
+        assert len(resp.tasks) == 2
+        assert resp.tasks[0].description == "Write script"
+
+
+# ====================================================================
+# End-to-end orchestration tests
+# ====================================================================
+
+
+class TestEndToEndOrchestration:
+    """Simulate the Bugs Bunny prompt through the full orchestration loop."""
+
+    BUGS_BUNNY_PROMPT = (
+        "create a short script, then do text to video to create a "
+        "1-2 minutes scene of bugs bunny from looney tunes, something "
+        "about the rise of oil prices due to the war with iran - it "
+        "should really capture the looney tunes and bugs bunny feel - "
+        "it should have dialogues, then edit a scene from it"
+    )
+
+    def _make_orchestrator(self, http: FakeHTTPClient) -> Orchestrator:
+        return Orchestrator(
+            api_key="fake-key",
+            http_client=http,
+            skill_registry=SkillRegistry(),
+        )
+
+    def test_full_loop_with_planner_fallback(self):
+        """Planner returns 1 task -> fallback produces 3 tasks ->
+        sub-agents run each task -> all tasks complete."""
+        http = FakeHTTPClient()
+
+        http.queue("post", _planner_response([
+            {"id": "task-1", "description": "Do everything", "task_type": "execution",
+             "depends_on": [], "tool_categories": [], "context_requirements": []},
+        ]))
+
+        orch = self._make_orchestrator(http)
+        resp = orch.start(OrchestrateRequest(prompt=self.BUGS_BUNNY_PROMPT))
+
+        assert len(resp.tasks) == 3
+        session_id = resp.session_id
+        session = _get_session(session_id)
+        assert session is not None
+        dag = session.dag
+
+        assert dag.tasks[0].task_type == TaskType.CREATIVE
+        assert dag.tasks[1].task_type == TaskType.EXECUTION
+        assert dag.tasks[2].task_type == TaskType.EXECUTION
+        assert "generation" in dag.tasks[1].tool_categories
+        assert "clip_editing" in dag.tasks[2].tool_categories
+
+        # Advance: dispatch creative task (task-1).
+        # Avoid "Shot N:" format to prevent _try_expand_shot_tasks.
+        http.queue("post", _gemini_response(
+            "Script: Bugs Bunny discovers oil prices have risen. "
+            "He reads a newspaper about the war with Iran. "
+            "Bugs delivers a classic monologue about the situation. "
+            "The scene ends with Bugs breaking the fourth wall."
+        ))
+        resp = orch.continue_with_results(session_id, [])
+        assert dag.tasks[0].status == TaskStatus.COMPLETED
+
+        # Advance: dispatch generation task (task-2).
+        http.queue("post", _gemini_response(function_calls=[{
+            "name": "generate_video",
+            "args": {"prompt": "Bugs Bunny reading newspaper", "mode": "text_to_video"},
+        }]))
+        resp = orch.continue_with_results(session_id, [])
+        assert dag.tasks[1].status == TaskStatus.RUNNING
+        assert len(resp.tool_calls) >= 1
+
+        # Frontend executes generate_video and returns result.
+        http.queue("post", _gemini_response("Generated 4 shots successfully."))
+        tool_results = [ToolResult(
+            tool_name="generate_video",
+            call_id=resp.tool_calls[0].call_id,
+            success=True,
+            result={"asset_id": "video-asset-1"},
+        )]
+        resp = orch.continue_with_results(session_id, tool_results)
+        assert dag.tasks[1].status == TaskStatus.COMPLETED
+
+        # Advance: dispatch editing task (task-3).
+        http.queue("post", _gemini_response(function_calls=[{
+            "name": "add_clip_to_timeline",
+            "args": {"asset_id": "video-asset-1", "track_index": 0},
+        }]))
+        resp = orch.continue_with_results(session_id, [])
+        assert dag.tasks[2].status == TaskStatus.RUNNING
+
+        # Frontend executes add_clip_to_timeline.
+        http.queue("post", _gemini_response("Timeline assembled with 4 clips."))
+        tool_results = [ToolResult(
+            tool_name="add_clip_to_timeline",
+            call_id=resp.tool_calls[0].call_id,
+            success=True,
+            result={"clip_id": "clip-1"},
+        )]
+        resp = orch.continue_with_results(session_id, tool_results)
+        assert dag.tasks[2].status == TaskStatus.COMPLETED
+        assert resp.done is True
+        assert session.status == OrchestratorStatus.DONE
+
+    def test_execution_tasks_always_have_categories(self):
+        """Even when planner omits tool_categories, _ensure_execution_categories fills them."""
+        http = FakeHTTPClient()
+        http.queue("post", _planner_response([
+            {"id": "task-1", "description": "Write script", "task_type": "creative",
+             "depends_on": [], "tool_categories": [], "context_requirements": []},
+            {"id": "task-2", "description": "Generate a video of Bugs Bunny",
+             "task_type": "execution", "depends_on": ["task-1"],
+             "tool_categories": [], "context_requirements": ["prior_results"]},
+            {"id": "task-3", "description": "Edit the timeline and trim clips",
+             "task_type": "execution", "depends_on": ["task-2"],
+             "tool_categories": [], "context_requirements": ["prior_results"]},
+        ]))
+
+        orch = self._make_orchestrator(http)
+        resp = orch.start(OrchestrateRequest(
+            prompt="first write a script then generate video then edit it",
+        ))
+
+        assert len(resp.tasks) == 3
+        session = _get_session(resp.session_id)
+        assert session is not None
+        dag = session.dag
+
+        for task in dag.tasks:
+            if task.task_type == TaskType.EXECUTION:
+                assert len(task.tool_categories) > 0, (
+                    f"Execution task {task.id} should have inferred categories"
+                )

@@ -563,13 +563,60 @@ class Orchestrator:
         return min(allowed, key=lambda d: abs(d - raw_seconds))
 
     @staticmethod
+    def _extract_dialogue(shot_desc: str) -> str | None:
+        """Extract quoted dialogue from a shot description.
+
+        Recognises three common screenplay/LLM patterns:
+        - Standard quotes: ``"Hey, what's up doc?"``
+        - Character cues: ``BUGS: "line"`` or ``BUGS: 'line'``
+        - Prose attribution: ``says "line"`` / ``asks "line"``
+
+        Returns combined dialogue text (capped at 200 chars) or None.
+        """
+        import re
+        dialogue_pattern = re.compile(
+            r"""
+            (?:                          # character cue or attribution verb
+                [A-Z][A-Z\s]{0,20}:\s*   # BUGS: / DAFFY DUCK:
+              | \b(?:says?|asks?|replies|shouts?|whispers?|exclaims?|mutters?)\s+
+            )?
+            ["\u201c]                    # opening quote
+            ([^"\u201d]{3,})             # dialogue content (min 3 chars)
+            ["\u201d]                    # closing quote
+            """,
+            re.VERBOSE,
+        )
+        single_quote_cue = re.compile(
+            r"[A-Z][A-Z\s]{0,20}:\s*'([^']{3,})'",
+        )
+
+        lines: list[str] = []
+        for m in dialogue_pattern.finditer(shot_desc):
+            lines.append(m.group(1).strip())
+        for m in single_quote_cue.finditer(shot_desc):
+            text = m.group(1).strip()
+            if text not in lines:
+                lines.append(text)
+
+        if not lines:
+            return None
+
+        combined = " / ".join(lines)
+        if len(combined) > 200:
+            combined = combined[:197] + "..."
+        return combined
+
+    @staticmethod
     def _parse_shot_list(text: str) -> list[tuple[int, str, int]]:
         """Extract numbered shots from a result summary.
 
         Looks for patterns like "Shot 1: description", "Shot 2: description".
         Returns list of (shot_number, description, api_duration) tuples.
-        The duration is extracted from patterns like "(5s)", "(5 seconds)"
-        and snapped to the nearest allowed API value.
+
+        Duration extraction uses a two-pass approach:
+        1. Strict: parenthesized ``(8s)``, ``(10 seconds)``
+        2. Fallback: prose formats like ``Duration: 8s``, ``~10 seconds``,
+           or standalone ``8s`` at a word boundary
         """
         import re
         shots: list[tuple[int, str, int]] = []
@@ -578,8 +625,12 @@ class Orchestrator:
             r"(?=Shot\s+\d+\s*(?:\([^)]*\)\s*)?[:\-–—]|\Z)",
             re.DOTALL | re.IGNORECASE,
         )
-        duration_pattern = re.compile(
+        strict_duration = re.compile(
             r"\((\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?\)",
+            re.IGNORECASE,
+        )
+        fallback_duration = re.compile(
+            r"(?:duration[:\s]+)?~?(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)\b",
             re.IGNORECASE,
         )
         default_duration = Orchestrator._ALLOWED_API_DURATIONS[0]
@@ -589,7 +640,9 @@ class Orchestrator:
             if len(desc) <= 10:
                 continue
             full_match = match.group(0)
-            dur_match = duration_pattern.search(full_match)
+            dur_match = strict_duration.search(full_match)
+            if not dur_match:
+                dur_match = fallback_duration.search(full_match)
             if dur_match:
                 api_dur = Orchestrator._snap_duration(float(dur_match.group(1)))
             else:
@@ -868,6 +921,17 @@ class Orchestrator:
                     f"generate_video. "
                 )
 
+                dialogue_instruction = ""
+                dialogue = self._extract_dialogue(shot_desc)
+                if dialogue:
+                    dialogue_instruction = (
+                        f"DIALOGUE IN THIS SHOT: \"{dialogue}\". "
+                        f"Show the character actively speaking — mouth "
+                        f"open, gestures matching the tone. The "
+                        f"character's expression and body language should "
+                        f"convey the emotional content of the line. "
+                    )
+
                 if has_refs:
                     ref_ids = self._select_refs_for_shot(
                         shot_desc, character_refs, location_refs,
@@ -877,6 +941,7 @@ class Orchestrator:
                         f"Generate Shot {shot_num}: {style_instruction}"
                         f"First call generate_image "
                         f"with this visual description: \"{short_desc}\". "
+                        f"{dialogue_instruction}"
                         f"IMPORTANT: Pass aspect_ratio='16:9' for standard "
                         f"landscape video framing. "
                         f"IMPORTANT: Pass ALL these reference asset IDs as "
@@ -893,6 +958,7 @@ class Orchestrator:
                         f"Generate Shot {shot_num}: {style_instruction}"
                         f"First call generate_image "
                         f"with this visual description: \"{short_desc}\". "
+                        f"{dialogue_instruction}"
                         f"IMPORTANT: Pass aspect_ratio='16:9' for standard "
                         f"landscape video framing. "
                         f"Then call generate_video with mode=image_to_video "
