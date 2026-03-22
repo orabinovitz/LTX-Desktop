@@ -333,8 +333,6 @@ export function VideoEditor() {
   useEffect(() => { tracksRef.current = tracks }, [tracks])
   useEffect(() => { isPlayingRef.current = isPlaying }, [isPlaying])
   useEffect(() => { shuttleSpeedRef.current = shuttleSpeed }, [shuttleSpeed])
-  // Only sync ref ← state when NOT playing (during playback, ref is authoritative)
-  useEffect(() => { if (!isPlaying) playbackTimeRef.current = currentTime }, [currentTime, isPlaying])
   
   // Hovered cut point for cross-dissolve UI
   const [hoveredCutPoint, setHoveredCutPoint] = useState<{

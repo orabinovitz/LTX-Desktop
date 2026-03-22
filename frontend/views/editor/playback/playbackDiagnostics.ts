@@ -7,6 +7,14 @@ export interface PlaybackDiagnosticEvent {
 export interface PlaybackDiagnosticsSnapshot {
   driftSamples: number
   p95DriftSeconds: number
+  pauseBoundaryDriftSeconds: number
+  pausedRefHolds: number
+  pausedScrubSeeks: number
+  sessionFingerprintInvalidations: number
+  warmResumes: number
+  replayAfterSeekStarts: number
+  coldStarts: number
+  awaitBusReadyStarts: number
   audioHardSeeks: number
   videoHardSeeks: number
   playRetries: number
@@ -26,6 +34,22 @@ export class PlaybackDiagnosticsStore {
   private audioHardSeekCount = 0
 
   private videoHardSeekCount = 0
+
+  private pauseBoundaryDriftSeconds = 0
+
+  private pausedRefHoldCount = 0
+
+  private pausedScrubSeekCount = 0
+
+  private sessionFingerprintInvalidationCount = 0
+
+  private warmResumeCount = 0
+
+  private replayAfterSeekCount = 0
+
+  private coldStartCount = 0
+
+  private awaitBusReadyCount = 0
 
   private playRetryCount = 0
 
@@ -62,6 +86,34 @@ export class PlaybackDiagnosticsStore {
     this.pushEvent({ type: `${kind}-hard-seek`, value: driftSeconds })
   }
 
+  recordPauseBoundary(driftSeconds: number): void {
+    this.pauseBoundaryDriftSeconds = driftSeconds
+    this.pushEvent({ type: 'pause-boundary', value: driftSeconds })
+  }
+
+  recordPausedRefHold(): void {
+    this.pausedRefHoldCount += 1
+    this.pushEvent({ type: 'paused-ref-hold' })
+  }
+
+  recordPausedScrubSeek(clipId: string): void {
+    this.pausedScrubSeekCount += 1
+    this.pushEvent({ type: 'paused-scrub-seek', clipId })
+  }
+
+  recordSessionFingerprintInvalidation(): void {
+    this.sessionFingerprintInvalidationCount += 1
+    this.pushEvent({ type: 'session-fingerprint-invalidation' })
+  }
+
+  recordReplayStartMode(mode: 'warm_resume' | 'replay_after_seek' | 'cold_start' | 'await_bus_ready'): void {
+    if (mode === 'warm_resume') this.warmResumeCount += 1
+    if (mode === 'replay_after_seek') this.replayAfterSeekCount += 1
+    if (mode === 'cold_start') this.coldStartCount += 1
+    if (mode === 'await_bus_ready') this.awaitBusReadyCount += 1
+    this.pushEvent({ type: `replay-${mode}` })
+  }
+
   recordPlayRetry(clipId: string): void {
     this.playRetryCount += 1
     this.pushEvent({ type: 'play-retry', clipId })
@@ -93,6 +145,14 @@ export class PlaybackDiagnosticsStore {
     return {
       driftSamples: this.driftValues.length,
       p95DriftSeconds: this.percentile(this.driftValues, 0.95),
+      pauseBoundaryDriftSeconds: this.pauseBoundaryDriftSeconds,
+      pausedRefHolds: this.pausedRefHoldCount,
+      pausedScrubSeeks: this.pausedScrubSeekCount,
+      sessionFingerprintInvalidations: this.sessionFingerprintInvalidationCount,
+      warmResumes: this.warmResumeCount,
+      replayAfterSeekStarts: this.replayAfterSeekCount,
+      coldStarts: this.coldStartCount,
+      awaitBusReadyStarts: this.awaitBusReadyCount,
       audioHardSeeks: this.audioHardSeekCount,
       videoHardSeeks: this.videoHardSeekCount,
       playRetries: this.playRetryCount,

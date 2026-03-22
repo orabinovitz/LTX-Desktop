@@ -27,6 +27,21 @@ import {
 } from './playback/previewWindowPlanner'
 import { PreviewAudioBus } from './playback/previewAudioBus'
 import { PreviewAssetCache } from './playback/previewAssetCache'
+import {
+  buildReplaySessionFingerprint,
+  capturePauseSnapshot,
+  createReplaySession,
+  freezeSessionAudioUrl,
+  pickSessionAnchorClipId,
+  resolveReplayAudioSourceUrl,
+  resolvePausedTransportSync,
+  resolveReplayStartMode,
+  shouldDeferPausedTransportSync,
+  shouldHoldReplayUntilBusReady,
+  type PauseSnapshot,
+  type ReplaySession,
+  type ReplayStartMode,
+} from './playback/replayCoordinator'
 
 export interface UsePlaybackEngineParams {
   isPlaying: boolean
@@ -83,6 +98,14 @@ export interface PlaybackTelemetry {
 const EMPTY_DIAGNOSTICS: PlaybackDiagnosticsSnapshot = {
   driftSamples: 0,
   p95DriftSeconds: 0,
+  pauseBoundaryDriftSeconds: 0,
+  pausedRefHolds: 0,
+  pausedScrubSeeks: 0,
+  sessionFingerprintInvalidations: 0,
+  warmResumes: 0,
+  replayAfterSeekStarts: 0,
+  coldStarts: 0,
+  awaitBusReadyStarts: 0,
   audioHardSeeks: 0,
   videoHardSeeks: 0,
   playRetries: 0,
@@ -112,6 +135,27 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   const audioBusRef = useRef(new PreviewAudioBus())
   const audioAnchorClipIdRef = useRef<string | null>(null)
   const previewAssetCacheRef = useRef<PreviewAssetCache | null>(null)
+  const currentTimeRef = useRef(currentTime)
+  const shuttleSpeedRef = useRef(shuttleSpeed)
+  const totalDurationRef = useRef(totalDuration)
+  const playingInOutRef = useRef(playingInOut)
+  const inPointRef = useRef(inPoint)
+  const outPointRef = useRef(outPoint)
+  const zoomRef = useRef(zoom)
+  const decodeWindowPolicyRef = useRef<DecodeWindowPolicy>({
+    lookBehindSeconds: 0,
+    lookAheadSeconds: 0,
+    maxVideoSources: 0,
+    playbackResolution: 1,
+    preferPreviewAudioProxy: false,
+  })
+  const pauseSnapshotRef = useRef<PauseSnapshot | null>(null)
+  const pauseSnapshotPendingRef = useRef(false)
+  const replaySessionRef = useRef<ReplaySession | null>(null)
+  const replayStartModeRef = useRef<ReplayStartMode>('cold_start')
+  const replayBusGateStartedAtRef = useRef<number | null>(null)
+  const lastReplaySessionFingerprintRef = useRef('')
+  const lastFrozenAudioUrlsRef = useRef<Record<string, string>>({})
   const [diagnosticsSnapshot, setDiagnosticsSnapshot] = useState<PlaybackDiagnosticsSnapshot>(EMPTY_DIAGNOSTICS)
   if (previewAssetCacheRef.current === null) {
     const previewProvider = typeof window !== 'undefined' && window.electronAPI?.ensureAudioPreview
@@ -143,6 +187,33 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     [clips, tracks],
   )
 
+  useEffect(() => { currentTimeRef.current = currentTime }, [currentTime])
+  useEffect(() => { shuttleSpeedRef.current = shuttleSpeed }, [shuttleSpeed])
+  useEffect(() => { totalDurationRef.current = totalDuration }, [totalDuration])
+  useEffect(() => { playingInOutRef.current = playingInOut }, [playingInOut])
+  useEffect(() => { inPointRef.current = inPoint }, [inPoint])
+  useEffect(() => { outPointRef.current = outPoint }, [outPoint])
+  useEffect(() => { zoomRef.current = zoom }, [zoom])
+  useEffect(() => { decodeWindowPolicyRef.current = decodeWindowPolicy }, [decodeWindowPolicy])
+
+  const buildReplayFingerprintInputs = (audioClips: TimelineClip[], resolveUrl: (clip: TimelineClip) => string): Record<string, string> => {
+    const descriptors: Record<string, string> = {}
+    for (const clip of audioClips) {
+      const url = resolveUrl(clip)
+      descriptors[clip.id] = [
+        url,
+        `start=${clip.startTime.toFixed(3)}`,
+        `duration=${clip.duration.toFixed(3)}`,
+        `trimStart=${clip.trimStart.toFixed(3)}`,
+        `trimEnd=${clip.trimEnd.toFixed(3)}`,
+        `speed=${clip.speed.toFixed(3)}`,
+        `reversed=${clip.reversed}`,
+        `track=${clip.trackIndex}`,
+      ].join('|')
+    }
+    return descriptors
+  }
+
   useEffect(() => {
     if (!isPlaying || typeof PerformanceObserver === 'undefined') return
 
@@ -162,13 +233,72 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   }, [isPlaying])
 
   useEffect(() => {
-    if (!isPlaying) {
-      audioAnchorClipIdRef.current = null
-      return
-    }
+    if (!isPlaying) return
 
+    const previousPauseSnapshot = pauseSnapshotRef.current
+    pauseSnapshotPendingRef.current = true
+    audioAnchorClipIdRef.current = null
+    replayBusGateStartedAtRef.current = null
+
+    const replayAudibleClips = getAudiblePreviewClips(clips, tracks, playbackTimeRef.current)
+      .filter((clip) => supportsAudiblePreviewTransport(shuttleSpeed, clip.reversed))
+    const replayAudioFingerprintInputs = buildReplayFingerprintInputs(replayAudibleClips, (clip) => {
+      const sourceUrl = resolveClipSrc(clip)
+      const preferredUrl =
+        previewAssetCacheRef.current?.getPreferredAudioUrl(sourceUrl, decodeWindowPolicy.preferPreviewAudioProxy)
+        ?? sourceUrl
+      return resolveReplayAudioSourceUrl({
+        pauseSnapshot: previousPauseSnapshot,
+        clipId: clip.id,
+        liveUrl: preferredUrl,
+      })
+    })
+    const currentSessionFingerprint = buildReplaySessionFingerprint({
+      audioUrlsByClipId: replayAudioFingerprintInputs,
+      preferPreviewAudioProxy: decodeWindowPolicy.preferPreviewAudioProxy,
+    })
+    const sessionFingerprintChanged = previousPauseSnapshot?.sessionFingerprint !== currentSessionFingerprint
+    const replayStartMode = resolveReplayStartMode({
+      pauseSnapshot: previousPauseSnapshot,
+      sessionFingerprintChanged,
+      busReady: audioBusRef.current.isReady(),
+    })
+    if (sessionFingerprintChanged && previousPauseSnapshot?.sessionFingerprint) {
+      diagnosticsStoreRef.current.recordSessionFingerprintInvalidation()
+    }
+    replayStartModeRef.current = replayStartMode
+    diagnosticsStoreRef.current.recordReplayStartMode(replayStartMode)
+    replaySessionRef.current = createReplaySession({
+      replayMode: replayStartMode,
+      pauseSnapshot: previousPauseSnapshot,
+      sessionFingerprint: currentSessionFingerprint,
+    })
+    lastReplaySessionFingerprintRef.current = currentSessionFingerprint
+    pauseSnapshotRef.current = null
     void audioBusRef.current.ensureReady()
   }, [isPlaying])
+
+  useEffect(() => {
+    if (isPlaying) return
+    if (shouldDeferPausedTransportSync(pauseSnapshotPendingRef.current, pauseSnapshotRef.current)) return
+
+    const syncResult = resolvePausedTransportSync({
+      currentTime,
+      pauseSnapshot: pauseSnapshotRef.current,
+      toleranceSeconds: 0.01,
+    })
+
+    if (syncResult.action === 'hold_snapshot') {
+      diagnosticsStoreRef.current.recordPausedRefHold()
+    }
+    if (syncResult.action === 'mark_paused_seek') {
+      diagnosticsStoreRef.current.recordPausedScrubSeek('transport')
+    }
+
+    playbackTimeRef.current = syncResult.nextPlaybackTime
+    pauseSnapshotRef.current = syncResult.nextPauseSnapshot
+    setDiagnosticsSnapshot(diagnosticsStoreRef.current.snapshot())
+  }, [currentTime, isPlaying, playbackTimeRef])
 
   // ─── Unified playback engine (rAF) ───────────────────────────────────
   // During playback this loop is the SINGLE authority for:
@@ -182,7 +312,6 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   useEffect(() => {
     if (!isPlaying) return
     
-    const effectiveSpeed = shuttleSpeed !== 0 ? shuttleSpeed : 1
     let lastTimestamp: number | null = null
     let animFrameId: number
     
@@ -277,9 +406,35 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         lastStateUpdateRef.current = timestamp
         // Fall through with deltaMs = 0 so video sync still runs on the first frame
       }
+
+      const busReadyNow = audioBusRef.current.isReady()
+      if (replayStartModeRef.current === 'await_bus_ready') {
+        if (replayBusGateStartedAtRef.current === null) {
+          replayBusGateStartedAtRef.current = timestamp
+        }
+        const waitedMs = timestamp - replayBusGateStartedAtRef.current
+        if (shouldHoldReplayUntilBusReady({
+          replayStartMode: replayStartModeRef.current,
+          busReady: busReadyNow,
+          waitedMs,
+          maxWaitMs: 40,
+        })) {
+          lastTimestamp = timestamp
+          animFrameId = requestAnimationFrame(tick)
+          return
+        }
+
+        replayStartModeRef.current = busReadyNow
+          ? (pauseSnapshotRef.current?.pausedSeeked ? 'replay_after_seek' : 'warm_resume')
+          : 'cold_start'
+        replayBusGateStartedAtRef.current = null
+      } else {
+        replayBusGateStartedAtRef.current = null
+      }
       
       const deltaMs = timestamp - lastTimestamp
       lastTimestamp = timestamp
+      const effectiveSpeed = shuttleSpeedRef.current !== 0 ? shuttleSpeedRef.current : 1
       const deltaSec = (deltaMs / 1000) * effectiveSpeed
       
       // ── 1. Advance time ──
@@ -287,13 +442,13 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       let stopped = false
       
       // In/Out loop
-      if (playingInOut && inPoint !== null && outPoint !== null) {
-        const loopStart = Math.min(inPoint, outPoint)
-        const loopEnd = Math.max(inPoint, outPoint)
+      if (playingInOutRef.current && inPointRef.current !== null && outPointRef.current !== null) {
+        const loopStart = Math.min(inPointRef.current, outPointRef.current)
+        const loopEnd = Math.max(inPointRef.current, outPointRef.current)
         if (next >= loopEnd) next = loopStart
         else if (next <= loopStart) next = loopEnd
       } else {
-        if (next >= totalDuration) { next = 0; stopped = true }
+        if (next >= totalDurationRef.current) { next = 0; stopped = true }
         else if (next < 0) { next = 0; stopped = true }
       }
       
@@ -494,7 +649,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
           const nextClip = getNextVideoClip(syncClip)
           if (nextClip && nextClip.id !== preSeekDoneRef.current) {
             const remainingInCurrent = (syncClip.startTime + syncClip.duration) - next
-            if (remainingInCurrent < Math.max(1.5, decodeWindowPolicy.lookAheadSeconds) && remainingInCurrent > 0) {
+            if (remainingInCurrent < Math.max(1.5, decodeWindowPolicyRef.current.lookAheadSeconds) && remainingInCurrent > 0) {
               const nextSrc = resolveClipSrcRef(nextClip)
               const nextVideo = nextSrc ? pool.get(nextSrc) : null
               if (nextVideo && nextVideo.readyState >= 1) {
@@ -540,6 +695,10 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
           videoSources: pool.size,
         })
         const busActive = audioBusRef.current.isReady()
+        const replaySession = replaySessionRef.current
+        const replayStartMode = replayStartModeRef.current
+        const replayRetryBackoffMs = replayStartMode === 'warm_resume' ? 50 : 500
+        const activeReplayFingerprintInputs: Record<string, string> = {}
         
         // Pause clips no longer active (but keep the element for fast resume)
         for (const [id, el] of audioMap) {
@@ -553,9 +712,22 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         for (const c of activeAudioClips) {
           const sourceUrl = resolveClipSrcRef(c)
           if (!sourceUrl) continue
-          void previewAssetCache?.warmAudioPreview(sourceUrl, decodeWindowPolicy.preferPreviewAudioProxy)
-          const url = previewAssetCache?.getPreferredAudioUrl(sourceUrl, decodeWindowPolicy.preferPreviewAudioProxy) ?? sourceUrl
+          void previewAssetCache?.warmAudioPreview(sourceUrl, decodeWindowPolicyRef.current.preferPreviewAudioProxy)
+          const preferredUrl = previewAssetCache?.getPreferredAudioUrl(sourceUrl, decodeWindowPolicyRef.current.preferPreviewAudioProxy) ?? sourceUrl
+          const url = replaySession
+            ? freezeSessionAudioUrl(replaySession, c.id, preferredUrl)
+            : preferredUrl
           if (!url) continue
+          activeReplayFingerprintInputs[c.id] = [
+            url,
+            `start=${c.startTime.toFixed(3)}`,
+            `duration=${c.duration.toFixed(3)}`,
+            `trimStart=${c.trimStart.toFixed(3)}`,
+            `trimEnd=${c.trimEnd.toFixed(3)}`,
+            `speed=${c.speed.toFixed(3)}`,
+            `reversed=${c.reversed}`,
+            `track=${c.trackIndex}`,
+          ].join('|')
           
           let el = audioMap.get(c.id)
           let isNew = false
@@ -603,7 +775,10 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
               if (initialDrift > 0.04) {
                 diagnosticsStoreRef.current.recordDrift(initialDrift)
               }
-              el.currentTime = target
+              const canWarmResume = replayStartMode === 'warm_resume' && !isNew && initialDrift <= 0.04
+              if (!canWarmResume) {
+                el.currentTime = target
+              }
               el.playbackRate = desiredRate
               el.play().catch(() => {})
               ;(el as any).__audioPlaying = true
@@ -629,7 +804,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
               if (el.paused) {
                 const now = timestamp
                 const lastRetry = (el as any).__lastPlayRetry || 0
-                if (now - lastRetry > 500) {
+                if (now - lastRetry > replayRetryBackoffMs) {
                   ;(el as any).__lastPlayRetry = now
                   diagnosticsStoreRef.current.recordPlayRetry(c.id)
                   el.play().catch(() => {})
@@ -658,10 +833,23 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
           }
         }
 
+        if (replaySession) {
+          replaySession.sessionFingerprint = buildReplaySessionFingerprint({
+            audioUrlsByClipId: activeReplayFingerprintInputs,
+            preferPreviewAudioProxy: decodeWindowPolicyRef.current.preferPreviewAudioProxy,
+          })
+          lastReplaySessionFingerprintRef.current = replaySession.sessionFingerprint
+          lastFrozenAudioUrlsRef.current = Object.fromEntries(replaySession.frozenAudioUrls)
+        }
+
         if (busActive) {
           audioBusRef.current.muteInactive(activeAudioIds)
-          const anchorClip = chooseAnchorClip(activeAudioClips, audioAnchorClipIdRef.current)
-          audioAnchorClipIdRef.current = anchorClip?.id ?? null
+          const proposedAnchor = chooseAnchorClip(activeAudioClips, audioAnchorClipIdRef.current)
+          const anchorClipId = replaySession
+            ? pickSessionAnchorClipId(replaySession, activeAudioClips.map((clip) => clip.id), proposedAnchor?.id ?? null)
+            : proposedAnchor?.id ?? null
+          const anchorClip = activeAudioClips.find((clip) => clip.id === anchorClipId) ?? null
+          audioAnchorClipIdRef.current = anchorClipId
           if (anchorClip) {
             const anchorCurrentTime = audioBusRef.current.getElementCurrentTime(anchorClip.id)
             if (anchorCurrentTime !== null && !Number.isNaN(anchorCurrentTime)) {
@@ -682,7 +870,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       }
       
       // ── 4. Direct DOM updates for playhead (no React re-render) ──
-      const pps = zoom * 100 // pixelsPerSecond
+      const pps = zoomRef.current * 100 // pixelsPerSecond
       const px = `${next * pps}px`
       if (playheadRulerRef.current) playheadRulerRef.current.style.left = px
       // Update the overlay playhead (scroll-adjusted, positioned on the wrapper)
@@ -723,6 +911,18 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     animFrameId = requestAnimationFrame(tick)
     return () => {
       cancelAnimationFrame(animFrameId)
+      const replaySession = replaySessionRef.current
+      pauseSnapshotRef.current = capturePauseSnapshot({
+        authoritativeTime: playbackTimeRef.current,
+        uiTimeAtPause: currentTimeRef.current,
+        anchorClipId: replaySession?.frozenAnchorClipId ?? audioAnchorClipIdRef.current,
+        sessionFingerprint: replaySession?.sessionFingerprint || lastReplaySessionFingerprintRef.current,
+        frozenAudioUrls: replaySession
+          ? Object.fromEntries(replaySession.frozenAudioUrls)
+          : lastFrozenAudioUrlsRef.current,
+      })
+      pauseSnapshotPendingRef.current = false
+      diagnosticsStoreRef.current.recordPauseBoundary(pauseSnapshotRef.current.uiDriftAtPause)
       // Final sync: push authoritative time to React state
       setCurrentTime(playbackTimeRef.current)
       setPlaybackActiveClipId(null) // reset so React falls back to activeClip
@@ -734,8 +934,9 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         if (!el.paused) el.pause()
         ;(el as any).__audioPlaying = false
       }
+      replaySessionRef.current = null
     }
-  }, [isPlaying, totalDuration, shuttleSpeed, playingInOut, inPoint, outPoint, zoom, decodeWindowPolicy])
+  }, [isPlaying])
   
   // Clear In/Out loop mode when playback stops
   useEffect(() => {
@@ -1037,6 +1238,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     // During playback, the rAF loop handles audio sync directly for zero-latency.
     // This effect only handles scrubbing / seeking (when NOT playing).
     if (isPlaying) return
+    const scrubTime = playbackTimeRef.current
     
     // Pause all audio elements when not playing and reset sync flags.
     // IMPORTANT: Don't destroy elements (no el.src = '') — keep buffers alive
@@ -1067,8 +1269,8 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     // Pre-create audio elements only for dedicated audio clips.
     // Video clips stay visually active but never contribute direct preview audio;
     // linked video/audio imports should be heard exactly once from their audio track.
-    const scrubWindowStart = Math.max(0, currentTime - decodeWindowPolicy.lookBehindSeconds)
-    const scrubWindowEnd = currentTime + decodeWindowPolicy.lookAheadSeconds
+    const scrubWindowStart = Math.max(0, scrubTime - decodeWindowPolicy.lookBehindSeconds)
+    const scrubWindowEnd = scrubTime + decodeWindowPolicy.lookAheadSeconds
     const allAudioClips = clips.filter(c => {
       if (c.type === 'adjustment' || c.type === 'text' || c.type === 'image') return false
       if (!getAudioClipUrl(c)) return false
@@ -1107,12 +1309,12 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         ;(el as any).__intendedSrc = preferredClipUrl
       }
       
-      const isAtPlayhead = currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration
+      const isAtPlayhead = scrubTime >= clip.startTime && scrubTime < clip.startTime + clip.duration
       if (!isAtPlayhead) continue
       
       const liveAsset = clip.assetId ? assets.find(a => a.id === clip.assetId) : null
       const assetDuration = liveAsset?.duration || clip.asset?.duration || clip.duration
-      const timeInClip = currentTime - clip.startTime
+      const timeInClip = scrubTime - clip.startTime
       const targetTime = clip.reversed
         ? Math.max(0, assetDuration - clip.trimEnd - timeInClip * clip.speed)
         : Math.max(0, clip.trimStart + timeInClip * clip.speed)
@@ -1128,7 +1330,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         el.currentTime = targetTime
       }
     }
-  }, [currentTime, isPlaying, clips, tracks, assets, decodeWindowPolicy])
+  }, [currentTime, isPlaying, clips, tracks, assets, decodeWindowPolicy, playbackTimeRef])
   
   // Clean up all audio elements on unmount
   useEffect(() => {

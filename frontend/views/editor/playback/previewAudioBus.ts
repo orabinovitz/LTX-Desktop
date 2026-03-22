@@ -44,7 +44,7 @@ export class PreviewAudioBus {
     const context = this.ensureContext()
     if (!context) return false
 
-    if (context.state === 'suspended') {
+    if (context.state !== 'running' && context.state !== 'closed') {
       try {
         await context.resume()
       } catch (error) {

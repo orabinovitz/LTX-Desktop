@@ -902,6 +902,11 @@ export function ProgramMonitor({
               <span>{playbackTelemetry.performanceTier}</span>
               <span>A{diagnostics.audibleSources}/V{diagnostics.videoSources}</span>
               <span>{Math.round(diagnostics.p95DriftSeconds * 1000)}ms</span>
+              <span>PB{Math.round(diagnostics.pauseBoundaryDriftSeconds * 1000)}ms</span>
+              <span>H{diagnostics.pausedRefHolds}</span>
+              <span>Q{diagnostics.pausedScrubSeeks}</span>
+              <span>F{diagnostics.sessionFingerprintInvalidations}</span>
+              <span>W{diagnostics.warmResumes}</span>
               <span>S{diagnostics.audioHardSeeks}/{diagnostics.videoHardSeeks}</span>
               <span>R{diagnostics.playRetries}</span>
               <span>U{diagnostics.underruns}</span>
