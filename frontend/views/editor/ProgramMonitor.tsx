@@ -11,6 +11,7 @@ import { DEFAULT_SUBTITLE_STYLE } from '../../types/project'
 import type { TimelineClip, Track, SubtitleClip } from '../../types/project'
 import { getClipEffectStyles, getTransitionBgColor, formatTime, getShortcutLabel, tooltipLabel, getMaskedEffectOverlays } from './video-editor-utils'
 import type { KeyboardLayout } from '../../lib/keyboard-shortcuts'
+import type { PlaybackTelemetry } from './usePlaybackEngine'
 
 export interface ProgramMonitorProps {
   // Layout
@@ -88,6 +89,7 @@ export interface ProgramMonitorProps {
   setPlaybackResolution: (v: 1 | 0.5 | 0.25) => void
   playbackResOpen: boolean
   setPlaybackResOpen: React.Dispatch<React.SetStateAction<boolean>>
+  playbackTelemetry: PlaybackTelemetry
   isFullscreen: boolean
   toggleFullscreen: () => void
 
@@ -145,6 +147,7 @@ export function ProgramMonitor({
   setPlaybackResolution,
   playbackResOpen,
   setPlaybackResOpen,
+  playbackTelemetry,
   isFullscreen,
   toggleFullscreen,
   kbLayout,
@@ -159,7 +162,10 @@ export function ProgramMonitor({
     if (!activeClip || activeClip.asset?.type !== 'video') return
     const overlays = getMaskedEffectOverlays(activeClip)
     if (overlays.length === 0) return
-    const poolVideo = document.getElementById('video-pool-container')?.querySelector('video') as HTMLVideoElement | null
+    const poolVideos = Array.from(document.getElementById('video-pool-container')?.querySelectorAll('video') ?? [])
+    const poolVideo = (poolVideos.find((video) => video.style.opacity === '1' && video.style.zIndex === '1')
+      ?? poolVideos[0]
+      ?? null) as HTMLVideoElement | null
     if (!poolVideo) return
     for (const overlay of overlays) {
       const maskVideo = document.getElementById(`mask-video-${overlay.effectId}`) as HTMLVideoElement | null
@@ -170,6 +176,8 @@ export function ProgramMonitor({
   }, [currentTime, activeClip])
 
   // Compositing stack video sync is handled by ref callbacks on each <video> element above
+  const showPlaybackDiagnostics = import.meta.env.DEV
+  const diagnostics = playbackTelemetry.diagnostics
 
   return (
     <div
@@ -885,6 +893,23 @@ export function ProgramMonitor({
               </Button>
             </Tooltip>
           </div>
+
+          {showPlaybackDiagnostics && (
+            <div
+              className="flex items-center gap-2 px-2 py-1 rounded border border-cyan-500/20 bg-cyan-500/5 text-[10px] font-mono text-cyan-200"
+              title={`tier=${playbackTelemetry.performanceTier} ahead=${playbackTelemetry.decodeWindowPolicy.lookAheadSeconds}s behind=${playbackTelemetry.decodeWindowPolicy.lookBehindSeconds}s maxVideo=${playbackTelemetry.decodeWindowPolicy.maxVideoSources} proxyAudio=${playbackTelemetry.decodeWindowPolicy.preferPreviewAudioProxy ? 'yes' : 'no'} cutsPerMinute=${playbackTelemetry.timelineComplexity.cutsPerMinute.toFixed(1)}`}
+            >
+              <span>{playbackTelemetry.performanceTier}</span>
+              <span>A{diagnostics.audibleSources}/V{diagnostics.videoSources}</span>
+              <span>{Math.round(diagnostics.p95DriftSeconds * 1000)}ms</span>
+              <span>S{diagnostics.audioHardSeeks}/{diagnostics.videoHardSeeks}</span>
+              <span>R{diagnostics.playRetries}</span>
+              <span>U{diagnostics.underruns}</span>
+              {playbackTelemetry.previewExportParityRisks > 0 && (
+                <span>P{playbackTelemetry.previewExportParityRisks}</span>
+              )}
+            </div>
+          )}
 
           {/* Resolution dropdown */}
           <div className="relative flex-shrink-0">

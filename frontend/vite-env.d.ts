@@ -57,6 +57,7 @@ interface Window {
     removePythonSetupProgress: () => void
     onBackendHealthStatus: (cb: (data: BackendHealthStatus) => void) => (() => void)
     extractVideoFrame: (videoUrl: string, seekTime: number, width?: number, quality?: number) => Promise<{ path: string; url: string }>
+    ensureAudioPreview: (sourceUrl: string) => Promise<{ path: string; url: string; cacheHit: boolean }>
     writeLog: (level: string, message: string) => Promise<void>
     openModelsDirChangeDialog: () => Promise<{ success: boolean; path?: string; error?: string }>
     getAnalyticsState: () => Promise<{ analyticsEnabled: boolean; installationId: string }>

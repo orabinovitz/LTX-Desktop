@@ -1,9 +1,37 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { TimelineClip, Track, Asset } from '../../types/project'
+import {
+  analyzeTimelineComplexity,
+  getDecodeWindowPolicy,
+  selectPreviewPerformanceTier,
+  type DecodeWindowPolicy,
+  type PreviewPerformanceTier,
+  type TimelineComplexitySummary,
+} from './playback/previewPerformance'
+import {
+  chooseAnchorClip,
+  computeMasterGainForActiveClipCount,
+  computeRateCorrection,
+  computeTimelineTimeFromAnchor,
+  countPreviewExportParityRisks,
+  getAudiblePreviewClips,
+  supportsAudiblePreviewTransport,
+} from './playback/audioPreviewPlanner'
+import {
+  PlaybackDiagnosticsStore,
+  type PlaybackDiagnosticsSnapshot,
+} from './playback/playbackDiagnostics'
+import {
+  computeBoundaryGain,
+  selectBufferedVideoSources,
+} from './playback/previewWindowPlanner'
+import { PreviewAudioBus } from './playback/previewAudioBus'
+import { PreviewAssetCache } from './playback/previewAssetCache'
 
 export interface UsePlaybackEngineParams {
   isPlaying: boolean
   setIsPlaying: (v: boolean) => void
+  gpuAvailable: boolean | null
   shuttleSpeed: number
   setShuttleSpeed: React.Dispatch<React.SetStateAction<number>>
   currentTime: number
@@ -44,9 +72,29 @@ export interface UsePlaybackEngineParams {
   setPlaybackActiveClipId: React.Dispatch<React.SetStateAction<string | null>>
 }
 
+export interface PlaybackTelemetry {
+  diagnostics: PlaybackDiagnosticsSnapshot
+  performanceTier: PreviewPerformanceTier
+  decodeWindowPolicy: DecodeWindowPolicy
+  previewExportParityRisks: number
+  timelineComplexity: TimelineComplexitySummary
+}
+
+const EMPTY_DIAGNOSTICS: PlaybackDiagnosticsSnapshot = {
+  driftSamples: 0,
+  p95DriftSeconds: 0,
+  audioHardSeeks: 0,
+  videoHardSeeks: 0,
+  playRetries: 0,
+  longTasks: 0,
+  underruns: 0,
+  audibleSources: 0,
+  videoSources: 0,
+}
+
 export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   const {
-    isPlaying, setIsPlaying, shuttleSpeed, setShuttleSpeed,
+    isPlaying, setIsPlaying, gpuAvailable, shuttleSpeed, setShuttleSpeed,
     currentTime, setCurrentTime, pixelsPerSecond,
     clips, tracks, assets, activeClip, crossDissolveState,
     playbackResolution, playingInOut, setPlayingInOut,
@@ -60,6 +108,67 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   } = params
 
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
+  const diagnosticsStoreRef = useRef(new PlaybackDiagnosticsStore())
+  const audioBusRef = useRef(new PreviewAudioBus())
+  const audioAnchorClipIdRef = useRef<string | null>(null)
+  const previewAssetCacheRef = useRef<PreviewAssetCache | null>(null)
+  const [diagnosticsSnapshot, setDiagnosticsSnapshot] = useState<PlaybackDiagnosticsSnapshot>(EMPTY_DIAGNOSTICS)
+  if (previewAssetCacheRef.current === null) {
+    const previewProvider = typeof window !== 'undefined' && window.electronAPI?.ensureAudioPreview
+      ? { ensureAudioPreview: window.electronAPI.ensureAudioPreview }
+      : null
+    previewAssetCacheRef.current = new PreviewAssetCache(previewProvider)
+  }
+  const lowEndDevice = useMemo(() => {
+    if (typeof navigator === 'undefined') return false
+    const cpuCount = navigator.hardwareConcurrency ?? 8
+    const memoryGiB = Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8)
+    return cpuCount <= 8 || memoryGiB <= 8
+  }, [])
+  const timelineComplexity = useMemo(() => analyzeTimelineComplexity(clips, tracks), [clips, tracks])
+  const performanceTier = useMemo(
+    () => selectPreviewPerformanceTier(timelineComplexity, { lowEndDevice, gpuAvailable: gpuAvailable ?? true }),
+    [gpuAvailable, lowEndDevice, timelineComplexity],
+  )
+  const decodeWindowPolicy = useMemo(
+    () => getDecodeWindowPolicy(performanceTier, isPlaying),
+    [isPlaying, performanceTier],
+  )
+  const effectivePlaybackResolution = useMemo(
+    () => Math.min(playbackResolution, decodeWindowPolicy.playbackResolution) as 1 | 0.5 | 0.25,
+    [decodeWindowPolicy.playbackResolution, playbackResolution],
+  )
+  const previewExportParityRisks = useMemo(
+    () => countPreviewExportParityRisks(clips, tracks),
+    [clips, tracks],
+  )
+
+  useEffect(() => {
+    if (!isPlaying || typeof PerformanceObserver === 'undefined') return
+
+    let observer: PerformanceObserver | null = null
+    try {
+      observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          diagnosticsStoreRef.current.recordLongTask(entry.duration)
+        }
+      })
+      observer.observe({ type: 'longtask', buffered: true } as PerformanceObserverInit)
+    } catch {
+      return
+    }
+
+    return () => observer?.disconnect()
+  }, [isPlaying])
+
+  useEffect(() => {
+    if (!isPlaying) {
+      audioAnchorClipIdRef.current = null
+      return
+    }
+
+    void audioBusRef.current.ensureReady()
+  }, [isPlaying])
 
   // ─── Unified playback engine (rAF) ───────────────────────────────────
   // During playback this loop is the SINGLE authority for:
@@ -155,6 +264,12 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     const STATE_UPDATE_INTERVAL = 250 // ~4fps for React state updates (playhead/video/audio are smooth via rAF+DOM, this is only for timecode display)
     const DISSOLVE_STATE_UPDATE_INTERVAL = 33 // ~30fps during dissolves for smooth crossfade
     lastStateUpdateRef.current = 0
+    const recordVideoSeek = (driftSeconds: number) => {
+      diagnosticsStoreRef.current.recordHardSeek('video', driftSeconds)
+    }
+    const recordAudioSeek = (driftSeconds: number) => {
+      diagnosticsStoreRef.current.recordHardSeek('audio', driftSeconds)
+    }
     
     const tick = (timestamp: number) => {
       if (lastTimestamp === null) {
@@ -237,9 +352,15 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
                   : Math.max(0, Math.min(vd, outClip.trimStart + timeInClip * outClip.speed))
                 if (outClip.reversed) {
                   if (!outVid.paused) outVid.pause()
-                  if (!isNaN(tt) && Math.abs(outVid.currentTime - tt) > 0.04) outVid.currentTime = tt
+                  if (!isNaN(tt) && Math.abs(outVid.currentTime - tt) > 0.04) {
+                    recordVideoSeek(Math.abs(outVid.currentTime - tt))
+                    outVid.currentTime = tt
+                  }
                 } else {
-                  if (!isNaN(tt) && Math.abs(outVid.currentTime - tt) > 0.3) outVid.currentTime = tt
+                  if (!isNaN(tt) && Math.abs(outVid.currentTime - tt) > 0.3) {
+                    recordVideoSeek(Math.abs(outVid.currentTime - tt))
+                    outVid.currentTime = tt
+                  }
                   if (outVid.paused) outVid.play().catch(() => {})
                 }
               }
@@ -262,6 +383,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
               : Math.max(0, Math.min(videoDuration, clip.trimStart + timeInClip * clip.speed))
             if (!inVid.paused) inVid.pause()
             if (!isNaN(targetTime) && Math.abs(inVid.currentTime - targetTime) > 0.04) {
+              recordVideoSeek(Math.abs(inVid.currentTime - targetTime))
               inVid.currentTime = targetTime
             }
           }
@@ -329,12 +451,14 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
                   if (!v.paused) v.pause()
                   v.playbackRate = 1
                   if (!isNaN(targetTime) && Math.abs(v.currentTime - targetTime) > 0.04) {
+                    recordVideoSeek(Math.abs(v.currentTime - targetTime))
                     if (typeof (v as any).fastSeek === 'function') (v as any).fastSeek(targetTime)
                     else v.currentTime = targetTime
                   }
                 } else {
                   v.playbackRate = syncClip.speed
                   if (!isNaN(targetTime) && Math.abs(v.currentTime - targetTime) > 0.3) {
+                    recordVideoSeek(Math.abs(v.currentTime - targetTime))
                     if (typeof (v as any).fastSeek === 'function') (v as any).fastSeek(targetTime)
                     else v.currentTime = targetTime
                   }
@@ -370,7 +494,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
           const nextClip = getNextVideoClip(syncClip)
           if (nextClip && nextClip.id !== preSeekDoneRef.current) {
             const remainingInCurrent = (syncClip.startTime + syncClip.duration) - next
-            if (remainingInCurrent < 1.5 && remainingInCurrent > 0) {
+            if (remainingInCurrent < Math.max(1.5, decodeWindowPolicy.lookAheadSeconds) && remainingInCurrent > 0) {
               const nextSrc = resolveClipSrcRef(nextClip)
               const nextVideo = nextSrc ? pool.get(nextSrc) : null
               if (nextVideo && nextVideo.readyState >= 1) {
@@ -394,8 +518,9 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       }
       
       // ── 3b. Sync hidden audio elements directly (no React dependency) ──
-      // Audio plays via hidden <audio> elements for both audio-track AND video-track
-      // clips. Video <video> elements stay muted to avoid double playback.
+      // Audio preview plays only from dedicated audio-track clips.
+      // Video elements stay muted and linked video/audio imports are heard exactly once
+      // from their audio track counterpart.
       // KEY PRINCIPLES:
       //   1. Once audio is playing at the correct speed, DON'T touch it.
       //   2. Never set playbackRate unless it actually changed (avoids re-buffer).
@@ -405,19 +530,16 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         const audioMap = audioElementsRef.current
         const allClips = clipsRef.current
         const trks = tracksRef.current
-        const activeAudioIds = new Set<string>()
-        const anySoloed = trks.some(t => t.solo)
-        
-        for (const c of allClips) {
-          if (c.type === 'adjustment' || c.type === 'text' || c.type === 'image') continue
-          if (next < c.startTime || next >= c.startTime + c.duration) continue
-          if (trks[c.trackIndex]?.enabled === false) continue
-          // For video clips: only play audio if there's a linked audio clip on the timeline.
-          // If the video was added without a linked audio clip (e.g. audio tracks were unpatched),
-          // its embedded audio should not play.
-          if (c.type === 'video' && (!c.linkedClipIds || !c.linkedClipIds.some(lid => allClips.some(ac => ac.id === lid && ac.type === 'audio')))) continue
-          activeAudioIds.add(c.id)
-        }
+        const previewAssetCache = previewAssetCacheRef.current
+        const activeAudioClips = getAudiblePreviewClips(allClips, trks, next)
+          .filter((clip) => supportsAudiblePreviewTransport(shuttleSpeed, clip.reversed))
+        const activeAudioIds = new Set(activeAudioClips.map((clip) => clip.id))
+        const masterGain = computeMasterGainForActiveClipCount(activeAudioIds.size)
+        diagnosticsStoreRef.current.setActiveCounts({
+          audibleSources: activeAudioIds.size,
+          videoSources: pool.size,
+        })
+        const busActive = audioBusRef.current.isReady()
         
         // Pause clips no longer active (but keep the element for fast resume)
         for (const [id, el] of audioMap) {
@@ -428,10 +550,11 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         }
         
         // Sync active audio clips
-        for (const c of allClips) {
-          if (!activeAudioIds.has(c.id)) continue
-          
-          const url = resolveClipSrcRef(c)
+        for (const c of activeAudioClips) {
+          const sourceUrl = resolveClipSrcRef(c)
+          if (!sourceUrl) continue
+          void previewAssetCache?.warmAudioPreview(sourceUrl, decodeWindowPolicy.preferPreviewAudioProxy)
+          const url = previewAssetCache?.getPreferredAudioUrl(sourceUrl, decodeWindowPolicy.preferPreviewAudioProxy) ?? sourceUrl
           if (!url) continue
           
           let el = audioMap.get(c.id)
@@ -451,9 +574,16 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
           }
           
           const trackObj = trks[c.trackIndex]
-          const isSoloMuted = anySoloed && !trackObj?.solo
-          el.muted = c.muted || trackObj?.muted || isSoloMuted || false
-          el.volume = c.volume
+          const targetGain = c.volume * masterGain * computeBoundaryGain(c, next, 0.02)
+          el.muted = c.muted || trackObj?.muted || false
+          const routedThroughBus = busActive
+            && audioBusRef.current.syncClip(c.id, el, el.muted ? 0 : targetGain)
+          if (routedThroughBus) {
+            el.muted = false
+            el.volume = 1
+          } else {
+            el.volume = el.muted ? 0 : targetGain
+          }
           
           const computeTarget = (audioEl: HTMLAudioElement, atTime: number) => {
             const assetDur = audioEl.duration || c.duration
@@ -463,42 +593,54 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
               : Math.max(0, c.trimStart + timeInClip * c.speed)
           }
           
-          const desiredRate = c.reversed ? 1 : c.speed
+          const desiredRate = c.speed
           
           if (el.readyState >= 2) {
             if (!(el as any).__audioPlaying || isNew) {
               // First sync: seek to correct position, set speed, and start playing
               const target = computeTarget(el, next)
+              const initialDrift = Math.abs(el.currentTime - target)
+              if (initialDrift > 0.04) {
+                diagnosticsStoreRef.current.recordDrift(initialDrift)
+              }
               el.currentTime = target
               el.playbackRate = desiredRate
-              if (!c.reversed) {
-                el.play().catch(() => {})
-                ;(el as any).__audioPlaying = true
-                ;(el as any).__lastPlayRetry = 0
-              }
+              el.play().catch(() => {})
+              ;(el as any).__audioPlaying = true
+              ;(el as any).__lastPlayRetry = 0
             } else {
-              // Already playing — minimal intervention
-              if (el.playbackRate !== desiredRate) el.playbackRate = desiredRate
-              if (c.reversed) {
-                if (!el.paused) el.pause()
+              const target = computeTarget(el, next)
+              const driftSigned = target - el.currentTime
+              const drift = Math.abs(driftSigned)
+              diagnosticsStoreRef.current.recordDrift(drift)
+              if (drift > 0.2) {
+                recordAudioSeek(drift)
+                el.currentTime = target
+                el.playbackRate = desiredRate
               } else {
-                const target = computeTarget(el, next)
-                const drift = Math.abs(el.currentTime - target)
-                if (drift > 1.5) {
-                  el.currentTime = target
+                const correctedRate = drift > 0.04
+                  ? computeRateCorrection(desiredRate, driftSigned)
+                  : desiredRate
+                if (el.playbackRate !== correctedRate) {
+                  el.playbackRate = correctedRate
                 }
-                // Resume if browser auto-paused — but with backoff to avoid choppiness
-                if (el.paused) {
-                  const now = timestamp
-                  const lastRetry = (el as any).__lastPlayRetry || 0
-                  if (now - lastRetry > 500) {
-                    ;(el as any).__lastPlayRetry = now
-                    el.play().catch(() => {})
+              }
+              // Resume if browser auto-paused — but with backoff to avoid choppiness
+              if (el.paused) {
+                const now = timestamp
+                const lastRetry = (el as any).__lastPlayRetry || 0
+                if (now - lastRetry > 500) {
+                  ;(el as any).__lastPlayRetry = now
+                  diagnosticsStoreRef.current.recordPlayRetry(c.id)
+                  el.play().catch(() => {})
+                  if (el.paused) {
+                    diagnosticsStoreRef.current.recordUnderrun(c.id)
                   }
                 }
               }
             }
           } else if (!(el as any).__awaitingCanplay) {
+            diagnosticsStoreRef.current.recordUnderrun(c.id);
             (el as any).__awaitingCanplay = true
             const onCanPlay = () => {
               el!.removeEventListener('canplay', onCanPlay)
@@ -508,14 +650,34 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
               const target = computeTarget(el!, freshTime)
               el!.currentTime = target
               el!.playbackRate = desiredRate
-              if (!c.reversed) {
-                el!.play().catch(() => {})
-                ;(el as any).__audioPlaying = true
-                ;(el as any).__lastPlayRetry = 0
-              }
+              el!.play().catch(() => {})
+              ;(el as any).__audioPlaying = true
+              ;(el as any).__lastPlayRetry = 0
             }
             el.addEventListener('canplay', onCanPlay)
           }
+        }
+
+        if (busActive) {
+          audioBusRef.current.muteInactive(activeAudioIds)
+          const anchorClip = chooseAnchorClip(activeAudioClips, audioAnchorClipIdRef.current)
+          audioAnchorClipIdRef.current = anchorClip?.id ?? null
+          if (anchorClip) {
+            const anchorCurrentTime = audioBusRef.current.getElementCurrentTime(anchorClip.id)
+            if (anchorCurrentTime !== null && !Number.isNaN(anchorCurrentTime)) {
+              const authoritativeTime = computeTimelineTimeFromAnchor(anchorClip, anchorCurrentTime)
+              const audioClockDrift = Math.abs(authoritativeTime - next)
+              diagnosticsStoreRef.current.recordDrift(audioClockDrift)
+              if (audioClockDrift > 0.5) {
+                recordAudioSeek(audioClockDrift)
+              }
+              if (Number.isFinite(authoritativeTime)) {
+                playbackTimeRef.current = authoritativeTime
+              }
+            }
+          }
+        } else {
+          audioAnchorClipIdRef.current = null
         }
       }
       
@@ -552,6 +714,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         setCurrentTime(next)
         // Push active clip id to React so the monitor visibility stays correct
         setPlaybackActiveClipId(rafActiveClipIdRef.current)
+        setDiagnosticsSnapshot(diagnosticsStoreRef.current.snapshot())
       }
       
       animFrameId = requestAnimationFrame(tick)
@@ -564,13 +727,15 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       setCurrentTime(playbackTimeRef.current)
       setPlaybackActiveClipId(null) // reset so React falls back to activeClip
       rafActiveClipIdRef.current = null
+      diagnosticsStoreRef.current.setActiveCounts({ audibleSources: 0, videoSources: videoPoolRef.current.size })
+      setDiagnosticsSnapshot(diagnosticsStoreRef.current.snapshot())
       // Pause all hidden audio elements and reset sync flags
       for (const [, el] of audioElementsRef.current) {
         if (!el.paused) el.pause()
         ;(el as any).__audioPlaying = false
       }
     }
-  }, [isPlaying, totalDuration, shuttleSpeed, playingInOut, inPoint, outPoint, zoom])
+  }, [isPlaying, totalDuration, shuttleSpeed, playingInOut, inPoint, outPoint, zoom, decodeWindowPolicy])
   
   // Clear In/Out loop mode when playback stops
   useEffect(() => {
@@ -610,19 +775,25 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   
   // Helper: resolve the playback URL for a clip (inline, safe to call in effects)
   // --- Video pool management for gapless playback ---
-  // Collect all unique video source URLs used in the timeline
+  // Keep the video pool bounded to a small window around the playhead so lower-end
+  // machines do not try to decode the whole timeline at once.
   const timelineVideoSources = useMemo(() => {
-    const srcSet = new Set<string>()
-    for (const clip of clips) {
-      if (clip.type === 'audio' || clip.asset?.type !== 'video') continue
-      const src = resolveClipSrc(clip)
-      if (src) srcSet.add(src)
+    const srcSet = selectBufferedVideoSources(clips, currentTime, decodeWindowPolicy, resolveClipSrc)
+
+    const monitorClipSrc = activeClip ? resolveClipSrc(activeClip) : ''
+    if (monitorClipSrc) srcSet.add(monitorClipSrc)
+
+    if (crossDissolveState) {
+      const outgoingSrc = resolveClipSrc(crossDissolveState.outgoing)
+      const incomingSrc = resolveClipSrc(crossDissolveState.incoming)
+      if (outgoingSrc) srcSet.add(outgoingSrc)
+      if (incomingSrc) srcSet.add(incomingSrc)
     }
+
     return srcSet
-  }, [clips, resolveClipSrc])
+  }, [clips, currentTime, decodeWindowPolicy, resolveClipSrc, activeClip, crossDissolveState])
   
-  // Maintain the video pool: create/remove <video> elements as sources change
-  // Eagerly attach ALL pool videos to the DOM so they begin buffering immediately.
+  // Maintain the video pool for the bounded decode window only.
   useEffect(() => {
     const pool = videoPoolRef.current
     const container = document.getElementById('video-pool-container')
@@ -660,12 +831,12 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   useEffect(() => {
     const pool = videoPoolRef.current
     for (const [, video] of pool) {
-      if (playbackResolution < 1) {
+      if (effectivePlaybackResolution < 1) {
         // Scale the video element down, then scale the container up via CSS transform
         // This reduces actual pixel decode work
-        video.style.width = `${playbackResolution * 100}%`
-        video.style.height = `${playbackResolution * 100}%`
-        video.style.transform = `scale(${1 / playbackResolution})`
+        video.style.width = `${effectivePlaybackResolution * 100}%`
+        video.style.height = `${effectivePlaybackResolution * 100}%`
+        video.style.transform = `scale(${1 / effectivePlaybackResolution})`
         video.style.transformOrigin = 'top left'
       } else {
         video.style.width = '100%'
@@ -674,7 +845,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         video.style.transformOrigin = ''
       }
     }
-  }, [playbackResolution, timelineVideoSources]) // re-apply when pool changes
+  }, [effectivePlaybackResolution, timelineVideoSources]) // re-apply when pool changes
   
   // Cleanup pool on unmount
   useEffect(() => {
@@ -874,6 +1045,9 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       if (!el.paused) el.pause()
       ;(el as any).__audioPlaying = false
     }
+    audioBusRef.current.muteInactive(new Set())
+    diagnosticsStoreRef.current.setActiveCounts({ audibleSources: 0, videoSources: videoPoolRef.current.size })
+    setDiagnosticsSnapshot(diagnosticsStoreRef.current.snapshot())
     
     // Helper to get the live URL for a clip (from project context, respecting takes)
     const getAudioClipUrl = (clip: TimelineClip): string | null => {
@@ -890,13 +1064,16 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       return clip.asset?.url || clip.importedUrl || null
     }
     
-    // Pre-create audio elements for audio clips and video clips that have linked audio.
-    // Video clips without a linked audio clip (e.g. added with audio tracks unpatched)
-    // should not produce any audio output.
+    // Pre-create audio elements only for dedicated audio clips.
+    // Video clips stay visually active but never contribute direct preview audio;
+    // linked video/audio imports should be heard exactly once from their audio track.
+    const scrubWindowStart = Math.max(0, currentTime - decodeWindowPolicy.lookBehindSeconds)
+    const scrubWindowEnd = currentTime + decodeWindowPolicy.lookAheadSeconds
     const allAudioClips = clips.filter(c => {
       if (c.type === 'adjustment' || c.type === 'text' || c.type === 'image') return false
       if (!getAudioClipUrl(c)) return false
-      if (c.type === 'video' && (!c.linkedClipIds || !c.linkedClipIds.some(lid => clips.some(ac => ac.id === lid && ac.type === 'audio')))) return false
+      if (c.type !== 'audio') return false
+      if (c.startTime >= scrubWindowEnd || c.startTime + c.duration <= scrubWindowStart) return false
       return true
     })
     const allAudioClipIds = new Set(allAudioClips.map(c => c.id))
@@ -913,17 +1090,21 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     // Pre-create / seek audio elements
     for (const clip of allAudioClips) {
       const clipUrl = getAudioClipUrl(clip)!
+      void previewAssetCacheRef.current?.warmAudioPreview(clipUrl, decodeWindowPolicy.preferPreviewAudioProxy)
+      const preferredClipUrl =
+        previewAssetCacheRef.current?.getPreferredAudioUrl(clipUrl, decodeWindowPolicy.preferPreviewAudioProxy)
+        ?? clipUrl
       let el = audioElementsRef.current.get(clip.id)
       
       if (!el) {
         el = document.createElement('audio')
-        el.src = clipUrl
-        ;(el as any).__intendedSrc = clipUrl
+        el.src = preferredClipUrl
+        ;(el as any).__intendedSrc = preferredClipUrl
         el.preload = 'auto'
         audioElementsRef.current.set(clip.id, el)
-      } else if ((el as any).__intendedSrc !== clipUrl && clipUrl) {
-        el.src = clipUrl
-        ;(el as any).__intendedSrc = clipUrl
+      } else if ((el as any).__intendedSrc !== preferredClipUrl && preferredClipUrl) {
+        el.src = preferredClipUrl
+        ;(el as any).__intendedSrc = preferredClipUrl
       }
       
       const isAtPlayhead = currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration
@@ -947,11 +1128,12 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         el.currentTime = targetTime
       }
     }
-  }, [currentTime, isPlaying, clips, tracks, assets])
+  }, [currentTime, isPlaying, clips, tracks, assets, decodeWindowPolicy])
   
   // Clean up all audio elements on unmount
   useEffect(() => {
     return () => {
+      void audioBusRef.current.destroy()
       for (const [, el] of audioElementsRef.current) {
         el.pause()
         el.src = ''
@@ -960,5 +1142,14 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     }
   }, [])
 
-  return { audioElementsRef }
+  return {
+    audioElementsRef,
+    playbackTelemetry: {
+      diagnostics: diagnosticsSnapshot,
+      performanceTier,
+      decodeWindowPolicy,
+      previewExportParityRisks,
+      timelineComplexity,
+    },
+  }
 }

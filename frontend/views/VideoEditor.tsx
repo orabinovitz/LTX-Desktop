@@ -87,6 +87,22 @@ export function VideoEditor() {
   kbLayoutRef.current = kbLayout
   const isKbEditorOpenRef = useRef(isKbEditorOpen)
   isKbEditorOpenRef.current = isKbEditorOpen
+  const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    window.electronAPI.checkGpu()
+      .then((result) => {
+        if (!cancelled) setGpuAvailable(result.available)
+      })
+      .catch(() => {
+        if (!cancelled) setGpuAvailable(true)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
   
   // Generation hook for regenerating shots
   const {
@@ -1173,8 +1189,8 @@ export function VideoEditor() {
   
 
   // Playback engine (extracted hook)
-  usePlaybackEngine({
-    isPlaying, setIsPlaying, shuttleSpeed, setShuttleSpeed,
+  const { playbackTelemetry } = usePlaybackEngine({
+    isPlaying, setIsPlaying, gpuAvailable, shuttleSpeed, setShuttleSpeed,
     currentTime, setCurrentTime, duration: totalDuration, pixelsPerSecond,
     clips, tracks, assets, activeClip, crossDissolveState,
     playbackResolution, playingInOut, setPlayingInOut,
@@ -2006,6 +2022,7 @@ export function VideoEditor() {
             setPlaybackResolution={setPlaybackResolution}
             playbackResOpen={playbackResOpen}
             setPlaybackResOpen={setPlaybackResOpen}
+            playbackTelemetry={playbackTelemetry}
             isFullscreen={isFullscreen}
             toggleFullscreen={toggleFullscreen}
             kbLayout={kbLayout}
