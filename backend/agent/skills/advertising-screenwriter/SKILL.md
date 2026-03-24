@@ -253,6 +253,25 @@ Before finalizing, silently check:
 
 If several are weak, fix the concept before polishing the wording.
 
+## Short-Form Ad Rules
+
+For ads at 30 seconds or below, write for editability, not literary neatness.
+
+- A short ad needs enough visual beats to cut rhythmically. Do not solve the
+  whole spot with 3-4 hero shots unless the concept is intentionally built as a
+  long-take stunt.
+- For a 30-second cinematic brand ad, default to **6+ visual beats**.
+- For a 15-30 second performance or social ad, default to **8+ visual beats**
+  or clearly indicated internal cut points.
+- Do not make a character say the tagline unless the user explicitly wants that
+  tone. It usually plays fake, cheesy, or too on-the-nose.
+- Spoken dialogue is expensive. If a beat works through behavior, sound, or
+  image, keep it visual.
+- Every short ad script should contain a few **silent proof beats**: reaction,
+  product detail, consequence, crowd energy, gesture, object, or texture.
+- If the script can only work when every generated shot is used in full and in
+  order, the script is under-covered. Rewrite it.
+
 ## Executing Scripts in LTX Desktop
 
 When the user wants the script produced (not just written), structure your output
@@ -265,6 +284,8 @@ so it can be directly executed by the production pipeline:
 - Whether to generate image-first then animate (better for character control)
   or direct text-to-video (better for motion-heavy shots)
 - Camera motion if applicable (static, dolly_in, dolly_out, etc.)
+- Beat role in the cut: hook / setup / proof / escalation / payoff / tag
+- Editorial opportunity: what the editor could trim, split, juxtapose, or hold on
 
 **Format your script with production metadata:**
 ```
@@ -273,11 +294,13 @@ Visual: Close-up of a hand cracking open a glowing can, condensation droplets
 catching warm backlight, shallow depth of field
 Duration: 5s | Model: pro | Strategy: image-first | Camera: static
 Motion prompt: Hand tilts can, liquid sparkles, condensation rolls down
+Beat role: HOOK | Editorial opportunity: cut from condensation to action on the crack
 
 [0:05-0:12] PROBLEM/SETUP
 Visual: Wide shot of a crowded summer rooftop party, warm golden hour,
 people laughing but one person standing apart looking bored
 Duration: 7s | Model: fast | Strategy: text-to-video | Camera: dolly_right
+Beat role: PROBLEM/SETUP | Editorial opportunity: trim to the exact moment isolation registers
 ```
 
 This format bridges directly to the generation and timeline assembly pipeline.

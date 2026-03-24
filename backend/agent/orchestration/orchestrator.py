@@ -13,7 +13,9 @@ Session state is held in memory with TTL-based eviction.
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import time
 import uuid
 from collections import OrderedDict
@@ -21,6 +23,11 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 from agent.model_policy import AgentStage, select_model
+from agent.orchestration.creative_contracts import (
+    CoverageValidationIssue,
+    CreativeProfile,
+    validate_shot_plan,
+)
 from agent.orchestration.complexity_router import (
     RequestComplexity,
     classify_complexity,
@@ -82,6 +89,7 @@ class OrchestratorSession:
     view_context: str = "editor"
     last_access: float = field(default_factory=time.monotonic)
     review_iteration_count: dict[str, int] = field(default_factory=lambda: dict[str, int]())
+    coverage_repair_count: dict[str, int] = field(default_factory=lambda: dict[str, int]())
     last_diagnostics: AgentDiagnostics | None = None
 
 
@@ -460,6 +468,12 @@ class Orchestrator:
                 done=True,
             )
 
+        coverage_repaired = self._apply_coverage_guard(session, ready_tasks)
+        if coverage_repaired:
+            ready_tasks = session.dag.get_ready_tasks()
+            if not ready_tasks:
+                return self._execute_next(session)
+
         expanded = self._try_expand_shot_tasks(session, ready_tasks)
         if expanded:
             ready_tasks = session.dag.get_ready_tasks()
@@ -497,6 +511,8 @@ class Orchestrator:
                 project_id=session.project_id,
                 view_context=session.view_context,
                 target_duration_seconds=session.dag.target_duration_seconds,
+                creative_profile=session.dag.creative_profile,
+                coverage_contract=session.dag.coverage_contract,
             )
             tasks_to_dispatch.append((task, skill_content, ctx))
 
@@ -824,6 +840,109 @@ class Orchestrator:
 
         return "NB2_STYLE_BLOCK:\n" + "\n".join(lines)
 
+    @staticmethod
+    def _build_coverage_repair_description(
+        source_task: TaskNode,
+        issues: list[CoverageValidationIssue],
+        contract: object,
+    ) -> str:
+        issue_names = ", ".join(issue.value for issue in issues)
+        return (
+            "Rewrite and expand the existing shot plan so it satisfies the "
+            f"coverage contract ({issue_names}). Keep the strongest core idea, "
+            f"but deliver enough visual beats for a {getattr(contract, 'target_duration_seconds', 0):.0f}-second "
+            f"{getattr(getattr(contract, 'profile', None), 'value', 'creative')} piece. "
+            f"Minimum shot count: {getattr(contract, 'min_shot_count', 'unknown')}. "
+            f"Maximum dialogue share: {getattr(contract, 'max_dialogue_share', 0):.0%}. "
+            "Add silent visual beats, editorially useful inserts, and clearer pacing contrast. "
+            f"Revise this prior shot plan rather than starting from scratch:\n\n{source_task.result_summary}"
+        )
+
+    def _apply_coverage_guard(
+        self,
+        session: OrchestratorSession,
+        ready_tasks: list[TaskNode],
+    ) -> bool:
+        """Insert a repair task when a generation step would use under-covered script output."""
+        contract = session.dag.coverage_contract
+        if contract is None:
+            return False
+        if contract.profile == CreativeProfile.DIALOGUE_SCENE:
+            return False
+
+        changed = False
+        for task in list(ready_tasks):
+            if task.task_type != TaskType.EXECUTION or "generation" not in task.tool_categories:
+                continue
+
+            source_task: TaskNode | None = None
+            for dep_id in task.depends_on:
+                dep_task = session.dag.get_task(dep_id)
+                if (
+                    dep_task
+                    and dep_task.status == TaskStatus.COMPLETED
+                    and dep_task.task_type == TaskType.CREATIVE
+                    and dep_task.result_summary
+                ):
+                    source_task = dep_task
+                    break
+
+            if source_task is None:
+                continue
+
+            issues = validate_shot_plan(source_task.result_summary, contract)
+            if not any(
+                issue in issues
+                for issue in (
+                    CoverageValidationIssue.UNDER_COVERED,
+                    CoverageValidationIssue.DIALOGUE_HEAVY,
+                    CoverageValidationIssue.DURATION_MISMATCH,
+                )
+            ):
+                continue
+
+            repair_count = session.coverage_repair_count.get(source_task.id, 0)
+            if repair_count >= _MAX_RETRIES_PER_TASK:
+                logger.warning(
+                    "[orchestrator] session=%s | coverage repair limit reached for %s",
+                    session.id[:8], source_task.id,
+                )
+                continue
+
+            repair_id = f"coverage-repair-{source_task.id}-{repair_count + 1}"
+            if session.dag.get_task(repair_id) is not None:
+                continue
+
+            repair_task = TaskNode(
+                id=repair_id,
+                description=self._build_coverage_repair_description(source_task, issues, contract),
+                skill_id=source_task.skill_id,
+                depends_on=[source_task.id],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.CREATIVE,
+                tool_categories=[],
+                context_requirements=["prior_results"],
+            )
+            session.dag.tasks.append(repair_task)
+            session.coverage_repair_count[source_task.id] = repair_count + 1
+
+            for downstream in session.dag.tasks:
+                if downstream.id == repair_id:
+                    continue
+                if source_task.id in downstream.depends_on and downstream.status == TaskStatus.PENDING:
+                    downstream.depends_on = [
+                        repair_id if dep == source_task.id else dep
+                        for dep in downstream.depends_on
+                    ]
+
+            logger.info(
+                "[orchestrator] session=%s | inserted coverage repair task %s before %s",
+                session.id[:8], repair_id, task.id,
+            )
+            changed = True
+
+        return changed
+
     def _try_expand_shot_tasks(
         self,
         session: OrchestratorSession,
@@ -1003,6 +1122,96 @@ class Orchestrator:
 
         return expanded_any
 
+    @staticmethod
+    def _extract_review_payload(review_message: str) -> dict[str, Any] | None:
+        text = review_message.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if len(lines) >= 3 and lines[-1].strip() == "```":
+                text = "\n".join(lines[1:-1]).strip()
+
+        try:
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            pass
+
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        try:
+            parsed = json.loads(text[start:end + 1])
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+
+    @staticmethod
+    def _parse_review_actions(review_message: str) -> tuple[str, list[dict[str, Any]], str]:
+        payload = Orchestrator._extract_review_payload(review_message)
+        if payload is not None:
+            verdict = str(payload.get("overall_verdict", "")).strip().lower() or "pass"
+            summary = str(payload.get("summary", review_message)).strip()
+            raw_actions = payload.get("actions", [])
+            actions: list[dict[str, Any]] = []
+            if isinstance(raw_actions, list):
+                for action in raw_actions:
+                    if not isinstance(action, dict):
+                        continue
+                    kind = str(action.get("kind", "")).strip().lower()
+                    if not kind:
+                        continue
+                    normalized: dict[str, Any] = {
+                        "kind": kind,
+                        "reason": str(action.get("reason", summary)).strip(),
+                    }
+                    shot_number = action.get("shot_number")
+                    if isinstance(shot_number, int):
+                        normalized["shot_number"] = shot_number
+                    actions.append(normalized)
+            if verdict == "fail" and not actions:
+                actions.append({"kind": "recut_timeline", "reason": summary})
+            return verdict, actions, summary
+
+        failure_keywords = ("regenerate", "replace", "redo", "fix", "improve", "fail", "needs")
+        actions = []
+        for line in review_message.splitlines():
+            match = re.search(r"shot\s+(\d+)", line, re.IGNORECASE)
+            if not match:
+                continue
+            lower = line.lower()
+            if any(keyword in lower for keyword in failure_keywords):
+                actions.append({
+                    "kind": "regenerate_shot",
+                    "shot_number": int(match.group(1)),
+                    "reason": line.strip(),
+                })
+
+        if actions:
+            return "fail", actions, review_message
+
+        message_lower = review_message.lower()
+        if any(keyword in message_lower for keyword in failure_keywords):
+            return "fail", [{"kind": "recut_timeline", "reason": review_message.strip()}], review_message
+
+        return "pass", [], review_message
+
+    @staticmethod
+    def _pending_tasks_waiting_on(review_task_id: str, dag: TaskDAG) -> list[TaskNode]:
+        return [
+            task
+            for task in dag.tasks
+            if task.status == TaskStatus.PENDING and review_task_id in task.depends_on
+        ]
+
+    @staticmethod
+    def _find_generation_shot_task(shot_number: int, dag: TaskDAG) -> TaskNode | None:
+        suffix = f"-shot-{shot_number}"
+        for task in dag.tasks:
+            if task.id.endswith(suffix):
+                return task
+        return None
+
     def _handle_review_result(
         self,
         session: OrchestratorSession,
@@ -1020,17 +1229,8 @@ class Orchestrator:
             )
             return
 
-        message_lower = review_message.lower()
-        needs_correction = any(
-            keyword in message_lower
-            for keyword in [
-                "regenerate", "replace", "redo", "fix", "improve",
-                "not good", "poor quality", "wrong", "missing",
-                "needs work", "should be", "try again",
-            ]
-        )
-
-        if not needs_correction:
+        verdict, actions, summary = self._parse_review_actions(review_message)
+        if verdict == "pass" and not actions:
             logger.info(
                 "[orchestrator] session=%s | review %s approved",
                 session.id[:8], review_key,
@@ -1038,21 +1238,99 @@ class Orchestrator:
             return
 
         session.review_iteration_count[review_key] = iteration + 1
+        downstream_pending = self._pending_tasks_waiting_on(review_key, session.dag)
+        created_tasks: list[TaskNode] = []
+        seen_keys: set[str] = set()
 
-        correction_task = TaskNode(
-            id=f"correction-{review_key}-{iteration + 1}",
-            description=f"Apply corrections based on review feedback: {review_message[:200]}",
-            skill_id=None,
-            depends_on=[review_task.id],
-            status=TaskStatus.PENDING,
-            task_type=TaskType.EXECUTION,
-            tool_categories=["core", "generation", "clip_editing", "timeline_mgmt"],
-        )
-        session.dag.tasks.append(correction_task)
+        for action in actions:
+            kind = str(action.get("kind", "")).strip().lower()
+            reason = str(action.get("reason", summary)).strip()
+
+            if kind == "regenerate_shot":
+                shot_number = action.get("shot_number")
+                if not isinstance(shot_number, int):
+                    continue
+                dedupe_key = f"shot:{shot_number}"
+                if dedupe_key in seen_keys:
+                    continue
+                seen_keys.add(dedupe_key)
+                source_task = self._find_generation_shot_task(shot_number, session.dag)
+                if source_task is None:
+                    continue
+                correction_task = TaskNode(
+                    id=f"correction-{review_key}-shot-{shot_number}-{iteration + 1}",
+                    description=(
+                        f"Regenerate Shot {shot_number}. Original task: {source_task.description}\n"
+                        f"Review feedback: {reason}"
+                    ),
+                    skill_id=source_task.skill_id or "nano-banana-prompting",
+                    depends_on=[review_task.id, source_task.id],
+                    status=TaskStatus.PENDING,
+                    task_type=TaskType.EXECUTION,
+                    tool_categories=["generation"],
+                    context_requirements=["prior_results"],
+                )
+                created_tasks.append(correction_task)
+                continue
+
+            if kind == "rewrite_script":
+                dedupe_key = "rewrite_script"
+                if dedupe_key in seen_keys:
+                    continue
+                seen_keys.add(dedupe_key)
+                correction_task = TaskNode(
+                    id=f"correction-{review_key}-script-{iteration + 1}",
+                    description=f"Rewrite the script based on review feedback: {reason}",
+                    skill_id="advertising-screenwriter",
+                    depends_on=[review_task.id],
+                    status=TaskStatus.PENDING,
+                    task_type=TaskType.CREATIVE,
+                    tool_categories=[],
+                    context_requirements=["prior_results"],
+                )
+                created_tasks.append(correction_task)
+                continue
+
+            if kind == "recut_timeline":
+                dedupe_key = "recut_timeline"
+                if dedupe_key in seen_keys:
+                    continue
+                seen_keys.add(dedupe_key)
+                correction_task = TaskNode(
+                    id=f"correction-{review_key}-timeline-{iteration + 1}",
+                    description=f"Recut the timeline based on review feedback: {reason}",
+                    skill_id=review_task.skill_id or "marketing-editor",
+                    depends_on=[review_task.id],
+                    status=TaskStatus.PENDING,
+                    task_type=TaskType.EXECUTION,
+                    tool_categories=["timeline_mgmt", "clip_editing", "transitions"],
+                    context_requirements=["prior_results", "timeline_state"],
+                )
+                created_tasks.append(correction_task)
+
+        if not created_tasks:
+            created_tasks.append(TaskNode(
+                id=f"correction-{review_key}-{iteration + 1}",
+                description=f"Apply corrections based on review feedback: {summary[:200]}",
+                skill_id=review_task.skill_id,
+                depends_on=[review_task.id],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.EXECUTION,
+                tool_categories=["core", "generation", "clip_editing", "timeline_mgmt"],
+                context_requirements=["prior_results", "timeline_state"],
+            ))
+
+        for correction_task in created_tasks:
+            session.dag.tasks.append(correction_task)
+
+        for pending_task in downstream_pending:
+            for correction_task in created_tasks:
+                if correction_task.id not in pending_task.depends_on:
+                    pending_task.depends_on.append(correction_task.id)
 
         logger.info(
-            "[orchestrator] session=%s | review %s requested corrections, added task %s",
-            session.id[:8], review_key, correction_task.id,
+            "[orchestrator] session=%s | review %s requested %d correction task(s): %s",
+            session.id[:8], review_key, len(created_tasks), [task.id for task in created_tasks],
         )
 
     def _cancel_dependents(self, dag: TaskDAG, failed_task_id: str) -> None:

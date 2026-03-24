@@ -186,6 +186,26 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
             f"must target this duration."
         )
 
+    if context.creative_profile is not None:
+        parts.append(
+            f"## Creative Profile\n"
+            f"This request is operating under the structured profile "
+            f"`{context.creative_profile.value}`. Match your decisions to that "
+            f"profile rather than defaulting to a generic cinematic workflow."
+        )
+
+    if context.coverage_contract is not None:
+        parts.append(
+            "## Coverage Contract\n"
+            f"- Minimum shot count: {context.coverage_contract.min_shot_count}\n"
+            f"- Maximum dialogue share: {context.coverage_contract.max_dialogue_share:.0%}\n"
+            f"- Minimum meaningful edit operations: {context.coverage_contract.min_meaningful_edit_operations}\n"
+            f"- Structured review required: {context.coverage_contract.requires_structured_review}\n"
+            f"- Timeline review required: {context.coverage_contract.requires_timeline_review}\n"
+            "Use this as a hard creative constraint when planning coverage, "
+            "generation density, and editorial shape."
+        )
+
     if context.timeline_context:
         parts.append(f"## Timeline State\n{context.timeline_context}")
 
@@ -272,6 +292,20 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
                 "- If any shots need regeneration, say 'regenerate' and "
                 "explain what should change\n"
                 "- Evaluate overall visual consistency across all shots"
+            )
+            parts.append(
+                "## Review Output Format\n"
+                "Return JSON with this exact shape:\n"
+                "{\n"
+                '  "overall_verdict": "pass" | "fail",\n'
+                '  "summary": "short summary",\n'
+                '  "actions": [\n'
+                '    {"kind": "regenerate_shot", "shot_number": 3, "reason": "what to fix"},\n'
+                '    {"kind": "recut_timeline", "reason": "how the timeline should change"},\n'
+                '    {"kind": "rewrite_script", "reason": "why upstream script work is needed"}\n'
+                "  ]\n"
+                "}\n"
+                "Only include actions that are actually necessary."
             )
     else:
         if "shot" in context.task.description.lower() or "script" in context.task.description.lower():

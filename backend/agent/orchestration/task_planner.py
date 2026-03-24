@@ -15,6 +15,11 @@ import uuid
 from typing import Any, cast
 
 from agent.model_policy import AgentStage, select_model
+from agent.orchestration.creative_contracts import (
+    CreativeProfile,
+    build_coverage_contract,
+    infer_creative_profile,
+)
 from agent.orchestration.complexity_router import has_multi_step_signals
 from agent.tool_knowledge_base import classify_intent
 from agent.types import (
@@ -183,13 +188,25 @@ creation (not just editing existing clips):
 
 ## General Rules
 
-- Generate the minimum number of tasks that fulfill the request.
+- Generate the right number of tasks that fulfill the request.
 - Each task is a single, verifiable unit of work.
 - Identify dependencies: list upstream task IDs in `depends_on`.
 - Maximize parallelism: independent tasks should not depend on each other.
 - Assign the best skill from the catalog. Use `null` for general tasks.
 - Execution tasks list the tool_categories they need.
 - Keep task descriptions imperative and specific.
+
+## Ad Coverage Guardrails
+
+When the request is for a full advertisement, campaign film, promo, or sports
+commercial, do not default to a tiny hero-shot plan.
+
+- A 30-second ad needs enough visual beats to cut rhythmically in post.
+- Include a review task before the timeline pass when generation is involved.
+- Do not assume placing one generated clip per written shot is a good final
+  commercial edit.
+- Script tasks for short ads should produce enough beat density and visual
+  variation that an editor can shape the piece rather than merely place clips.
 
 ## Available Skills
 {skill_catalog}
@@ -231,7 +248,7 @@ visual identity research. Single task.
   "tasks": [
     {{
       "id": "task-1",
-      "description": "Write a script for a 30-second fashion ad. Include a numbered shot list with 4-5 shots. Each shot: visual description, shot type, camera motion, duration as (Ns). Format: 'Shot 1 (8s):', 'Shot 2 (6s):', etc. Target 30 seconds total. Valid durations: 6, 8, 10, 12, 14, 16, 18, or 20 seconds.",
+      "description": "Write a script for a 30-second fashion ad. Include a numbered shot list with enough visual beats for a dynamic edit, typically 6+ distinct moments or shots. Each shot: visual description, shot type, camera motion, duration as (Ns). Format: 'Shot 1 (8s):', 'Shot 2 (6s):', etc. Target 30 seconds total while preserving enough coverage for editing. Valid durations: 6, 8, 10, 12, 14, 16, 18, or 20 seconds.",
       "skill_id": "advertising-screenwriter",
       "task_type": "creative",
       "depends_on": [],
@@ -319,7 +336,7 @@ Short duration, no characters, no narrative — no pre-production needed.
   "tasks": [
     {{
       "id": "task-1",
-      "description": "Write a script for a 15-second product ad for wireless headphones. Include a NUMBERED shot list with 2-3 shots. Each shot: visual description, shot type, camera motion, duration as (Ns). Format: 'Shot 1 (8s):', 'Shot 2 (6s):', etc. Target 15 seconds total. Valid durations: 6, 8, 10, 12, 14, 16, 18, or 20 seconds. Focus on sleek product close-ups and lifestyle context.",
+      "description": "Write a script for a 15-second product ad for wireless headphones. Include a NUMBERED shot list with enough cut points for a sharp commercial rhythm, typically 4+ visual beats. Each shot: visual description, shot type, camera motion, duration as (Ns). Format: 'Shot 1 (8s):', 'Shot 2 (6s):', etc. Target 15 seconds total while preserving enough material for editing. Valid durations: 6, 8, 10, 12, 14, 16, 18, or 20 seconds. Focus on sleek product close-ups and lifestyle context.",
       "skill_id": "advertising-screenwriter",
       "task_type": "creative",
       "depends_on": [],
@@ -346,10 +363,19 @@ Short duration, no characters, no narrative — no pre-production needed.
     }},
     {{
       "id": "task-4",
-      "description": "Create timeline, add clips in script order, trim dead frames, close gaps. Target 15 seconds total.",
+      "description": "Review the generated shots against the brief and the intended ad rhythm. Flag weak shots, missing product proof, or insufficient coverage before assembly.",
+      "skill_id": "marketing-editor",
+      "task_type": "review",
+      "depends_on": ["task-1", "task-3"],
+      "tool_categories": ["review"],
+      "context_requirements": ["prior_results"]
+    }},
+    {{
+      "id": "task-5",
+      "description": "Create timeline, add clips in script order, trim dead frames, close gaps, and shape the ad rhythm into a finished 15-second edit.",
       "skill_id": "general-editor",
       "task_type": "execution",
-      "depends_on": ["task-3"],
+      "depends_on": ["task-3", "task-4"],
       "tool_categories": ["timeline_mgmt", "clip_editing"],
       "context_requirements": ["prior_results", "timeline_state"]
     }}
@@ -569,6 +595,138 @@ _EDITING_KEYWORDS = re.compile(
     r"|\bsequence\b|\bpacing\b|\btransition\b|\bdissolve\b|\bmontage\b",
     re.IGNORECASE,
 )
+
+_SECONDS_RE = re.compile(r"\b(\d+)\s*(?:seconds?|secs?|s)\b", re.IGNORECASE)
+_MINUTES_RE = re.compile(r"\b(\d+)(?:\s*-\s*(\d+))?\s*(?:minutes?|mins?)\b", re.IGNORECASE)
+
+
+def _infer_target_duration_from_prompt(prompt: str) -> float | None:
+    """Best-effort duration extraction when the planner omits it."""
+    seconds_match = _SECONDS_RE.search(prompt)
+    if seconds_match:
+        return float(seconds_match.group(1))
+
+    minutes_match = _MINUTES_RE.search(prompt)
+    if not minutes_match:
+        return None
+
+    lower = float(minutes_match.group(1))
+    upper_raw = minutes_match.group(2)
+    if upper_raw is None:
+        return lower * 60
+
+    upper = float(upper_raw)
+    return ((lower + upper) / 2) * 60
+
+
+def _review_skill_for_profile(profile: CreativeProfile) -> str:
+    if profile == CreativeProfile.DIALOGUE_SCENE:
+        return "directing"
+    if profile == CreativeProfile.MONTAGE:
+        return "tv-film-editing"
+    return "marketing-editor"
+
+
+def _timeline_task_ids(tasks: list[TaskNode]) -> list[str]:
+    return [
+        task.id
+        for task in tasks
+        if task.task_type == TaskType.EXECUTION
+        and any(category in {"timeline_mgmt", "clip_editing"} for category in task.tool_categories)
+    ]
+
+
+def _generation_task_ids(tasks: list[TaskNode]) -> list[str]:
+    return [
+        task.id
+        for task in tasks
+        if task.task_type == TaskType.EXECUTION and "generation" in task.tool_categories
+    ]
+
+
+def _ensure_review_gate(tasks: list[TaskNode], contract: object) -> list[TaskNode]:
+    """Ensure generated ad flows are reviewed before timeline assembly."""
+    profile = getattr(contract, "profile")
+    generation_ids = _generation_task_ids(tasks)
+    if not generation_ids:
+        return tasks
+
+    review_tasks = [task for task in tasks if task.task_type == TaskType.REVIEW]
+    timeline_ids = set(_timeline_task_ids(tasks))
+    if not timeline_ids:
+        return tasks
+
+    pre_timeline_review_ids = [
+        task.id for task in review_tasks
+        if any(dep in generation_ids for dep in task.depends_on)
+    ]
+
+    if not pre_timeline_review_ids:
+        review_id = f"task-{len(tasks) + 1}"
+        pre_timeline_review = TaskNode(
+            id=review_id,
+            description=(
+                "Review the generated shots against the brief, the intended pacing profile, "
+                "and the coverage contract before timeline assembly. Flag weak shots, "
+                "coverage gaps, and any on-the-nose moments."
+            ),
+            skill_id=_review_skill_for_profile(profile),
+            depends_on=generation_ids,
+            status=TaskStatus.PENDING,
+            task_type=TaskType.REVIEW,
+            tool_categories=["review"],
+            context_requirements=["prior_results"],
+        )
+        tasks.append(pre_timeline_review)
+        pre_timeline_review_ids.append(review_id)
+
+    for task in tasks:
+        if task.id not in timeline_ids:
+            continue
+        for review_id in pre_timeline_review_ids:
+            if review_id not in task.depends_on:
+                task.depends_on.append(review_id)
+
+    if getattr(contract, "requires_timeline_review", False):
+        has_final_review = any(
+            any(dep in timeline_ids for dep in review_task.depends_on)
+            for review_task in review_tasks
+        )
+        final_review_id = f"task-{len(tasks) + 1}"
+        if not has_final_review:
+            final_timeline_review = TaskNode(
+                id=final_review_id,
+                description=(
+                    "Review the assembled timeline against the coverage contract and editorial goals. "
+                    f"Fail the cut if it lacks at least {getattr(contract, 'min_meaningful_edit_operations', 0)} "
+                    "meaningful edit decisions, feels linearly assembled, or misses the intended pacing profile."
+                ),
+                skill_id=_review_skill_for_profile(profile),
+                depends_on=sorted(timeline_ids),
+                status=TaskStatus.PENDING,
+                task_type=TaskType.REVIEW,
+                tool_categories=["review"],
+                context_requirements=["prior_results", "timeline_state"],
+            )
+            tasks.append(final_timeline_review)
+
+    return tasks
+
+
+def _apply_creative_contracts(dag: TaskDAG, prompt: str) -> TaskDAG:
+    """Attach structured creative constraints to the DAG."""
+    profile = infer_creative_profile(prompt)
+    if profile is None:
+        return dag
+
+    target_duration = dag.target_duration_seconds or _infer_target_duration_from_prompt(prompt)
+    if target_duration is None or target_duration <= 0:
+        return dag
+
+    dag.creative_profile = profile
+    dag.coverage_contract = build_coverage_contract(profile, target_duration)
+    dag.tasks = _ensure_review_gate(dag.tasks, dag.coverage_contract)
+    return dag
 
 
 def _structured_fallback_dag(prompt: str) -> TaskDAG | None:
@@ -859,7 +1017,7 @@ class TaskPlanner:
                     resp.status_code,
                     resp.text[:300],
                 )
-                return self._fallback_dag(prompt)
+                return _apply_creative_contracts(self._fallback_dag(prompt), prompt)
 
             body = cast(dict[str, Any], resp.json())
             text: str = body["candidates"][0]["content"]["parts"][0]["text"]
@@ -868,7 +1026,7 @@ class TaskPlanner:
         except Exception:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             logger.error("Task planner failed after %dms", elapsed_ms, exc_info=True)
-            return self._fallback_dag(prompt)
+            return _apply_creative_contracts(self._fallback_dag(prompt), prompt)
 
         task_type_map = {
             "creative": TaskType.CREATIVE,
@@ -896,7 +1054,7 @@ class TaskPlanner:
         if len(tasks) <= 1 and has_multi_step_signals(prompt):
             fallback = _structured_fallback_dag(prompt)
             if fallback is not None:
-                return fallback
+                return _apply_creative_contracts(fallback, prompt)
 
         task_summaries = [
             f"  {t.id} ({t.task_type.value}): {t.description[:60]}"
@@ -909,11 +1067,12 @@ class TaskPlanner:
             target_duration,
             "\n".join(task_summaries),
         )
-        return TaskDAG(
+        dag = TaskDAG(
             tasks=tasks,
             original_prompt=prompt,
             target_duration_seconds=target_duration,
         )
+        return _apply_creative_contracts(dag, prompt)
 
     @staticmethod
     def _fallback_dag(prompt: str) -> TaskDAG:

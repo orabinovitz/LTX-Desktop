@@ -6,12 +6,14 @@ import pytest
 
 from agent.orchestration.task_planner import (
     TaskPlanner,
+    _apply_creative_contracts,
     _build_skill_catalog,
     _ensure_execution_categories,
     _parse_planner_response,
     _structured_fallback_dag,
     _validate_dag,
 )
+from agent.orchestration.creative_contracts import CreativeProfile
 from agent.types import SkillDescriptor, TaskDAG, TaskNode, TaskStatus, TaskType
 
 
@@ -331,3 +333,101 @@ class TestStructuredFallbackDag:
         assert dag.tasks[0].skill_id == "film-tv-screenwriting"
         assert dag.tasks[1].tool_categories == ["generation"]
         assert "clip_editing" in dag.tasks[2].tool_categories
+
+
+def test_apply_creative_contracts_adds_brand_profile_and_review_gate() -> None:
+    dag = TaskDAG(
+        tasks=[
+            TaskNode(
+                id="task-1",
+                description="Write ad script",
+                skill_id="advertising-screenwriter",
+                depends_on=[],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.CREATIVE,
+            ),
+            TaskNode(
+                id="task-2",
+                description="Generate all shots",
+                skill_id=None,
+                depends_on=["task-1"],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.EXECUTION,
+                tool_categories=["generation"],
+            ),
+            TaskNode(
+                id="task-3",
+                description="Assemble timeline",
+                skill_id="general-editor",
+                depends_on=["task-2"],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.EXECUTION,
+                tool_categories=["timeline_mgmt", "clip_editing"],
+            ),
+        ],
+        original_prompt="Create a 30-second World Cup commercial for Pepsi",
+        target_duration_seconds=30,
+    )
+
+    result = _apply_creative_contracts(dag, dag.original_prompt)
+
+    assert result.creative_profile == CreativeProfile.BRAND_CINEMATIC
+    assert result.coverage_contract is not None
+    assert result.coverage_contract.min_shot_count == 6
+    review_tasks = [task for task in result.tasks if task.task_type == TaskType.REVIEW]
+    assert len(review_tasks) == 2
+    assert review_tasks[0].depends_on == ["task-2"]
+    assert review_tasks[0].skill_id == "marketing-editor"
+    assert review_tasks[0].id in result.tasks[2].depends_on
+    assert review_tasks[1].depends_on == ["task-3"]
+
+
+def test_apply_creative_contracts_adds_final_review_when_pre_review_already_exists() -> None:
+    dag = TaskDAG(
+        tasks=[
+            TaskNode(
+                id="task-1",
+                description="Write ad script",
+                skill_id="advertising-screenwriter",
+                depends_on=[],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.CREATIVE,
+            ),
+            TaskNode(
+                id="task-2",
+                description="Generate all shots",
+                skill_id=None,
+                depends_on=["task-1"],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.EXECUTION,
+                tool_categories=["generation"],
+            ),
+            TaskNode(
+                id="task-3",
+                description="Review generated shots",
+                skill_id="marketing-editor",
+                depends_on=["task-2"],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.REVIEW,
+                tool_categories=["review"],
+            ),
+            TaskNode(
+                id="task-4",
+                description="Assemble timeline",
+                skill_id="marketing-editor",
+                depends_on=["task-2"],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.EXECUTION,
+                tool_categories=["timeline_mgmt", "clip_editing"],
+            ),
+        ],
+        original_prompt="Create a 30-second World Cup commercial for Pepsi",
+        target_duration_seconds=30,
+    )
+
+    result = _apply_creative_contracts(dag, dag.original_prompt)
+
+    review_tasks = [task for task in result.tasks if task.task_type == TaskType.REVIEW]
+    assert len(review_tasks) == 2
+    assert review_tasks[0].id in result.tasks[3].depends_on
+    assert review_tasks[1].depends_on == ["task-4"]

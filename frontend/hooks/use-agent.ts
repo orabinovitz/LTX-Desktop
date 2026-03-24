@@ -44,9 +44,18 @@ interface TimelineClipInfo {
   trim_end: number;
   track_index: number;
   speed: number;
+  reversed: boolean;
   linked_clip_ids: string[];
   volume: number;
   muted: boolean;
+  flip_h: boolean;
+  flip_v: boolean;
+  opacity: number;
+  color_correction: Record<string, number>;
+  transition_in: { type: string; duration: number };
+  transition_out: { type: string; duration: number };
+  effect_count: number;
+  has_text_overlay: boolean;
 }
 
 interface TimelineState {
@@ -104,9 +113,18 @@ function buildTimelineState(
     trim_end: c.trimEnd,
     track_index: c.trackIndex,
     speed: c.speed,
+    reversed: c.reversed,
     linked_clip_ids: c.linkedClipIds ?? [],
     volume: c.volume,
     muted: c.muted,
+    flip_h: c.flipH,
+    flip_v: c.flipV,
+    opacity: c.opacity,
+    color_correction: { ...c.colorCorrection },
+    transition_in: { ...c.transitionIn },
+    transition_out: { ...c.transitionOut },
+    effect_count: c.effects?.length ?? 0,
+    has_text_overlay: Boolean(c.textStyle),
   }));
 
   const totalDuration = clips.reduce(

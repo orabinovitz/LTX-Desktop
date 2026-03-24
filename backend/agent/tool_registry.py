@@ -56,11 +56,11 @@ get_timeline_state = _tool(
     name="get_timeline_state",
     description=(
         "Retrieve the complete current state of the active timeline. "
-        "Returns every track (with id, name, muted/locked/enabled flags, kind) "
+        "Returns every track (with id, name, muted/locked/enabled/solo/sourcePatched flags, kind) "
         "and every clip (with id, assetId, type, startTime, duration, trimStart, "
-        "trimEnd, speed, volume, trackIndex, effects, color correction, "
-        "transitions, and text/subtitle data). Also includes the list of "
-        "subtitle cues. Use this before making edits so you know the exact "
+        "trimEnd, speed, reversed, volume, muted, trackIndex, linkedClipIds, "
+        "effects, color correction, opacity, transitions, and text/subtitle data). "
+        "Use this before making edits so you know the exact "
         "clip IDs, track indices, and current timing values."
     ),
     execution_target=ExecutionTarget.FRONTEND,
@@ -1183,41 +1183,6 @@ export_fcpxml = _tool(
 )
 
 # ===================================================================
-# EDIT OPERATIONS (3-point editing)
-# ===================================================================
-
-insert_edit = _tool(
-    name="insert_edit",
-    description=(
-        "Perform a 3-point insert edit: place source material at the "
-        "playhead, pushing existing clips to the right to make room. "
-        "Optionally specify source in/out points."
-    ),
-    execution_target=ExecutionTarget.FRONTEND,
-    category="editing_ops",
-    parameters=[
-        _param("asset_id", "string", "ID of the source asset."),
-        _param("source_in", "number", "Source in-point in seconds.", required=False),
-        _param("source_out", "number", "Source out-point in seconds.", required=False),
-    ],
-)
-
-overwrite_edit = _tool(
-    name="overwrite_edit",
-    description=(
-        "Perform a 3-point overwrite edit: place source material at the "
-        "playhead, replacing whatever is currently there."
-    ),
-    execution_target=ExecutionTarget.FRONTEND,
-    category="editing_ops",
-    parameters=[
-        _param("asset_id", "string", "ID of the source asset."),
-        _param("source_in", "number", "Source in-point in seconds.", required=False),
-        _param("source_out", "number", "Source out-point in seconds.", required=False),
-    ],
-)
-
-# ===================================================================
 # SELECTION & UI
 # ===================================================================
 
@@ -1258,23 +1223,6 @@ toggle_snap = _tool(
     category="selection_ui",
     parameters=[
         _param("enabled", "boolean", "true = enable snapping, false = disable.", required=False),
-    ],
-)
-
-set_active_tool = _tool(
-    name="set_active_tool",
-    description=(
-        "Switch the active editing tool on the timeline toolbar. This "
-        "changes how click/drag interactions behave."
-    ),
-    execution_target=ExecutionTarget.FRONTEND,
-    category="selection_ui",
-    parameters=[
-        _param(
-            "tool",
-            "string",
-            "'selection', 'blade', 'ripple_trim', 'roll_trim', 'slip', 'slide', or 'track_select'.",
-        ),
     ],
 )
 
@@ -1320,6 +1268,13 @@ query_project_brain = _tool(
             "string",
             "Natural-language query describing what content to find "
             "(e.g. 'product demo', 'interview about pricing', 'outdoor shots').",
+        ),
+        _param(
+            "project_id",
+            "string",
+            "Optional project ID to scope the search to a single project. "
+            "If omitted, the active project context is used when available.",
+            required=False,
         ),
     ],
 )
@@ -1637,14 +1592,10 @@ ALL_TOOLS: list[ToolDefinition] = [
     # Export
     export_timeline,
     export_fcpxml,
-    # Edit operations
-    insert_edit,
-    overwrite_edit,
     # Selection & UI
     select_clips,
     deselect_all,
     toggle_snap,
-    set_active_tool,
     # Analysis (backend)
     get_video_metadata,
     query_project_brain,

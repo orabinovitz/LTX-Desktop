@@ -83,6 +83,10 @@ Three rules govern every prompt:
 3. **Constrain aggressively** — "No text, no props, no background" eliminates
    variables and concentrates resolution on what matters.
 
+**Exception:** for cinematic prompts, the framing anchor ("A cinematic screen
+grab from a feature film") replaces the opening verb. Do not prepend "Create"
+or "Capture" to that pattern.
+
 ## Camera hardware: the most powerful lever for photorealism
 
 Naming real camera bodies, lenses, and film stocks is the single most impactful
@@ -137,6 +141,10 @@ the cinema visual space:
 This framing phrase replaces the generic "Create" or "Capture" verb for
 cinematic work. It tells NB2 the entire image should feel like a frame pulled
 from projected celluloid or a digital intermediate, not a photograph.
+
+Do not overuse the same anchor mechanically. Choose the cinematic anchor that
+best matches the brief and creative profile rather than defaulting to the exact
+same wording every time.
 
 ### Cinema camera bodies
 

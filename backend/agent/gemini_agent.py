@@ -1407,9 +1407,12 @@ def _execute_backend_tool(
     def _memory_tool(tc: ToolCall) -> ToolResult:
         return _handle_memory_tool(tc, project_id=project_id)
 
+    def _query_brain(tc: ToolCall) -> ToolResult:
+        return _handle_query_brain(tc, project_id=project_id)
+
     handlers: dict[str, Any] = {
         "get_video_metadata": _handle_get_video_metadata,
-        "query_project_brain": _handle_query_brain,
+        "query_project_brain": _query_brain,
         "get_transcript_segment": _handle_get_transcript_segment,
         "decompose_video": _handle_decompose_video,
         "suggest_prompt": _handle_suggest_prompt,
@@ -1471,7 +1474,7 @@ def _handle_get_video_metadata(tool_call: ToolCall) -> ToolResult:
     )
 
 
-def _handle_query_brain(tool_call: ToolCall) -> ToolResult:
+def _handle_query_brain(tool_call: ToolCall, project_id: str | None = None) -> ToolResult:
     """Handle the ``query_project_brain`` backend tool."""
     query = tool_call.arguments.get("query", "")
     if not query:
@@ -1481,9 +1484,19 @@ def _handle_query_brain(tool_call: ToolCall) -> ToolResult:
             error="Missing required argument: query",
         )
 
-    # Search across all project brains (we don't know project_id in the tool call)
+    scoped_project_id = tool_call.arguments.get("project_id") or project_id
+
+    if not scoped_project_id:
+        return ToolResult(
+            call_id=tool_call.call_id,
+            success=False,
+            error="Missing required project_id scope for query_project_brain.",
+        )
+
+    # Search only the scoped project brain.
     all_results: list[dict] = []
-    for project_id in brain_module.get_all_project_ids():
+    project_ids = [scoped_project_id]
+    for project_id in project_ids:
         results = brain_module.query_brain(project_id, query)
         for clip in results:
             entry = clip.model_dump(mode="json")
@@ -1501,6 +1514,7 @@ def _handle_query_brain(tool_call: ToolCall) -> ToolResult:
         success=True,
         result={
             "query": query,
+            "project_id": scoped_project_id,
             "matches": all_results[:20],
             "total_matches": len(all_results),
         },

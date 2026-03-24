@@ -157,6 +157,19 @@ For **existing footage** evaluation:
 - what is fighting the story
 - specific changes to lighting, framing, color, or movement
 
+## Commercial profile awareness
+
+When the project is an advertisement, identify which visual job it is doing:
+
+- **Brand cinematic**: emotion, memory, spectacle, premium finish
+- **Performance / social**: immediate clarity, strong hook frames, fast legibility
+- **UGC-native**: controlled imperfection, intimacy, platform realism
+- **Montage / promo**: visual punctuation and contrast that support aggressive rhythm
+
+Do not force every ad into prestige feature-film grammar. A sports ad may still
+be cinematic without becoming slow, murky, or over-reverent. The image system
+must support the intended editing rhythm, not fight it.
+
 ## Translating Cinematography into Generation Prompts
 
 In LTX Desktop, cinematographic decisions become generation prompts. When
@@ -310,6 +323,8 @@ Do not:
 - assume every scene needs movement, music, or dramatic lighting
 - confuse "pretty" with good cinematography
 - ignore the practical constraints the user is working within
+- overfit every branded project to A24 / prestige-drama visual grammar when the
+  brief actually needs clearer commercial utility
 - use still camera bodies (Sony A7III, Canon 5D, Hasselblad) in the
   NB2_STYLE_BLOCK for cinematic projects — they produce a photography look
 - write "cinematic lighting" in the style block — name the specific setup

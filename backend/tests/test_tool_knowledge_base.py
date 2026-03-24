@@ -67,7 +67,12 @@ class TestToolRegistryCompleteness:
                 )
 
     def test_total_tool_count(self) -> None:
-        assert len(ALL_TOOLS) == 76, f"Expected 76 tools, got {len(ALL_TOOLS)}"
+        assert len(ALL_TOOLS) == 73, f"Expected 73 tools, got {len(ALL_TOOLS)}"
+
+    def test_stub_editing_tools_not_exposed(self) -> None:
+        assert "insert_edit" not in TOOLS_BY_NAME
+        assert "overwrite_edit" not in TOOLS_BY_NAME
+        assert "set_active_tool" not in TOOLS_BY_NAME
 
 
 class TestIntentClassification:
@@ -163,7 +168,8 @@ class TestIntentClassification:
 
     def test_blade_routes_to_selection_ui(self) -> None:
         cats = classify_intent("switch to blade tool")
-        assert "selection_ui" in cats
+        assert "selection_ui" not in cats
+        assert "clip_editing" in cats
 
     def test_srt_routes_to_subtitles(self) -> None:
         cats = classify_intent("import an SRT file")

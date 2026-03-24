@@ -261,6 +261,18 @@ AI video clips are essentially single takes with no coverage, no angle changes, 
 
 **The 5-10-1 rule**: generate 5 variations on cheaper/faster models, select the best, iterate 10 refinements on that direction, then render once on the premium model.
 
+**Assembly is not editing.** If the final timeline is just one full generated
+clip per written shot in script order, the work is not finished. A real pass
+must make editorial decisions such as:
+- trimming to the strongest internal moment
+- splitting a longer clip into multiple beats
+- reordering beats for a better hook or payoff
+- removing weak or redundant moments
+- changing pace with duration contrast or speed manipulation
+
+If the material does not contain enough usable internal variation to do this,
+the correct move is to ask for better coverage or regenerate targeted shots.
+
 ## Rescue techniques for imperfect footage
 
 When footage fights you — whether from production problems or AI generation artifacts:

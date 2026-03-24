@@ -119,6 +119,17 @@ When silence appears, specify:
 
 Test whether a beat works with fewer words before adding more.
 
+### 4b) For ads, behavior beats explanation
+In branded content, the emotional meaning should usually arrive through
+physical behavior, juxtaposition, rhythm, and image rather than a character
+stating the thesis out loud.
+
+Default biases for ads:
+- prefer silence over on-the-nose dialogue
+- prefer VO over a character shouting the tagline
+- prefer gesture, breath, eye-line, or crowd behavior over exposition
+- fail scenes where the brand line breaks the reality of the moment
+
 ### 5) Use visual metaphor through lived behavior
 Visual metaphor should emerge from the scene's emotional reality, not from decorative symbolism.
 
@@ -229,6 +240,7 @@ Do not:
 - reduce directing to coverage or shot lists without emotional reasoning
 - give actor notes that are only emotional adjectives
 - explain subtext by adding more exposition
+- let a branded scene pass when a character saying the tagline makes it feel fake
 - recommend style that fights the scene's emotional truth
 - flatten tone into one note when tension comes from tonal contrast
 - assume more dialogue is clearer; sometimes clarity comes from omission

@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agent.orchestration.creative_contracts import CoverageContract, CreativeProfile
+
 MEMORY_WRITE_TOOLS: frozenset[str] = frozenset({
     "save_to_project_memory",
     "update_project_memory",
@@ -154,9 +156,27 @@ class TimelineClipInfo(BaseModel):
     trim_end: float = 0.0
     track_index: int = 0
     speed: float = 1.0
+    reversed: bool = False
     linked_clip_ids: list[str] = Field(default_factory=list, description="IDs of linked clips (e.g. video<->audio pairs)")
     volume: float = Field(default=1.0, description="Clip volume (0.0 to 1.0)")
     muted: bool = Field(default=False, description="Whether clip audio is muted")
+    flip_h: bool = Field(default=False, description="Whether the clip is flipped horizontally")
+    flip_v: bool = Field(default=False, description="Whether the clip is flipped vertically")
+    opacity: float = Field(default=100.0, description="Clip opacity 0-100")
+    color_correction: dict[str, float] | None = Field(
+        default=None,
+        description="Color correction values for this clip.",
+    )
+    transition_in: dict[str, Any] | None = Field(
+        default=None,
+        description="Incoming transition descriptor.",
+    )
+    transition_out: dict[str, Any] | None = Field(
+        default=None,
+        description="Outgoing transition descriptor.",
+    )
+    effect_count: int = Field(default=0, description="Number of effects applied to the clip")
+    has_text_overlay: bool = Field(default=False, description="Whether the clip carries text overlay styling")
 
 
 class TimelineState(BaseModel):
@@ -377,6 +397,14 @@ class TaskDAG(BaseModel):
         default=None,
         description="Planner's estimated target duration for the final video in seconds",
     )
+    creative_profile: CreativeProfile | None = Field(
+        default=None,
+        description="Structured creative profile inferred for the request.",
+    )
+    coverage_contract: CoverageContract | None = Field(
+        default=None,
+        description="Coverage and pacing contract propagated through the workflow.",
+    )
 
     def get_ready_tasks(self) -> list[TaskNode]:
         """Return tasks whose dependencies are all in a terminal state."""
@@ -426,6 +454,14 @@ class SubAgentContext(BaseModel):
     target_duration_seconds: float | None = Field(
         default=None,
         description="Target duration for the final video, propagated from the planner's estimate",
+    )
+    creative_profile: CreativeProfile | None = Field(
+        default=None,
+        description="Structured creative profile for the request.",
+    )
+    coverage_contract: CoverageContract | None = Field(
+        default=None,
+        description="Coverage and pacing contract for downstream specialists.",
     )
 
 

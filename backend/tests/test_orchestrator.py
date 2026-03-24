@@ -15,6 +15,10 @@ from agent.orchestration.orchestrator import (
     _get_session,
     _sessions,
 )
+from agent.orchestration.creative_contracts import (
+    CreativeProfile,
+    build_coverage_contract,
+)
 from agent.types import (
     OrchestrateRequest,
     OrchestratorStatus,
@@ -694,6 +698,181 @@ class TestHandleReviewResult:
         )
         assert len(session.dag.tasks) == initial_count
 
+    def test_structured_review_creates_targeted_shot_regen_tasks(self):
+        session = _session(_dag([]))
+        generation_task = _task(
+            "task-4",
+            status=TaskStatus.CANCELLED,
+            task_type=TaskType.EXECUTION,
+            tool_categories=["generation"],
+        )
+        shot_3 = _task(
+            "task-4-shot-3",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.EXECUTION,
+            tool_categories=["generation"],
+            skill_id="nano-banana-prompting",
+        )
+        shot_4 = _task(
+            "task-4-shot-4",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.EXECUTION,
+            tool_categories=["generation"],
+            skill_id="nano-banana-prompting",
+        )
+        timeline_task = _task(
+            "task-6",
+            depends_on=["review-1"],
+            task_type=TaskType.EXECUTION,
+            tool_categories=["timeline_mgmt", "clip_editing"],
+            skill_id="marketing-editor",
+        )
+        review_task = _task("review-1", task_type=TaskType.REVIEW, status=TaskStatus.COMPLETED, skill_id="marketing-editor")
+        session.dag.tasks.extend([generation_task, shot_3, shot_4, timeline_task, review_task])
+
+        review_message = """
+{
+  "overall_verdict": "fail",
+  "summary": "Shots 3 and 4 are too on-the-nose and need replacement.",
+  "actions": [
+    {"kind": "regenerate_shot", "shot_number": 3, "reason": "Remove on-the-nose dialogue and rely on physical behavior."},
+    {"kind": "regenerate_shot", "shot_number": 4, "reason": "Do not make a character speak the tagline."}
+  ]
+}
+"""
+
+        Orchestrator._handle_review_result(
+            Orchestrator.__new__(Orchestrator),
+            session,
+            review_task,
+            review_message,
+        )
+
+        correction_tasks = [t for t in session.dag.tasks if t.id.startswith("correction-review-1-shot-")]
+        assert len(correction_tasks) == 2
+        assert all(task.task_type == TaskType.EXECUTION for task in correction_tasks)
+        assert all(task.skill_id == "nano-banana-prompting" for task in correction_tasks)
+        assert all("review-1" in task.depends_on for task in correction_tasks)
+        for correction_task in correction_tasks:
+            assert correction_task.id in timeline_task.depends_on
+
+
+class TestCoverageGuard:
+    def test_undercovered_script_inserts_repair_task_before_generation(self):
+        orch = Orchestrator.__new__(Orchestrator)
+        script_task = _task(
+            "task-1",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.CREATIVE,
+            result_summary=(
+                "Shot 1 (8s): Stadium tension.\n"
+                "Shot 2 (6s): Pepsi can opens.\n"
+                "Shot 3 (8s): Ball hits net.\n"
+                "Shot 4 (8s): Fans celebrate."
+            ),
+            skill_id="advertising-screenwriter",
+        )
+        gen_task = _task(
+            "task-2",
+            depends_on=["task-1"],
+            tool_categories=["generation"],
+        )
+        dag = TaskDAG(
+            tasks=[script_task, gen_task],
+            original_prompt="Create a 30-second Pepsi World Cup ad",
+            target_duration_seconds=30,
+            creative_profile=CreativeProfile.BRAND_CINEMATIC,
+            coverage_contract=build_coverage_contract(
+                profile=CreativeProfile.BRAND_CINEMATIC,
+                target_duration_seconds=30,
+            ),
+        )
+        session = _session(dag)
+
+        changed = orch._apply_coverage_guard(session, dag.get_ready_tasks())
+
+        assert changed is True
+        repair_tasks = [t for t in session.dag.tasks if t.id.startswith("coverage-repair-")]
+        assert len(repair_tasks) == 1
+        assert repair_tasks[0].task_type == TaskType.CREATIVE
+        assert repair_tasks[0].skill_id == "advertising-screenwriter"
+        assert gen_task.depends_on == [repair_tasks[0].id]
+
+    def test_dense_script_does_not_insert_repair_task(self):
+        orch = Orchestrator.__new__(Orchestrator)
+        script_task = _task(
+            "task-1",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.CREATIVE,
+            result_summary=(
+                "Shot 1 (4s): Tunnel faces.\n"
+                "Shot 2 (4s): Boots jitter.\n"
+                "Shot 3 (4s): Cold Pepsi can.\n"
+                "Shot 4 (4s): Eyes lock.\n"
+                "Shot 5 (5s): Deep breath.\n"
+                "Shot 6 (4s): First burst of movement.\n"
+                "Shot 7 (5s): Confetti explodes."
+            ),
+            skill_id="advertising-screenwriter",
+        )
+        gen_task = _task(
+            "task-2",
+            depends_on=["task-1"],
+            tool_categories=["generation"],
+        )
+        dag = TaskDAG(
+            tasks=[script_task, gen_task],
+            original_prompt="Create a 30-second Pepsi World Cup ad",
+            target_duration_seconds=30,
+            creative_profile=CreativeProfile.BRAND_CINEMATIC,
+            coverage_contract=build_coverage_contract(
+                profile=CreativeProfile.BRAND_CINEMATIC,
+                target_duration_seconds=30,
+            ),
+        )
+        session = _session(dag)
+
+        changed = orch._apply_coverage_guard(session, dag.get_ready_tasks())
+
+        assert changed is False
+        assert [t for t in session.dag.tasks if t.id.startswith("coverage-repair-")] == []
+
+    def test_dialogue_heavy_script_inserts_repair_task_before_generation(self):
+        orch = Orchestrator.__new__(Orchestrator)
+        script_task = _task(
+            "task-1",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.CREATIVE,
+            result_summary=(
+                'Shot 1 (10s): A hero says "The world needs Pepsi right now."\\n'
+                'Shot 2 (10s): A fan says "This is the taste of victory."\\n'
+                'Shot 3 (10s): Another fan says "Thirsty for the world."'
+            ),
+            skill_id="advertising-screenwriter",
+        )
+        gen_task = _task(
+            "task-2",
+            depends_on=["task-1"],
+            tool_categories=["generation"],
+        )
+        dag = TaskDAG(
+            tasks=[script_task, gen_task],
+            original_prompt="Create a 30-second Pepsi World Cup ad",
+            target_duration_seconds=30,
+            creative_profile=CreativeProfile.BRAND_CINEMATIC,
+            coverage_contract=build_coverage_contract(
+                profile=CreativeProfile.BRAND_CINEMATIC,
+                target_duration_seconds=30,
+            ),
+        )
+        session = _session(dag)
+
+        changed = orch._apply_coverage_guard(session, dag.get_ready_tasks())
+
+        assert changed is True
+        repair_tasks = [t for t in session.dag.tasks if t.id.startswith("coverage-repair-")]
+        assert len(repair_tasks) == 1
+
 
 # ====================================================================
 # Orchestrator.start tests
@@ -753,7 +932,7 @@ class TestOrchestratorStart:
         orch = Orchestrator(api_key="fake-key", http_client=http, skill_registry=SkillRegistry())
         resp = orch.start(OrchestrateRequest(prompt=prompt))
 
-        assert len(resp.tasks) == 3
+        assert len(resp.tasks) == 5
         assert resp.tasks[0].status == TaskStatus.PENDING.value
 
     def test_start_no_fallback_when_planner_returns_multiple_tasks(self):
@@ -799,7 +978,7 @@ class TestEndToEndOrchestration:
         )
 
     def test_full_loop_with_planner_fallback(self):
-        """Planner returns 1 task -> fallback produces 3 tasks ->
+        """Planner returns 1 task -> fallback produces 5 tasks with pre/post review gates ->
         sub-agents run each task -> all tasks complete."""
         http = FakeHTTPClient()
 
@@ -811,7 +990,7 @@ class TestEndToEndOrchestration:
         orch = self._make_orchestrator(http)
         resp = orch.start(OrchestrateRequest(prompt=self.BUGS_BUNNY_PROMPT))
 
-        assert len(resp.tasks) == 3
+        assert len(resp.tasks) == 5
         session_id = resp.session_id
         session = _get_session(session_id)
         assert session is not None
@@ -820,6 +999,8 @@ class TestEndToEndOrchestration:
         assert dag.tasks[0].task_type == TaskType.CREATIVE
         assert dag.tasks[1].task_type == TaskType.EXECUTION
         assert dag.tasks[2].task_type == TaskType.EXECUTION
+        assert dag.tasks[3].task_type == TaskType.REVIEW
+        assert dag.tasks[4].task_type == TaskType.REVIEW
         assert "generation" in dag.tasks[1].tool_categories
         assert "clip_editing" in dag.tasks[2].tool_categories
 
@@ -854,6 +1035,11 @@ class TestEndToEndOrchestration:
         resp = orch.continue_with_results(session_id, tool_results)
         assert dag.tasks[1].status == TaskStatus.COMPLETED
 
+        # Advance: dispatch review task (task-4).
+        http.queue("post", _gemini_response("Looks good. Approved for edit."))
+        resp = orch.continue_with_results(session_id, [])
+        assert dag.tasks[3].status == TaskStatus.COMPLETED
+
         # Advance: dispatch editing task (task-3).
         http.queue("post", _gemini_response(function_calls=[{
             "name": "add_clip_to_timeline",
@@ -872,6 +1058,12 @@ class TestEndToEndOrchestration:
         )]
         resp = orch.continue_with_results(session_id, tool_results)
         assert dag.tasks[2].status == TaskStatus.COMPLETED
+
+        # Advance: dispatch final review task (task-5).
+        http.queue("post", _gemini_response("Approved. The timeline is coherent."))
+        resp = orch.continue_with_results(session_id, [])
+        assert dag.tasks[4].status == TaskStatus.COMPLETED
+        resp = orch.continue_with_results(session_id, [])
         assert resp.done is True
         assert session.status == OrchestratorStatus.DONE
 

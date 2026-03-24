@@ -297,26 +297,15 @@ CATEGORIES: dict[str, ToolCategory] = {
         ],
         tool_names=["export_timeline", "export_fcpxml"],
     ),
-    "editing_ops": ToolCategory(
-        name="editing_ops",
-        display_name="Edit Operations",
-        description="3-point insert and overwrite edits",
-        keywords=[
-            "insert edit", "overwrite", "3-point", "three point",
-            "source monitor", "insert at playhead",
-        ],
-        tool_names=["insert_edit", "overwrite_edit"],
-    ),
     "selection_ui": ToolCategory(
         name="selection_ui",
         display_name="Selection & UI",
-        description="Select clips, toggle snap, switch editing tools",
+        description="Select clips and toggle snapping behavior",
         keywords=[
             "select", "deselect", "snap", "snapping", "magnet",
-            "tool", "blade tool", "selection tool", "ripple tool",
         ],
         tool_names=[
-            "select_clips", "deselect_all", "toggle_snap", "set_active_tool",
+            "select_clips", "deselect_all", "toggle_snap",
         ],
     ),
     "analysis": ToolCategory(

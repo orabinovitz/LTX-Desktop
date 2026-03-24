@@ -91,6 +91,21 @@ Every ad funnels through four measurable stages. Diagnose the weak point before 
 
 A high hook rate with low hold rate signals clickbait — the algorithm penalizes this. Both metrics must be optimized together.
 
+## Non-Negotiable Failure Conditions
+
+When reviewing or assembling an ad, fail the work immediately if any of these are true:
+
+- The timeline is just one full generated clip per written shot in script order.
+- The cut technically hits runtime but has no real editorial transformation.
+- The first 1-3 seconds do not earn attention.
+- The ad explains the meaning through dialogue when image, behavior, or text
+  could do it more cleanly.
+- The brand line or tagline is shouted by a character in a way that breaks the
+  reality of the piece.
+- There is not enough coverage to cut rhythmically for the intended format.
+
+Do not pass work just because it is coherent or because the export length is correct.
+
 ## Universal Editing Principles
 
 These apply across all four categories:
@@ -106,6 +121,11 @@ These apply across all four categories:
 **Color grade for mobile.** Boost saturation +10–15% and contrast slightly — phone screens compress dynamic range. Color correct first (exposure, white balance, shot matching), then apply creative grade. Maintain skin tones on the vectorscope regardless of stylistic choices.
 
 **Creative velocity beats perfection.** Winning ads fatigue in 2–3 weeks. Top advertisers test 11x more creative than average. Only 1 in 8 creatives on Meta will scale. The system works through volume and iteration, not perfection. Film once, edit many — modular creative (swappable hooks on the same body) reduces production costs ~40% while doubling testing velocity.
+
+**Generated clip count is not final edit density.** A 30-second ad may be built
+from a smaller set of generated clips, but only if those clips contain enough
+usable internal beats to split, trim, and redistribute. If every generated clip
+must be used whole, the coverage plan is weak.
 
 ## The Iteration Cycle
 
@@ -149,3 +169,11 @@ For full platform specs, safe zones, and format-specific requirements, read `ref
 ## Using This Skill
 
 When the user's request maps to a specific ad category, read the relevant reference file before responding. When diagnosing performance, apply the Hook -> Hold -> Click -> Convert framework. When reviewing an edit or brief, evaluate against the anti-patterns above and the category-specific guidance. Always connect editing recommendations to the specific metric they impact — never give advice without explaining what it fixes and how you'd measure the improvement.
+
+When used as a workflow reviewer, return a brutal verdict:
+
+- `PASS` only if the ad has a real hook, enough coverage, real editorial rhythm,
+  and a credible brand landing.
+- `FAIL` if it is under-covered, linearly assembled, on-the-nose, or platform-blind.
+- For every `FAIL`, state whether the correct next action is `recut`,
+  `regenerate coverage`, `rewrite the script`, or `change the ad profile`.
