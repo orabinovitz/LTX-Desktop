@@ -109,7 +109,7 @@ describe('replayCoordinator', () => {
         sessionFingerprintChanged: false,
         busReady: true,
       }),
-    ).toBe('replay_after_seek')
+    ).toBe('seek_preroll')
 
     expect(
       resolveReplayStartMode({

@@ -23,6 +23,7 @@ export interface PausedTransportSyncResult {
 
 export type ReplayStartMode =
   | 'warm_resume'
+  | 'seek_preroll'
   | 'replay_after_seek'
   | 'await_bus_ready'
   | 'cold_start'
@@ -112,7 +113,7 @@ export function resolveReplayStartMode(input: {
 }): ReplayStartMode {
   if (!input.pauseSnapshot || !input.pauseSnapshot.sessionFingerprint || input.sessionFingerprintChanged) return 'cold_start'
   if (!input.busReady) return 'await_bus_ready'
-  if (input.pauseSnapshot.pausedSeeked) return 'replay_after_seek'
+  if (input.pauseSnapshot.pausedSeeked) return 'seek_preroll'
   return 'warm_resume'
 }
 

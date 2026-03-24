@@ -11,6 +11,12 @@ export interface PlaybackDiagnosticsSnapshot {
   pausedRefHolds: number
   pausedScrubSeeks: number
   sessionFingerprintInvalidations: number
+  seekPrerollStarts: number
+  seekPrerollWaits: number
+  seekPrerollTimeouts: number
+  seekReplayUnreadyAudio: number
+  seekReplayUnreadyVideo: number
+  seekWindowPolicyHolds: number
   warmResumes: number
   replayAfterSeekStarts: number
   coldStarts: number
@@ -42,6 +48,18 @@ export class PlaybackDiagnosticsStore {
   private pausedScrubSeekCount = 0
 
   private sessionFingerprintInvalidationCount = 0
+
+  private seekPrerollStartCount = 0
+
+  private seekPrerollWaitCount = 0
+
+  private seekPrerollTimeoutCount = 0
+
+  private seekReplayUnreadyAudioCount = 0
+
+  private seekReplayUnreadyVideoCount = 0
+
+  private seekWindowPolicyHoldCount = 0
 
   private warmResumeCount = 0
 
@@ -106,7 +124,38 @@ export class PlaybackDiagnosticsStore {
     this.pushEvent({ type: 'session-fingerprint-invalidation' })
   }
 
-  recordReplayStartMode(mode: 'warm_resume' | 'replay_after_seek' | 'cold_start' | 'await_bus_ready'): void {
+  recordSeekPrerollStart(): void {
+    this.seekPrerollStartCount += 1
+    this.pushEvent({ type: 'seek-preroll-start' })
+  }
+
+  recordSeekPrerollWait(): void {
+    this.seekPrerollWaitCount += 1
+    this.pushEvent({ type: 'seek-preroll-wait' })
+  }
+
+  recordSeekPrerollTimeout(): void {
+    this.seekPrerollTimeoutCount += 1
+    this.pushEvent({ type: 'seek-preroll-timeout' })
+  }
+
+  recordSeekReplayUnreadyAudio(): void {
+    this.seekReplayUnreadyAudioCount += 1
+    this.pushEvent({ type: 'seek-replay-unready-audio' })
+  }
+
+  recordSeekReplayUnreadyVideo(): void {
+    this.seekReplayUnreadyVideoCount += 1
+    this.pushEvent({ type: 'seek-replay-unready-video' })
+  }
+
+  recordSeekWindowPolicyHold(): void {
+    this.seekWindowPolicyHoldCount += 1
+    this.pushEvent({ type: 'seek-window-policy-hold' })
+  }
+
+  recordReplayStartMode(mode: 'warm_resume' | 'seek_preroll' | 'replay_after_seek' | 'cold_start' | 'await_bus_ready'): void {
+    if (mode === 'seek_preroll') this.seekPrerollStartCount += 1
     if (mode === 'warm_resume') this.warmResumeCount += 1
     if (mode === 'replay_after_seek') this.replayAfterSeekCount += 1
     if (mode === 'cold_start') this.coldStartCount += 1
@@ -149,6 +198,12 @@ export class PlaybackDiagnosticsStore {
       pausedRefHolds: this.pausedRefHoldCount,
       pausedScrubSeeks: this.pausedScrubSeekCount,
       sessionFingerprintInvalidations: this.sessionFingerprintInvalidationCount,
+      seekPrerollStarts: this.seekPrerollStartCount,
+      seekPrerollWaits: this.seekPrerollWaitCount,
+      seekPrerollTimeouts: this.seekPrerollTimeoutCount,
+      seekReplayUnreadyAudio: this.seekReplayUnreadyAudioCount,
+      seekReplayUnreadyVideo: this.seekReplayUnreadyVideoCount,
+      seekWindowPolicyHolds: this.seekWindowPolicyHoldCount,
       warmResumes: this.warmResumeCount,
       replayAfterSeekStarts: this.replayAfterSeekCount,
       coldStarts: this.coldStartCount,

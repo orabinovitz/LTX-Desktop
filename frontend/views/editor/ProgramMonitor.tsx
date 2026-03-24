@@ -906,6 +906,8 @@ export function ProgramMonitor({
               <span>H{diagnostics.pausedRefHolds}</span>
               <span>Q{diagnostics.pausedScrubSeeks}</span>
               <span>F{diagnostics.sessionFingerprintInvalidations}</span>
+              <span>SP{diagnostics.seekPrerollStarts}/{diagnostics.seekPrerollWaits}</span>
+              <span>SU{diagnostics.seekReplayUnreadyAudio}/{diagnostics.seekReplayUnreadyVideo}</span>
               <span>W{diagnostics.warmResumes}</span>
               <span>S{diagnostics.audioHardSeeks}/{diagnostics.videoHardSeeks}</span>
               <span>R{diagnostics.playRetries}</span>

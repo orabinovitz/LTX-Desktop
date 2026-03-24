@@ -42,6 +42,13 @@ import {
   type ReplaySession,
   type ReplayStartMode,
 } from './playback/replayCoordinator'
+import {
+  canPromoteSeekReplay,
+  canUseAnchorClockAfterSeek,
+  computeSeekReplayReadiness,
+  mergeSeekReplayWindowPolicy,
+  shouldHoldSeekPreroll,
+} from './playback/seekReplayCoordinator'
 
 export interface UsePlaybackEngineParams {
   isPlaying: boolean
@@ -102,6 +109,12 @@ const EMPTY_DIAGNOSTICS: PlaybackDiagnosticsSnapshot = {
   pausedRefHolds: 0,
   pausedScrubSeeks: 0,
   sessionFingerprintInvalidations: 0,
+  seekPrerollStarts: 0,
+  seekPrerollWaits: 0,
+  seekPrerollTimeouts: 0,
+  seekReplayUnreadyAudio: 0,
+  seekReplayUnreadyVideo: 0,
+  seekWindowPolicyHolds: 0,
   warmResumes: 0,
   replayAfterSeekStarts: 0,
   coldStarts: 0,
@@ -151,12 +164,17 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   })
   const pauseSnapshotRef = useRef<PauseSnapshot | null>(null)
   const pauseSnapshotPendingRef = useRef(false)
+  const pausedSeekedAtReplayStartRef = useRef(false)
   const replaySessionRef = useRef<ReplaySession | null>(null)
   const replayStartModeRef = useRef<ReplayStartMode>('cold_start')
   const replayBusGateStartedAtRef = useRef<number | null>(null)
+  const seekPrerollStartedAtRef = useRef<number | null>(null)
+  const pausedDecodeWindowPolicyRef = useRef<DecodeWindowPolicy | null>(null)
+  const seekWindowGraceActiveRef = useRef(false)
   const lastReplaySessionFingerprintRef = useRef('')
   const lastFrozenAudioUrlsRef = useRef<Record<string, string>>({})
   const [diagnosticsSnapshot, setDiagnosticsSnapshot] = useState<PlaybackDiagnosticsSnapshot>(EMPTY_DIAGNOSTICS)
+  const [seekReplayPolicyVersion, setSeekReplayPolicyVersion] = useState(0)
   if (previewAssetCacheRef.current === null) {
     const previewProvider = typeof window !== 'undefined' && window.electronAPI?.ensureAudioPreview
       ? { ensureAudioPreview: window.electronAPI.ensureAudioPreview }
@@ -195,6 +213,11 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   useEffect(() => { outPointRef.current = outPoint }, [outPoint])
   useEffect(() => { zoomRef.current = zoom }, [zoom])
   useEffect(() => { decodeWindowPolicyRef.current = decodeWindowPolicy }, [decodeWindowPolicy])
+  useEffect(() => {
+    if (!isPlaying) {
+      pausedDecodeWindowPolicyRef.current = decodeWindowPolicy
+    }
+  }, [decodeWindowPolicy, isPlaying])
 
   const buildReplayFingerprintInputs = (audioClips: TimelineClip[], resolveUrl: (clip: TimelineClip) => string): Record<string, string> => {
     const descriptors: Record<string, string> = {}
@@ -237,6 +260,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
 
     const previousPauseSnapshot = pauseSnapshotRef.current
     pauseSnapshotPendingRef.current = true
+    pausedSeekedAtReplayStartRef.current = previousPauseSnapshot?.pausedSeeked ?? false
     audioAnchorClipIdRef.current = null
     replayBusGateStartedAtRef.current = null
 
@@ -263,6 +287,11 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
       sessionFingerprintChanged,
       busReady: audioBusRef.current.isReady(),
     })
+    seekWindowGraceActiveRef.current = replayStartMode === 'seek_preroll'
+    seekPrerollStartedAtRef.current = null
+    if (seekWindowGraceActiveRef.current) {
+      diagnosticsStoreRef.current.recordSeekWindowPolicyHold()
+    }
     if (sessionFingerprintChanged && previousPauseSnapshot?.sessionFingerprint) {
       diagnosticsStoreRef.current.recordSessionFingerprintInvalidation()
     }
@@ -275,6 +304,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     })
     lastReplaySessionFingerprintRef.current = currentSessionFingerprint
     pauseSnapshotRef.current = null
+    setSeekReplayPolicyVersion((version) => version + 1)
     void audioBusRef.current.ensureReady()
   }, [isPlaying])
 
@@ -425,17 +455,38 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         }
 
         replayStartModeRef.current = busReadyNow
-          ? (pauseSnapshotRef.current?.pausedSeeked ? 'replay_after_seek' : 'warm_resume')
+          ? (pausedSeekedAtReplayStartRef.current ? 'seek_preroll' : 'warm_resume')
           : 'cold_start'
+        if (replayStartModeRef.current === 'seek_preroll') {
+          diagnosticsStoreRef.current.recordReplayStartMode('seek_preroll')
+          seekWindowGraceActiveRef.current = true
+          seekPrerollStartedAtRef.current = null
+          diagnosticsStoreRef.current.recordSeekWindowPolicyHold()
+        }
+        setSeekReplayPolicyVersion((version) => version + 1)
         replayBusGateStartedAtRef.current = null
       } else {
         replayBusGateStartedAtRef.current = null
+      }
+
+      if (replayStartModeRef.current === 'seek_preroll' && seekPrerollStartedAtRef.current === null) {
+        seekPrerollStartedAtRef.current = timestamp
+      }
+      if (
+        replayStartModeRef.current === 'replay_after_seek'
+        && seekWindowGraceActiveRef.current
+        && seekPrerollStartedAtRef.current !== null
+        && timestamp - seekPrerollStartedAtRef.current > 150
+      ) {
+        seekWindowGraceActiveRef.current = false
+        setSeekReplayPolicyVersion((version) => version + 1)
       }
       
       const deltaMs = timestamp - lastTimestamp
       lastTimestamp = timestamp
       const effectiveSpeed = shuttleSpeedRef.current !== 0 ? shuttleSpeedRef.current : 1
-      const deltaSec = (deltaMs / 1000) * effectiveSpeed
+      const allowMediaPlaybackThisTick = replayStartModeRef.current !== 'seek_preroll'
+      const deltaSec = allowMediaPlaybackThisTick ? (deltaMs / 1000) * effectiveSpeed : 0
       
       // ── 1. Advance time ──
       let next = playbackTimeRef.current + deltaSec
@@ -516,7 +567,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
                     recordVideoSeek(Math.abs(outVid.currentTime - tt))
                     outVid.currentTime = tt
                   }
-                  if (outVid.paused) outVid.play().catch(() => {})
+                  if (allowMediaPlaybackThisTick && outVid.paused) outVid.play().catch(() => {})
                 }
               }
             }
@@ -617,7 +668,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
                     if (typeof (v as any).fastSeek === 'function') (v as any).fastSeek(targetTime)
                     else v.currentTime = targetTime
                   }
-                  if (v.paused) v.play().catch(() => {})
+                  if (allowMediaPlaybackThisTick && v.paused) v.play().catch(() => {})
                 }
                 
                 // Always mute video elements — audio comes exclusively from audio tracks
@@ -697,7 +748,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
         const busActive = audioBusRef.current.isReady()
         const replaySession = replaySessionRef.current
         const replayStartMode = replayStartModeRef.current
-        const replayRetryBackoffMs = replayStartMode === 'warm_resume' ? 50 : 500
+        const replayRetryBackoffMs = replayStartMode === 'warm_resume' || replayStartMode === 'replay_after_seek' ? 50 : 500
         const activeReplayFingerprintInputs: Record<string, string> = {}
         
         // Pause clips no longer active (but keep the element for fast resume)
@@ -775,14 +826,21 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
               if (initialDrift > 0.04) {
                 diagnosticsStoreRef.current.recordDrift(initialDrift)
               }
-              const canWarmResume = replayStartMode === 'warm_resume' && !isNew && initialDrift <= 0.04
+              const canWarmResume =
+                (replayStartMode === 'warm_resume' || replayStartMode === 'replay_after_seek')
+                && !isNew
+                && initialDrift <= 0.04
               if (!canWarmResume) {
                 el.currentTime = target
               }
               el.playbackRate = desiredRate
-              el.play().catch(() => {})
-              ;(el as any).__audioPlaying = true
-              ;(el as any).__lastPlayRetry = 0
+              if (allowMediaPlaybackThisTick) {
+                el.play().catch(() => {})
+                ;(el as any).__audioPlaying = true
+                ;(el as any).__lastPlayRetry = 0
+              } else {
+                ;(el as any).__audioPlaying = false
+              }
             } else {
               const target = computeTarget(el, next)
               const driftSigned = target - el.currentTime
@@ -801,7 +859,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
                 }
               }
               // Resume if browser auto-paused — but with backoff to avoid choppiness
-              if (el.paused) {
+              if (allowMediaPlaybackThisTick && el.paused) {
                 const now = timestamp
                 const lastRetry = (el as any).__lastPlayRetry || 0
                 if (now - lastRetry > replayRetryBackoffMs) {
@@ -825,9 +883,13 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
               const target = computeTarget(el!, freshTime)
               el!.currentTime = target
               el!.playbackRate = desiredRate
-              el!.play().catch(() => {})
-              ;(el as any).__audioPlaying = true
-              ;(el as any).__lastPlayRetry = 0
+              if (replayStartModeRef.current !== 'seek_preroll') {
+                el!.play().catch(() => {})
+                ;(el as any).__audioPlaying = true
+                ;(el as any).__lastPlayRetry = 0
+              } else {
+                ;(el as any).__audioPlaying = false
+              }
             }
             el.addEventListener('canplay', onCanPlay)
           }
@@ -842,7 +904,63 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
           lastFrozenAudioUrlsRef.current = Object.fromEntries(replaySession.frozenAudioUrls)
         }
 
-        if (busActive) {
+        const audioReadyStates = activeAudioClips.map((clip) => audioMap.get(clip.id)?.readyState ?? 0)
+        const activeVideoReadyState = syncClip?.asset?.type === 'video'
+          ? (resolveClipSrcRef(syncClip) ? pool.get(resolveClipSrcRef(syncClip))?.readyState ?? 0 : 0)
+          : null
+        const seekReplayReadiness = computeSeekReplayReadiness({
+          audioReadyStates,
+          videoReadyState: activeVideoReadyState,
+        })
+
+        if (replayStartModeRef.current === 'seek_preroll') {
+          if (!seekReplayReadiness.audioReady) {
+            diagnosticsStoreRef.current.recordSeekReplayUnreadyAudio()
+          }
+          if (!seekReplayReadiness.videoReady) {
+            diagnosticsStoreRef.current.recordSeekReplayUnreadyVideo()
+          }
+          const waitedMs = timestamp - (seekPrerollStartedAtRef.current ?? timestamp)
+          if (shouldHoldSeekPreroll({
+            replayStartMode: replayStartModeRef.current,
+            audioReady: seekReplayReadiness.audioReady,
+            videoReady: seekReplayReadiness.videoReady,
+            waitedMs,
+            maxWaitMs: 80,
+          })) {
+            diagnosticsStoreRef.current.recordSeekPrerollWait()
+            setDiagnosticsSnapshot(diagnosticsStoreRef.current.snapshot())
+            animFrameId = requestAnimationFrame(tick)
+            return
+          }
+
+          if (!seekReplayReadiness.audioReady || !seekReplayReadiness.videoReady) {
+            diagnosticsStoreRef.current.recordSeekPrerollTimeout()
+            diagnosticsStoreRef.current.recordReplayStartMode('cold_start')
+            replayStartModeRef.current = 'cold_start'
+            seekWindowGraceActiveRef.current = false
+            setSeekReplayPolicyVersion((version) => version + 1)
+          } else {
+            const promotedReplayMode = canPromoteSeekReplay(
+              replayStartModeRef.current,
+              seekReplayReadiness.audioReady,
+              seekReplayReadiness.videoReady,
+            )
+            if (promotedReplayMode !== replayStartModeRef.current) {
+              diagnosticsStoreRef.current.recordReplayStartMode(promotedReplayMode)
+            }
+            replayStartModeRef.current = promotedReplayMode
+            setSeekReplayPolicyVersion((version) => version + 1)
+          }
+        }
+
+        const anchorAllowed = busActive && canUseAnchorClockAfterSeek(
+          replayStartModeRef.current,
+          seekReplayReadiness.audioReady,
+          seekReplayReadiness.videoReady,
+        )
+
+        if (anchorAllowed) {
           audioBusRef.current.muteInactive(activeAudioIds)
           const proposedAnchor = chooseAnchorClip(activeAudioClips, audioAnchorClipIdRef.current)
           const anchorClipId = replaySession
@@ -979,7 +1097,16 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
   // Keep the video pool bounded to a small window around the playhead so lower-end
   // machines do not try to decode the whole timeline at once.
   const timelineVideoSources = useMemo(() => {
-    const srcSet = selectBufferedVideoSources(clips, currentTime, decodeWindowPolicy, resolveClipSrc)
+    const seekReplayGraceActive =
+      seekWindowGraceActiveRef.current
+      || (isPlaying && pauseSnapshotRef.current?.pausedSeeked === true)
+    const effectiveWindowPolicy = mergeSeekReplayWindowPolicy({
+      pausedPolicy: pausedDecodeWindowPolicyRef.current ?? decodeWindowPolicy,
+      livePolicy: decodeWindowPolicy,
+      replayStartMode: replayStartModeRef.current,
+      graceActive: seekReplayGraceActive,
+    })
+    const srcSet = selectBufferedVideoSources(clips, currentTime, effectiveWindowPolicy, resolveClipSrc)
 
     const monitorClipSrc = activeClip ? resolveClipSrc(activeClip) : ''
     if (monitorClipSrc) srcSet.add(monitorClipSrc)
@@ -992,7 +1119,7 @@ export function usePlaybackEngine(params: UsePlaybackEngineParams) {
     }
 
     return srcSet
-  }, [clips, currentTime, decodeWindowPolicy, resolveClipSrc, activeClip, crossDissolveState])
+  }, [clips, currentTime, decodeWindowPolicy, resolveClipSrc, activeClip, crossDissolveState, isPlaying, seekReplayPolicyVersion])
   
   // Maintain the video pool for the bounded decode window only.
   useEffect(() => {
