@@ -16,14 +16,14 @@ import logging
 import time
 from typing import Any, cast
 
+from agent.model_policy import AgentStage, select_model
 from agent import project_memory
 from agent.orchestration.complexity_router import classify_complexity
-from agent.types import AgentMessage, ViewContext
+from agent.types import AgentDiagnostics, AgentMessage, ViewContext
 from services.http_client.http_client import HTTPClient
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "gemini-3-flash-preview"
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 _SYSTEM_PROMPT = """\
@@ -87,6 +87,7 @@ class IntentResolution:
         "relevant_memory_ids",
         "intent_summary",
         "requires_generation",
+        "diagnostics",
     )
 
     def __init__(
@@ -96,12 +97,14 @@ class IntentResolution:
         relevant_memory_ids: list[str] | None = None,
         intent_summary: str = "",
         requires_generation: bool = False,
+        diagnostics: AgentDiagnostics | None = None,
     ) -> None:
         self.grounded_prompt = grounded_prompt
         self.complexity = complexity
         self.relevant_memory_ids = relevant_memory_ids or []
         self.intent_summary = intent_summary
         self.requires_generation = requires_generation
+        self.diagnostics = diagnostics
 
 
 def resolve_intent(
@@ -151,7 +154,8 @@ def resolve_intent(
 
     user_message = "\n\n".join(user_parts)
 
-    url = f"{_GEMINI_BASE_URL}/{_MODEL}:generateContent"
+    selection = select_model(AgentStage.INTENT_RESOLVER)
+    url = f"{_GEMINI_BASE_URL}/{selection.model}:generateContent"
     payload: dict[str, Any] = {
         "contents": [{"role": "user", "parts": [{"text": user_message}]}],
         "systemInstruction": {"parts": [{"text": _SYSTEM_PROMPT}]},
@@ -194,6 +198,11 @@ def resolve_intent(
         return _heuristic_fallback(prompt)
 
     resolution = _parse_response(data, prompt)
+    resolution.diagnostics = AgentDiagnostics(
+        selected_model=selection.model,
+        stage_name=AgentStage.INTENT_RESOLVER.value,
+        llm_ms=elapsed_ms,
+    )
     logger.info(
         "[intent-resolver] result: complexity=%s, intent=%s, grounded=%.80s",
         resolution.complexity,
@@ -240,4 +249,9 @@ def _heuristic_fallback(prompt: str) -> IntentResolution:
     return IntentResolution(
         grounded_prompt=prompt,
         complexity=complexity,
+        diagnostics=AgentDiagnostics(
+            selected_model="",
+            stage_name=AgentStage.INTENT_RESOLVER.value,
+            llm_ms=0,
+        ),
     )

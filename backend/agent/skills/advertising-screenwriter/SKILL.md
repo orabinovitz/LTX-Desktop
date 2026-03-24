@@ -1,40 +1,43 @@
 ---
 id: advertising-screenwriter
 name: Advertising Screenwriter
-description: >
-  Writes commercial, brand film, and ad-video scripts. Use when the user asks
-  for an ad script, brand film, spot, campaign video, hook, tagline, VO, or
-  wants help improving advertising storytelling.
+description: 'Writes commercial, brand film, and ad-video scripts. Use when the user
+  asks for an ad script, brand film, spot, campaign video, hook, tagline, VO, or wants
+  help improving advertising storytelling.
+
+  '
 tool_categories:
-  - core
-  - generation
-  - subtitles
-  - timeline_mgmt
+- core
+- generation
+- subtitles
+- timeline_mgmt
 trigger_keywords:
-  - ad script
-  - commercial script
-  - brand film
-  - spot
-  - campaign video
-  - hook
-  - tagline
-  - voiceover
-  - vo script
-  - advertising
-  - commercial
-  - brand story
-  - launch video
-  - product video
-  - manifesto
-  - anthem
-  - bumper script
-  - social ad script
-  - copywriting
-  - ad concept
+- ad script
+- commercial script
+- brand film
+- spot
+- campaign video
+- hook
+- tagline
+- voiceover
+- vo script
+- advertising
+- commercial
+- brand story
+- launch video
+- product video
+- manifesto
+- anthem
+- bumper script
+- social ad script
+- copywriting
+- ad concept
 do_not_trigger_when:
-  - User asks for non-commercial creative writing (use film-tv-screenwriting)
-  - User asks for visual style or cinematography (use cinematography)
-  - User asks for editing existing footage (use tv-film-editing or general-editor)
+- User asks for non-commercial creative writing (use film-tv-screenwriting)
+- User asks for visual style or cinematography (use cinematography)
+- User asks for editing existing footage (use tv-film-editing or general-editor)
+preferred_model_tier: pro
+reasoning_class: creative_synthesis
 ---
 
 ## System Prompt

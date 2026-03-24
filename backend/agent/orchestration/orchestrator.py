@@ -20,6 +20,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from agent.model_policy import AgentStage, select_model
 from agent.orchestration.complexity_router import (
     RequestComplexity,
     classify_complexity,
@@ -29,6 +30,7 @@ from agent.orchestration.sub_agent_pool import SubAgentPool
 from agent.orchestration.task_planner import TaskPlanner
 from agent.skills.skill_registry import SkillRegistry, get_skill_registry
 from agent.types import (
+    AgentDiagnostics,
     MEMORY_WRITE_TOOLS,
     OrchestrateRequest,
     OrchestrateResponse,
@@ -80,6 +82,7 @@ class OrchestratorSession:
     view_context: str = "editor"
     last_access: float = field(default_factory=time.monotonic)
     review_iteration_count: dict[str, int] = field(default_factory=lambda: dict[str, int]())
+    last_diagnostics: AgentDiagnostics | None = None
 
 
 _sessions: OrderedDict[str, OrchestratorSession] = OrderedDict()
@@ -128,6 +131,7 @@ def _build_response(
     message: str = "",
     done: bool = False,
     memory_updated: bool = False,
+    diagnostics: AgentDiagnostics | None = None,
 ) -> OrchestrateResponse:
     current_task_id = session.pending_task_ids[0] if session.pending_task_ids else None
     return OrchestrateResponse(
@@ -139,6 +143,7 @@ def _build_response(
         message=message,
         done=done,
         memory_updated=memory_updated,
+        diagnostics=diagnostics,
     )
 
 
@@ -191,6 +196,7 @@ class Orchestrator:
             "[orchestrator] session=%s | planning: %.80s",
             session_id[:8], request.prompt,
         )
+        planner_selection = select_model(AgentStage.ORCHESTRATOR_PLANNER, prompt=request.prompt)
 
         dag = self._planner.decompose(
             request.prompt,
@@ -216,6 +222,11 @@ class Orchestrator:
         _sessions[session_id] = session
 
         planning_elapsed = time.monotonic() - t0
+        session.last_diagnostics = AgentDiagnostics(
+            selected_model=planner_selection.model,
+            stage_name=AgentStage.ORCHESTRATOR_PLANNER.value,
+            planning_ms=int(planning_elapsed * 1000),
+        )
         logger.info(
             "[orchestrator] session=%s | DAG has %d task(s) (planned in %.1fs): %s",
             session_id[:8],
@@ -227,6 +238,7 @@ class Orchestrator:
         return _build_response(
             session, self._registry,
             message="Plan ready. Starting execution.",
+            diagnostics=session.last_diagnostics,
         )
 
     def skip_task(self, session_id: str, task_id: str) -> OrchestrateResponse:

@@ -12,7 +12,9 @@ import logging
 import time
 from typing import Any
 
+from agent.model_policy import AgentStage, select_model
 from agent.types import (
+    AgentDiagnostics,
     ClarificationOption,
     ClarificationQuestion,
     ClarifyRequest,
@@ -23,7 +25,6 @@ from services.http_client.http_client import HTTPClient
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "gemini-3-flash-preview"
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 _MAX_QUESTIONS = 6
 
@@ -127,7 +128,8 @@ def generate_questions(
     if request.assets_context:
         user_message += f"\n\nAvailable assets context:\n{json.dumps(request.assets_context, default=str)[:2000]}"
 
-    url = f"{_GEMINI_BASE_URL}/{_MODEL}:generateContent"
+    selection = select_model(AgentStage.CLARIFICATION)
+    url = f"{_GEMINI_BASE_URL}/{selection.model}:generateContent"
     payload: dict[str, Any] = {
         "contents": [{"role": "user", "parts": [{"text": user_message}]}],
         "systemInstruction": {"parts": [{"text": system_prompt}]},
@@ -169,7 +171,13 @@ def generate_questions(
         logger.warning("Clarification generation failed after %dms", elapsed_ms, exc_info=True)
         return ClarifyResponse(needs_clarification=False)
 
-    return _parse_response(data)
+    parsed = _parse_response(data)
+    parsed.diagnostics = AgentDiagnostics(
+        selected_model=selection.model,
+        stage_name=AgentStage.CLARIFICATION.value,
+        llm_ms=elapsed_ms,
+    )
+    return parsed
 
 
 def _parse_response(data: Any) -> ClarifyResponse:

@@ -1,48 +1,52 @@
 ---
 id: ai-video-producer
 name: AI Video Producer
-description: >
-  Produces complete video projects from concepts, scripts, or briefs by managing
-  the full pipeline: script breakdown into shots, AI image/video generation with
-  correct parameters, timeline creation, clip assembly, and editorial first-pass.
-  Use when the user wants to create a full video, ad, short film, or sequence
-  from a description, script, or creative brief.
+description: 'Produces complete video projects from concepts, scripts, or briefs by
+  managing the full pipeline: script breakdown into shots, AI image/video generation
+  with correct parameters, timeline creation, clip assembly, and editorial first-pass.
+  Use when the user wants to create a full video, ad, short film, or sequence from
+  a description, script, or creative brief.
+
+  '
 tool_categories:
-  - core
-  - generation
-  - clip_editing
-  - clip_properties
-  - transitions
-  - timeline_mgmt
-  - track_mgmt
-  - asset_mgmt
-  - playback
-  - subtitles
+- core
+- generation
+- clip_editing
+- clip_properties
+- transitions
+- timeline_mgmt
+- track_mgmt
+- asset_mgmt
+- playback
+- subtitles
 trigger_keywords:
-  - produce
-  - produce video
-  - make a video
-  - create a video
-  - full video
-  - create an ad
-  - make an ad
-  - make a commercial
-  - make a short film
-  - build a sequence
-  - assemble
-  - shot list
-  - generate and edit
-  - end to end
-  - full project
-  - from script
-  - from concept
-  - from brief
-  - production pipeline
-  - ai production
+- produce
+- produce video
+- make a video
+- create a video
+- full video
+- create an ad
+- make an ad
+- make a commercial
+- make a short film
+- build a sequence
+- assemble
+- shot list
+- generate and edit
+- end to end
+- full project
+- from script
+- from concept
+- from brief
+- production pipeline
+- ai production
 do_not_trigger_when:
-  - User asks for a specific editing operation on existing clips (use general-editor or tv-film-editing)
-  - User asks about visual style or cinematography only (use cinematography or visual-identity)
-  - User asks for script writing only (use film-tv-screenwriting)
+- User asks for a specific editing operation on existing clips (use general-editor
+  or tv-film-editing)
+- User asks about visual style or cinematography only (use cinematography or visual-identity)
+- User asks for script writing only (use film-tv-screenwriting)
+preferred_model_tier: pro
+reasoning_class: execution_critical
 ---
 
 ## System Prompt

@@ -1,48 +1,49 @@
 ---
 id: nano-banana-prompting
 name: Nano Banana 2 Prompt Engineer
-description: >
-  Expert prompting for Nano Banana 2 (Gemini 3.1 Flash Image) — the default
-  image generation model in LTX Desktop. Use when writing or improving image
-  generation prompts, building character sheets, editing images with reference
-  inputs, rendering text in images, maintaining character/environment consistency
-  across shots, or when the user says "improve my prompt," "make this look more
-  cinematic," "generate a character sheet," "keep the character consistent," or
-  asks about image editing, compositing, or product photography prompts.
+description: "Expert prompting for Nano Banana 2 (Gemini 3.1 Flash Image) \u2014 the\
+  \ default image generation model in LTX Desktop. Use when writing or improving image\
+  \ generation prompts, building character sheets, editing images with reference inputs,\
+  \ rendering text in images, maintaining character/environment consistency across\
+  \ shots, or when the user says \"improve my prompt,\" \"make this look more cinematic,\"\
+  \ \"generate a character sheet,\" \"keep the character consistent,\" or asks about\
+  \ image editing, compositing, or product photography prompts.\n"
 tool_categories:
-  - core
-  - generation
+- core
+- generation
 trigger_keywords:
-  - nano banana
-  - nb2
-  - image prompt
-  - image generation prompt
-  - prompt engineering
-  - character consistency
-  - character sheet
-  - reference image
-  - image editing
-  - image compositing
-  - text rendering
-  - text in image
-  - product photography
-  - product shot
-  - magazine cover
-  - action figure
-  - collectible
-  - film stock
-  - camera body
-  - lens choice
-  - improve prompt
-  - better prompt
-  - prompt quality
-  - environment consistency
-  - location keyframe
-  - style transfer
+- nano banana
+- nb2
+- image prompt
+- image generation prompt
+- prompt engineering
+- character consistency
+- character sheet
+- reference image
+- image editing
+- image compositing
+- text rendering
+- text in image
+- product photography
+- product shot
+- magazine cover
+- action figure
+- collectible
+- film stock
+- camera body
+- lens choice
+- improve prompt
+- better prompt
+- prompt quality
+- environment consistency
+- location keyframe
+- style transfer
 do_not_trigger_when:
-  - User asks for broad visual identity or look book research (use visual-identity)
-  - User asks for cinematographic advice without image generation (use cinematography)
-  - User asks for editing existing clips (use tv-film-editing or general-editor)
+- User asks for broad visual identity or look book research (use visual-identity)
+- User asks for cinematographic advice without image generation (use cinematography)
+- User asks for editing existing clips (use tv-film-editing or general-editor)
+preferred_model_tier: flash_lite
+reasoning_class: guided_generation
 ---
 
 ## System Prompt

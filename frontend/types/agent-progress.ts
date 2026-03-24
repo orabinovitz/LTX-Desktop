@@ -19,6 +19,15 @@ export interface ChatMessage {
   isExecuting?: boolean;
 }
 
+export interface AgentDiagnostics {
+  selected_model: string;
+  stage_name: string;
+  llm_ms?: number | null;
+  tool_ms?: number | null;
+  planning_ms?: number | null;
+  used_fallback_model?: boolean;
+}
+
 export type OnToolProgress = (progress: number, detail?: string) => void;
 
 export interface AgentTask {
@@ -87,4 +96,5 @@ export interface OrchestrateResponse {
   message: string;
   done: boolean;
   memory_updated?: boolean;
+  diagnostics?: AgentDiagnostics | null;
 }

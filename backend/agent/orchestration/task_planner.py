@@ -14,6 +14,7 @@ import time
 import uuid
 from typing import Any, cast
 
+from agent.model_policy import AgentStage, select_model
 from agent.orchestration.complexity_router import has_multi_step_signals
 from agent.tool_knowledge_base import classify_intent
 from agent.types import (
@@ -26,8 +27,6 @@ from agent.types import (
 from services.http_client.http_client import HTTPClient
 
 logger = logging.getLogger(__name__)
-
-_PLANNER_MODEL = "gemini-3-flash-preview"
 
 _PLANNER_SYSTEM_PROMPT = """\
 You are a task decomposition planner for LTX Desktop, a professional \
@@ -812,6 +811,7 @@ class TaskPlanner:
         """
         skill_catalog = _build_skill_catalog(available_skills)
         system_prompt = _PLANNER_SYSTEM_PROMPT.format(skill_catalog=skill_catalog)
+        selection = select_model(AgentStage.ORCHESTRATOR_PLANNER, prompt=prompt)
 
         user_parts: list[str] = []
         if conversation_context:
@@ -827,7 +827,7 @@ class TaskPlanner:
 
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{_PLANNER_MODEL}:generateContent"
+            f"{selection.model}:generateContent"
         )
         payload: dict[str, Any] = {
             "contents": [{"role": "user", "parts": [{"text": user_message}]}],

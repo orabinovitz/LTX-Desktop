@@ -1,45 +1,48 @@
 ---
 id: scene-preproduction
 name: Scene Pre-Production
-description: >
-  Generates canonical character reference sheets and location keyframe images
-  for visual consistency across an entire scene. Use before shot generation
-  to establish characters (360-degree turnaround sheets) and locations
-  (establishing shots, interior/exterior variations) that downstream tasks
-  reference via image_urls in every generate_image call.
+description: 'Generates canonical character reference sheets and location keyframe
+  images for visual consistency across an entire scene. Use before shot generation
+  to establish characters (360-degree turnaround sheets) and locations (establishing
+  shots, interior/exterior variations) that downstream tasks reference via image_urls
+  in every generate_image call.
+
+  '
 tool_categories:
-  - core
-  - generation
-  - memory
+- core
+- generation
+- memory
 trigger_keywords:
-  - character sheet
-  - character reference
-  - character turnaround
-  - location keyframe
-  - location reference
-  - pre-production
-  - preproduction
-  - visual consistency
-  - scene prep
-  - establish characters
-  - establish locations
-  - reference images
-  - character design
-  - location design
-  - consistency setup
+- character sheet
+- character reference
+- character turnaround
+- location keyframe
+- location reference
+- pre-production
+- preproduction
+- visual consistency
+- scene prep
+- establish characters
+- establish locations
+- reference images
+- character design
+- location design
+- consistency setup
 do_not_trigger_when:
-  - User asks for visual style guidance without needing reference images (use cinematography)
-  - User asks for script writing or story development (use film-tv-screenwriting)
-  - User asks for actual editing of existing clips (use tv-film-editing or general-editor)
+- User asks for visual style guidance without needing reference images (use cinematography)
+- User asks for script writing or story development (use film-tv-screenwriting)
+- User asks for actual editing of existing clips (use tv-film-editing or general-editor)
 tool_overrides:
-  - generate_image
-  - get_project_assets
-  - save_to_project_memory
-  - update_project_memory
-  - read_project_memory
-  - list_project_memory
-  - add_memory_note
-  - update_project_context
+- generate_image
+- get_project_assets
+- save_to_project_memory
+- update_project_memory
+- read_project_memory
+- list_project_memory
+- add_memory_note
+- update_project_context
+preferred_model_tier: flash_lite
+reasoning_class: execution_critical
 ---
 
 ## System Prompt

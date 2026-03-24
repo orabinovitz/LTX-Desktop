@@ -12,11 +12,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any, cast
 
+from agent.model_policy import AgentStage, select_model
 from services.http_client.http_client import HTTPClient
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "gemini-3-flash-preview"
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 _SYSTEM_PROMPT = """\
@@ -66,7 +66,8 @@ def suggest_asset_meta(
             f"Existing project tags (prefer reusing): {', '.join(existing_tags[:30])}"
         )
 
-    url = f"{_GEMINI_BASE_URL}/{_MODEL}:generateContent"
+    selection = select_model(AgentStage.ASSET_NAMER)
+    url = f"{_GEMINI_BASE_URL}/{selection.model}:generateContent"
     payload: dict[str, Any] = {
         "contents": [
             {"role": "user", "parts": [{"text": "\n".join(user_parts)}]},

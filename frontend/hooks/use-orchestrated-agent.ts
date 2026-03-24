@@ -8,6 +8,7 @@ import type {
 } from "@/types/agent-progress";
 import { useAgentProgress } from "./use-agent-progress";
 import type {
+  AgentDiagnostics,
   AgentProgress,
   AgentTask,
   ChatMessage,
@@ -21,6 +22,18 @@ export type { AgentProgress, ChatMessage, OnToolProgress };
 
 interface ExecuteToolFn {
   (toolCall: ToolCall, onProgress?: OnToolProgress, signal?: AbortSignal): Promise<ToolResult>;
+}
+
+function logDiagnostics(prefix: string, diagnostics?: AgentDiagnostics | null) {
+  if (!diagnostics) return;
+  const parts = [
+    `stage=${diagnostics.stage_name || "unknown"}`,
+    `model=${diagnostics.selected_model || "unknown"}`,
+  ];
+  if (typeof diagnostics.llm_ms === "number") parts.push(`llm_ms=${diagnostics.llm_ms}`);
+  if (typeof diagnostics.planning_ms === "number") parts.push(`planning_ms=${diagnostics.planning_ms}`);
+  if (diagnostics.used_fallback_model) parts.push("fallback=true");
+  logger.info(`[${prefix}] diagnostics — ${parts.join(", ")}`);
 }
 
 interface TimelineClipInfo {
@@ -231,6 +244,7 @@ export function useOrchestratedAgent() {
           throw new Error(body.error ?? `Orchestrate API error: ${res.status}`);
         }
         let response: OrchestrateResponse = await res.json();
+        logDiagnostics("orchestrated-agent", response.diagnostics);
 
         if (response.session_id) {
           sessionIdRef.current = response.session_id;
@@ -312,7 +326,12 @@ export function useOrchestratedAgent() {
               } else {
                 for (const tc of group.calls) {
                   if (stoppedRef.current) break;
+                  const toolT0 = performance.now();
                   const result = await executeTool(tc, undefined, signal);
+                  const toolElapsed = Math.round(performance.now() - toolT0);
+                  logger.info(
+                    `[orchestrated-agent] tool ${tc.tool_name} ${result.success ? "completed" : "FAILED"} in ${toolElapsed}ms`,
+                  );
                   results.push(result);
                 }
               }
@@ -382,6 +401,7 @@ export function useOrchestratedAgent() {
               throw new Error(contBody.error ?? `Orchestrate continue error: ${contRes.status}`);
             }
             response = await contRes.json();
+            logDiagnostics("orchestrated-agent", response.diagnostics);
             if (response.memory_updated) {
               window.dispatchEvent(new CustomEvent('memory-updated'));
             }
@@ -414,6 +434,7 @@ export function useOrchestratedAgent() {
               throw new Error(contBody.error ?? `Orchestrate continue error: ${contRes.status}`);
             }
             response = await contRes.json();
+            logDiagnostics("orchestrated-agent", response.diagnostics);
             if (response.memory_updated) {
               window.dispatchEvent(new CustomEvent('memory-updated'));
             }
@@ -536,7 +557,12 @@ async function executeParallelWithLimit(
     while (nextIndex < calls.length) {
       const idx = nextIndex++;
       try {
+        const toolT0 = performance.now();
         results[idx] = await executeTool(calls[idx], undefined, signal);
+        const toolElapsed = Math.round(performance.now() - toolT0);
+        logger.info(
+          `[orchestrated-agent] tool ${calls[idx].tool_name} ${results[idx].success ? "completed" : "FAILED"} in ${toolElapsed}ms`,
+        );
       } catch (e) {
         results[idx] = {
           tool_name: calls[idx].tool_name,

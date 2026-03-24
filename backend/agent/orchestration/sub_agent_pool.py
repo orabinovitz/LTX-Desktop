@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from agent.gemini_agent import GENERAL_CONTEXT_PROMPT
+from agent.model_policy import AgentStage, select_model
 from agent.tool_knowledge_base import classify_intent, get_tools_for_categories
 from agent.tool_registry import TOOLS_BY_NAME, tools_to_gemini_declarations
 from agent.types import (
@@ -30,6 +31,7 @@ from agent.types import (
     SubAgentContext,
     SubAgentResult,
     TaskNode,
+    TaskType,
     ToolCall,
     ToolResult,
 )
@@ -37,10 +39,22 @@ from services.http_client.http_client import HTTPClient, HttpTimeoutError
 
 logger = logging.getLogger(__name__)
 
-_SUB_AGENT_MODEL = "gemini-3-flash-preview"
 _MAX_WORKERS = 10
 _MAX_SUB_AGENT_TURNS = 30
 _backend_tool_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="sub-backend-tool")
+
+_HIGH_STAKES_CONSISTENCY_KEYWORDS: tuple[str, ...] = (
+    "continuity",
+    "consistency",
+    "consistent",
+    "same ",
+    "matching",
+    "reference image",
+    "reference images",
+    "character sheet",
+    "turnaround",
+    "maintain visual consistency",
+)
 
 
 def _build_system_prompt(
@@ -131,9 +145,29 @@ def _has_shot_list(prior_results: dict[str, str]) -> bool:
 def _has_reference_assets(prior_results: dict[str, str]) -> bool:
     """Check if any prior task result contains CHARACTER_REFS or LOCATION_REFS."""
     for summary in prior_results.values():
-        if "CHARACTER_REFS:" in summary or "LOCATION_REFS:" in summary:
+        normalized = summary.lower()
+        if (
+            "character_refs" in normalized
+            or "location_refs" in normalized
+            or "character refs" in normalized
+            or "location refs" in normalized
+        ):
             return True
     return False
+
+
+def _task_has_high_stakes_consistency(task: TaskNode, skill_content: SkillContent | None) -> bool:
+    text_parts = [task.description.lower()]
+    if skill_content is not None:
+        text_parts.append(skill_content.system_prompt.lower())
+        text_parts.append(skill_content.descriptor.description.lower())
+    haystack = "\n".join(text_parts)
+    return any(keyword in haystack for keyword in _HIGH_STAKES_CONSISTENCY_KEYWORDS)
+
+
+def _task_uses_reference_continuity(task: TaskNode) -> bool:
+    text = task.description.lower()
+    return any(keyword in text for keyword in ("reference", "references", "consistent", "consistency", "continuity", "same ", "matching"))
 
 
 def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
@@ -266,7 +300,7 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
 def _get_scoped_tools(
     task: TaskNode,
     skill_content: SkillContent | None,
-) -> tuple[list[Any], list[str]]:
+) -> tuple[list[Any], list[str], list[str]]:
     """Get tool declarations scoped to the task's categories.
 
     Returns (declarations, tool_names) so the user message can list
@@ -275,7 +309,10 @@ def _get_scoped_tools(
     if skill_content and skill_content.tool_overrides:
         tools = [TOOLS_BY_NAME[name] for name in skill_content.tool_overrides if name in TOOLS_BY_NAME]
         if tools:
-            return tools_to_gemini_declarations(tools), [t.name for t in tools]
+            categories = [tool.category for tool in tools]
+            if "memory" not in categories and getattr(task, "task_type", "execution") in (TaskType.CREATIVE, TaskType.REVIEW):
+                categories.append("memory")
+            return tools_to_gemini_declarations(tools), [t.name for t in tools], categories
 
     categories = task.tool_categories or (
         skill_content.descriptor.tool_categories if skill_content else []
@@ -301,9 +338,9 @@ def _get_scoped_tools(
 
     scoped_tools = get_tools_for_categories(categories)
     if not scoped_tools:
-        return tools_to_gemini_declarations(None), []
+        return tools_to_gemini_declarations(None), [], categories
 
-    return tools_to_gemini_declarations(scoped_tools), [t.name for t in scoped_tools]
+    return tools_to_gemini_declarations(scoped_tools), [t.name for t in scoped_tools], categories
 
 
 def _execute_backend_tool_inline(
@@ -360,12 +397,14 @@ def _run_gemini_turn(
     contents: list[dict[str, Any]],
     system_prompt: str,
     tool_declarations: list[Any],
+    model: str,
     api_key: str,
     http_client: HTTPClient,
     task_id: str,
     turn: int,
     *,
     enable_search: bool = False,
+    fallback_model: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[ToolCall], list[ToolCall]] | None:
     """Make one Gemini API call and parse the response.
 
@@ -373,7 +412,7 @@ def _run_gemini_turn(
     """
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{_SUB_AGENT_MODEL}:generateContent"
+        f"{model}:generateContent"
     )
     if enable_search:
         tools: list[dict[str, Any]] = [{"google_search": {}}]
@@ -419,6 +458,29 @@ def _run_gemini_turn(
     if resp is None:
         logger.error("[sub-agent] task=%s | no response after retries", task_id)
         return None
+
+    if resp.status_code == 503 and fallback_model and fallback_model != model:
+        fallback_url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{fallback_model}:generateContent"
+        )
+        logger.warning(
+            "[sub-agent] task=%s turn=%d | %s exhausted 503 retries, falling back to %s",
+            task_id, turn, model, fallback_model,
+        )
+        try:
+            resp = http_client.post(
+                fallback_url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key,
+                },
+                json_payload=payload,
+                timeout=120,
+            )
+        except Exception:
+            logger.error("[sub-agent] task=%s | fallback request failed", task_id, exc_info=True)
+            return None
 
     elapsed = time.monotonic() - t0
     logger.info(
@@ -478,9 +540,27 @@ def execute_sub_agent(
     ``resume_sub_agent`` with the frontend tool results.
     """
     system_prompt = _build_system_prompt(task, skill_content, context.project_id)
-    tool_declarations, tool_names = _get_scoped_tools(task, skill_content)
+    tool_declarations, tool_names, resolved_categories = _get_scoped_tools(task, skill_content)
     user_message = _build_user_message(context, tool_names)
     search_enabled = skill_content.enable_search if skill_content else False
+    has_reference_assets = _has_reference_assets(context.prior_task_results) if context.prior_task_results else False
+    model_selection = select_model(
+        AgentStage.ORCHESTRATOR_SUB_AGENT,
+        prompt=task.description,
+        task_type=task.task_type,
+        tool_categories=resolved_categories,
+        skill_id=task.skill_id,
+        preferred_model_tier=skill_content.descriptor.preferred_model_tier if skill_content else None,
+        reasoning_class=skill_content.descriptor.reasoning_class if skill_content else None,
+        editing_critical=skill_content.descriptor.editing_critical if skill_content else False,
+        has_memory_tool_access="memory" in resolved_categories,
+        search_grounded=(skill_content.descriptor.search_grounded if skill_content else False) or search_enabled,
+        high_stakes_consistency=(
+            (skill_content.descriptor.high_stakes_consistency if skill_content else False)
+            or _task_has_high_stakes_consistency(task, skill_content)
+            or (has_reference_assets and _task_uses_reference_continuity(task))
+        ),
+    )
 
     contents: list[dict[str, Any]] = [
         {"role": "user", "parts": [{"text": user_message}]},
@@ -495,13 +575,17 @@ def execute_sub_agent(
     for turn in range(_MAX_SUB_AGENT_TURNS):
         result = _run_gemini_turn(
             contents, system_prompt, tool_declarations,
+            model_selection.model,
             api_key, http_client, task.id, turn,
             enable_search=search_phase,
+            fallback_model=model_selection.fallback_model,
         )
         if result is None:
             return SubAgentResult(
                 task_id=task.id, success=False,
                 error="Gemini call failed",
+                sub_agent_model=model_selection.model,
+                sub_agent_fallback_model=model_selection.fallback_model,
             )
 
         parts, frontend_calls, backend_calls = result
@@ -559,6 +643,8 @@ def execute_sub_agent(
         sub_agent_system_prompt=system_prompt,
         sub_agent_tool_declarations=tool_declarations,
         sub_agent_enable_search=search_enabled,
+        sub_agent_model=model_selection.model,
+        sub_agent_fallback_model=model_selection.fallback_model,
     )
 
 
@@ -579,11 +665,15 @@ def resume_sub_agent(
     tool_declarations = prev_result.sub_agent_tool_declarations or []
     search_enabled = prev_result.sub_agent_enable_search
     task_id = prev_result.task_id
+    model = prev_result.sub_agent_model
+    fallback_model = prev_result.sub_agent_fallback_model
 
     if not contents or not system_prompt:
         return SubAgentResult(
             task_id=task_id, success=True,
             message=prev_result.message,
+            sub_agent_model=model,
+            sub_agent_fallback_model=fallback_model,
         )
 
     fn_response_parts: list[dict[str, Any]] = []
@@ -606,13 +696,17 @@ def resume_sub_agent(
     for turn in range(_MAX_SUB_AGENT_TURNS):
         result = _run_gemini_turn(
             contents, system_prompt, tool_declarations,
+            model,
             api_key, http_client, task_id, turn + 100,
             enable_search=search_enabled,
+            fallback_model=fallback_model,
         )
         if result is None:
             return SubAgentResult(
                 task_id=task_id, success=False,
                 error="Resume Gemini call failed",
+                sub_agent_model=model,
+                sub_agent_fallback_model=fallback_model,
             )
 
         parts, frontend_calls, backend_calls = result
@@ -653,6 +747,8 @@ def resume_sub_agent(
         sub_agent_system_prompt=system_prompt,
         sub_agent_tool_declarations=tool_declarations,
         sub_agent_enable_search=search_enabled,
+        sub_agent_model=model,
+        sub_agent_fallback_model=fallback_model,
     )
 
 

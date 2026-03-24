@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+import time
 from typing import Any, ClassVar
 
 from PIL import Image
@@ -21,6 +22,7 @@ class FakeResponse:
     headers: dict[str, str] = field(default_factory=dict)
     content: bytes = b""
     json_payload: Any = field(default_factory=dict)
+    delay_ms: int = 0
 
     def json(self) -> Any:
         return self.json_payload
@@ -34,6 +36,9 @@ class HttpCall:
     json_payload: dict[str, Any] | None
     data: Any
     timeout: int
+    started_at_ms: int | None = None
+    completed_at_ms: int | None = None
+    elapsed_ms: int | None = None
 
 
 class FakeHTTPClient:
@@ -48,13 +53,19 @@ class FakeHTTPClient:
     def queue(self, method: str, *items: FakeResponse | Exception) -> None:
         self._queues[method].extend(items)
 
-    def _dequeue(self, method: str) -> FakeResponse:
+    def _dequeue(self, method: str, call: HttpCall) -> FakeResponse:
         queue = self._queues[method]
         if not queue:
             raise RuntimeError(f"No queued {method.upper()} response")
         item = queue.pop(0)
         if isinstance(item, Exception):
+            call.completed_at_ms = int(time.monotonic() * 1000)
+            call.elapsed_ms = call.completed_at_ms - (call.started_at_ms or call.completed_at_ms)
             raise item
+        if item.delay_ms > 0:
+            time.sleep(item.delay_ms / 1000)
+        call.completed_at_ms = int(time.monotonic() * 1000)
+        call.elapsed_ms = call.completed_at_ms - (call.started_at_ms or call.completed_at_ms)
         return item
 
     def post(
@@ -65,8 +76,9 @@ class FakeHTTPClient:
         data: Any = None,
         timeout: int = 30,
     ) -> FakeResponse:
-        self.calls.append(HttpCall("post", url, headers, json_payload, data, timeout))
-        return self._dequeue("post")
+        call = HttpCall("post", url, headers, json_payload, data, timeout, started_at_ms=int(time.monotonic() * 1000))
+        self.calls.append(call)
+        return self._dequeue("post", call)
 
     def get(
         self,
@@ -74,8 +86,9 @@ class FakeHTTPClient:
         headers: dict[str, str] | None = None,
         timeout: int = 30,
     ) -> FakeResponse:
-        self.calls.append(HttpCall("get", url, headers, None, None, timeout))
-        return self._dequeue("get")
+        call = HttpCall("get", url, headers, None, None, timeout, started_at_ms=int(time.monotonic() * 1000))
+        self.calls.append(call)
+        return self._dequeue("get", call)
 
     def put(
         self,
@@ -84,8 +97,9 @@ class FakeHTTPClient:
         headers: dict[str, str] | None = None,
         timeout: int = 300,
     ) -> FakeResponse:
-        self.calls.append(HttpCall("put", url, headers, None, data, timeout))
-        return self._dequeue("put")
+        call = HttpCall("put", url, headers, None, data, timeout, started_at_ms=int(time.monotonic() * 1000))
+        self.calls.append(call)
+        return self._dequeue("put", call)
 
 
 class FakeTaskRunner:

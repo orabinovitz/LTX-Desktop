@@ -3,6 +3,7 @@ import { logger } from "@/lib/logger";
 import { backendFetch, backendSSE } from "@/lib/backend";
 import type { TimelineClip } from "@/types/project";
 import type {
+  AgentDiagnostics,
   ToolCall,
   ToolResult,
 } from "@/types/agent-progress";
@@ -67,10 +68,23 @@ interface AgentResponse {
   done: boolean;
   session_id: string;
   memory_updated?: boolean;
+  diagnostics?: AgentDiagnostics | null;
 }
 
 interface ExecuteToolFn {
   (toolCall: ToolCall, onProgress?: OnToolProgress): Promise<ToolResult>;
+}
+
+function logDiagnostics(prefix: string, diagnostics?: AgentDiagnostics | null) {
+  if (!diagnostics) return;
+  const parts = [
+    `stage=${diagnostics.stage_name || "unknown"}`,
+    `model=${diagnostics.selected_model || "unknown"}`,
+  ];
+  if (typeof diagnostics.llm_ms === "number") parts.push(`llm_ms=${diagnostics.llm_ms}`);
+  if (typeof diagnostics.planning_ms === "number") parts.push(`planning_ms=${diagnostics.planning_ms}`);
+  if (diagnostics.used_fallback_model) parts.push("fallback=true");
+  logger.info(`[${prefix}] diagnostics — ${parts.join(", ")}`);
 }
 
 // --- Helper to build timeline state from React state ---
@@ -242,6 +256,7 @@ export function useAgent() {
           response = await res.json();
         }
 
+        logDiagnostics("agent", response.diagnostics);
         if (response.session_id) {
           sessionIdRef.current = response.session_id;
         }
@@ -445,6 +460,7 @@ export function useAgent() {
             throw new Error(contBody.error ?? `Agent continue error: ${contRes.status}`);
           }
           response = await contRes.json();
+          logDiagnostics("agent", response.diagnostics);
           if (response.memory_updated) {
             window.dispatchEvent(new CustomEvent('memory-updated'));
           }

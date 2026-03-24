@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from runtime_config.runtime_config import RuntimeConfig
 
+from agent.model_policy import LIVE_AUDIO_MODEL
 from agent import brain as brain_module
 from agent import gemini_agent, video_analyzer
 from agent.scene_decomposer import decompose_to_scenes
@@ -41,8 +42,6 @@ from services.http_client.http_client import HTTPClient, HttpTimeoutError
 from state.app_state_types import AppState
 
 logger = logging.getLogger(__name__)
-
-_LIVE_API_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
 
 
 class AgentHandler(StateHandlerBase):
@@ -169,6 +168,7 @@ class AgentHandler(StateHandlerBase):
             relevant_memory_ids=result.relevant_memory_ids,
             intent_summary=result.intent_summary,
             requires_generation=result.requires_generation,
+            diagnostics=result.diagnostics,
         )
 
     def clarify(self, request: ClarifyRequest) -> ClarifyResponse:
@@ -299,7 +299,7 @@ class AgentHandler(StateHandlerBase):
             "expireTime": expire_time.isoformat(),
             "newSessionExpireTime": new_session_expire_time.isoformat(),
             "bidiGenerateContentSetup": {
-                "model": f"models/{_LIVE_API_MODEL}",
+                "model": f"models/{LIVE_AUDIO_MODEL}",
                 "generationConfig": {
                     "responseModalities": ["AUDIO"],
                 },
@@ -348,7 +348,7 @@ class AgentHandler(StateHandlerBase):
         return LiveTokenResponse(
             token=token_name,
             expire_time=expire_time.isoformat(),
-            model=_LIVE_API_MODEL,
+            model=LIVE_AUDIO_MODEL,
         )
 
     def get_live_config(self) -> LiveConfigResponse:
@@ -356,5 +356,5 @@ class AgentHandler(StateHandlerBase):
         return LiveConfigResponse(
             system_prompt=gemini_agent.SYSTEM_PROMPT,
             tools=tools_to_gemini_declarations(),
-            model=_LIVE_API_MODEL,
+            model=LIVE_AUDIO_MODEL,
         )

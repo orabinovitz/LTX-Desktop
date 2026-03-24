@@ -195,6 +195,17 @@ class AgentExecuteRequest(BaseModel):
     view_context: ViewContext = Field(default=ViewContext.EDITOR, description="Which app view the agent is opened from")
 
 
+class AgentDiagnostics(BaseModel):
+    """Small diagnostics payload for model routing and timing visibility."""
+
+    selected_model: str = Field(default="", description="The Gemini model used for this stage.")
+    stage_name: str = Field(default="", description="Logical stage name, e.g. 'simple_agent'.")
+    llm_ms: int | None = Field(default=None, description="LLM request duration in milliseconds for this stage.")
+    tool_ms: int | None = Field(default=None, description="Tool execution duration in milliseconds, if known.")
+    planning_ms: int | None = Field(default=None, description="Planning duration in milliseconds, if known.")
+    used_fallback_model: bool = Field(default=False, description="True when the request fell back from the primary model.")
+
+
 class AgentExecuteResponse(BaseModel):
     """Response from the agent after planning / execution."""
 
@@ -205,6 +216,7 @@ class AgentExecuteResponse(BaseModel):
     session_id: str = Field(default="", description="Session ID for continuing the conversation")
     memory_updated: bool = Field(default=False, description="True when project memory was modified during this turn")
     requires_confirmation: bool = Field(default=False, description="True when the tool calls include destructive operations that should be confirmed by the user")
+    diagnostics: AgentDiagnostics | None = Field(default=None, description="Model-selection and timing diagnostics for this response.")
 
 
 class AgentContinueRequest(BaseModel):
@@ -269,6 +281,30 @@ class SkillDescriptor(BaseModel):
     description: str = Field(description="What this skill does and when to use it (~1-2 sentences)")
     tool_categories: list[str] = Field(default_factory=list, description="Tool categories this skill needs access to")
     trigger_keywords: list[str] = Field(default_factory=list, description="Keywords that suggest this skill is relevant")
+    preferred_model_tier: str | None = Field(
+        default=None,
+        description="Optional preferred model tier hint: 'pro', 'flash_lite', or 'fast_lite'.",
+    )
+    reasoning_class: str | None = Field(
+        default=None,
+        description="Optional reasoning profile, e.g. 'creative_synthesis' or 'guided_generation'.",
+    )
+    editing_critical: bool = Field(
+        default=False,
+        description="True when the skill primarily performs editing-critical work that must stay on Pro.",
+    )
+    high_stakes_consistency: bool = Field(
+        default=False,
+        description="True when consistency mistakes are expensive and should bias the routing toward Pro.",
+    )
+    search_grounded: bool = Field(
+        default=False,
+        description="True when the skill is expected to use search grounding or external reference synthesis.",
+    )
+    do_not_trigger_when: list[str] = Field(
+        default_factory=list,
+        description="Human-facing routing caveats loaded from skill frontmatter.",
+    )
 
 
 class SkillContent(BaseModel):
@@ -409,6 +445,8 @@ class SubAgentResult(BaseModel):
     sub_agent_system_prompt: str = Field(default="", description="System prompt for resuming")
     sub_agent_tool_declarations: list[Any] = Field(default_factory=list, description="Tool declarations for resuming")
     sub_agent_enable_search: bool = Field(default=False, description="Whether Google Search grounding was enabled")
+    sub_agent_model: str = Field(default="", description="Gemini model used for the sub-agent session")
+    sub_agent_fallback_model: str | None = Field(default=None, description="Fallback model for the sub-agent session")
 
 
 class OrchestrateRequest(BaseModel):
@@ -446,6 +484,7 @@ class OrchestrateResponse(BaseModel):
     message: str = Field(default="", description="Message to display to the user")
     done: bool = Field(default=False)
     memory_updated: bool = Field(default=False, description="True when project memory was modified during this turn")
+    diagnostics: AgentDiagnostics | None = Field(default=None, description="Model-selection and timing diagnostics for this response.")
 
 
 class OrchestrateContinueRequest(BaseModel):
@@ -499,6 +538,7 @@ class ClarifyResponse(BaseModel):
 
     needs_clarification: bool = Field(default=False)
     questions: list[ClarificationQuestion] = Field(default_factory=list)
+    diagnostics: AgentDiagnostics | None = Field(default=None, description="Model-selection and timing diagnostics for this response.")
 
 
 class ClarificationAnswer(BaseModel):
@@ -533,6 +573,7 @@ class IntentResolveResponse(BaseModel):
     relevant_memory_ids: list[str] = Field(default_factory=list, description="Memory doc IDs the agent should read")
     intent_summary: str = Field(default="", description="One-sentence summary of what the user wants")
     requires_generation: bool = Field(default=False, description="Whether the request involves image/video generation")
+    diagnostics: AgentDiagnostics | None = Field(default=None, description="Model-selection and timing diagnostics for this response.")
 
 
 # ============================================================

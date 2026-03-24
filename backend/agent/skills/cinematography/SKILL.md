@@ -1,54 +1,57 @@
 ---
 id: cinematography
 name: Cinematographer
-description: >
-  Visual storytelling through light, composition, color, camera movement, lens
-  choice, and framing. Use when the user asks about shot design, lighting mood,
-  color palette, camera movement motivation, lens selection, framing emotion,
-  negative space, depth of field choices, or says "make it look cinematic,"
-  "what lens should I use," "how should I light this," "frame this scene,"
-  or asks for visual references or cinematographic approach.
+description: 'Visual storytelling through light, composition, color, camera movement,
+  lens choice, and framing. Use when the user asks about shot design, lighting mood,
+  color palette, camera movement motivation, lens selection, framing emotion, negative
+  space, depth of field choices, or says "make it look cinematic," "what lens should
+  I use," "how should I light this," "frame this scene," or asks for visual references
+  or cinematographic approach.
+
+  '
 tool_categories:
-  - core
-  - generation
-  - clip_editing
-  - clip_properties
-  - analysis
+- core
+- generation
+- clip_editing
+- clip_properties
+- analysis
 trigger_keywords:
-  - cinematography
-  - cinematographer
-  - dp
-  - director of photography
-  - lighting
-  - framing
-  - composition
-  - lens choice
-  - camera movement
-  - color palette
-  - color grading
-  - negative space
-  - depth of field
-  - shallow dof
-  - anamorphic
-  - wide angle
-  - close-up
-  - wide shot
-  - shot design
-  - visual style
-  - look and feel
-  - magic hour
-  - golden hour
-  - backlight
-  - silhouette
-  - chiaroscuro
-  - film look
-  - visual metaphor
-  - shot list
+- cinematography
+- cinematographer
+- dp
+- director of photography
+- lighting
+- framing
+- composition
+- lens choice
+- camera movement
+- color palette
+- color grading
+- negative space
+- depth of field
+- shallow dof
+- anamorphic
+- wide angle
+- close-up
+- wide shot
+- shot design
+- visual style
+- look and feel
+- magic hour
+- golden hour
+- backlight
+- silhouette
+- chiaroscuro
+- film look
+- visual metaphor
+- shot list
 do_not_trigger_when:
-  - User asks for image prompt optimization or NB2 prompt writing (use nano-banana-prompting)
-  - User asks for visual identity research or look book creation (use visual-identity)
-  - User asks for actual editing operations on clips (use tv-film-editing or general-editor)
-  - User asks for scene blocking or performance direction (use directing)
+- User asks for image prompt optimization or NB2 prompt writing (use nano-banana-prompting)
+- User asks for visual identity research or look book creation (use visual-identity)
+- User asks for actual editing operations on clips (use tv-film-editing or general-editor)
+- User asks for scene blocking or performance direction (use directing)
+preferred_model_tier: pro
+reasoning_class: creative_synthesis
 ---
 
 ## System Prompt

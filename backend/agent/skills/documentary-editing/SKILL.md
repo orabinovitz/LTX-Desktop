@@ -1,48 +1,52 @@
 ---
 id: documentary-editing
 name: Documentary / Interview Editor
-description: >
-  Shapes documentary footage into a coherent cut. Use when the user asks to
-  find the spine, structure acts, cut interviews, improve pacing, use B-roll,
-  or solve a documentary edit problem.
+description: 'Shapes documentary footage into a coherent cut. Use when the user asks
+  to find the spine, structure acts, cut interviews, improve pacing, use B-roll, or
+  solve a documentary edit problem.
+
+  '
 tool_categories:
-  - core
-  - clip_editing
-  - clip_properties
-  - transitions
-  - playback
-  - timeline_mgmt
-  - track_mgmt
-  - asset_mgmt
-  - subtitles
-  - analysis
-  - review
-  - editing_ops
+- core
+- clip_editing
+- clip_properties
+- transitions
+- playback
+- timeline_mgmt
+- track_mgmt
+- asset_mgmt
+- subtitles
+- analysis
+- review
+- editing_ops
 trigger_keywords:
-  - documentary
-  - interview
-  - talking head
-  - talking heads
-  - b-roll
-  - b roll
-  - spine
-  - paper edit
-  - rough cut
-  - fine cut
-  - assembly
-  - observational
-  - archival
-  - narration
-  - voiceover doc
-  - jump cut
-  - interview edit
-  - doc edit
-  - act structure documentary
-  - verité
+- documentary
+- interview
+- talking head
+- talking heads
+- b-roll
+- b roll
+- spine
+- paper edit
+- rough cut
+- fine cut
+- assembly
+- observational
+- archival
+- narration
+- voiceover doc
+- jump cut
+- interview edit
+- doc edit
+- act structure documentary
+- "verit\xE9"
 do_not_trigger_when:
-  - User asks for narrative film or TV scene editing (use tv-film-editing)
-  - User asks for marketing or social media edits (use marketing-editor)
-  - User asks for shot design or visual style (use cinematography)
+- User asks for narrative film or TV scene editing (use tv-film-editing)
+- User asks for marketing or social media edits (use marketing-editor)
+- User asks for shot design or visual style (use cinematography)
+preferred_model_tier: pro
+reasoning_class: editorial_craft
+editing_critical: true
 ---
 
 ## System Prompt

@@ -1,41 +1,44 @@
 ---
 id: film-tv-screenwriting
 name: Film & TV Screenwriting
-description: >
-  Develops film and TV scripts, scenes, outlines, characters, and dialogue.
-  Use when the user says "write a scene," "break this story," "fix dialogue,"
-  "outline a pilot," or "punch this up."
+description: 'Develops film and TV scripts, scenes, outlines, characters, and dialogue.
+  Use when the user says "write a scene," "break this story," "fix dialogue," "outline
+  a pilot," or "punch this up."
+
+  '
 tool_categories:
-  - core
-  - generation
-  - clip_editing
-  - timeline_mgmt
-  - subtitles
+- core
+- generation
+- clip_editing
+- timeline_mgmt
+- subtitles
 trigger_keywords:
-  - screenwriting
-  - screenplay
-  - script
-  - scene
-  - dialogue
-  - pilot
-  - episode
-  - story break
-  - beat sheet
-  - logline
-  - character arc
-  - act structure
-  - punch up
-  - rewrite
-  - series bible
-  - cold open
-  - act out
-  - teleplay
-  - feature film
-  - short film
+- screenwriting
+- screenplay
+- script
+- scene
+- dialogue
+- pilot
+- episode
+- story break
+- beat sheet
+- logline
+- character arc
+- act structure
+- punch up
+- rewrite
+- series bible
+- cold open
+- act out
+- teleplay
+- feature film
+- short film
 do_not_trigger_when:
-  - User asks for advertising copy or commercial scripts (use advertising-screenwriter)
-  - User asks for visual style or shot design (use cinematography)
-  - User asks for editing existing footage (use tv-film-editing)
+- User asks for advertising copy or commercial scripts (use advertising-screenwriter)
+- User asks for visual style or shot design (use cinematography)
+- User asks for editing existing footage (use tv-film-editing)
+preferred_model_tier: pro
+reasoning_class: creative_synthesis
 ---
 
 ## System Prompt

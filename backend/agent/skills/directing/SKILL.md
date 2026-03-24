@@ -1,42 +1,45 @@
 ---
 id: directing
 name: Creative Scene Director
-description: >
-  Creative film/TV scene directing for actors, POV, tone, pacing, subtext,
-  silence, and visual metaphor. Use when asked to direct a scene, strengthen
-  emotion, or find the cinematic approach.
+description: 'Creative film/TV scene directing for actors, POV, tone, pacing, subtext,
+  silence, and visual metaphor. Use when asked to direct a scene, strengthen emotion,
+  or find the cinematic approach.
+
+  '
 tool_categories:
-  - core
-  - clip_editing
-  - clip_properties
-  - transitions
-  - playback
-  - timeline_mgmt
-  - generation
-  - analysis
+- core
+- clip_editing
+- clip_properties
+- transitions
+- playback
+- timeline_mgmt
+- generation
+- analysis
 trigger_keywords:
-  - direct
-  - directing
-  - director
-  - scene direction
-  - actor direction
-  - blocking
-  - subtext
-  - visual metaphor
-  - pov
-  - point of view
-  - tone
-  - emotional beat
-  - silence
-  - pacing scene
-  - performance
-  - staging
-  - cinematic approach
-  - rehearsal
+- direct
+- directing
+- director
+- scene direction
+- actor direction
+- blocking
+- subtext
+- visual metaphor
+- pov
+- point of view
+- tone
+- emotional beat
+- silence
+- pacing scene
+- performance
+- staging
+- cinematic approach
+- rehearsal
 do_not_trigger_when:
-  - User asks specifically about camera, lens, or lighting technical choices (use cinematography)
-  - User asks for image prompt optimization (use nano-banana-prompting)
-  - User asks for actual clip editing operations (use tv-film-editing)
+- User asks specifically about camera, lens, or lighting technical choices (use cinematography)
+- User asks for image prompt optimization (use nano-banana-prompting)
+- User asks for actual clip editing operations (use tv-film-editing)
+preferred_model_tier: pro
+reasoning_class: creative_synthesis
 ---
 
 ## System Prompt

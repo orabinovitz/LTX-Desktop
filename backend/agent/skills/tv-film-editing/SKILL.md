@@ -1,61 +1,65 @@
 ---
 id: tv-film-editing
 name: Film & TV Scene Editor
-description: >
-  Shape film and TV scenes into stronger cinematic edits. Use when the user
-  says "edit this scene," "make it more cinematic," "improve pacing," "cut a
+description: 'Shape film and TV scenes into stronger cinematic edits. Use when the
+  user says "edit this scene," "make it more cinematic," "improve pacing," "cut a
   montage," or asks for edit notes.
+
+  '
 tool_categories:
-  - core
-  - clip_editing
-  - clip_properties
-  - transitions
-  - playback
-  - timeline_mgmt
-  - track_mgmt
-  - asset_mgmt
-  - editing_ops
-  - selection_ui
-  - analysis
-  - review
-  - subtitles
+- core
+- clip_editing
+- clip_properties
+- transitions
+- playback
+- timeline_mgmt
+- track_mgmt
+- asset_mgmt
+- editing_ops
+- selection_ui
+- analysis
+- review
+- subtitles
 trigger_keywords:
-  - cinematic
-  - scene edit
-  - film editing
-  - tv editing
-  - dialogue scene
-  - montage
-  - action scene
-  - suspense
-  - pacing
-  - reaction shot
-  - j-cut
-  - l-cut
-  - radio cut
-  - coverage
-  - performance edit
-  - cut notes
-  - edit notes
-  - rough cut notes
-  - fine cut
-  - picture lock
-  - continuity
-  - eye trace
-  - match cut
-  - jump cut
-  - cross-cutting
-  - smash cut
-  - split screen
-  - performance compositing
-  - ai footage
-  - ai video edit
-  - rescue shot
-  - fix footage
+- cinematic
+- scene edit
+- film editing
+- tv editing
+- dialogue scene
+- montage
+- action scene
+- suspense
+- pacing
+- reaction shot
+- j-cut
+- l-cut
+- radio cut
+- coverage
+- performance edit
+- cut notes
+- edit notes
+- rough cut notes
+- fine cut
+- picture lock
+- continuity
+- eye trace
+- match cut
+- jump cut
+- cross-cutting
+- smash cut
+- split screen
+- performance compositing
+- ai footage
+- ai video edit
+- rescue shot
+- fix footage
 do_not_trigger_when:
-  - User asks for simple clip operations without cinematic intent (use general-editor)
-  - User asks for shot design or visual style (use cinematography)
-  - User asks for script writing (use film-tv-screenwriting)
+- User asks for simple clip operations without cinematic intent (use general-editor)
+- User asks for shot design or visual style (use cinematography)
+- User asks for script writing (use film-tv-screenwriting)
+preferred_model_tier: pro
+reasoning_class: editorial_craft
+editing_critical: true
 ---
 
 ## System Prompt

@@ -1274,8 +1274,8 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
       try {
         const args = sanitizeArgs(call.arguments);
         const safe = { ...call, arguments: args };
-
-        switch (safe.tool_name) {
+        const result = await (async (): Promise<ToolResult> => {
+          switch (safe.tool_name) {
           // Core
           case "get_timeline_state": return handleGetTimelineState();
           case "get_project_assets": return handleGetProjectAssets(safe.arguments);
@@ -1352,7 +1352,11 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           case "set_active_tool": return handleSetActiveTool(safe.arguments);
           default:
             return fail(safe.tool_name, `Unknown tool: ${safe.tool_name}`);
-        }
+          }
+        })();
+        const elapsed = Math.round(performance.now() - t0);
+        logger.info(`[agent-exec] ${call.tool_name} ${result.success ? "completed" : "FAILED"} in ${elapsed}ms`);
+        return result;
       } catch (err) {
         const elapsed = Math.round(performance.now() - t0);
         const msg = err instanceof Error ? err.message : String(err);

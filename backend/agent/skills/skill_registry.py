@@ -98,6 +98,12 @@ def _parse_skill_file(path: Path) -> SkillContent | None:
         description=m.get("description", ""),
         tool_categories=m.get("tool_categories", []),
         trigger_keywords=m.get("trigger_keywords", []),
+        preferred_model_tier=m.get("preferred_model_tier"),
+        reasoning_class=m.get("reasoning_class"),
+        editing_critical=bool(m.get("editing_critical", False)),
+        high_stakes_consistency=bool(m.get("high_stakes_consistency", False)),
+        search_grounded=bool(m.get("search_grounded", m.get("enable_search", False))),
+        do_not_trigger_when=m.get("do_not_trigger_when", []),
     )
 
     tool_overrides: list[str] | None = m.get("tool_overrides")

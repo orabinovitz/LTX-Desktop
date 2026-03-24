@@ -1,44 +1,46 @@
 ---
 id: visual-identity
 name: Visual Identity Designer
-description: >
-  Researches and designs the unified visual identity for a film or TV project —
-  the coordinated system of camera, lens, light, color, costume, set, and
-  finishing choices that make a production feel like a coherent world. Use when
-  the user asks to create a film, scene, short, or visual project and needs
-  a visual identity bible, look book, mood board, visual language, or visual
-  world defined before cinematography and pre-production begin.
+description: "Researches and designs the unified visual identity for a film or TV\
+  \ project \u2014 the coordinated system of camera, lens, light, color, costume,\
+  \ set, and finishing choices that make a production feel like a coherent world.\
+  \ Use when the user asks to create a film, scene, short, or visual project and needs\
+  \ a visual identity bible, look book, mood board, visual language, or visual world\
+  \ defined before cinematography and pre-production begin.\n"
 enable_search: true
 tool_categories:
-  - core
-  - memory
+- core
+- memory
 trigger_keywords:
-  - visual identity
-  - visual bible
-  - look book
-  - lookbook
-  - mood board
-  - moodboard
-  - visual language
-  - visual world
-  - color world
-  - production design
-  - visual style guide
-  - visual approach
-  - visual philosophy
-  - visual concept
-  - visual direction
-  - visual tone
-  - visual reference
-  - film look
-  - cinematic look
-  - cinematic identity
-  - visual system
-  - design language
+- visual identity
+- visual bible
+- look book
+- lookbook
+- mood board
+- moodboard
+- visual language
+- visual world
+- color world
+- production design
+- visual style guide
+- visual approach
+- visual philosophy
+- visual concept
+- visual direction
+- visual tone
+- visual reference
+- film look
+- cinematic look
+- cinematic identity
+- visual system
+- design language
 do_not_trigger_when:
-  - User asks for concrete shot-level prompting (use nano-banana-prompting or cinematography)
-  - User asks for script writing (use film-tv-screenwriting)
-  - User asks for editing existing clips (use tv-film-editing or general-editor)
+- User asks for concrete shot-level prompting (use nano-banana-prompting or cinematography)
+- User asks for script writing (use film-tv-screenwriting)
+- User asks for editing existing clips (use tv-film-editing or general-editor)
+preferred_model_tier: pro
+reasoning_class: research_synthesis
+search_grounded: true
 ---
 
 ## System Prompt

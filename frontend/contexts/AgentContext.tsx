@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useAgent, type ChatMessage, type OnToolProgress, type AgentMessage } from "@/hooks/use-agent";
 import { useOrchestratedAgent } from "@/hooks/use-orchestrated-agent";
-import type { AgentProgress } from "@/types/agent-progress";
+import type { AgentDiagnostics, AgentProgress } from "@/types/agent-progress";
 import type { ToolCall, ToolResult } from "@/types/agent-progress";
 import type { TimelineClip, ProjectTab } from "@/types/project";
 import type {
@@ -90,6 +90,19 @@ interface IntentResolution {
   relevant_memory_ids: string[];
   intent_summary: string;
   requires_generation: boolean;
+  diagnostics?: AgentDiagnostics | null;
+}
+
+function logDiagnostics(prefix: string, diagnostics?: AgentDiagnostics | null) {
+  if (!diagnostics) return;
+  const parts = [
+    `stage=${diagnostics.stage_name || "unknown"}`,
+    `model=${diagnostics.selected_model || "unknown"}`,
+  ];
+  if (typeof diagnostics.llm_ms === "number") parts.push(`llm_ms=${diagnostics.llm_ms}`);
+  if (typeof diagnostics.planning_ms === "number") parts.push(`planning_ms=${diagnostics.planning_ms}`);
+  if (diagnostics.used_fallback_model) parts.push("fallback=true");
+  logger.info(`[${prefix}] diagnostics — ${parts.join(", ")}`);
 }
 
 async function resolveIntent(
@@ -115,12 +128,14 @@ async function resolveIntent(
     });
     if (res.ok) {
       const data: IntentResolution = await res.json();
+      logDiagnostics("agent-context", data.diagnostics);
       return {
         grounded_prompt: data.grounded_prompt || prompt,
         complexity: data.complexity === "orchestrated" ? "orchestrated" : "simple",
         relevant_memory_ids: data.relevant_memory_ids ?? [],
         intent_summary: data.intent_summary ?? "",
         requires_generation: data.requires_generation ?? false,
+        diagnostics: data.diagnostics ?? null,
       };
     }
   } catch {
@@ -179,6 +194,7 @@ async function fetchClarification(
     });
     if (res.ok) {
       const data: ClarifyResponse = await res.json();
+      logDiagnostics("agent-context", data.diagnostics);
       if (data.needs_clarification && data.questions.length > 0) {
         return data;
       }

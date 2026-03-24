@@ -235,7 +235,7 @@ describe("useOrchestratedAgent", () => {
     expect(result.current.isProcessing).toBe(false);
     const lastMsg = result.current.messages[result.current.messages.length - 1];
     expect(lastMsg.role).toBe("agent");
-    expect(lastMsg.content).toContain("wrong");
+    expect(lastMsg.content).toContain("Orchestrate API error");
   });
 
   it("clearChat resets state", async () => {

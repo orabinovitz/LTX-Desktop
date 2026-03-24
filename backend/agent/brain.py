@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agent.model_policy import AgentStage, select_model
 from pydantic import BaseModel, Field
 
 from agent.types import VideoMetadata
@@ -30,7 +31,6 @@ from services.http_client.http_client import HTTPClient, HttpTimeoutError
 
 logger = logging.getLogger(__name__)
 
-_GEMINI_MODEL = "gemini-3-flash-preview"
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 _DISK_CACHE_DIR = Path.home() / ".ltx-desktop" / "brain-cache"
 
@@ -620,9 +620,10 @@ def _call_gemini_for_topics(
     user_text = f"Here are the clips in this project:\n\n{clip_summaries}\n\nGroup them by topic."
 
     max_attempts = 2
+    selection = select_model(AgentStage.PROJECT_BRAIN)
     for attempt in range(max_attempts):
         max_tokens = 8192 if attempt > 0 else 4096
-        gemini_url = f"{_GEMINI_BASE_URL}/{_GEMINI_MODEL}:generateContent"
+        gemini_url = f"{_GEMINI_BASE_URL}/{selection.model}:generateContent"
         payload: dict[str, Any] = {
             "contents": [{"role": "user", "parts": [{"text": user_text}]}],
             "systemInstruction": {"parts": [{"text": system_prompt}]},

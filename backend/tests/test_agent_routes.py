@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from agent.model_policy import LIVE_AUDIO_MODEL
 from agent.brain import _brains, _brain_lock, ProjectBrain
 from agent import project_memory
 from agent.orchestration.orchestrator import _sessions
@@ -71,6 +72,9 @@ class TestAgentExecute:
         assert resp.status_code == 200
         data = resp.json()
         assert data["session_id"]
+        assert data["diagnostics"]["selected_model"] == "gemini-3.1-pro-preview"
+        assert data["diagnostics"]["stage_name"] == "simple_agent"
+        assert isinstance(data["diagnostics"]["llm_ms"], int)
 
     def test_execute_with_tool_calls(self, client, test_state, fake_services):
         test_state.state.app_settings.gemini_api_key = "test-key"
@@ -179,6 +183,9 @@ class TestClarify:
         assert len(data["questions"]) == 2
         assert data["questions"][0]["id"] == "target-platform"
         assert len(data["questions"][0]["options"]) == 3
+        assert data["diagnostics"]["selected_model"] == "gemini-3.1-flash-lite-preview"
+        assert data["diagnostics"]["stage_name"] == "clarification"
+        assert isinstance(data["diagnostics"]["llm_ms"], int)
 
     def test_clarify_handles_gemini_error(self, client, test_state, fake_services):
         test_state.state.app_settings.gemini_api_key = "test-key"
@@ -237,6 +244,9 @@ class TestOrchestrate:
         data = resp.json()
         assert data["session_id"]
         assert len(data["tasks"]) == 1
+        assert data["diagnostics"]["selected_model"] == "gemini-3.1-flash-lite-preview"
+        assert data["diagnostics"]["stage_name"] == "orchestrator_planner"
+        assert isinstance(data["diagnostics"]["planning_ms"], int)
 
     def test_orchestrate_continue_expired(self, client, test_state, fake_services):
         test_state.state.app_settings.gemini_api_key = "test-key"
@@ -471,6 +481,7 @@ class TestLiveConfig:
         assert "system_prompt" in data
         assert "tools" in data
         assert "model" in data
+        assert data["model"] == LIVE_AUDIO_MODEL
 
 
 # ====================================================================

@@ -1,3 +1,5 @@
+import type { AgentDiagnostics } from "./agent-progress";
+
 export interface ClarificationOption {
   id: string;
   label: string;
@@ -13,6 +15,7 @@ export interface ClarificationQuestion {
 export interface ClarifyResponse {
   needs_clarification: boolean;
   questions: ClarificationQuestion[];
+  diagnostics?: AgentDiagnostics | null;
 }
 
 export interface ClarificationAnswer {

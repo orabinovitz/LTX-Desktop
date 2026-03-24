@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import re
 import threading
 import time
 import uuid
@@ -20,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
+from agent.model_policy import AgentStage, EDITING_TOOL_CATEGORIES, prompt_has_editing_signals, select_model
 from agent.tool_knowledge_base import (
     build_category_catalog,
     build_workflow_recipes,
@@ -30,11 +32,13 @@ from agent.tool_knowledge_base import (
 )
 from agent.tool_registry import TOOLS_BY_NAME, tools_to_gemini_declarations
 from agent.types import (
+    AgentDiagnostics,
     DESTRUCTIVE_TOOLS,
     MEMORY_WRITE_TOOLS,
     AgentExecuteRequest,
     AgentExecuteResponse,
     ExecutionTarget,
+    TaskType,
     TimelineState,
     ToolCall,
     ToolResult,
@@ -54,9 +58,6 @@ logger = logging.getLogger(__name__)
 
 _MAX_TURNS = 20
 """Hard ceiling on agentic loop iterations to prevent runaway calls."""
-
-_GEMINI_MODEL = "gemini-3.1-pro-preview"
-_FALLBACK_MODEL = "gemini-3-flash-preview"
 
 
 _ROLE_MAP: dict[str, str] = {"user": "user", "agent": "model", "assistant": "model", "model": "model"}
@@ -631,6 +632,9 @@ class _SessionData:
     view_context: str
     last_access: float
     project_id: str | None = None
+    latest_prompt: str = ""
+    memory_write_risk: bool = False
+    destructive_risk: bool = False
 
 
 _sessions: OrderedDict[str, _SessionData] = OrderedDict()
@@ -677,18 +681,27 @@ def _set_session(
     scoped_categories: list[str] | None = None,
     view_context: str | None = None,
     project_id: str | None = None,
+    latest_prompt: str | None = None,
+    memory_write_risk: bool | None = None,
+    destructive_risk: bool | None = None,
 ) -> None:
     """Create or update a session."""
     existing = _sessions.get(session_id)
     cats = scoped_categories or (existing.scoped_categories if existing else [])
     vc = view_context or (existing.view_context if existing else "editor")
     pid = project_id or (existing.project_id if existing else None)
+    prompt = latest_prompt if latest_prompt is not None else (existing.latest_prompt if existing else "")
+    memory_risk = memory_write_risk if memory_write_risk is not None else (existing.memory_write_risk if existing else False)
+    destructive = destructive_risk if destructive_risk is not None else (existing.destructive_risk if existing else False)
     _sessions[session_id] = _SessionData(
         contents=_truncate_history(contents),
         scoped_categories=cats,
         view_context=vc,
         last_access=time.monotonic(),
         project_id=pid,
+        latest_prompt=prompt,
+        memory_write_risk=memory_risk,
+        destructive_risk=destructive,
     )
 
 
@@ -697,6 +710,9 @@ def create_session(
     scoped_categories: list[str] | None = None,
     view_context: str = "editor",
     project_id: str | None = None,
+    latest_prompt: str = "",
+    memory_write_risk: bool = False,
+    destructive_risk: bool = False,
 ) -> str:
     """Create a new conversation session and return its UUID."""
     _evict_stale_sessions()
@@ -706,9 +722,50 @@ def create_session(
         scoped_categories=scoped_categories or [],
         project_id=project_id,
         view_context=view_context,
+        latest_prompt=latest_prompt,
+        memory_write_risk=memory_write_risk,
+        destructive_risk=destructive_risk,
     )
     logger.info("Created agent session %s (total: %d)", session_id, len(_sessions))
     return session_id
+
+
+_MEMORY_ACTION_PATTERN = re.compile(
+    r"project memory|save to project memory|save this to memory|memory note|update project context|add memory note|remember this|remember that|remember these",
+    re.IGNORECASE,
+)
+
+
+def _prompt_requests_memory_write(prompt: str) -> bool:
+    return bool(_MEMORY_ACTION_PATTERN.search(prompt))
+
+
+_DESTRUCTIVE_ACTION_PATTERN = re.compile(
+    r"\bdelete (?:asset|assets|clip|clips|track|tracks)\b|\bremove (?:asset|assets|clip|clips|track|tracks)\b|\barchive (?:asset|assets)\b|batch delete",
+    re.IGNORECASE,
+)
+
+
+def _prompt_requests_destructive_action(prompt: str) -> bool:
+    return bool(_DESTRUCTIVE_ACTION_PATTERN.search(prompt))
+
+
+_REVIEW_ACTION_PATTERN = re.compile(
+    r"\breview\b|\bfeedback\b|\bevaluate\b|\bscore\b|\bassess\b|\bcritique\b",
+    re.IGNORECASE,
+)
+
+
+def _prompt_requests_review(prompt: str) -> bool:
+    return bool(_REVIEW_ACTION_PATTERN.search(prompt))
+
+
+def _prompt_mentions_editing_context(prompt: str) -> bool:
+    prompt_lower = prompt.lower()
+    return any(
+        token in prompt_lower
+        for token in ("clip", "clips", "track", "tracks", "shot", "shots", "scene", "scenes", "timeline")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -736,6 +793,8 @@ def execute_prompt(
     view_ctx = request.view_context.value if request.view_context else "editor"
     scoped_categories = classify_intent(request.prompt)
     scoped_categories = filter_categories_for_view(scoped_categories, view_ctx)
+    memory_write_risk = _prompt_requests_memory_write(request.prompt)
+    destructive_risk = _prompt_requests_destructive_action(request.prompt)
     scoped_tools = get_tools_for_categories_and_view(scoped_categories, view_ctx)
     logger.info(
         "[agent] intent classification (view=%s): %s → %d tools from %s",
@@ -760,11 +819,17 @@ def execute_prompt(
             sd.view_context = view_ctx
             if request.project_id:
                 sd.project_id = request.project_id
+            sd.latest_prompt = request.prompt
+            sd.memory_write_risk = memory_write_risk
+            sd.destructive_risk = destructive_risk
     else:
         session_id = create_session(
             scoped_categories=scoped_categories,
             view_context=view_ctx,
             project_id=request.project_id,
+            latest_prompt=request.prompt,
+            memory_write_risk=memory_write_risk,
+            destructive_risk=destructive_risk,
         )
 
     # -- Build context text from timeline state --------------------------
@@ -854,7 +919,14 @@ def execute_prompt(
             gemini_role = _ROLE_MAP.get(msg.role, "user")
             contents.append({"role": gemini_role, "parts": [{"text": msg.content}]})
         contents.append(user_message)
-        _set_session(session_id, contents, scoped_categories=scoped_categories)
+        _set_session(
+            session_id,
+            contents,
+            scoped_categories=scoped_categories,
+            latest_prompt=request.prompt,
+            memory_write_risk=memory_write_risk,
+            destructive_risk=destructive_risk,
+        )
 
     logger.info(
         "[agent] session=%s | execute_prompt: %.120s",
@@ -963,11 +1035,6 @@ def _call_gemini(
             done=True,
         )
 
-    gemini_url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{_GEMINI_MODEL}:generateContent"
-    )
-
     sd = _get_session(session_id)
     if sd is None:
         return AgentExecuteResponse(
@@ -975,40 +1042,75 @@ def _call_gemini(
             done=True,
         )
 
+    editing_prompt = prompt_has_editing_signals(sd.latest_prompt) or _prompt_mentions_editing_context(sd.latest_prompt)
+    review_prompt = _prompt_requests_review(sd.latest_prompt)
+    routing_categories = list(sd.scoped_categories)
+    if not editing_prompt:
+        soft_edit_categories = {"transitions", "subtitles"}
+        if not review_prompt:
+            soft_edit_categories.add("review")
+        routing_categories = [category for category in routing_categories if category not in soft_edit_categories]
+    if not sd.memory_write_risk:
+        routing_categories = [category for category in routing_categories if category != "memory"]
+    if (
+        len(sd.scoped_categories) >= 10
+        and not editing_prompt
+        and not review_prompt
+        and not sd.memory_write_risk
+        and not sd.destructive_risk
+    ):
+        routing_categories = ["core"]
+    if not routing_categories:
+        routing_categories = ["core"]
+    model_selection = select_model(
+        AgentStage.SIMPLE_AGENT,
+        prompt=sd.latest_prompt,
+        task_type=TaskType.REVIEW if review_prompt else None,
+        tool_categories=routing_categories,
+        has_memory_tool_access="memory" in routing_categories,
+        has_destructive_tool_access=sd.destructive_risk,
+        wide_tool_surface=len(routing_categories) >= 5,
+        turn_depth=_depth,
+    )
+    gemini_url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model_selection.model}:generateContent"
+    )
+
     num_messages = len(sd.contents)
     logger.info(
         "[agent] session=%s turn=%d | calling %s | %d messages",
         session_id[:8],
         _depth,
-        _GEMINI_MODEL,
+        model_selection.model,
         num_messages,
     )
 
-    # Use scoped tools when available, fall back to all tools
+    # Use the same routed categories for tool exposure and model selection.
     view_ctx = sd.view_context if sd.view_context else "editor"
     scoped_tools = (
-        get_tools_for_categories_and_view(sd.scoped_categories, view_ctx)
-        if sd.scoped_categories
+        get_tools_for_categories_and_view(routing_categories, view_ctx)
+        if routing_categories
         else None
     )
     tool_declarations = tools_to_gemini_declarations(scoped_tools)
 
     # Build dynamic system prompt with category catalog
     dynamic_prompt = SYSTEM_PROMPT
-    if sd.scoped_categories:
-        catalog = build_category_catalog(sd.scoped_categories)
-        recipes = build_workflow_recipes(sd.scoped_categories)
+    if routing_categories:
+        catalog = build_category_catalog(routing_categories)
+        recipes = build_workflow_recipes(routing_categories)
         dynamic_prompt = SYSTEM_PROMPT + "\n\n" + catalog
         if recipes:
             dynamic_prompt += "\n\n" + recipes
-        if "clip_editing" in sd.scoped_categories:
+        if "clip_editing" in routing_categories:
             dynamic_prompt += "\n\n" + _EDITING_MODE_APPENDIX
-        if "generation" in sd.scoped_categories:
+        if "generation" in routing_categories:
             dynamic_prompt += "\n\n" + _IMAGE_GENERATION_APPENDIX
             dynamic_prompt += "\n\n" + _GENERATION_MODE_APPENDIX
-        if "analysis" in sd.scoped_categories or "review" in sd.scoped_categories:
+        if "analysis" in routing_categories or "review" in routing_categories:
             dynamic_prompt += "\n\n" + _LONG_FORM_EDITING_INSTRUCTIONS
-        if "asset_mgmt" in sd.scoped_categories:
+        if "asset_mgmt" in routing_categories:
             dynamic_prompt += "\n\n" + _BULK_OPERATIONS_INSTRUCTIONS
 
     payload: dict[str, Any] = {
@@ -1021,6 +1123,7 @@ def _call_gemini(
     # -- HTTP call with retry on 503 / connection errors ------------------
     t0 = time.monotonic()
     response = None
+    used_fallback_model = False
     _MAX_RETRIES = 3
     for _attempt in range(_MAX_RETRIES):
         try:
@@ -1078,15 +1181,20 @@ def _call_gemini(
         )
 
     # -- Fallback to Flash if Pro is still returning 503 ------------------
-    if response.status_code == 503 and _GEMINI_MODEL != _FALLBACK_MODEL:
+    if (
+        response.status_code == 503
+        and model_selection.fallback_model
+        and model_selection.fallback_model != model_selection.model
+    ):
         fallback_url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{_FALLBACK_MODEL}:generateContent"
+            f"{model_selection.fallback_model}:generateContent"
         )
         logger.warning(
             "[agent] session=%s | %s exhausted 503 retries, falling back to %s",
-            session_id[:8], _GEMINI_MODEL, _FALLBACK_MODEL,
+            session_id[:8], model_selection.model, model_selection.fallback_model,
         )
+        used_fallback_model = True
         try:
             response = http_client.post(
                 fallback_url,
@@ -1111,6 +1219,12 @@ def _call_gemini(
             )
 
     elapsed = time.monotonic() - t0
+    diagnostics = AgentDiagnostics(
+        selected_model=model_selection.fallback_model if used_fallback_model and model_selection.fallback_model else model_selection.model,
+        stage_name=AgentStage.SIMPLE_AGENT.value,
+        llm_ms=int(elapsed * 1000),
+        used_fallback_model=used_fallback_model,
+    )
     logger.info(
         "[agent] session=%s turn=%d | Gemini responded HTTP %d in %.1fs (~%.1fKB)",
         session_id[:8],
@@ -1205,6 +1319,7 @@ def _call_gemini(
         return AgentExecuteResponse(
             message=combined_text,
             done=True,
+            diagnostics=diagnostics,
         )
 
     # -- Execute backend tools inline (parallel when multiple) ------------
@@ -1257,6 +1372,7 @@ def _call_gemini(
             done=False,
             memory_updated=had_memory_writes,
             requires_confirmation=has_destructive,
+            diagnostics=diagnostics,
         )
 
     # -- Only backend tools were called — recurse to continue the loop ----
@@ -1596,9 +1712,10 @@ def _gemini_review_call(
     max_output_tokens: int = 4096,
 ) -> ToolResult:
     """Shared helper for Gemini-based review tool calls (quality + structure)."""
+    selection = select_model(AgentStage.SIMPLE_AGENT_REVIEW)
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{_GEMINI_MODEL}:generateContent"
+        f"{selection.model}:generateContent"
     )
     payload: dict[str, Any] = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],

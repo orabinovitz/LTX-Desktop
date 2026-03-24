@@ -1,38 +1,42 @@
 ---
 id: general-editor
 name: General Video Editor
-description: >
-  General-purpose video editing assistant. Handles timeline operations,
-  clip management, trimming, splitting, track management, and basic
-  editorial decisions. Use when no specialized editing style is required.
+description: 'General-purpose video editing assistant. Handles timeline operations,
+  clip management, trimming, splitting, track management, and basic editorial decisions.
+  Use when no specialized editing style is required.
+
+  '
 tool_categories:
-  - core
-  - clip_editing
-  - clip_properties
-  - transitions
-  - playback
-  - timeline_mgmt
-  - track_mgmt
-  - asset_mgmt
-  - editing_ops
-  - selection_ui
-  - analysis
-  - review
+- core
+- clip_editing
+- clip_properties
+- transitions
+- playback
+- timeline_mgmt
+- track_mgmt
+- asset_mgmt
+- editing_ops
+- selection_ui
+- analysis
+- review
 trigger_keywords:
-  - edit
-  - trim
-  - cut
-  - split
-  - timeline
-  - clip
-  - track
-  - arrange
-  - sequence
-  - assemble
+- edit
+- trim
+- cut
+- split
+- timeline
+- clip
+- track
+- arrange
+- sequence
+- assemble
 do_not_trigger_when:
-  - User asks for cinematic or film-style editing (use tv-film-editing)
-  - User asks about visual style, lighting, or camera choices (use cinematography)
-  - User asks for marketing or social media edits (use marketing-editor)
+- User asks for cinematic or film-style editing (use tv-film-editing)
+- User asks about visual style, lighting, or camera choices (use cinematography)
+- User asks for marketing or social media edits (use marketing-editor)
+preferred_model_tier: pro
+reasoning_class: operational
+editing_critical: true
 ---
 
 ## System Prompt

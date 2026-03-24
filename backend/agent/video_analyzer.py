@@ -23,6 +23,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from agent.model_policy import AgentStage, select_model
 from agent.types import AnalysisStatus, DialogueLine, SceneSegment, TopicTag, VideoMetadata
 from services.http_client.http_client import HTTPClient, HttpTimeoutError
 
@@ -54,7 +55,6 @@ _ALLOWED_VIDEO_EXTENSIONS = {
 }
 
 _LONG_VIDEO_THRESHOLD_SECONDS = 300  # 5 minutes — above this, use multi-pass analysis
-_GEMINI_MODEL = "gemini-3-flash-preview"
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 _PROXY_SIZE_THRESHOLD = 500 * 1024 * 1024  # 500 MB — above this, transcode before upload
@@ -630,7 +630,8 @@ def _gemini_generate(
     timeout: int = 180,
 ) -> dict:
     """Call Gemini generateContent against an already-uploaded file. Returns parsed JSON."""
-    gemini_url = f"{_GEMINI_BASE_URL}/{_GEMINI_MODEL}:generateContent"
+    selection = select_model(AgentStage.VIDEO_ANALYZER)
+    gemini_url = f"{_GEMINI_BASE_URL}/{selection.model}:generateContent"
 
     payload = {
         "contents": [
