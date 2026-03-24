@@ -12,6 +12,12 @@ import type { OnToolProgress } from "@/hooks/use-agent";
 import { backendFetch } from "@/lib/backend";
 import { getAllowedForcedApiDurations } from "@/lib/api-video-options";
 import { autoNameAsset } from "@/lib/auto-name-asset";
+import {
+  cancelVideoGeneration,
+  getLegacyGenerationProgress,
+  getVideoGenerationJobStatus,
+  submitVideoGenerationJob,
+} from "@/lib/video-generation-api";
 
 export function urlToDataUri(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -28,14 +34,6 @@ export function urlToDataUri(url: string): Promise<string> {
     img.onerror = () => reject(new Error(`Failed to load: ${url}`))
     img.src = url
   })
-}
-
-interface GenerationProgress {
-  status: string;
-  phase: string;
-  progress: number;
-  currentStep: number;
-  totalSteps: number;
 }
 
 interface VideoGenerationParams {
@@ -106,6 +104,7 @@ function getImageDimensions(
 function startProgressPolling(
   onProgress: OnToolProgress | undefined,
   signal?: AbortSignal,
+  generationId?: string,
 ): () => void {
   if (!onProgress) return () => {};
 
@@ -115,7 +114,7 @@ function startProgressPolling(
       return;
     }
     try {
-      const status = await agentGetGenerationStatus();
+      const status = await agentGetGenerationStatus(generationId);
       if (status.isGenerating) {
         const phaseLabel =
           status.phase === "loading_model"
@@ -137,6 +136,73 @@ function startProgressPolling(
   return () => clearInterval(intervalId);
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isAsyncApiOnlyError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("ASYNC_API_GENERATIONS_REQUIRE_LTX_API");
+}
+
+async function waitForVideoGenerationJob(
+  generationId: string,
+  signal?: AbortSignal,
+): Promise<{
+  status: string;
+  videoPath: string | null;
+  error: string | null;
+}> {
+  while (true) {
+    if (signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    const status = await getVideoGenerationJobStatus(generationId);
+    if (status.status === "queued" || status.status === "running") {
+      await delay(500);
+      continue;
+    }
+
+    return {
+      status: status.status,
+      videoPath: status.videoPath ?? null,
+      error: status.error ?? null,
+    };
+  }
+}
+
+async function runBlockingVideoGenerationRequest(
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+  onProgress?: OnToolProgress,
+): Promise<{ status: string; videoPath: string | null; error: string | null }> {
+  const stopPolling = startProgressPolling(onProgress, signal);
+
+  let response: Response;
+  try {
+    response = await backendFetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } finally {
+    stopPolling();
+  }
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `Generation request failed (${response.status})`);
+  }
+
+  const result = await response.json();
+  return {
+    status: result.status,
+    videoPath: result.video_path ?? null,
+    error: result.error ?? null,
+  };
+}
+
 export async function agentGenerateVideo(
   params: VideoGenerationParams,
   addAsset: (
@@ -152,8 +218,6 @@ export async function agentGenerateVideo(
     projectTags: string[];
   },
 ): Promise<GenerationResult> {
-  const stopPolling = startProgressPolling(onProgress, signal);
-
   const model = params.model ?? "fast";
   const resolution = params.resolution ?? "1080p";
   const fps = params.fps ?? 24;
@@ -176,32 +240,26 @@ export async function agentGenerateVideo(
   if (params.imagePath) body.imagePath = params.imagePath;
   if (params.audioPath) body.audioPath = params.audioPath;
 
-  let response: Response;
+  let result: { status: string; videoPath: string | null; error: string | null };
   try {
-    response = await backendFetch("/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal,
-    });
-  } catch (e) {
-    stopPolling();
-    throw e;
+    const queued = await submitVideoGenerationJob(body, signal);
+    const stopPolling = startProgressPolling(onProgress, signal, queued.generationId);
+    try {
+      result = await waitForVideoGenerationJob(queued.generationId, signal);
+    } finally {
+      stopPolling();
+    }
+  } catch (error) {
+    if (!isAsyncApiOnlyError(error)) {
+      throw error;
+    }
+    result = await runBlockingVideoGenerationRequest(body, signal, onProgress);
   }
-
-  stopPolling();
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error || `Generation request failed (${response.status})`);
-  }
-
-  const result = await response.json();
 
   if (result.status === "cancelled") throw new Error("Generation was cancelled");
   if (result.error) throw new Error(result.error);
 
-  const videoPath: string = result.video_path || "";
+  const videoPath = result.videoPath || "";
   if (!videoPath) throw new Error("Generation completed but no video path returned");
 
   const videoUrl = videoPath.startsWith("/")
@@ -457,28 +515,59 @@ export async function agentRetakeSection(
   };
 }
 
-export async function agentCancelGeneration(): Promise<void> {
-  const res = await backendFetch("/api/generate/cancel", { method: "POST" });
-  if (!res.ok) {
-    throw new Error(`Cancel request failed: ${res.status}`);
-  }
+export async function agentCancelGeneration(options?: {
+  generationId?: string;
+  batchId?: string;
+}): Promise<void> {
+  await cancelVideoGeneration(options);
 }
 
-export async function agentGetGenerationStatus(): Promise<{
+export async function agentGetGenerationStatus(generationId?: string): Promise<{
   isGenerating: boolean;
   progress: number;
   phase: string;
+  status: string;
+  videoPath: string | null;
+  error: string | null;
+  generationId: string | null;
+  batchId: string | null;
 }> {
   try {
-    const res = await backendFetch("/api/generation/progress");
-    if (!res.ok) return { isGenerating: false, progress: 0, phase: "idle" };
-    const data: GenerationProgress = await res.json();
+    if (generationId) {
+      const data = await getVideoGenerationJobStatus(generationId);
+      return {
+        isGenerating: data.status === "queued" || data.status === "running",
+        progress: data.progress,
+        phase: data.phase,
+        status: data.status,
+        videoPath: data.videoPath ?? null,
+        error: data.error ?? null,
+        generationId: data.generationId,
+        batchId: data.batchId ?? null,
+      };
+    }
+
+    const data = await getLegacyGenerationProgress();
     return {
-      isGenerating: data.status === "generating" || data.phase !== "complete",
+      isGenerating: data.status === "queued" || data.status === "running",
       progress: data.progress,
       phase: data.phase,
+      status: data.status,
+      videoPath: null,
+      error: null,
+      generationId: null,
+      batchId: null,
     };
   } catch {
-    return { isGenerating: false, progress: 0, phase: "idle" };
+    return {
+      isGenerating: false,
+      progress: 0,
+      phase: "idle",
+      status: "idle",
+      videoPath: null,
+      error: null,
+      generationId: generationId ?? null,
+      batchId: null,
+    };
   }
 }

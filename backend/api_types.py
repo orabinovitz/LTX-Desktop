@@ -92,6 +92,42 @@ class GenerationProgressResponse(BaseModel):
     totalSteps: int | None
 
 
+class GenerationJobResponse(BaseModel):
+    status: str
+    generationId: str
+    batchId: str | None = None
+
+
+class GenerationJobStatusResponse(BaseModel):
+    generationId: str
+    status: str
+    phase: str
+    progress: int
+    currentStep: int | None
+    totalSteps: int | None
+    videoPath: str | None = None
+    error: str | None = None
+    batchId: str | None = None
+
+
+class GenerationBatchResponse(BaseModel):
+    status: str
+    batchId: str
+    generationIds: list[str]
+
+
+class GenerationBatchStatusResponse(BaseModel):
+    batchId: str
+    status: str
+    totalJobs: int
+    queuedJobs: int
+    runningJobs: int
+    completedJobs: int
+    failedJobs: int
+    cancelledJobs: int
+    jobs: list[GenerationJobStatusResponse]
+
+
 class ModelInfo(BaseModel):
     id: str
     name: str
@@ -219,6 +255,10 @@ class GenerateVideoRequest(BaseModel):
     imagePath: str | None = None
     audioPath: str | None = None
     aspectRatio: Literal["16:9", "9:16"] = "16:9"
+
+
+class GenerateVideoBatchRequest(BaseModel):
+    requests: list[GenerateVideoRequest]
 
 
 ImageModelType = Literal["nano-banana-2", "z-image-turbo"]

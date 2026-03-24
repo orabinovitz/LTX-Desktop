@@ -1,6 +1,12 @@
 import { useState, useCallback, useRef } from 'react'
 import type { GenerationSettings } from '@/components/SettingsPanel'
 import { backendFetch } from '@/lib/backend'
+import {
+  cancelVideoGeneration,
+  getLegacyGenerationProgress,
+  getVideoGenerationJobStatus,
+  submitVideoGenerationJob,
+} from '@/lib/video-generation-api'
 import { useAppSettings } from '@/contexts/AppSettingsContext'
 
 interface GenerationState {
@@ -22,6 +28,12 @@ interface GenerationProgress {
   progress: number
   currentStep: number | null
   totalSteps: number | null
+}
+
+interface VideoGenerationResultPayload {
+  status: string
+  video_path: string | null
+  error: string | null
 }
 
 interface UseGenerationReturn extends GenerationState {
@@ -90,7 +102,12 @@ function getPhaseMessage(phase: string): string {
 }
 
 export function useGeneration(): UseGenerationReturn {
-  const { settings: appSettings, forceApiGenerations, refreshSettings } = useAppSettings()
+  const {
+    settings: appSettings,
+    forceApiGenerations,
+    refreshSettings,
+    shouldVideoGenerateWithLtxApi,
+  } = useAppSettings()
   const [state, setState] = useState<GenerationState>({
     isGenerating: false,
     progress: 0,
@@ -105,6 +122,7 @@ export function useGeneration(): UseGenerationReturn {
   })
 
   const abortControllerRef = useRef<AbortController | null>(null)
+  const generationIdRef = useRef<string | null>(null)
 
   const generate = useCallback(async (
     prompt: string,
@@ -158,69 +176,99 @@ export function useGeneration(): UseGenerationReturn {
       // Estimated inference time in seconds based on model
       const estimatedInferenceTime = settings.model === 'pro' ? 120 : 45
       
-      const pollProgress = async () => {
+      const pollProgress = async (generationId?: string) => {
         if (!shouldApplyPollingUpdates) return
         try {
-          const res = await backendFetch('/api/generation/progress')
-          if (res.ok) {
-            const data: GenerationProgress = await res.json()
-            if (!shouldApplyPollingUpdates) return
+          const data: GenerationProgress = generationId
+            ? await getVideoGenerationJobStatus(generationId)
+            : await getLegacyGenerationProgress()
+          if (!shouldApplyPollingUpdates) return
 
-            let displayProgress = data.progress
-            let statusMessage = getPhaseMessage(data.phase)
-            
-            // Time-based interpolation during inference phase
-            if (data.phase === 'inference') {
-              if (lastPhase !== 'inference') {
-                inferenceStartTime = Date.now()
-              }
-              const elapsed = (Date.now() - inferenceStartTime) / 1000
-              // Interpolate from 15% to 95% based on estimated time
-              const inferenceProgress = Math.min(elapsed / estimatedInferenceTime, 0.95)
-              displayProgress = 15 + Math.floor(inferenceProgress * 80)
+          let displayProgress = data.progress
+          let statusMessage = getPhaseMessage(data.phase)
+          
+          // Time-based interpolation during inference phase
+          if (data.phase === 'inference') {
+            if (lastPhase !== 'inference') {
+              inferenceStartTime = Date.now()
             }
-
-            // Keep API/local completion as a terminal response state, not polling state.
-            // Polling complete means backend state is finalized, but request can still be in-flight.
-            if (data.phase === 'complete' || data.status === 'complete') {
-              displayProgress = 95
-              statusMessage = 'Finalizing...'
-            }
-            
-            lastPhase = data.phase
-            
-            setState(prev => ({
-              ...prev,
-              progress: displayProgress,
-              statusMessage,
-            }))
+            const elapsed = (Date.now() - inferenceStartTime) / 1000
+            // Interpolate from 15% to 95% based on estimated time
+            const inferenceProgress = Math.min(elapsed / estimatedInferenceTime, 0.95)
+            displayProgress = 15 + Math.floor(inferenceProgress * 80)
           }
+
+          // Keep API/local completion as a terminal response state, not polling state.
+          // Polling complete means backend state is finalized, but request can still be in-flight.
+          if (data.phase === 'complete' || data.status === 'complete') {
+            displayProgress = 95
+            statusMessage = 'Finalizing...'
+          }
+          
+          lastPhase = data.phase
+          
+          setState(prev => ({
+            ...prev,
+            progress: displayProgress,
+            statusMessage,
+          }))
         } catch {
           // Ignore polling errors
         }
       }
       
-      progressInterval = setInterval(pollProgress, 500)
+      let result: VideoGenerationResultPayload
+      if (shouldVideoGenerateWithLtxApi) {
+        const queued = await submitVideoGenerationJob(body, abortControllerRef.current.signal)
+        generationIdRef.current = queued.generationId
+        progressInterval = setInterval(() => {
+          void pollProgress(queued.generationId)
+        }, 500)
 
-      // Start generation (HTTP POST - synchronous, returns when done)
-      const response = await backendFetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: abortControllerRef.current.signal,
-      })
-      shouldApplyPollingUpdates = false
+        while (true) {
+          if (abortControllerRef.current.signal.aborted) {
+            throw new DOMException('Aborted', 'AbortError')
+          }
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText || 'Generation failed')
+          const status = await getVideoGenerationJobStatus(queued.generationId)
+          if (status.status === 'queued' || status.status === 'running') {
+            await new Promise(resolve => setTimeout(resolve, 500))
+            continue
+          }
+
+          result = {
+            status: status.status,
+            video_path: status.videoPath ?? null,
+            error: status.error ?? null,
+          }
+          break
+        }
+      } else {
+        progressInterval = setInterval(() => {
+          void pollProgress()
+        }, 500)
+
+        // Start generation (HTTP POST - synchronous, returns when done)
+        const response = await backendFetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: abortControllerRef.current.signal,
+        })
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          throw new Error(errorText || 'Generation failed')
+        }
+
+        result = await response.json() as VideoGenerationResultPayload
       }
-
-      const result = await response.json()
+      shouldApplyPollingUpdates = false
       
       if (result.status === 'complete' && result.video_path) {
         // Convert Windows path to proper file:// URL
-        const videoPathNormalized = result.video_path.replace(/\\/g, '/')
+        const videoPath = String(result.video_path)
+        const videoPathNormalized = videoPath.replace(/\\/g, '/')
         const fileUrl = videoPathNormalized.startsWith('/') ? `file://${videoPathNormalized}` : `file:///${videoPathNormalized}`
         
         setState({
@@ -228,7 +276,7 @@ export function useGeneration(): UseGenerationReturn {
           progress: 100,
           statusMessage: 'Complete!',
           videoUrl: fileUrl,
-          videoPath: result.video_path,  // Keep original path for API calls
+          videoPath,  // Keep original path for API calls
           imageUrl: null,
           imagePath: null,
           imageUrls: [],
@@ -242,7 +290,7 @@ export function useGeneration(): UseGenerationReturn {
           statusMessage: 'Cancelled',
         }))
       } else if (result.error) {
-        throw new Error(result.error)
+        throw new Error(String(result.error))
       }
 
     } catch (error) {
@@ -261,12 +309,13 @@ export function useGeneration(): UseGenerationReturn {
       }
     } finally {
       shouldApplyPollingUpdates = false
+      generationIdRef.current = null
       if (progressInterval) {
         clearInterval(progressInterval)
       }
       setState(prev => prev.isGenerating ? { ...prev, isGenerating: false } : prev)
     }
-  }, [])
+  }, [shouldVideoGenerateWithLtxApi])
 
   const cancel = useCallback(async () => {
     // Abort the fetch request
@@ -274,7 +323,9 @@ export function useGeneration(): UseGenerationReturn {
     
     // Also tell the backend to cancel
     try {
-      await backendFetch('/api/generate/cancel', { method: 'POST' })
+      await cancelVideoGeneration({
+        generationId: generationIdRef.current ?? undefined,
+      })
     } catch {
       // Ignore errors from cancel request
     }

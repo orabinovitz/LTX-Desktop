@@ -24,6 +24,14 @@ _T2V_JSON = {
     "fps": "24",
 }
 
+_FORCED_API_T2V_JSON = {
+    "prompt": "test",
+    "resolution": "1080p",
+    "model": "fast",
+    "duration": "6",
+    "fps": "24",
+}
+
 
 def _write_test_wav(path: Path, *, duration_seconds: float = 0.1, sample_rate: int = 8000) -> None:
     import wave
@@ -1003,6 +1011,123 @@ class TestGenerateCancel:
         r = client.post("/api/generate/cancel")
         assert r.status_code == 200
         assert r.json()["status"] == "no_active_generation"
+
+
+class TestAsyncApiGeneration:
+    def test_submit_async_generation_and_poll_by_generation_id(self, client, test_state, fake_services):
+        test_state.config.force_api_generations = True
+        test_state.state.app_settings.ltx_api_key = "api-key"
+        fake_services.task_runner.auto_run = False
+
+        r = client.post("/api/generations", json=_FORCED_API_T2V_JSON)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "queued"
+        generation_id = data["generationId"]
+        assert generation_id
+
+        progress = client.get(f"/api/generation/progress?generation_id={generation_id}")
+        assert progress.status_code == 200
+        assert progress.json()["status"] == "queued"
+
+        status_before = client.get(f"/api/generations/{generation_id}")
+        assert status_before.status_code == 200
+        assert status_before.json()["status"] == "queued"
+
+        fake_services.task_runner.run_all()
+
+        status_after = client.get(f"/api/generations/{generation_id}")
+        assert status_after.status_code == 200
+        completed = status_after.json()
+        assert completed["status"] == "complete"
+        assert completed["videoPath"] is not None
+        assert Path(completed["videoPath"]).exists()
+
+        assert len(fake_services.ltx_api_client.text_to_video_calls) == 1
+        assert fake_services.ltx_api_client.text_to_video_calls[0]["model"] == "ltx-2-3-fast"
+
+    def test_submit_generation_batch_tracks_each_job_independently(self, client, test_state, fake_services):
+        test_state.config.force_api_generations = True
+        test_state.state.app_settings.ltx_api_key = "api-key"
+        fake_services.task_runner.auto_run = False
+
+        r = client.post(
+            "/api/generations/batches",
+            json={
+                "requests": [
+                    {**_FORCED_API_T2V_JSON, "prompt": "first prompt", "model": "fast"},
+                    {**_FORCED_API_T2V_JSON, "prompt": "second prompt", "model": "pro"},
+                ]
+            },
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "queued"
+        batch_id = data["batchId"]
+        generation_ids = data["generationIds"]
+        assert len(generation_ids) == 2
+        assert generation_ids[0] != generation_ids[1]
+
+        batch_before = client.get(f"/api/generations/batches/{batch_id}")
+        assert batch_before.status_code == 200
+        before_payload = batch_before.json()
+        assert before_payload["queuedJobs"] == 2
+        assert before_payload["completedJobs"] == 0
+
+        fake_services.task_runner.run_next()
+
+        batch_mid = client.get(f"/api/generations/batches/{batch_id}")
+        assert batch_mid.status_code == 200
+        mid_payload = batch_mid.json()
+        assert mid_payload["completedJobs"] == 1
+        assert mid_payload["queuedJobs"] == 1
+
+        waiting_progress = client.get(f"/api/generation/progress?generation_id={generation_ids[1]}")
+        assert waiting_progress.status_code == 200
+        assert waiting_progress.json()["status"] == "queued"
+
+        fake_services.task_runner.run_all()
+
+        batch_after = client.get(f"/api/generations/batches/{batch_id}")
+        assert batch_after.status_code == 200
+        after_payload = batch_after.json()
+        assert after_payload["status"] == "complete"
+        assert after_payload["completedJobs"] == 2
+        assert len(fake_services.ltx_api_client.text_to_video_calls) == 2
+        assert {call["model"] for call in fake_services.ltx_api_client.text_to_video_calls} == {
+            "ltx-2-3-fast",
+            "ltx-2-3-pro",
+        }
+
+    def test_cancel_generation_by_generation_id(self, client, test_state, fake_services):
+        test_state.config.force_api_generations = True
+        test_state.state.app_settings.ltx_api_key = "api-key"
+        fake_services.task_runner.auto_run = False
+
+        r = client.post("/api/generations", json=_FORCED_API_T2V_JSON)
+        generation_id = r.json()["generationId"]
+
+        cancel = client.post(f"/api/generate/cancel?generation_id={generation_id}")
+        assert cancel.status_code == 200
+        assert cancel.json()["status"] == "cancelling"
+        assert cancel.json()["id"] == generation_id
+
+        fake_services.task_runner.run_all()
+
+        status = client.get(f"/api/generations/{generation_id}")
+        assert status.status_code == 200
+        assert status.json()["status"] == "cancelled"
+        assert len(fake_services.ltx_api_client.text_to_video_calls) == 0
+
+    def test_rejects_more_than_ten_jobs_per_batch(self, client, test_state):
+        test_state.config.force_api_generations = True
+        test_state.state.app_settings.ltx_api_key = "api-key"
+
+        r = client.post(
+            "/api/generations/batches",
+            json={"requests": [{**_FORCED_API_T2V_JSON, "prompt": f"prompt-{i}"} for i in range(11)]},
+        )
+        assert r.status_code == 400
 
 
 class TestGenerationProgress:

@@ -139,6 +139,19 @@ class GenerationProgress:
 
 
 @dataclass
+class GenerationQueued:
+    id: str
+    progress: GenerationProgress = field(
+        default_factory=lambda: GenerationProgress(
+            phase="queued",
+            progress=0,
+            current_step=None,
+            total_steps=None,
+        )
+    )
+
+
+@dataclass
 class GenerationRunning:
     id: str
     progress: GenerationProgress
@@ -154,6 +167,7 @@ class GenerationComplete:
 class GenerationError:
     id: str
     error: str
+    status_code: int = 500
 
 
 @dataclass
@@ -161,7 +175,20 @@ class GenerationCancelled:
     id: str
 
 
-GenerationState = GenerationRunning | GenerationComplete | GenerationError | GenerationCancelled
+GenerationState = GenerationQueued | GenerationRunning | GenerationComplete | GenerationError | GenerationCancelled
+
+
+@dataclass
+class APIGenerationRecord:
+    id: str
+    state: GenerationState
+    batch_id: str | None = None
+
+
+@dataclass
+class APIGenerationBatch:
+    id: str
+    generation_ids: list[str]
 
 
 # ============================================================
@@ -220,7 +247,8 @@ class AppState:
     available_files: AvailableFiles
     downloading_session: DownloadingSession | None
     gpu_slot: GpuSlot | None
-    api_generation: GenerationState | None
+    api_generations: dict[str, APIGenerationRecord]
+    api_batches: dict[str, APIGenerationBatch]
     cpu_slot: CpuSlot | None
     text_encoder: TextEncoderState | None
     startup: StartupState

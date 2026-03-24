@@ -107,6 +107,8 @@ class FakeTaskRunner:
         self.jobs_run = 0
         self.last_task_name: str | None = None
         self.errors: list[Exception] = []
+        self.auto_run = True
+        self.pending_jobs: list[tuple[object, str, object | None]] = []
 
     def run_background(
         self,
@@ -118,12 +120,31 @@ class FakeTaskRunner:
     ) -> None:  # noqa: ARG002
         self.jobs_run += 1
         self.last_task_name = task_name
+        if not self.auto_run:
+            self.pending_jobs.append((target, task_name, on_error))
+            return
         try:
             target()
         except Exception as exc:
             self.errors.append(exc)
             if on_error is not None:
                 on_error(exc)
+
+    def run_next(self) -> bool:
+        if not self.pending_jobs:
+            return False
+        target, _task_name, on_error = self.pending_jobs.pop(0)
+        try:
+            target()
+        except Exception as exc:
+            self.errors.append(exc)
+            if on_error is not None:
+                on_error(exc)
+        return True
+
+    def run_all(self) -> None:
+        while self.run_next():
+            pass
 
 
 class FakeLTXAPIClient:
