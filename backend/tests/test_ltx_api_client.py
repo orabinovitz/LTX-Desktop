@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from services.http_client.http_client import HttpConnectionError, HttpTimeoutError
 from services.ltx_api_client.ltx_api_client_impl import LTXAPIClientImpl
 from services.ltx_api_client.ltx_api_client import LTXAPIClientError
 from tests.fakes.services import FakeHTTPClient, FakeResponse
@@ -165,6 +166,109 @@ def test_upload_file_returns_storage_uri(tmp_path) -> None:
     assert len(http.calls) == 2
     assert http.calls[0].url == "https://api.ltx.video/v1/upload"
     assert http.calls[1].method == "put"
+
+
+def test_upload_file_retries_with_fresh_upload_url_after_transport_failure(tmp_path) -> None:
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"fake-audio")
+
+    http = FakeHTTPClient()
+    http.queue(
+        "post",
+        FakeResponse(
+            status_code=200,
+            json_payload={
+                "upload_url": "https://upload.example.com/audio-first",
+                "storage_uri": "storage://audio/first",
+                "required_headers": {"x-ms-blob-type": "BlockBlob"},
+            },
+        ),
+        FakeResponse(
+            status_code=200,
+            json_payload={
+                "upload_url": "https://upload.example.com/audio-second",
+                "storage_uri": "storage://audio/second",
+                "required_headers": {"x-ms-blob-type": "BlockBlob"},
+            },
+        ),
+    )
+    http.queue(
+        "put",
+        HttpConnectionError("stream reset"),
+        FakeResponse(status_code=200),
+    )
+
+    client = LTXAPIClientImpl(http=http, ltx_api_base_url="https://api.ltx.video")
+    out = client.upload_file(api_key="test-key", file_path=str(audio_path))
+
+    assert out == "storage://audio/second"
+    assert [call.method for call in http.calls] == ["post", "put", "post", "put"]
+    assert http.calls[1].url == "https://upload.example.com/audio-first"
+    assert http.calls[3].url == "https://upload.example.com/audio-second"
+    assert http.calls[1].data is not http.calls[3].data
+
+
+def test_upload_file_retries_with_fresh_upload_url_after_timeout(tmp_path) -> None:
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"fake-audio")
+
+    http = FakeHTTPClient()
+    http.queue(
+        "post",
+        FakeResponse(
+            status_code=200,
+            json_payload={
+                "upload_url": "https://upload.example.com/audio-first",
+                "storage_uri": "storage://audio/first",
+                "required_headers": {"x-ms-blob-type": "BlockBlob"},
+            },
+        ),
+        FakeResponse(
+            status_code=200,
+            json_payload={
+                "upload_url": "https://upload.example.com/audio-second",
+                "storage_uri": "storage://audio/second",
+                "required_headers": {"x-ms-blob-type": "BlockBlob"},
+            },
+        ),
+    )
+    http.queue(
+        "put",
+        HttpTimeoutError("timed out"),
+        FakeResponse(status_code=200),
+    )
+
+    client = LTXAPIClientImpl(http=http, ltx_api_base_url="https://api.ltx.video")
+    out = client.upload_file(api_key="test-key", file_path=str(audio_path))
+
+    assert out == "storage://audio/second"
+    assert [call.method for call in http.calls] == ["post", "put", "post", "put"]
+
+
+def test_upload_file_retries_after_upload_init_timeout(tmp_path) -> None:
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"fake-audio")
+
+    http = FakeHTTPClient()
+    http.queue(
+        "post",
+        HttpTimeoutError("timed out"),
+        FakeResponse(
+            status_code=200,
+            json_payload={
+                "upload_url": "https://upload.example.com/audio",
+                "storage_uri": "storage://audio/123",
+                "required_headers": {"x-ms-blob-type": "BlockBlob"},
+            },
+        ),
+    )
+    http.queue("put", FakeResponse(status_code=200))
+
+    client = LTXAPIClientImpl(http=http, ltx_api_base_url="https://api.ltx.video")
+    out = client.upload_file(api_key="test-key", file_path=str(audio_path))
+
+    assert out == "storage://audio/123"
+    assert [call.method for call in http.calls] == ["post", "post", "put"]
 
 
 def test_generate_audio_to_video_with_audio_uri_downloads_video() -> None:

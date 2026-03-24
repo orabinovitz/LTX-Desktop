@@ -81,11 +81,24 @@ class HTTPClientImpl:
             return None, dict(data)
         return data, None
 
+    @staticmethod
+    def _is_replayable_data(data: RequestData) -> bool:
+        """Return whether a request body can be sent again safely.
+
+        Raw bytes/strings and form mappings can be replayed because they live in
+        memory. Open file handles and other streaming bodies cannot be assumed
+        seekable after a transport failure, so callers must rebuild those
+        requests explicitly.
+        """
+        return data is None or isinstance(data, bytes | str | Mapping)
+
     def _with_retry(
         self,
         method: str,
         url: str,
         fn: Callable[[], httpx.Response],
+        *,
+        can_retry: bool,
     ) -> _HttpxResponseAdapter:
         last_exc: httpx.HTTPError | None = None
         for attempt in range(_MAX_RETRIES + 1):
@@ -96,7 +109,7 @@ class HTTPClientImpl:
                 raise HttpTimeoutError(str(exc)) from exc
             except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as exc:
                 last_exc = exc
-                if attempt < _MAX_RETRIES:
+                if attempt < _MAX_RETRIES and can_retry:
                     delay = _RETRY_BACKOFF_SECONDS[attempt]
                     logger.warning(
                         "HTTP %s transient error on %s (attempt %d/%d, retrying in %.1fs): %s",
@@ -104,7 +117,14 @@ class HTTPClientImpl:
                     )
                     time.sleep(delay)
                     continue
-                logger.error("HTTP %s %s failed after %d attempts: %s", method, url, attempt + 1, exc)
+                if attempt == 0 and not can_retry:
+                    logger.error(
+                        "HTTP %s %s failed on a non-replayable request body: %s",
+                        method, url, exc,
+                    )
+                    break
+                else:
+                    logger.error("HTTP %s %s failed after %d attempts: %s", method, url, attempt + 1, exc)
             except httpx.HTTPError as exc:
                 logger.error("HTTP %s failed: %s (%s)", method, url, type(exc).__name__)
                 raise HttpConnectionError(str(exc)) from exc
@@ -127,7 +147,7 @@ class HTTPClientImpl:
             content=content,
             data=form_data,
             timeout=float(timeout),
-        ))
+        ), can_retry=self._is_replayable_data(data))
 
     def get(
         self,
@@ -137,7 +157,7 @@ class HTTPClientImpl:
     ) -> _HttpxResponseAdapter:
         return self._with_retry("GET", url, lambda: self._client.get(
             url, headers=headers, timeout=float(timeout),
-        ))
+        ), can_retry=True)
 
     def put(
         self,
@@ -149,4 +169,4 @@ class HTTPClientImpl:
         content, form_data = self._split_data(data)
         return self._with_retry("PUT", url, lambda: self._client.put(
             url, content=content, data=form_data, headers=headers, timeout=float(timeout),
-        ))
+        ), can_retry=self._is_replayable_data(data))

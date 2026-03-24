@@ -25,7 +25,7 @@ from pathlib import Path
 
 from agent.model_policy import AgentStage, select_model
 from agent.types import AnalysisStatus, DialogueLine, SceneSegment, TopicTag, VideoMetadata
-from services.http_client.http_client import HTTPClient, HttpTimeoutError
+from services.http_client.http_client import HTTPClient, HttpConnectionError, HttpTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -1081,36 +1081,35 @@ def _do_upload(
         display_name, file_size_mb, upload_path != original_path,
     )
 
-    # Step 1: Start resumable upload
     start_url = "https://generativelanguage.googleapis.com/upload/v1beta/files"
-
-    start_response = http_client.post(
-        start_url,
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": gemini_api_key,
-            "X-Goog-Upload-Protocol": "resumable",
-            "X-Goog-Upload-Command": "start",
-            "X-Goog-Upload-Header-Content-Length": str(file_size),
-            "X-Goog-Upload-Header-Content-Type": mime_type,
-        },
-        json_payload={"file": {"display_name": display_name}},
-        timeout=30,
-    )
-
-    upload_url = start_response.headers.get("X-Goog-Upload-URL") or start_response.headers.get("x-goog-upload-url")
-    if not upload_url:
-        raise RuntimeError(
-            f"No upload URL in response headers. Status: {start_response.status_code}, "
-            f"Body: {start_response.text[:500]}"
-        )
-
-    # Step 2: Upload file bytes with streaming and retry
     upload_timeout = max(300, int(file_size_mb * 3))
     last_error: Exception | None = None
+    file_uri = ""
+    file_name = ""
 
     for attempt in range(_UPLOAD_MAX_RETRIES + 1):
         try:
+            start_response = http_client.post(
+                start_url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": gemini_api_key,
+                    "X-Goog-Upload-Protocol": "resumable",
+                    "X-Goog-Upload-Command": "start",
+                    "X-Goog-Upload-Header-Content-Length": str(file_size),
+                    "X-Goog-Upload-Header-Content-Type": mime_type,
+                },
+                json_payload={"file": {"display_name": display_name}},
+                timeout=30,
+            )
+
+            upload_url = start_response.headers.get("X-Goog-Upload-URL") or start_response.headers.get("x-goog-upload-url")
+            if not upload_url:
+                raise RuntimeError(
+                    f"No upload URL in response headers. Status: {start_response.status_code}, "
+                    f"Body: {start_response.text[:500]}"
+                )
+
             with open(upload_path, "rb") as fh:
                 upload_response = http_client.post(
                     upload_url,
@@ -1127,15 +1126,27 @@ def _do_upload(
                 raise RuntimeError(
                     f"File upload failed: {upload_response.status_code} {upload_response.text[:500]}"
                 )
-            break  # success
 
-        except (ConnectionError, OSError) as exc:
+            file_info = upload_response.json().get("file", {})
+            file_uri = file_info.get("uri", "")
+            file_name = file_info.get("name", "")
+
+            if not file_uri:
+                raise RuntimeError(f"No file URI in upload response: {upload_response.json()}")
+
+            logger.info("File uploaded successfully: %s (%.0f MB)", file_name, file_size_mb)
+            break
+
+        except (HttpConnectionError, HttpTimeoutError, ConnectionError, OSError) as exc:
             last_error = exc
             if attempt < _UPLOAD_MAX_RETRIES:
                 wait = 5 * (attempt + 1)
                 logger.warning(
-                    "Upload attempt %d failed (%s), retrying in %ds...",
-                    attempt + 1, type(exc).__name__, wait,
+                    "Gemini upload attempt %d/%d failed (%s), starting a fresh resumable session in %ds",
+                    attempt + 1,
+                    _UPLOAD_MAX_RETRIES + 1,
+                    type(exc).__name__,
+                    wait,
                 )
                 time.sleep(wait)
             else:
@@ -1144,15 +1155,6 @@ def _do_upload(
                     f"(file: {display_name}, {file_size_mb:.0f} MB). "
                     f"Last error: {last_error}"
                 ) from last_error
-
-    file_info = upload_response.json().get("file", {})
-    file_uri = file_info.get("uri", "")
-    file_name = file_info.get("name", "")
-
-    if not file_uri:
-        raise RuntimeError(f"No file URI in upload response: {upload_response.json()}")
-
-    logger.info("File uploaded successfully: %s (%.0f MB)", file_name, file_size_mb)
 
     # Step 3: Poll until video processing is complete
     check_url = f"https://generativelanguage.googleapis.com/v1beta/{file_name}"

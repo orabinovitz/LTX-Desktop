@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 from pathlib import Path
 from typing import Any, Literal, cast
 
 from api_types import VideoCameraMotion
 from pydantic import BaseModel, ConfigDict, ValidationError
+from services.http_client.http_client import HTTPClient, HttpConnectionError, HttpTimeoutError
 from services.ltx_api_client.ltx_api_client import LTXAPIClientError, LTXRetakeResult
-from services.http_client.http_client import HTTPClient
 from services.services_utils import JSONValue
 
 LTXCameraMotion = Literal[
@@ -35,6 +36,9 @@ _CAMERA_MOTION_TO_LTX: dict[VideoCameraMotion, LTXCameraMotion | None] = {
     "static": "static",
     "focus_shift": "focus_shift",
 }
+
+logger = logging.getLogger(__name__)
+_UPLOAD_MAX_RETRIES = 2
 
 
 class _RetakeNestedPayload(BaseModel):
@@ -219,44 +223,65 @@ class LTXAPIClientImpl:
         raise LTXAPIClientError(response.status_code, f"Retake API error: {error_text}{rid}")
 
     def upload_file(self, *, file_path: str, api_key: str) -> str:
-        upload_resp = self._http.post(
-            f"{self._base_url}/v1/upload",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=30,
-        )
-        if upload_resp.status_code != 200:
-            err = upload_resp.text[:500]
-            rid = self._fmt_request_id(upload_resp)
-            raise LTXAPIClientError(
-                upload_resp.status_code,
-                f"LTX upload init failed ({upload_resp.status_code}): {err}{rid}",
-                stage="upload_init",
-            )
-
-        try:
-            payload = cast(dict[str, Any], upload_resp.json())
-            upload_url = str(payload["upload_url"])
-            storage_uri = str(payload["storage_uri"])
-            required_headers = cast(dict[str, str], payload.get("required_headers", {}))
-        except Exception as exc:
-            rid = self._fmt_request_id(upload_resp)
-            raise LTXAPIClientError(500, f"Unexpected LTX upload response format{rid}", stage="upload_parse") from exc
-
         path_obj = Path(file_path)
         mime = mimetypes.guess_type(path_obj.name)[0] or "application/octet-stream"
-        with open(path_obj, "rb") as media_file:
-            put_resp = self._http.put(
-                upload_url,
-                data=media_file,
-                headers={"Content-Type": mime, **required_headers},
-                timeout=300,
-            )
-        if put_resp.status_code not in (200, 201):
-            err = put_resp.text[:500]
-            rid = self._fmt_request_id(upload_resp)
-            raise LTXAPIClientError(500, f"LTX upload failed ({put_resp.status_code}): {err}{rid}", stage="upload_put")
+        for attempt in range(_UPLOAD_MAX_RETRIES + 1):
+            stage = "upload_init"
+            try:
+                upload_resp = self._http.post(
+                    f"{self._base_url}/v1/upload",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=30,
+                )
+                if upload_resp.status_code != 200:
+                    err = upload_resp.text[:500]
+                    rid = self._fmt_request_id(upload_resp)
+                    raise LTXAPIClientError(
+                        upload_resp.status_code,
+                        f"LTX upload init failed ({upload_resp.status_code}): {err}{rid}",
+                        stage="upload_init",
+                    )
 
-        return storage_uri
+                try:
+                    payload = cast(dict[str, Any], upload_resp.json())
+                    upload_url = str(payload["upload_url"])
+                    storage_uri = str(payload["storage_uri"])
+                    required_headers = cast(dict[str, str], payload.get("required_headers", {}))
+                except Exception as exc:
+                    rid = self._fmt_request_id(upload_resp)
+                    raise LTXAPIClientError(500, f"Unexpected LTX upload response format{rid}", stage="upload_parse") from exc
+
+                stage = "upload_put"
+                with open(path_obj, "rb") as media_file:
+                    put_resp = self._http.put(
+                        upload_url,
+                        data=media_file,
+                        headers={"Content-Type": mime, **required_headers},
+                        timeout=300,
+                    )
+            except (HttpConnectionError, HttpTimeoutError) as exc:
+                if attempt < _UPLOAD_MAX_RETRIES:
+                    logger.warning(
+                        "LTX upload attempt %d/%d hit a transient %s error; retrying with a fresh upload session",
+                        attempt + 1,
+                        _UPLOAD_MAX_RETRIES + 1,
+                        "init" if stage == "upload_init" else "put",
+                    )
+                    continue
+                detail = (
+                    f"LTX upload init failed: {exc}"
+                    if stage == "upload_init"
+                    else f"LTX upload failed: {exc}"
+                )
+                raise LTXAPIClientError(500, detail, stage=stage) from exc
+
+            if put_resp.status_code not in (200, 201):
+                err = put_resp.text[:500]
+                rid = self._fmt_request_id(put_resp)
+                raise LTXAPIClientError(500, f"LTX upload failed ({put_resp.status_code}): {err}{rid}", stage="upload_put")
+
+            return storage_uri
+        raise RuntimeError("unreachable")
 
     def _extract_video_bytes(self, response: Any, api_key: str) -> bytes:
         rid = self._fmt_request_id(response)
