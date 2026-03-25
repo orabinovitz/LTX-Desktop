@@ -1152,6 +1152,7 @@ def _do_upload(
             else:
                 raise RuntimeError(
                     f"File upload failed after {_UPLOAD_MAX_RETRIES + 1} attempts "
+                    f"(category=transport_session_restart) "
                     f"(file: {display_name}, {file_size_mb:.0f} MB). "
                     f"Last error: {last_error}"
                 ) from last_error

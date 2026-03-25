@@ -122,8 +122,9 @@ body, natural standing pose. [CAMERA from NB2 Style Block, e.g., "Shot on
 ARRI ALEXA 35"]. [LENS from NB2 Style Block, e.g., "Cooke S7/i 85mm"].
 [FILM STOCK from NB2 Style Block, e.g., "Kodak VISION3 200T 5213/7213"].
 [LIGHTING from Visual Identity Bible light philosophy]. [COLOR PALETTE from
-Visual Identity Bible color world]. Subtle film grain. No text. Character
-design reference sheet for film production.
+Visual Identity Bible color world]. Subtle film grain. No text, no letterbox,
+no film scratches, no stock overlays. Character design reference sheet for
+film production.
 ```
 
 **For non-cinematic projects**, use this template:
@@ -185,7 +186,7 @@ tighter framing]. [FILM STOCK from NB2 Style Block]. [LIGHTING from Visual
 Identity Bible light philosophy, matching time of day and weather]. [COLOR
 PALETTE from Visual Identity Bible color world]. [DIRECTOR/DP style reference
 from NB2 Style Block]. Subtle film grain, atmospheric [haze/dust/rain as
-appropriate]. No text.
+appropriate]. No text, no letterbox, no film scratches, no stock overlays.
 ```
 
 **Example** — a diner location might get these 4 independent generations:
@@ -236,6 +237,7 @@ orchestrator can parse reference asset IDs for downstream shot generation:
 ```
 CHARACTER_REFS: {"character_name": "asset_id", "character_name": "asset_id"}
 LOCATION_REFS: {"location_label": "asset_id", "location_label": "asset_id"}
+REFERENCE_PAYLOAD: {"characters": {"character_name": {"asset_id": "asset_id"}}, "locations": {"location_label": {"asset_id": "asset_id"}}}
 ```
 
 Use lowercase, underscore-separated keys (e.g., "the_man", "the_woman",
@@ -267,6 +269,10 @@ Follow the Nano Banana 2 prompting principles:
 
 - **Always include "No text" in every reference image prompt** — character
   sheets and location keyframes must never contain rendered text
+- Also include natural-language exclusions for cinematic reference frames:
+  "no letterbox, no film scratches, no stock overlays"
+- Do not write aspect ratios or output dimensions inside the prompt body.
+  Pass aspect ratio via tool arguments only.
 
 ## Anti-patterns
 

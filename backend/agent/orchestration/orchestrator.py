@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -59,11 +60,13 @@ logger = logging.getLogger(__name__)
 
 _MAX_SESSIONS = 20
 _SESSION_TTL_SECONDS = 1800
-_MAX_RETRIES_PER_TASK = 2
+_MAX_TASK_RETRIES = 2
+_MAX_COVERAGE_REPAIRS_PER_TASK = 1
 _MAX_DAG_TASKS = 75
 _MAX_REVIEW_ITERATIONS = 2
 _MAX_SHOTS_PER_EXPANSION = 40
 _MAX_PARALLEL_SHOT_TASKS = 4
+_MAX_SHOT_REGENERATIONS_PER_SHOT = 1
 
 
 def _results_have_memory_writes(results: list[SubAgentResult]) -> bool:
@@ -91,6 +94,14 @@ class OrchestratorSession:
     last_access: float = field(default_factory=time.monotonic)
     review_iteration_count: dict[str, int] = field(default_factory=lambda: dict[str, int]())
     coverage_repair_count: dict[str, int] = field(default_factory=lambda: dict[str, int]())
+    shot_regeneration_count: dict[str, int] = field(default_factory=lambda: dict[str, int]())
+    generated_image_count: int = 0
+    generated_video_count: int = 0
+    reference_hit_count: int = 0
+    reference_miss_count: int = 0
+    retry_cause_counts: dict[str, int] = field(default_factory=lambda: dict[str, int]())
+    sub_agent_timeout_count: int = 0
+    provider_error_count: int = 0
     last_diagnostics: AgentDiagnostics | None = None
 
 
@@ -152,7 +163,7 @@ def _build_response(
         message=message,
         done=done,
         memory_updated=memory_updated,
-        diagnostics=diagnostics,
+        diagnostics=diagnostics or session.last_diagnostics,
     )
 
 
@@ -313,6 +324,23 @@ class Orchestrator:
         if has_active_sub_agents and pending_ids:
             return self._resume_active_sub_agents(session, tool_results)
 
+        budget_error = self._generation_budget_error(session, tool_results)
+        self._record_generation_results(session, tool_results)
+        if budget_error and pending_ids:
+            for task_id in pending_ids:
+                task = session.dag.get_task(task_id)
+                if not task or "generation" not in task.tool_categories:
+                    continue
+                task.status = TaskStatus.FAILED
+                task.error = budget_error
+                if "-shot-" not in task.id:
+                    self._cancel_dependents(session.dag, task_id)
+            session.pending_task_ids = []
+            session.pending_tool_calls = []
+            session.active_sub_agent_results = {}
+            session.task_tool_call_counts = {}
+            return self._execute_next(session)
+
         for task_id in pending_ids:
             task = session.dag.get_task(task_id)
             if not task:
@@ -325,7 +353,10 @@ class Orchestrator:
             else:
                 failed = [r for r in tool_results if not r.success]
                 error_msg = "; ".join(r.error or "unknown" for r in failed)
-                if task.retry_count < _MAX_RETRIES_PER_TASK:
+                for failed_result in failed:
+                    if failed_result.error:
+                        self._record_retry_cause(session, failed_result.error)
+                if task.retry_count < _MAX_TASK_RETRIES:
                     task.retry_count += 1
                     task.status = TaskStatus.PENDING
                     task.error = f"Retrying ({task.retry_count}): {error_msg}"
@@ -352,6 +383,23 @@ class Orchestrator:
         ``task_tool_call_counts`` which records how many tool calls each
         task contributed to the combined ``pending_tool_calls`` list.
         """
+        budget_error = self._generation_budget_error(session, tool_results)
+        self._record_generation_results(session, tool_results)
+        if budget_error and session.pending_task_ids:
+            for task_id in session.pending_task_ids:
+                task = session.dag.get_task(task_id)
+                if not task or "generation" not in task.tool_categories:
+                    continue
+                task.status = TaskStatus.FAILED
+                task.error = budget_error
+                if "-shot-" not in task.id:
+                    self._cancel_dependents(session.dag, task.id)
+            session.pending_task_ids = []
+            session.pending_tool_calls = []
+            session.active_sub_agent_results = {}
+            session.task_tool_call_counts = {}
+            return self._execute_next(session)
+
         all_frontend_calls: list[ToolCall] = []
         new_pending_ids: list[str] = []
         new_active_results: dict[str, SubAgentResult] = {}
@@ -381,7 +429,9 @@ class Orchestrator:
                 continue
 
             if not resumed.success:
-                if task.retry_count < _MAX_RETRIES_PER_TASK:
+                if resumed.error:
+                    self._record_retry_cause(session, resumed.error)
+                if task.retry_count < _MAX_TASK_RETRIES:
                     task.retry_count += 1
                     task.status = TaskStatus.PENDING
                     task.error = f"Resume error: {resumed.error}"
@@ -434,6 +484,7 @@ class Orchestrator:
         session.pending_task_ids.clear()
 
     def _execute_next(self, session: OrchestratorSession) -> OrchestrateResponse:
+        session.last_diagnostics = self._execution_diagnostics(session)
         if session.dag.is_complete():
             session.status = OrchestratorStatus.DONE
             summary = self._build_final_summary(session)
@@ -540,7 +591,9 @@ class Orchestrator:
                 continue
 
             if not result.success:
-                if task.retry_count < _MAX_RETRIES_PER_TASK:
+                if result.error:
+                    self._record_retry_cause(session, result.error)
+                if task.retry_count < _MAX_TASK_RETRIES:
                     task.retry_count += 1
                     task.status = TaskStatus.PENDING
                     task.error = f"Sub-agent error (retry {task.retry_count}): {result.error}"
@@ -594,6 +647,154 @@ class Orchestrator:
         return min(allowed, key=lambda d: abs(d - raw_seconds))
 
     @staticmethod
+    def _generation_budget(session: OrchestratorSession) -> dict[str, int]:
+        duration = max(session.dag.target_duration_seconds or 30, 30)
+        profile = session.dag.creative_profile or CreativeProfile.BRAND_CINEMATIC
+        seconds_per_shot = {
+            CreativeProfile.BRAND_CINEMATIC: 6,
+            CreativeProfile.PERFORMANCE_SOCIAL: 4,
+            CreativeProfile.UGC_NATIVE: 5,
+            CreativeProfile.DIALOGUE_SCENE: 8,
+            CreativeProfile.MONTAGE: 4,
+        }
+        base_buffer = {
+            CreativeProfile.BRAND_CINEMATIC: 4,
+            CreativeProfile.PERFORMANCE_SOCIAL: 6,
+            CreativeProfile.UGC_NATIVE: 5,
+            CreativeProfile.DIALOGUE_SCENE: 4,
+            CreativeProfile.MONTAGE: 6,
+        }
+        minimums = {
+            CreativeProfile.BRAND_CINEMATIC: 6,
+            CreativeProfile.PERFORMANCE_SOCIAL: 8,
+            CreativeProfile.UGC_NATIVE: 8,
+            CreativeProfile.DIALOGUE_SCENE: 8,
+            CreativeProfile.MONTAGE: 10,
+        }
+        planned_shots = max(
+            minimums[profile],
+            math.ceil(duration / seconds_per_shot[profile]) + base_buffer[profile],
+        )
+        planned_shots = min(_MAX_SHOTS_PER_EXPANSION, planned_shots)
+        image_generations = planned_shots + max(6, planned_shots // 2)
+        video_generations = planned_shots + max(4, planned_shots // 3)
+        return {
+            "planned_shots": planned_shots,
+            "image_generations": image_generations,
+            "video_generations": video_generations,
+        }
+
+    @staticmethod
+    def _generation_budget_error(
+        session: OrchestratorSession,
+        tool_results: list[ToolResult],
+    ) -> str | None:
+        budget = Orchestrator._generation_budget(session)
+        image_results = sum(
+            1 for result in tool_results
+            if result.success and result.tool_name == "generate_image"
+        )
+        video_results = sum(
+            1 for result in tool_results
+            if result.success and result.tool_name == "generate_video"
+        )
+        projected_images = session.generated_image_count + image_results
+        projected_videos = session.generated_video_count + video_results
+        if projected_images > budget["image_generations"]:
+            return (
+                "Image generation budget reached for this session "
+                f"({projected_images}/{budget['image_generations']})."
+            )
+        if projected_videos > budget["video_generations"]:
+            return (
+                "Video generation budget reached for this session "
+                f"({projected_videos}/{budget['video_generations']})."
+            )
+        return None
+
+    @staticmethod
+    def _record_generation_results(
+        session: OrchestratorSession,
+        tool_results: list[ToolResult],
+    ) -> None:
+        session.generated_image_count += sum(
+            1 for result in tool_results
+            if result.success and result.tool_name == "generate_image"
+        )
+        session.generated_video_count += sum(
+            1 for result in tool_results
+            if result.success and result.tool_name == "generate_video"
+        )
+
+    @staticmethod
+    def _record_reference_usage(
+        session: OrchestratorSession,
+        *,
+        matched_location_refs: list[str],
+        has_location_refs: bool,
+    ) -> None:
+        if matched_location_refs:
+            session.reference_hit_count += 1
+        elif has_location_refs:
+            session.reference_miss_count += 1
+
+    @staticmethod
+    def _record_retry_cause(
+        session: OrchestratorSession,
+        error_text: str,
+    ) -> None:
+        lower = error_text.lower()
+        match = re.search(r"category=([a-z_]+)", lower)
+        category = match.group(1) if match else None
+        if category:
+            session.retry_cause_counts[category] = session.retry_cause_counts.get(category, 0) + 1
+            if category.startswith("fal_") or category == "provider_response":
+                session.provider_error_count += 1
+        if "timeout" in lower:
+            session.sub_agent_timeout_count += 1
+            session.retry_cause_counts["timeout"] = session.retry_cause_counts.get("timeout", 0) + 1
+        elif category is None and ("http 5" in lower or "provider" in lower):
+            session.provider_error_count += 1
+
+    @staticmethod
+    def _execution_diagnostics(session: OrchestratorSession) -> AgentDiagnostics:
+        planned_shots = sum(1 for task in session.dag.tasks if "-shot-" in task.id)
+        executed_shots = sum(
+            1 for task in session.dag.tasks
+            if "-shot-" in task.id and task.status == TaskStatus.COMPLETED
+        )
+        total_reference_decisions = session.reference_hit_count + session.reference_miss_count
+        hit_rate = (
+            session.reference_hit_count / total_reference_decisions
+            if total_reference_decisions
+            else None
+        )
+        image_video_ratio = (
+            session.generated_image_count / session.generated_video_count
+            if session.generated_video_count
+            else None
+        )
+        previous = session.last_diagnostics or AgentDiagnostics()
+        return AgentDiagnostics(
+            selected_model=previous.selected_model,
+            stage_name="orchestrator_execution",
+            llm_ms=previous.llm_ms,
+            tool_ms=previous.tool_ms,
+            planning_ms=previous.planning_ms,
+            used_fallback_model=previous.used_fallback_model,
+            planned_shots=planned_shots,
+            executed_shots=executed_shots,
+            generated_images=session.generated_image_count,
+            generated_videos=session.generated_video_count,
+            image_video_ratio=image_video_ratio,
+            reference_hit_rate=hit_rate,
+            coverage_repairs=sum(session.coverage_repair_count.values()),
+            retry_causes=dict(session.retry_cause_counts),
+            sub_agent_timeouts=session.sub_agent_timeout_count,
+            provider_errors=session.provider_error_count,
+        )
+
+    @staticmethod
     def _extract_dialogue(shot_desc: str) -> str | None:
         """Extract quoted dialogue from a shot description.
 
@@ -636,6 +837,101 @@ class Orchestrator:
         if len(combined) > 200:
             combined = combined[:197] + "..."
         return combined
+
+    @staticmethod
+    def _strip_dialogue_from_shot_desc(shot_desc: str) -> str:
+        """Remove quoted dialogue and speech cues from a shot description."""
+        cleaned = re.sub(
+            r'(?:[A-Z][A-Z\s]{0,20}:\s*|\b(?:says?|saying|asks?|replies|shouts?|whispers?|exclaims?|mutters?)\b\s+)?["\u201c][^"\u201d]{3,}["\u201d]',
+            "",
+            shot_desc,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"[A-Z][A-Z\s]{0,20}:\s*'[^']{3,}'", "", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+        return cleaned.strip(" ,.;:-")
+
+    @staticmethod
+    def _sanitize_still_frame_source(shot_desc: str) -> str:
+        cleaned = Orchestrator._strip_dialogue_from_shot_desc(shot_desc)
+        cleaned = re.sub(r"\b\d+(?:\.\d+)?:\d+\b", "", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+        return cleaned.strip(" ,.;:-")
+
+    @staticmethod
+    def _sanitize_cinematic_style_block(visual_style_block: str | None) -> str:
+        if not visual_style_block:
+            return ""
+        still_camera_markers = (
+            "sony a7",
+            "canon 5d",
+            "hasselblad",
+            "x-t5",
+            "x100v",
+            "gopro",
+            "disposable camera",
+        )
+        fragments = [
+            fragment.strip()
+            for fragment in re.split(r"\n+|(?<=\.)\s+", visual_style_block.strip())
+            if fragment.strip()
+        ]
+        filtered = [
+            fragment for fragment in fragments
+            if not any(marker in fragment.lower() for marker in still_camera_markers)
+        ]
+        prefix = ""
+        if len(filtered) != len(fragments):
+            prefix = (
+                "For cinematic image prompts, use cinema camera bodies instead of still photography cameras. "
+            )
+        return f"{prefix}{' '.join(filtered).strip()}".strip()
+
+    @staticmethod
+    def _build_shot_prompt_contract(
+        shot_desc: str,
+        *,
+        dialogue: str | None,
+        api_duration: int,
+        reference_ids: list[str],
+        visual_style_block: str | None,
+    ) -> dict[str, Any]:
+        """Build a structured still/motion contract for an expanded shot task."""
+        static_source = Orchestrator._sanitize_still_frame_source(shot_desc) or shot_desc
+        sanitized_style_block = Orchestrator._sanitize_cinematic_style_block(visual_style_block)
+        style_prefix = ""
+        if sanitized_style_block:
+            style_prefix = (
+                "Apply this visual style to the still frame and preserve it in the video: "
+                f"{sanitized_style_block} "
+            )
+
+        still_frame_prompt = (
+            f"{style_prefix}Choose a single decisive still frame from this shot description: "
+            f"\"{static_source}\". Describe only what is visible in one frame: subject, "
+            "environment, composition, lighting, blocking, and spatial relationships. Do not "
+            "include quoted dialogue, spoken text, camera moves, or multi-step temporal action. "
+            "Do not write aspect ratios or frame dimensions inside the prompt text. Use natural-language "
+            "guardrails: no on-screen text, no letterbox, no film scratches, no stock overlays."
+        )
+        motion_prompt = (
+            f"Animate the established still frame for this shot: \"{static_source}\". "
+            "Describe only motion, camera movement, blocking changes, and environmental movement. "
+            "Do not restate the full still composition or add dialogue text to the image."
+        )
+
+        dialogue_audio_prompt = dialogue or "No spoken dialogue."
+
+        return {
+            "source_shot": shot_desc,
+            "still_frame_prompt": still_frame_prompt,
+            "motion_prompt": motion_prompt,
+            "dialogue_audio_prompt": dialogue_audio_prompt,
+            "reference_ids": reference_ids,
+            "duration_seconds": api_duration,
+        }
 
     @staticmethod
     def _parse_shot_list(text: str) -> list[tuple[int, str, int]]:
@@ -690,8 +986,6 @@ class Orchestrator:
         Returns (character_refs, location_refs) where each is a dict of
         label -> asset_id parsed from pre-production task output summaries.
         """
-        import json as _json
-
         character_refs: dict[str, str] = {}
         location_refs: dict[str, str] = {}
 
@@ -700,23 +994,29 @@ class Orchestrator:
                 continue
 
             summary = task.result_summary
+            try:
+                reference_payload = Orchestrator._extract_reference_json(summary, "REFERENCE_PAYLOAD:")
+                if isinstance(reference_payload, dict):
+                    reference_payload_dict = cast(dict[str, Any], reference_payload)
+                    character_refs.update(
+                        Orchestrator._flatten_reference_mapping(reference_payload_dict.get("characters")),
+                    )
+                    location_refs.update(
+                        Orchestrator._flatten_reference_mapping(reference_payload_dict.get("locations")),
+                    )
+            except (ValueError, TypeError) as exc:
+                logger.warning(
+                    "[orchestrator] failed to parse REFERENCE_PAYLOAD from task %s: %s",
+                    task.id, exc,
+                )
+
             for marker, target in [
                 ("CHARACTER_REFS:", character_refs),
                 ("LOCATION_REFS:", location_refs),
             ]:
-                idx = summary.find(marker)
-                if idx == -1:
-                    continue
-                json_start = summary.find("{", idx)
-                if json_start == -1:
-                    continue
-                json_end = summary.find("}", json_start)
-                if json_end == -1:
-                    continue
                 try:
-                    parsed = _json.loads(summary[json_start:json_end + 1])
-                    if isinstance(parsed, dict):
-                        target.update(cast(dict[str, str], parsed))
+                    parsed = Orchestrator._extract_reference_json(summary, marker)
+                    target.update(Orchestrator._flatten_reference_mapping(parsed))
                 except (ValueError, TypeError) as exc:
                     logger.warning(
                         "[orchestrator] failed to parse %s from task %s: %s",
@@ -724,6 +1024,86 @@ class Orchestrator:
                     )
 
         return character_refs, location_refs
+
+    @staticmethod
+    def _extract_reference_json(summary: str, marker: str) -> Any:
+        idx = summary.find(marker)
+        if idx == -1:
+            return None
+        json_start = summary.find("{", idx)
+        if json_start == -1:
+            return None
+        decoder = json.JSONDecoder()
+        parsed, _end = decoder.raw_decode(summary[json_start:])
+        return parsed
+
+    @staticmethod
+    def _flatten_reference_mapping(raw_mapping: Any) -> dict[str, str]:
+        if not isinstance(raw_mapping, dict):
+            return {}
+        mapping = cast(dict[str, Any], raw_mapping)
+        flattened: dict[str, str] = {}
+        for label, value in mapping.items():
+            if isinstance(value, str):
+                flattened[str(label)] = value
+                continue
+            if isinstance(value, dict):
+                value_dict = cast(dict[str, Any], value)
+                asset_id = value_dict.get("asset_id")
+                if isinstance(asset_id, str):
+                    flattened[str(label)] = asset_id
+        return flattened
+
+    @staticmethod
+    def _normalized_ref_tokens(text: str) -> set[str]:
+        tokens = {
+            token
+            for token in re.findall(r"[a-z0-9]+", text.lower())
+            if len(token) > 2
+        }
+        concepts = {
+            "wreckage": {"wreckage", "debris", "fuselage", "crash", "plane"},
+            "beach": {"beach", "shore", "shoreline", "surf", "coast", "sand", "island"},
+            "jungle": {"jungle", "forest", "trees", "tree"},
+            "interior": {"interior", "inside", "indoor", "room"},
+            "exterior": {"exterior", "outside", "outdoor", "street"},
+        }
+        normalized = set(tokens)
+        for concept, synonyms in concepts.items():
+            if tokens & synonyms:
+                normalized.add(concept)
+        return normalized
+
+    @staticmethod
+    def _location_label_priority(label: str) -> tuple[int, str]:
+        label_lower = label.lower()
+        if any(token in label_lower for token in ("wide", "establishing", "exterior", "ext")):
+            return (0, label_lower)
+        if any(token in label_lower for token in ("close", "detail", "insert")):
+            return (2, label_lower)
+        return (1, label_lower)
+
+    @staticmethod
+    def _matched_location_refs_for_shot(
+        shot_desc: str,
+        location_refs: dict[str, str],
+    ) -> list[str]:
+        shot_tokens = Orchestrator._normalized_ref_tokens(shot_desc)
+
+        scored_locations: list[tuple[int, tuple[int, str], str]] = []
+        for label, asset_id in location_refs.items():
+            label_tokens = Orchestrator._normalized_ref_tokens(label.replace("_", " "))
+            score = len(shot_tokens & label_tokens)
+            scored_locations.append((score, Orchestrator._location_label_priority(label), asset_id))
+
+        return [
+            asset_id
+            for score, _priority, asset_id in sorted(
+                scored_locations,
+                key=lambda item: (-item[0], item[1], item[2]),
+            )
+            if score > 0
+        ]
 
     @staticmethod
     def _select_refs_for_shot(
@@ -740,14 +1120,7 @@ class Orchestrator:
         Capped at 5 total to stay well within NB2's 14-image limit.
         """
         refs: list[str] = list(character_refs.values())
-
-        desc_lower = shot_desc.lower()
-        matched_loc_refs: list[str] = []
-
-        for label, asset_id in location_refs.items():
-            keywords = label.replace("_", " ").split()
-            if any(kw in desc_lower for kw in keywords if len(kw) > 2):
-                matched_loc_refs.append(asset_id)
+        matched_loc_refs = Orchestrator._matched_location_refs_for_shot(shot_desc, location_refs)
 
         if matched_loc_refs:
             refs.extend(matched_loc_refs[:3])
@@ -857,14 +1230,15 @@ class Orchestrator:
                 "It may run longer than the target as long as it gives the editor enough usable beats. "
             )
         return (
-            "Rewrite and expand the existing shot plan so it satisfies the "
+            "Tighten or rebalance the existing shot plan so it satisfies the "
             f"coverage contract ({issue_names}). Keep the strongest core idea, "
             f"but deliver enough visual beats for a {getattr(contract, 'target_duration_seconds', 0):.0f}-second "
             f"{getattr(getattr(contract, 'profile', None), 'value', 'creative')} piece. "
             f"Minimum shot count: {getattr(contract, 'min_shot_count', 'unknown')}. "
             f"Maximum dialogue share: {getattr(contract, 'max_dialogue_share', 0):.0%}. "
             f"{raw_coverage_note}"
-            "Add silent visual beats, editorially useful inserts, and clearer pacing contrast. "
+            "First strengthen pacing contrast, silent visual beats, and editorially useful inserts. "
+            "Only add new shots when rebalancing the existing plan is not enough. "
             f"Revise this prior shot plan rather than starting from scratch:\n\n{source_task.result_summary}"
         )
 
@@ -941,7 +1315,7 @@ class Orchestrator:
 
             repair_key = task.id
             repair_count = session.coverage_repair_count.get(repair_key, 0)
-            if repair_count >= _MAX_RETRIES_PER_TASK:
+            if repair_count >= _MAX_COVERAGE_REPAIRS_PER_TASK:
                 logger.warning(
                     "[orchestrator] session=%s | coverage repair limit reached for %s",
                     session.id[:8], repair_key,
@@ -1033,13 +1407,15 @@ class Orchestrator:
             if not shot_list or not script_task_id:
                 continue
 
-            if len(shot_list) > _MAX_SHOTS_PER_EXPANSION:
+            shot_budget = self._generation_budget(session)
+            shot_cap = min(_MAX_SHOTS_PER_EXPANSION, shot_budget["planned_shots"])
+            if len(shot_list) > shot_cap:
                 logger.warning(
                     "[orchestrator] session=%s | shot list has %d entries, "
                     "capping at %d",
-                    session.id[:8], len(shot_list), _MAX_SHOTS_PER_EXPANSION,
+                    session.id[:8], len(shot_list), shot_cap,
                 )
-                shot_list = shot_list[:_MAX_SHOTS_PER_EXPANSION]
+                shot_list = shot_list[:shot_cap]
 
             character_refs, location_refs = self._parse_reference_assets(session.dag)
             has_refs = bool(character_refs or location_refs)
@@ -1074,68 +1450,48 @@ class Orchestrator:
             for shot_num, shot_desc, api_duration in shot_list:
                 shot_task_id = f"{original_task_id}-shot-{shot_num}"
                 short_desc = shot_desc[:500].replace("\n", " ")
-
-                style_instruction = ""
-                if visual_style_block:
-                    style_instruction = (
-                        f"VISUAL STYLE — apply these directives to the "
-                        f"generate_image prompt:\n{visual_style_block}\n"
-                        f"Write the prompt as a cinematic screen grab from a "
-                        f"film using the camera, film stock, lens, and style "
-                        f"references above. Describe blocking, atmosphere, "
-                        f"and spatial relationships in detail. "
-                    )
-
-                duration_instruction = (
-                    f"IMPORTANT: Pass duration={api_duration} to "
-                    f"generate_video. "
-                )
-
-                dialogue_instruction = ""
                 dialogue = self._extract_dialogue(shot_desc)
+                matched_location_refs = self._matched_location_refs_for_shot(shot_desc, location_refs) if has_refs else []
+                ref_ids = self._select_refs_for_shot(
+                    shot_desc, character_refs, location_refs,
+                ) if has_refs else []
+                self._record_reference_usage(
+                    session,
+                    matched_location_refs=matched_location_refs,
+                    has_location_refs=bool(location_refs),
+                )
+                refs_str = ", ".join(ref_ids) if ref_ids else "(none)"
+                prompt_contract = self._build_shot_prompt_contract(
+                    short_desc,
+                    dialogue=dialogue,
+                    api_duration=api_duration,
+                    reference_ids=ref_ids,
+                    visual_style_block=visual_style_block,
+                )
+                video_prompt_instruction = "Use ONLY the MOTION PROMPT."
                 if dialogue:
-                    dialogue_instruction = (
-                        f"DIALOGUE IN THIS SHOT: \"{dialogue}\". "
-                        f"Show the character actively speaking — mouth "
-                        f"open, gestures matching the tone. The "
-                        f"character's expression and body language should "
-                        f"convey the emotional content of the line. "
+                    video_prompt_instruction = (
+                        "Use the MOTION PROMPT and append the DIALOGUE AUDIO PROMPT "
+                        "for spoken performance."
                     )
 
-                if has_refs:
-                    ref_ids = self._select_refs_for_shot(
-                        shot_desc, character_refs, location_refs,
-                    )
-                    refs_str = ", ".join(ref_ids)
-                    description = (
-                        f"Generate Shot {shot_num}: {style_instruction}"
-                        f"First call generate_image "
-                        f"with this visual description: \"{short_desc}\". "
-                        f"{dialogue_instruction}"
-                        f"IMPORTANT: Pass aspect_ratio='16:9' for standard "
-                        f"landscape video framing. "
-                        f"IMPORTANT: Pass ALL these reference asset IDs as "
-                        f"image_urls — they include diverse location angles "
-                        f"that give the model creative freedom while "
-                        f"maintaining consistency: [{refs_str}]. "
-                        f"Then call generate_video with mode=image_to_video "
-                        f"using the generated image asset_id. "
-                        f"{duration_instruction}"
-                        f"Report the final video asset_id."
-                    )
-                else:
-                    description = (
-                        f"Generate Shot {shot_num}: {style_instruction}"
-                        f"First call generate_image "
-                        f"with this visual description: \"{short_desc}\". "
-                        f"{dialogue_instruction}"
-                        f"IMPORTANT: Pass aspect_ratio='16:9' for standard "
-                        f"landscape video framing. "
-                        f"Then call generate_video with mode=image_to_video "
-                        f"using the generated image asset_id. "
-                        f"{duration_instruction}"
-                        f"Report the final video asset_id."
-                    )
+                description = (
+                    f"Generate Shot {shot_num}.\n"
+                    "SHOT CONTRACT:\n"
+                    f'SOURCE SHOT: "{prompt_contract["source_shot"]}"\n'
+                    f'STILL FRAME PROMPT: {prompt_contract["still_frame_prompt"]}\n'
+                    f'MOTION PROMPT: {prompt_contract["motion_prompt"]}\n'
+                    f'DIALOGUE AUDIO PROMPT: "{prompt_contract["dialogue_audio_prompt"]}"\n'
+                    f"REFERENCE IDS: [{refs_str}]\n"
+                    f'DURATION: {prompt_contract["duration_seconds"]}s\n'
+                    "EXECUTION RULES:\n"
+                    "- First call generate_image using ONLY the STILL FRAME PROMPT.\n"
+                    "- Pass aspect_ratio='16:9' as a tool argument unless the user explicitly requested a different ratio.\n"
+                    "- If REFERENCE IDS are present, pass all of them as image_urls.\n"
+                    "- Then call generate_video with mode=image_to_video using the generated image asset_id.\n"
+                    f"- {video_prompt_instruction}\n"
+                    "- Report the final video asset_id."
+                )
 
                 shot_task = TaskNode(
                     id=shot_task_id,
@@ -1213,7 +1569,7 @@ class Orchestrator:
                 actions.append({"kind": "recut_timeline", "reason": summary})
             return verdict, actions, summary
 
-        failure_keywords = ("regenerate", "replace", "redo", "fix", "improve", "fail", "needs")
+        failure_keywords = ("regenerate", "regeneration", "replace", "redo")
         actions = []
         for line in review_message.splitlines():
             match = re.search(r"shot\s+(\d+)", line, re.IGNORECASE)
@@ -1231,7 +1587,11 @@ class Orchestrator:
             return "fail", actions, review_message
 
         message_lower = review_message.lower()
-        if any(keyword in message_lower for keyword in failure_keywords):
+        if "recut" in message_lower and "timeline" in message_lower:
+            return "fail", [{"kind": "recut_timeline", "reason": review_message.strip()}], review_message
+        if (
+            "shot" in message_lower or "timeline" in message_lower
+        ) and any(keyword in message_lower for keyword in ("fail", "failed", "wrong", "needs", "missing", "too ", "weak")):
             return "fail", [{"kind": "recut_timeline", "reason": review_message.strip()}], review_message
 
         return "pass", [], review_message
@@ -1251,6 +1611,61 @@ class Orchestrator:
             if task.id.endswith(suffix):
                 return task
         return None
+
+    @staticmethod
+    def _find_generation_roots_for_review(review_task: TaskNode, dag: TaskDAG) -> list[TaskNode]:
+        roots: dict[str, TaskNode] = {}
+        pending = list(review_task.depends_on)
+        visited: set[str] = set()
+
+        while pending:
+            task_id = pending.pop()
+            if task_id in visited:
+                continue
+            visited.add(task_id)
+            task = dag.get_task(task_id)
+            if not task:
+                continue
+
+            if "-shot-" in task.id:
+                root_id = task.id.split("-shot-", 1)[0]
+                root_task = dag.get_task(root_id)
+                if root_task and "generation" in root_task.tool_categories:
+                    roots[root_task.id] = root_task
+            elif "generation" in task.tool_categories and task.skill_id != "scene-preproduction":
+                roots[task.id] = task
+
+            pending.extend(task.depends_on)
+
+        return list(roots.values())
+
+    @staticmethod
+    def _script_source_ids_for_generation_task(
+        generation_task: TaskNode,
+        dag: TaskDAG,
+    ) -> list[str]:
+        script_skill_ids = {"advertising-screenwriter", "film-tv-screenwriting"}
+        source_ids: list[str] = []
+        for dep_id in generation_task.depends_on:
+            dep_task = dag.get_task(dep_id)
+            if not dep_task or dep_task.task_type != TaskType.CREATIVE:
+                continue
+            if dep_task.skill_id in script_skill_ids or (
+                dep_task.result_summary and Orchestrator._parse_shot_list(dep_task.result_summary)
+            ):
+                source_ids.append(dep_id)
+        return source_ids
+
+    @staticmethod
+    def _invalidate_generation_branch(
+        generation_root: TaskNode,
+        dag: TaskDAG,
+    ) -> None:
+        shot_prefix = f"{generation_root.id}-shot-"
+        for task in dag.tasks:
+            if task.id.startswith(shot_prefix):
+                task.status = TaskStatus.CANCELLED
+                task.error = "Superseded by rewritten script"
 
     def _handle_review_result(
         self,
@@ -1280,7 +1695,9 @@ class Orchestrator:
         session.review_iteration_count[review_key] = iteration + 1
         downstream_pending = self._pending_tasks_waiting_on(review_key, session.dag)
         created_tasks: list[TaskNode] = []
+        downstream_blockers: list[TaskNode] = []
         seen_keys: set[str] = set()
+        budget_limited = False
 
         for action in actions:
             kind = str(action.get("kind", "")).strip().lower()
@@ -1297,6 +1714,14 @@ class Orchestrator:
                 source_task = self._find_generation_shot_task(shot_number, session.dag)
                 if source_task is None:
                     continue
+                regen_key = source_task.id
+                if session.shot_regeneration_count.get(regen_key, 0) >= _MAX_SHOT_REGENERATIONS_PER_SHOT:
+                    budget_limited = True
+                    logger.info(
+                        "[orchestrator] session=%s | shot %s hit regeneration cap (%d)",
+                        session.id[:8], regen_key, _MAX_SHOT_REGENERATIONS_PER_SHOT,
+                    )
+                    continue
                 correction_task = TaskNode(
                     id=f"correction-{review_key}-shot-{shot_number}-{iteration + 1}",
                     description=(
@@ -1311,6 +1736,8 @@ class Orchestrator:
                     context_requirements=["prior_results"],
                 )
                 created_tasks.append(correction_task)
+                downstream_blockers.append(correction_task)
+                session.shot_regeneration_count[regen_key] = session.shot_regeneration_count.get(regen_key, 0) + 1
                 continue
 
             if kind == "rewrite_script":
@@ -1318,17 +1745,85 @@ class Orchestrator:
                 if dedupe_key in seen_keys:
                     continue
                 seen_keys.add(dedupe_key)
+                generation_roots = self._find_generation_roots_for_review(review_task, session.dag)
+                script_source_ids: list[str] = []
+                script_skill_id = "advertising-screenwriter"
+                for generation_root in generation_roots:
+                    source_ids = self._script_source_ids_for_generation_task(generation_root, session.dag)
+                    script_source_ids.extend(source_ids)
+                    for source_id in source_ids:
+                        source_task = session.dag.get_task(source_id)
+                        if source_task and source_task.skill_id:
+                            script_skill_id = source_task.skill_id
+                            break
+                    if script_source_ids:
+                        break
+                if not script_source_ids:
+                    for candidate in reversed(session.dag.tasks):
+                        if (
+                            candidate.task_type == TaskType.CREATIVE
+                            and candidate.result_summary
+                            and self._parse_shot_list(candidate.result_summary)
+                        ):
+                            script_source_ids = [candidate.id]
+                            if candidate.skill_id:
+                                script_skill_id = candidate.skill_id
+                            break
+                rewrite_depends_on = [review_task.id, *script_source_ids]
                 correction_task = TaskNode(
                     id=f"correction-{review_key}-script-{iteration + 1}",
                     description=f"Rewrite the script based on review feedback: {reason}",
-                    skill_id="advertising-screenwriter",
-                    depends_on=[review_task.id],
+                    skill_id=script_skill_id,
+                    depends_on=rewrite_depends_on,
                     status=TaskStatus.PENDING,
                     task_type=TaskType.CREATIVE,
                     tool_categories=[],
                     context_requirements=["prior_results"],
                 )
                 created_tasks.append(correction_task)
+                if not generation_roots:
+                    downstream_blockers.append(correction_task)
+                    continue
+
+                for generation_root in generation_roots:
+                    self._invalidate_generation_branch(generation_root, session.dag)
+                    non_script_deps = [
+                        dep for dep in generation_root.depends_on
+                        if dep not in script_source_ids
+                    ]
+                    review_suffix = (
+                        str(iteration + 1)
+                        if len(generation_roots) == 1
+                        else f"{generation_root.id}-{iteration + 1}"
+                    )
+                    rewrite_generation_task = TaskNode(
+                        id=f"{generation_root.id}-rewrite-{iteration + 1}",
+                        description=(
+                            f"Regenerate the shot plan and generated assets using the rewritten script. "
+                            f"Original generation task: {generation_root.description}"
+                        ),
+                        skill_id=generation_root.skill_id,
+                        depends_on=[correction_task.id, *non_script_deps],
+                        status=TaskStatus.PENDING,
+                        task_type=TaskType.EXECUTION,
+                        tool_categories=list(generation_root.tool_categories),
+                        context_requirements=["prior_results"],
+                    )
+                    rewrite_review_task = TaskNode(
+                        id=f"{review_key}-rewrite-{review_suffix}",
+                        description=(
+                            "Review the regenerated shots against the rewritten script before "
+                            "any downstream editorial work proceeds."
+                        ),
+                        skill_id=review_task.skill_id or "marketing-editor",
+                        depends_on=[rewrite_generation_task.id],
+                        status=TaskStatus.PENDING,
+                        task_type=TaskType.REVIEW,
+                        tool_categories=["review"],
+                        context_requirements=["prior_results"],
+                    )
+                    created_tasks.extend([rewrite_generation_task, rewrite_review_task])
+                    downstream_blockers.append(rewrite_review_task)
                 continue
 
             if kind == "recut_timeline":
@@ -1347,6 +1842,23 @@ class Orchestrator:
                     context_requirements=["prior_results", "timeline_state"],
                 )
                 created_tasks.append(correction_task)
+                downstream_blockers.append(correction_task)
+
+        if not created_tasks and budget_limited:
+            created_tasks.append(TaskNode(
+                id=f"correction-{review_key}-timeline-{iteration + 1}-budget",
+                description=(
+                    "Generation correction budget was exhausted. Recut the timeline, or escalate "
+                    f"to a script/story fix based on this review feedback: {summary[:200]}"
+                ),
+                skill_id=review_task.skill_id or "marketing-editor",
+                depends_on=[review_task.id],
+                status=TaskStatus.PENDING,
+                task_type=TaskType.EXECUTION,
+                tool_categories=["timeline_mgmt", "clip_editing", "transitions"],
+                context_requirements=["prior_results", "timeline_state"],
+            ))
+            downstream_blockers = list(created_tasks)
 
         if not created_tasks:
             created_tasks.append(TaskNode(
@@ -1359,14 +1871,15 @@ class Orchestrator:
                 tool_categories=["core", "generation", "clip_editing", "timeline_mgmt"],
                 context_requirements=["prior_results", "timeline_state"],
             ))
+            downstream_blockers = list(created_tasks)
 
         for correction_task in created_tasks:
             session.dag.tasks.append(correction_task)
 
         for pending_task in downstream_pending:
-            for correction_task in created_tasks:
-                if correction_task.id not in pending_task.depends_on:
-                    pending_task.depends_on.append(correction_task.id)
+            for blocker in downstream_blockers:
+                if blocker.id not in pending_task.depends_on:
+                    pending_task.depends_on.append(blocker.id)
 
         logger.info(
             "[orchestrator] session=%s | review %s requested %d correction task(s): %s",

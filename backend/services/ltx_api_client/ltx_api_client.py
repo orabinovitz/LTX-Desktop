@@ -15,11 +15,19 @@ class LTXRetakeResult:
 
 
 class LTXAPIClientError(RuntimeError):
-    def __init__(self, status_code: int, detail: str, stage: str | None = None) -> None:
-        super().__init__(detail)
+    def __init__(
+        self,
+        status_code: int,
+        detail: str,
+        stage: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        rendered_detail = detail if reason is None else f"{detail} [category={reason}]"
+        super().__init__(rendered_detail)
         self.status_code = status_code
         self.detail = detail
         self.stage = stage
+        self.reason = reason
 
 
 class LTXAPIClient(Protocol):

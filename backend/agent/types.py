@@ -225,6 +225,16 @@ class AgentDiagnostics(BaseModel):
     tool_ms: int | None = Field(default=None, description="Tool execution duration in milliseconds, if known.")
     planning_ms: int | None = Field(default=None, description="Planning duration in milliseconds, if known.")
     used_fallback_model: bool = Field(default=False, description="True when the request fell back from the primary model.")
+    planned_shots: int | None = Field(default=None, description="Total generated shot tasks currently in the DAG.")
+    executed_shots: int | None = Field(default=None, description="Completed shot-generation tasks.")
+    generated_images: int | None = Field(default=None, description="Successful generate_image calls recorded for this session.")
+    generated_videos: int | None = Field(default=None, description="Successful generate_video calls recorded for this session.")
+    image_video_ratio: float | None = Field(default=None, description="generated_images / generated_videos when videos exist.")
+    reference_hit_rate: float | None = Field(default=None, description="Hit rate for attaching reference images to expanded shots.")
+    coverage_repairs: int | None = Field(default=None, description="Number of coverage-repair tasks inserted so far.")
+    retry_causes: dict[str, int] = Field(default_factory=dict, description="Categorized retry and failure causes observed during the session.")
+    sub_agent_timeouts: int | None = Field(default=None, description="Count of categorized sub-agent timeout failures.")
+    provider_errors: int | None = Field(default=None, description="Count of categorized provider-side errors observed during the session.")
 
 
 class AgentExecuteResponse(BaseModel):

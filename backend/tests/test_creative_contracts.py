@@ -9,6 +9,7 @@ from agent.orchestration.creative_contracts import (
     infer_creative_profile,
     validate_shot_plan,
 )
+from tests.fixtures.agentic_workflow_benchmarks import ISLAND_SURVIVOR_SCENE_BRIEF
 
 
 def test_infer_brand_cinematic_profile_for_world_cup_ad() -> None:
@@ -19,6 +20,28 @@ def test_infer_brand_cinematic_profile_for_world_cup_ad() -> None:
 def test_infer_performance_social_profile() -> None:
     prompt = "Create a 30-second performance marketing ad with a hook, proof, and CTA for Meta."
     assert infer_creative_profile(prompt) == CreativeProfile.PERFORMANCE_SOCIAL
+
+
+def test_infer_dialogue_scene_profile_for_narrative_scene_prompt() -> None:
+    assert infer_creative_profile(ISLAND_SURVIVOR_SCENE_BRIEF) == CreativeProfile.DIALOGUE_SCENE
+
+
+def test_infer_dialogue_scene_profile_does_not_match_ad_inside_dead() -> None:
+    prompt = (
+        "Create a tense scene where one survivor tells another in a short conversation "
+        "that everyone else is dead after the plane crash."
+    )
+    assert infer_creative_profile(prompt) == CreativeProfile.DIALOGUE_SCENE
+
+
+def test_infer_dialogue_scene_profile_ignores_negated_dialogue() -> None:
+    prompt = "Create a dialogue-free tropical survival montage with no dialogue and no spoken lines."
+    assert infer_creative_profile(prompt) == CreativeProfile.MONTAGE
+
+
+def test_infer_dialogue_scene_profile_ignores_negated_dialogue_without_other_profile() -> None:
+    prompt = "Create a dialogue-free tropical survival scene with no dialogue or spoken lines."
+    assert infer_creative_profile(prompt) is None
 
 
 def test_build_coverage_contract_scales_with_duration() -> None:

@@ -146,7 +146,9 @@ class NanoBanana2APIClientImpl:
         )
         if response.status_code != 200:
             detail = response.text[:500] if response.text else "Unknown error"
-            raise RuntimeError(f"FAL submit failed ({response.status_code}): {detail}")
+            raise RuntimeError(
+                f"FAL submit failed ({response.status_code}) [category=fal_submit_status]: {detail}"
+            )
 
         response_payload = self._json_object(response.json(), context="submit")
         image_url = self._extract_image_url(response_payload)
@@ -154,9 +156,11 @@ class NanoBanana2APIClientImpl:
         download = self._http.get(image_url, timeout=120)
         if download.status_code != 200:
             detail = download.text[:500] if download.text else "Unknown error"
-            raise RuntimeError(f"FAL image download failed ({download.status_code}): {detail}")
+            raise RuntimeError(
+                f"FAL image download failed ({download.status_code}) [category=fal_download_status]: {detail}"
+            )
         if not download.content:
-            raise RuntimeError("FAL image download returned empty body")
+            raise RuntimeError("FAL image download returned empty body [category=fal_download_empty]")
         return download.content
 
     @staticmethod

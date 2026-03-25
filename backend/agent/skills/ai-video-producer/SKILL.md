@@ -256,13 +256,19 @@ Write prompts like a cinematographer describes a shot:
 - Overly complex scenes that AI will struggle to render
 
 **Dialogue and speech:**
-When a shot involves characters speaking, include the dialogue in the prompt.
-Describe who is speaking and what they say — the model generates full audio
-with speaking characters. Example:
+When a **video shot** involves characters speaking, include the dialogue in the
+**video prompt only**. Never put spoken dialogue into a still-image prompt —
+the image prompt should capture a single decisive frame before, during, or
+after the line without rendering text in the frame. Describe who is speaking
+and what they say in the video prompt so the model generates full audio with
+speaking characters. Example:
 - "Medium shot of a man leaning across the diner table, saying 'We do this
   in ten minutes, no hesitation', tense atmosphere, low warm lighting"
 - For non-dialogue shots (landscapes, action, montage), omit speech — keep
   prompts visual and kinetic only.
+- For text-to-image / image-first workflows, keep the image prompt static:
+  subject, environment, lighting, composition, blocking. Put mouth movement,
+  gestures, camera movement, and dialogue into the image-to-video prompt.
 
 For advertising and branded content, spoken dialogue should be the exception,
 not the default:

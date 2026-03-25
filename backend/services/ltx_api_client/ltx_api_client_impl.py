@@ -240,6 +240,7 @@ class LTXAPIClientImpl:
                         upload_resp.status_code,
                         f"LTX upload init failed ({upload_resp.status_code}): {err}{rid}",
                         stage="upload_init",
+                        reason="provider_response",
                     )
 
                 try:
@@ -249,7 +250,12 @@ class LTXAPIClientImpl:
                     required_headers = cast(dict[str, str], payload.get("required_headers", {}))
                 except Exception as exc:
                     rid = self._fmt_request_id(upload_resp)
-                    raise LTXAPIClientError(500, f"Unexpected LTX upload response format{rid}", stage="upload_parse") from exc
+                    raise LTXAPIClientError(
+                        500,
+                        f"Unexpected LTX upload response format{rid}",
+                        stage="upload_parse",
+                        reason="unexpected_response",
+                    ) from exc
 
                 stage = "upload_put"
                 with open(path_obj, "rb") as media_file:
@@ -273,12 +279,22 @@ class LTXAPIClientImpl:
                     if stage == "upload_init"
                     else f"LTX upload failed: {exc}"
                 )
-                raise LTXAPIClientError(500, detail, stage=stage) from exc
+                raise LTXAPIClientError(
+                    500,
+                    detail,
+                    stage=stage,
+                    reason="transient_transport",
+                ) from exc
 
             if put_resp.status_code not in (200, 201):
                 err = put_resp.text[:500]
                 rid = self._fmt_request_id(put_resp)
-                raise LTXAPIClientError(500, f"LTX upload failed ({put_resp.status_code}): {err}{rid}", stage="upload_put")
+                raise LTXAPIClientError(
+                    500,
+                    f"LTX upload failed ({put_resp.status_code}): {err}{rid}",
+                    stage="upload_put",
+                    reason="provider_response",
+                )
 
             return storage_uri
         raise RuntimeError("unreachable")

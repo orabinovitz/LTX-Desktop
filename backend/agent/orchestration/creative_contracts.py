@@ -104,21 +104,51 @@ _PROFILE_THRESHOLDS: dict[CreativeProfile, _ProfileThresholds] = {
 }
 
 
+def _contains_any_phrase(prompt_lower: str, phrases: tuple[str, ...]) -> bool:
+    return any(
+        re.search(rf"\b{re.escape(phrase)}\b", prompt_lower)
+        for phrase in phrases
+    )
+
+
 def infer_creative_profile(prompt: str) -> CreativeProfile | None:
     """Infer a creative profile from the user brief."""
     prompt_lower = prompt.lower()
 
-    if any(keyword in prompt_lower for keyword in ("ugc", "tiktok native", "creator style", "selfie", "testimonial")):
+    if _contains_any_phrase(prompt_lower, ("ugc", "tiktok native", "creator style", "selfie", "testimonial")):
         return CreativeProfile.UGC_NATIVE
-    if any(keyword in prompt_lower for keyword in ("performance ad", "performance marketing", "cta", "hook", "meta ad", "facebook ad", "instagram ad", "roas")):
+    if _contains_any_phrase(
+        prompt_lower,
+        ("performance ad", "performance marketing", "cta", "hook", "meta ad", "facebook ad", "instagram ad", "roas"),
+    ):
         return CreativeProfile.PERFORMANCE_SOCIAL
-    if any(keyword in prompt_lower for keyword in ("montage", "promo", "sizzle", "highlight reel", "fan festival")):
+    if _contains_any_phrase(prompt_lower, ("montage", "promo", "sizzle", "highlight reel", "fan festival")):
         return CreativeProfile.MONTAGE
-    if any(keyword in prompt_lower for keyword in ("dialogue scene", "conversation", "arguing", "two people talking", "siblings", "scene")) and not any(
-        keyword in prompt_lower for keyword in ("ad", "advertisement", "commercial", "promo")
+    dialogue_negated = _contains_any_phrase(
+        prompt_lower,
+        (
+            "no dialogue",
+            "no dialogues",
+            "without dialogue",
+            "without dialogues",
+            "dialogue-free",
+            "dialogue free",
+            "dialogues-free",
+            "dialogues free",
+        ),
+    )
+    dialogue_cue = _contains_any_phrase(prompt_lower, ("dialogue", "dialogues"))
+    dialogue_specific = _contains_any_phrase(
+        prompt_lower,
+        ("dialogue scene", "conversation", "arguing", "two people talking", "siblings"),
+    )
+    dialogue_scene_combo = _contains_any_phrase(prompt_lower, ("scene",)) and dialogue_cue
+    if not dialogue_negated and (dialogue_specific or dialogue_scene_combo) and not _contains_any_phrase(
+        prompt_lower,
+        ("ad", "advertisement", "commercial", "promo"),
     ):
         return CreativeProfile.DIALOGUE_SCENE
-    if any(keyword in prompt_lower for keyword in ("ad", "advertisement", "commercial", "brand film", "world cup", "campaign")):
+    if _contains_any_phrase(prompt_lower, ("ad", "advertisement", "commercial", "brand film", "world cup", "campaign")):
         return CreativeProfile.BRAND_CINEMATIC
     return None
 

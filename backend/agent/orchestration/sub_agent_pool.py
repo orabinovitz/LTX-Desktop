@@ -41,7 +41,12 @@ logger = logging.getLogger(__name__)
 
 _MAX_WORKERS = 10
 _MAX_SUB_AGENT_TURNS = 30
+_SUB_AGENT_GEMINI_TIMEOUT_SECONDS = 300
 _backend_tool_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="sub-backend-tool")
+
+
+class _GeminiTurnError(RuntimeError):
+    """Raised when a Gemini turn fails with a categorized reason."""
 
 _HIGH_STAKES_CONSISTENCY_KEYWORDS: tuple[str, ...] = (
     "continuity",
@@ -151,6 +156,7 @@ def _has_reference_assets(prior_results: dict[str, str]) -> bool:
             or "location_refs" in normalized
             or "character refs" in normalized
             or "location refs" in normalized
+            or "reference_payload" in normalized
         ):
             return True
     return False
@@ -251,11 +257,13 @@ def _build_user_message(context: SubAgentContext, tool_names: list[str]) -> str:
                 "each shot in order because downstream tasks (review, "
                 "timeline assembly) expect this structure.\n"
                 "- Generate every listed shot (Shot 1, Shot 2, Shot 3, etc.)\n"
-                "- Follow each shot's visual description precisely\n"
-                "- For each shot: call generate_image with the visual "
-                "description and aspect_ratio='16:9' for standard landscape "
-                "video framing, then call generate_video with image_to_video "
-                "mode to animate it\n"
+                "- Follow each shot contract precisely\n"
+                "- For each shot: call generate_image with only the STILL "
+                "FRAME PROMPT and aspect_ratio='16:9' for standard landscape "
+                "video framing\n"
+                "- Then call generate_video with image_to_video mode using "
+                "only the MOTION PROMPT; dialogue belongs in the video prompt, "
+                "not the image prompt\n"
                 "- Pass aspect_ratio='16:9' to generate_image unless the "
                 "user explicitly requested a different ratio\n"
                 "- Report each shot's asset_id in your summary"
@@ -439,10 +447,10 @@ def _run_gemini_turn(
     *,
     enable_search: bool = False,
     fallback_model: str | None = None,
-) -> tuple[list[dict[str, Any]], list[ToolCall], list[ToolCall]] | None:
+) -> tuple[list[dict[str, Any]], list[ToolCall], list[ToolCall]]:
     """Make one Gemini API call and parse the response.
 
-    Returns (parts, frontend_calls, backend_calls) or None on error.
+    Returns (parts, frontend_calls, backend_calls).
     """
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -472,7 +480,7 @@ def _run_gemini_turn(
                     "x-goog-api-key": api_key,
                 },
                 json_payload=payload,
-                timeout=120,
+                timeout=_SUB_AGENT_GEMINI_TIMEOUT_SECONDS,
             )
             if resp.status_code != 503:
                 break
@@ -484,14 +492,16 @@ def _run_gemini_turn(
             time.sleep(wait)
         except HttpTimeoutError:
             logger.error("Sub-agent timed out for task %s (turn %d)", task_id, turn)
-            return None
-        except Exception:
+            raise _GeminiTurnError("Gemini timeout while waiting for model response")
+        except Exception as exc:
             logger.error("Sub-agent request failed for task %s", task_id, exc_info=True)
-            return None
+            raise _GeminiTurnError(
+                f"Gemini request failed ({type(exc).__name__}): {exc}"
+            ) from exc
 
     if resp is None:
         logger.error("[sub-agent] task=%s | no response after retries", task_id)
-        return None
+        raise _GeminiTurnError("Gemini request returned no response after retries")
 
     if resp.status_code == 503 and fallback_model and fallback_model != model:
         fallback_url = (
@@ -510,11 +520,11 @@ def _run_gemini_turn(
                     "x-goog-api-key": api_key,
                 },
                 json_payload=payload,
-                timeout=120,
+                timeout=_SUB_AGENT_GEMINI_TIMEOUT_SECONDS,
             )
         except Exception:
             logger.error("[sub-agent] task=%s | fallback request failed", task_id, exc_info=True)
-            return None
+            raise _GeminiTurnError("Gemini fallback request failed")
 
     elapsed = time.monotonic() - t0
     logger.info(
@@ -524,14 +534,14 @@ def _run_gemini_turn(
 
     if resp.status_code != 200:
         logger.error("[sub-agent] task=%s | error: %s", task_id, resp.text[:300])
-        return None
+        raise _GeminiTurnError(f"Gemini HTTP {resp.status_code}: {resp.text[:300]}")
 
     try:
         body = resp.json()
         parts: list[dict[str, Any]] = body["candidates"][0]["content"]["parts"]
     except (KeyError, IndexError, TypeError) as exc:
         logger.error("[sub-agent] task=%s | malformed response: %s", task_id, exc)
-        return None
+        raise _GeminiTurnError(f"Gemini malformed response: {exc}") from exc
 
     frontend_calls: list[ToolCall] = []
     backend_calls: list[ToolCall] = []
@@ -608,17 +618,18 @@ def execute_sub_agent(
     search_phase = search_enabled
 
     for turn in range(_MAX_SUB_AGENT_TURNS):
-        result = _run_gemini_turn(
-            contents, system_prompt, tool_declarations,
-            model_selection.model,
-            api_key, http_client, task.id, turn,
-            enable_search=search_phase,
-            fallback_model=model_selection.fallback_model,
-        )
-        if result is None:
+        try:
+            result = _run_gemini_turn(
+                contents, system_prompt, tool_declarations,
+                model_selection.model,
+                api_key, http_client, task.id, turn,
+                enable_search=search_phase,
+                fallback_model=model_selection.fallback_model,
+            )
+        except _GeminiTurnError as exc:
             return SubAgentResult(
                 task_id=task.id, success=False,
-                error="Gemini call failed",
+                error=str(exc),
                 sub_agent_model=model_selection.model,
                 sub_agent_fallback_model=model_selection.fallback_model,
             )
@@ -729,17 +740,18 @@ def resume_sub_agent(
     text_fragments: list[str] = []
 
     for turn in range(_MAX_SUB_AGENT_TURNS):
-        result = _run_gemini_turn(
-            contents, system_prompt, tool_declarations,
-            model,
-            api_key, http_client, task_id, turn + 100,
-            enable_search=search_enabled,
-            fallback_model=fallback_model,
-        )
-        if result is None:
+        try:
+            result = _run_gemini_turn(
+                contents, system_prompt, tool_declarations,
+                model,
+                api_key, http_client, task_id, turn + 100,
+                enable_search=search_enabled,
+                fallback_model=fallback_model,
+            )
+        except _GeminiTurnError as exc:
             return SubAgentResult(
                 task_id=task_id, success=False,
-                error="Resume Gemini call failed",
+                error=str(exc),
                 sub_agent_model=model,
                 sub_agent_fallback_model=fallback_model,
             )

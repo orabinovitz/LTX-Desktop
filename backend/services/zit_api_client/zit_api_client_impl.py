@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+import random
+import re
+import time
 from typing import Any, cast
 
-from services.http_client.http_client import HTTPClient
+from services.http_client.http_client import HTTPClient, HttpConnectionError, HttpTimeoutError
 from services.services_utils import JSONValue
 
 FAL_API_BASE_URL = "https://fal.run"
@@ -13,6 +17,12 @@ FAL_TEXT_TO_IMAGE_ENDPOINT = "/fal-ai/z-image/turbo"
 DEFAULT_OUTPUT_FORMAT = "png"
 DEFAULT_ACCELERATION = "regular"
 DEFAULT_ENABLE_SAFETY_CHECKER = True
+_RETRYABLE_STATUS_CODES = {429, 502, 503}
+_MAX_RETRIES = 2
+_BASE_DELAY_SECONDS = 1.0
+_STATUS_CODE_PATTERN = re.compile(r"\((\d{3})\)")
+
+logger = logging.getLogger(__name__)
 
 
 class ZitAPIClientImpl:
@@ -53,6 +63,45 @@ class ZitAPIClientImpl:
         api_key: str,
         payload: dict[str, JSONValue],
     ) -> bytes:
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                return self._do_submit_and_download(
+                    endpoint=endpoint,
+                    api_key=api_key,
+                    payload=payload,
+                )
+            except RuntimeError as exc:
+                if not self._is_retryable(exc):
+                    raise
+                last_exc = exc
+            except (HttpTimeoutError, HttpConnectionError) as exc:
+                last_exc = exc
+
+            assert last_exc is not None
+            delay = _BASE_DELAY_SECONDS * (2 ** attempt) + random.uniform(0, 0.5)
+            logger.warning(
+                "FAL ZIT request retry: endpoint=%s attempt=%d/%d retry_in=%.1fs "
+                "error_type=%s error=%s",
+                endpoint,
+                attempt + 1,
+                _MAX_RETRIES + 1,
+                delay,
+                type(last_exc).__name__,
+                last_exc,
+            )
+            time.sleep(delay)
+
+        assert last_exc is not None
+        raise last_exc
+
+    def _do_submit_and_download(
+        self,
+        *,
+        endpoint: str,
+        api_key: str,
+        payload: dict[str, JSONValue],
+    ) -> bytes:
         response = self._http.post(
             f"{self._base_url}{endpoint}",
             headers=self._json_headers(api_key),
@@ -61,7 +110,9 @@ class ZitAPIClientImpl:
         )
         if response.status_code != 200:
             detail = response.text[:500] if response.text else "Unknown error"
-            raise RuntimeError(f"FAL submit failed ({response.status_code}): {detail}")
+            raise RuntimeError(
+                f"FAL submit failed ({response.status_code}) [category=fal_submit_status]: {detail}"
+            )
 
         response_payload = self._json_object(response.json(), context="submit")
         image_url = self._extract_image_url(response_payload)
@@ -69,10 +120,19 @@ class ZitAPIClientImpl:
         download = self._http.get(image_url, timeout=120)
         if download.status_code != 200:
             detail = download.text[:500] if download.text else "Unknown error"
-            raise RuntimeError(f"FAL image download failed ({download.status_code}): {detail}")
+            raise RuntimeError(
+                f"FAL image download failed ({download.status_code}) [category=fal_download_status]: {detail}"
+            )
         if not download.content:
-            raise RuntimeError("FAL image download returned empty body")
+            raise RuntimeError("FAL image download returned empty body [category=fal_download_empty]")
         return download.content
+
+    @staticmethod
+    def _is_retryable(exc: RuntimeError) -> bool:
+        match = _STATUS_CODE_PATTERN.search(str(exc))
+        if not match:
+            return False
+        return int(match.group(1)) in _RETRYABLE_STATUS_CODES
 
     @staticmethod
     def _json_headers(api_key: str) -> dict[str, str]:

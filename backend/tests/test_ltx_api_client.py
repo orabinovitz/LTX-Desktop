@@ -271,6 +271,55 @@ def test_upload_file_retries_after_upload_init_timeout(tmp_path) -> None:
     assert [call.method for call in http.calls] == ["post", "post", "put"]
 
 
+def test_upload_file_exposes_structured_transport_reason_after_retry_exhaustion(tmp_path) -> None:
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"fake-audio")
+
+    http = FakeHTTPClient()
+    http.queue(
+        "post",
+        FakeResponse(
+            status_code=200,
+            json_payload={
+                "upload_url": "https://upload.example.com/audio-first",
+                "storage_uri": "storage://audio/first",
+                "required_headers": {"x-ms-blob-type": "BlockBlob"},
+            },
+        ),
+        FakeResponse(
+            status_code=200,
+            json_payload={
+                "upload_url": "https://upload.example.com/audio-second",
+                "storage_uri": "storage://audio/second",
+                "required_headers": {"x-ms-blob-type": "BlockBlob"},
+            },
+        ),
+        FakeResponse(
+            status_code=200,
+            json_payload={
+                "upload_url": "https://upload.example.com/audio-third",
+                "storage_uri": "storage://audio/third",
+                "required_headers": {"x-ms-blob-type": "BlockBlob"},
+            },
+        ),
+    )
+    http.queue(
+        "put",
+        HttpConnectionError("stream reset"),
+        HttpConnectionError("stream reset"),
+        HttpConnectionError("stream reset"),
+    )
+
+    client = LTXAPIClientImpl(http=http, ltx_api_base_url="https://api.ltx.video")
+
+    with pytest.raises(LTXAPIClientError) as exc_info:
+        client.upload_file(api_key="test-key", file_path=str(audio_path))
+
+    assert exc_info.value.stage == "upload_put"
+    assert exc_info.value.reason == "transient_transport"
+    assert "category=transient_transport" in str(exc_info.value)
+
+
 def test_generate_audio_to_video_with_audio_uri_downloads_video() -> None:
     http = FakeHTTPClient()
     http.queue(

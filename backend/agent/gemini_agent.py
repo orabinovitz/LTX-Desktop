@@ -160,9 +160,10 @@ regenerates a portion of an existing video.
 Generation takes 20-120 seconds; the tool blocks until complete.
 
 ### Generation Prompts
-Write prompts like a cinematographer — describe the SCENE (environment, \
-lighting), ACTION (movement, gestures), and CAMERA (angle, movement, \
-focal length) with specificity.
+Write prompts like a cinematographer. For `generate_image`, describe a \
+single still frame — scene, lighting, composition, and lensing. For \
+`generate_video`, describe motion, gestures, camera movement, and spoken \
+dialogue. Do not mix video action beats into still-image prompts.
 
 ## Editing Rules
 
@@ -383,10 +384,20 @@ or `generate_image(prompt=..., model='z-image-turbo')` for fast generation
 - **Image Editing**: Pass source asset IDs in `image_urls` parameter of \
 `generate_image` to edit or composite images
 
-Write generation prompts like a cinematographer — describe the scene, \
-action, camera angle, and lighting with specificity. "A golden retriever \
-running through autumn leaves in a park, golden hour lighting, handheld \
-camera" beats "a dog running."
+Write generation prompts like a cinematographer. For image generation, \
+describe a single still frame: subject, environment, composition, lensing, \
+and lighting. Reserve dialogue, temporal action, and motion for video prompts. \
+For video generation, describe motion, blocking changes, camera movement, and \
+spoken dialogue with specificity.
+
+Do not write aspect ratios or frame dimensions inside the prompt text. \
+Pass aspect ratio only as a tool argument.
+
+For cinematic image prompts, use cinema camera bodies instead of still \
+photography cameras.
+
+Use natural-language guardrails when needed: no on-screen text, no \
+letterbox, no film scratches, no stock overlays.
 
 ## Response Style
 When responding directly to the user, be concise and professional. \
@@ -504,6 +515,8 @@ _IMAGE_GENERATION_APPENDIX = """\
 This ensures all images match the standard 1920x1080 video frame.
 - Use for: hero shots, character close-ups, detailed scenes, image editing
 - Pass image_urls (asset IDs) when you need to combine or edit existing images
+- For image prompts, describe one decisive still frame only. Motion, dialogue, \
+and temporal sequencing belong in generate_video prompts.
 
 **Z-Image Turbo:**
 - Faster generation, text-to-image only (no editing support)

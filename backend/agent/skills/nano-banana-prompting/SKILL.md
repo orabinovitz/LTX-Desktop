@@ -82,6 +82,9 @@ Three rules govern every prompt:
    specifying each explicitly.
 3. **Constrain aggressively** — "No text, no props, no background" eliminates
    variables and concentrates resolution on what matters.
+4. **Keep tool settings out of the prose** — do not write aspect ratios,
+   frame sizes, or output dimensions inside the prompt body. Pass those as
+   tool arguments only.
 
 **Exception:** for cinematic prompts, the framing anchor ("A cinematic screen
 grab from a feature film") replaces the opening verb. Do not prepend "Create"
@@ -379,6 +382,11 @@ language in the main prompt:
   distorted, extra fingers, deformed hands"
 - Keep negative lists short and targeted (10–20 tokens)
 - Don't stack synonyms — one clear term per concept
+- For cinematic stills where users want film-frame realism without overlays,
+  use natural-language exclusions like: "no on-screen text, no letterbox, no
+  film scratches, no stock overlays"
+- Do **not** write "1.66:1", "16:9", "4K", or similar output settings in the
+  prose prompt. Those belong in tool parameters, not image content.
 
 ## Resolution strategy
 

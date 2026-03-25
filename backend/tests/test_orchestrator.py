@@ -16,6 +16,7 @@ from agent.orchestration.orchestrator import (
     _sessions,
 )
 from agent.orchestration.creative_contracts import (
+    CoverageValidationIssue,
     CreativeProfile,
     build_coverage_contract,
 )
@@ -240,6 +241,57 @@ class TestExtractDialogue:
         assert result.endswith("...")
 
 
+class TestShotExpansionPromptContracts:
+    def test_shot_expansion_separates_still_motion_and_dialogue_prompts(self):
+        orch = Orchestrator.__new__(Orchestrator)
+        script_task = _task(
+            "task-1",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.CREATIVE,
+            result_summary=(
+                'Shot 1 (8s): Close-up of Elara saying "Stop! Where are we going?" '
+                "as she scans the burning wreckage, then turns toward Julian.\n"
+                "Shot 2 (8s): Julian steps closer through the smoke."
+            ),
+            skill_id="film-tv-screenwriting",
+        )
+        generation_task = _task(
+            "task-2",
+            depends_on=["task-1"],
+            tool_categories=["generation"],
+        )
+        dag = _dag([script_task, generation_task])
+        session = _session(dag)
+
+        changed = orch._try_expand_shot_tasks(session, dag.get_ready_tasks())
+
+        assert changed is True
+        shot_task = next(task for task in session.dag.tasks if task.id == "task-2-shot-1")
+        assert "STILL FRAME PROMPT:" in shot_task.description
+        assert "MOTION PROMPT:" in shot_task.description
+        assert 'DIALOGUE AUDIO PROMPT: "Stop! Where are we going?"' in shot_task.description
+        still_prompt = shot_task.description.split("STILL FRAME PROMPT: ", 1)[1].split("\nMOTION PROMPT:", 1)[0]
+        assert "Stop! Where are we going?" not in still_prompt
+        assert "actively speaking" not in shot_task.description
+
+    def test_shot_prompt_contract_sanitizes_aspect_ratio_artifacts_and_still_cameras(self):
+        contract = Orchestrator._build_shot_prompt_contract(
+            'Close-up of Elara waking on the beach in a 1.66:1 frame, saying "Stop!"',
+            dialogue="Stop!",
+            api_duration=8,
+            reference_ids=[],
+            visual_style_block="Shot on Sony A7III. Kodak Portra 400. Harsh tropical daylight.",
+        )
+
+        still_prompt = contract["still_frame_prompt"]
+        assert "1.66:1" not in still_prompt
+        assert "Sony A7III" not in still_prompt
+        assert "no on-screen text" in still_prompt.lower()
+        assert "no letterbox" in still_prompt.lower()
+        assert "no film scratches" in still_prompt.lower()
+        assert "no stock overlays" in still_prompt.lower()
+
+
 class TestParseReferenceAssets:
     def test_character_refs_parsed(self):
         dag = _dag([_task(
@@ -294,6 +346,34 @@ class TestParseReferenceAssets:
         chars, locs = Orchestrator._parse_reference_assets(dag)
         assert chars == {}
 
+    def test_reference_payload_block_is_parsed(self):
+        dag = _dag([_task(
+            "t1",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.EXECUTION,
+            result_summary=(
+                "REFERENCE_PAYLOAD:\n"
+                "{\n"
+                '  "characters": {"elara": {"asset_id": "char-1"}},\n'
+                '  "locations": {"plane_wreckage_beach_wide": {"asset_id": "loc-1"}}\n'
+                "}"
+            ),
+        )])
+        chars, locs = Orchestrator._parse_reference_assets(dag)
+        assert chars == {"elara": "char-1"}
+        assert locs == {"plane_wreckage_beach_wide": "loc-1"}
+
+    def test_invalid_reference_payload_is_skipped(self):
+        dag = _dag([_task(
+            "t1",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.EXECUTION,
+            result_summary="REFERENCE_PAYLOAD: {not valid json}",
+        )])
+        chars, locs = Orchestrator._parse_reference_assets(dag)
+        assert chars == {}
+        assert locs == {}
+
 
 class TestSelectRefsForShot:
     def test_all_character_refs_included(self):
@@ -346,6 +426,144 @@ class TestSelectRefsForShot:
         locs = {"place": "shared-id"}
         result = Orchestrator._select_refs_for_shot("place scene", chars, locs)
         assert result.count("shared-id") == 1
+
+    def test_scene_terms_rank_matching_wreckage_location_first(self):
+        chars = {}
+        locs = {
+            "jungle_edge": "loc-jungle",
+            "plane_wreckage_beach_wide": "loc-wreckage",
+            "plane_wreckage_beach_close": "loc-wreckage-close",
+        }
+        result = Orchestrator._select_refs_for_shot(
+            "Elara stares across the surf at twisted fuselage debris on the shoreline.",
+            chars,
+            locs,
+        )
+        assert result[0] == "loc-wreckage"
+
+
+class TestGenerationBudgets:
+    def test_generation_budget_scales_for_dialogue_scene_duration(self):
+        dag = TaskDAG(
+            tasks=[],
+            original_prompt="A 3 minute dialogue scene.",
+            target_duration_seconds=180,
+            creative_profile=CreativeProfile.DIALOGUE_SCENE,
+        )
+        session = _session(dag)
+
+        budget = Orchestrator._generation_budget(session)
+
+        assert budget["planned_shots"] == 27
+        assert budget["image_generations"] == 40
+        assert budget["video_generations"] == 36
+
+    def test_generation_budget_error_when_image_budget_would_be_exceeded(self):
+        dag = TaskDAG(
+            tasks=[],
+            original_prompt="A short branded video.",
+            target_duration_seconds=30,
+            creative_profile=CreativeProfile.BRAND_CINEMATIC,
+        )
+        session = _session(dag)
+        budget = Orchestrator._generation_budget(session)
+        session.generated_image_count = budget["image_generations"]
+
+        error = Orchestrator._generation_budget_error(
+            session,
+            [ToolResult(tool_name="generate_image", success=True, result={"assetId": "img-1"})],
+        )
+
+        assert error is not None
+        assert "image generation budget" in error.lower()
+
+    def test_shot_expansion_respects_session_planned_shot_budget(self):
+        script = "\n".join(
+            f"Shot {index} (8s): Dialogue beat {index} on the beach."
+            for index in range(1, 41)
+        )
+        dag = TaskDAG(
+            tasks=[
+                _task(
+                    "task-1",
+                    status=TaskStatus.COMPLETED,
+                    task_type=TaskType.CREATIVE,
+                    result_summary=script,
+                    skill_id="film-tv-screenwriting",
+                ),
+                _task(
+                    "task-2",
+                    depends_on=["task-1"],
+                    tool_categories=["generation"],
+                ),
+            ],
+            original_prompt="A 3 minute dialogue scene.",
+            target_duration_seconds=180,
+            creative_profile=CreativeProfile.DIALOGUE_SCENE,
+        )
+        session = _session(dag)
+
+        changed = Orchestrator.__new__(Orchestrator)._try_expand_shot_tasks(session, dag.get_ready_tasks())
+
+        assert changed is True
+        shot_tasks = [task for task in session.dag.tasks if task.id.startswith("task-2-shot-")]
+        assert len(shot_tasks) == 27
+
+
+class TestExecutionDiagnostics:
+    def test_execution_diagnostics_report_generation_and_retry_metrics(self):
+        dag = TaskDAG(
+            tasks=[
+                _task(
+                    "task-2-shot-1",
+                    status=TaskStatus.COMPLETED,
+                    task_type=TaskType.EXECUTION,
+                    tool_categories=["generation"],
+                ),
+                _task(
+                    "task-2-shot-2",
+                    status=TaskStatus.COMPLETED,
+                    task_type=TaskType.EXECUTION,
+                    tool_categories=["generation"],
+                ),
+            ],
+            original_prompt="A 3 minute dialogue scene.",
+            target_duration_seconds=180,
+            creative_profile=CreativeProfile.DIALOGUE_SCENE,
+        )
+        session = _session(dag)
+        session.generated_image_count = 12
+        session.generated_video_count = 6
+        session.reference_hit_count = 5
+        session.reference_miss_count = 1
+        session.coverage_repair_count = {"task-6": 1}
+        session.retry_cause_counts = {"transient_transport": 2, "fal_download_status": 1}
+        session.sub_agent_timeout_count = 1
+        session.provider_error_count = 3
+
+        diagnostics = Orchestrator._execution_diagnostics(session)
+
+        assert diagnostics.planned_shots == 2
+        assert diagnostics.executed_shots == 2
+        assert diagnostics.generated_images == 12
+        assert diagnostics.generated_videos == 6
+        assert diagnostics.image_video_ratio == 2.0
+        assert diagnostics.reference_hit_rate == pytest.approx(5 / 6)
+        assert diagnostics.coverage_repairs == 1
+        assert diagnostics.retry_causes == {"transient_transport": 2, "fal_download_status": 1}
+        assert diagnostics.sub_agent_timeouts == 1
+        assert diagnostics.provider_errors == 3
+
+    def test_retry_cause_does_not_double_count_provider_errors(self):
+        session = _session(_dag([]))
+
+        Orchestrator._record_retry_cause(
+            session,
+            "FAL image download failed (503) [category=fal_download_status]: provider busy",
+        )
+
+        assert session.provider_error_count == 1
+        assert session.retry_cause_counts == {"fal_download_status": 1}
 
 
 class TestCancelDependents:
@@ -799,8 +1017,146 @@ class TestHandleReviewResult:
         for correction_task in correction_tasks:
             assert correction_task.id in timeline_task.depends_on
 
+    def test_per_shot_regeneration_budget_skips_repeat_regeneration(self):
+        session = _session(_dag([]))
+        shot_3 = _task(
+            "task-4-shot-3",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.EXECUTION,
+            tool_categories=["generation"],
+            skill_id="nano-banana-prompting",
+        )
+        review_task = _task("review-1", task_type=TaskType.REVIEW, status=TaskStatus.COMPLETED, skill_id="marketing-editor")
+        timeline_task = _task(
+            "task-6",
+            depends_on=["review-1"],
+            task_type=TaskType.EXECUTION,
+            tool_categories=["timeline_mgmt", "clip_editing"],
+            skill_id="marketing-editor",
+        )
+        session.dag.tasks.extend([shot_3, review_task, timeline_task])
+        session.shot_regeneration_count["task-4-shot-3"] = 1
+
+        review_message = """
+{
+  "overall_verdict": "fail",
+  "summary": "Shot 3 still needs a new angle.",
+  "actions": [
+    {"kind": "regenerate_shot", "shot_number": 3, "reason": "Still missing the right coverage."}
+  ]
+}
+"""
+
+        Orchestrator._handle_review_result(
+            Orchestrator.__new__(Orchestrator),
+            session,
+            review_task,
+            review_message,
+        )
+
+        correction_tasks = [t for t in session.dag.tasks if t.id.startswith("correction-")]
+        assert len(correction_tasks) == 1
+        assert correction_tasks[0].tool_categories == ["timeline_mgmt", "clip_editing", "transitions"]
+        assert correction_tasks[0].id in timeline_task.depends_on
+
+    def test_rewrite_script_rebuilds_generation_branch_from_latest_script(self):
+        session = _session(_dag([]))
+        script_task = _task(
+            "task-1",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.CREATIVE,
+            result_summary="Shot 1 (8s): Original beat.",
+            skill_id="film-tv-screenwriting",
+        )
+        style_task = _task(
+            "task-2",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.CREATIVE,
+            result_summary="NB2_STYLE_BLOCK:\ncamera: ARRI ALEXA 35",
+            skill_id="cinematography",
+        )
+        generation_task = _task(
+            "task-3",
+            depends_on=["task-1", "task-2"],
+            status=TaskStatus.CANCELLED,
+            task_type=TaskType.EXECUTION,
+            tool_categories=["generation"],
+            skill_id="nano-banana-prompting",
+        )
+        shot_task = _task(
+            "task-3-shot-1",
+            depends_on=["task-1", "task-2"],
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.EXECUTION,
+            tool_categories=["generation"],
+            skill_id="nano-banana-prompting",
+        )
+        review_task = _task(
+            "review-1",
+            depends_on=["task-3-shot-1"],
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.REVIEW,
+            skill_id="marketing-editor",
+        )
+        timeline_task = _task(
+            "task-4",
+            depends_on=["review-1"],
+            status=TaskStatus.PENDING,
+            task_type=TaskType.EXECUTION,
+            tool_categories=["timeline_mgmt", "clip_editing"],
+            skill_id="marketing-editor",
+        )
+        session.dag.tasks.extend([script_task, style_task, generation_task, shot_task, review_task, timeline_task])
+
+        review_message = """
+{
+  "overall_verdict": "fail",
+  "summary": "The scene needs to be re-scripted before shot generation.",
+  "actions": [
+    {"kind": "rewrite_script", "reason": "The coverage and dramatic beats are wrong."}
+  ]
+}
+"""
+
+        Orchestrator._handle_review_result(
+            Orchestrator.__new__(Orchestrator),
+            session,
+            review_task,
+            review_message,
+        )
+
+        rewrite_script_task = next(t for t in session.dag.tasks if t.id == "correction-review-1-script-1")
+        rewrite_generation_task = next(t for t in session.dag.tasks if t.id == "task-3-rewrite-1")
+        rewrite_review_task = next(t for t in session.dag.tasks if t.id == "review-1-rewrite-1")
+
+        assert rewrite_script_task.depends_on == ["review-1", "task-1"]
+        assert rewrite_generation_task.depends_on == ["correction-review-1-script-1", "task-2"]
+        assert rewrite_review_task.depends_on == ["task-3-rewrite-1"]
+        assert rewrite_review_task.id in timeline_task.depends_on
+        assert shot_task.status == TaskStatus.CANCELLED
+        assert "superseded" in (shot_task.error or "").lower()
+
 
 class TestCoverageGuard:
+    def test_coverage_repair_copy_prefers_rebalancing_before_expansion(self):
+        description = Orchestrator._build_coverage_repair_description(
+            source_task=_task(
+                "task-1",
+                status=TaskStatus.COMPLETED,
+                task_type=TaskType.CREATIVE,
+                result_summary="Shot 1 (8s): Sparse opening.",
+                skill_id="film-tv-screenwriting",
+            ),
+            issues=[CoverageValidationIssue.UNDER_COVERED],
+            contract=build_coverage_contract(
+                profile=CreativeProfile.BRAND_CINEMATIC,
+                target_duration_seconds=30,
+            ),
+        )
+
+        assert "Rewrite and expand" not in description
+        assert "tighten or rebalance" in description.lower()
+
     def test_undercovered_script_inserts_repair_task_before_generation(self):
         orch = Orchestrator.__new__(Orchestrator)
         script_task = _task(
@@ -1038,6 +1394,14 @@ class TestCoverageGuard:
         repair_task = next(t for t in session.dag.tasks if t.id.startswith("coverage-repair-"))
         assert "Shot 1 (8s): Stadium tension." in repair_task.description
         assert "NB2_STYLE_BLOCK" not in repair_task.description
+
+    def test_review_heuristics_require_explicit_regenerate_language(self):
+        verdict, actions, _summary = Orchestrator._parse_review_actions(
+            "Shot 3 needs more tension, but the timeline can likely fix it.",
+        )
+
+        assert verdict == "fail"
+        assert actions == [{"kind": "recut_timeline", "reason": "Shot 3 needs more tension, but the timeline can likely fix it."}]
 
 
 # ====================================================================
