@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { useAgentDispatch } from "@/contexts/AgentContext";
+import { useProjects } from "@/contexts/ProjectContext";
+import { isProjectAgentAvailable } from "@/lib/agent-session";
 
 /**
  * Listens for the agent shortcut (Ctrl+Space or Ctrl+/) globally
@@ -7,9 +9,13 @@ import { useAgentDispatch } from "@/contexts/AgentContext";
  */
 export function useGlobalAgentShortcut() {
   const { setAgentOpen } = useAgentDispatch();
+  const { currentView, currentProjectId } = useProjects();
+  const canUseAgent = isProjectAgentAvailable(currentView, currentProjectId);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!canUseAgent) return;
+
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement
@@ -33,5 +39,5 @@ export function useGlobalAgentShortcut() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [setAgentOpen]);
+  }, [canUseAgent, setAgentOpen]);
 }

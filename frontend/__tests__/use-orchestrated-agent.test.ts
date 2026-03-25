@@ -213,6 +213,169 @@ describe("useOrchestratedAgent", () => {
     expect(result.current.isProcessing).toBe(false);
   });
 
+  it("passes progress callbacks for orchestrated tool execution when task ids are present", async () => {
+    const executeTool = vi.fn(
+      async (_tc: { tool_name: string }, onProgress?: (progress: number, detail?: string) => void) => {
+        onProgress?.(55, "rendering");
+        return {
+          tool_name: "generate_image",
+          success: true,
+          result: { asset_id: "a1" },
+          error: null,
+        };
+      },
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      mockFetch([
+        {
+          body: makeOrchestrateResponse({
+            done: false,
+            status: "awaiting_tool_results",
+            tool_calls: [
+              {
+                tool_name: "generate_image",
+                arguments: { prompt: "a cat" },
+                call_id: "c1",
+                task_id: "task-1",
+              },
+            ],
+            current_task_id: "task-1",
+            tasks: [
+              {
+                id: "task-1",
+                description: "Generate image",
+                skill_id: null,
+                skill_name: null,
+                depends_on: [],
+                status: "running",
+                error: null,
+              },
+            ],
+          }),
+        },
+        {
+          body: makeOrchestrateResponse({
+            done: true,
+            status: "done",
+            tasks: [
+              {
+                id: "task-1",
+                description: "Generate image",
+                skill_id: null,
+                skill_name: null,
+                depends_on: [],
+                status: "completed",
+                error: null,
+              },
+            ],
+            message: "Image generated successfully.",
+          }),
+        },
+      ]),
+    );
+
+    const { result } = renderHook(() => useOrchestratedAgent());
+
+    await act(async () => {
+      await result.current.sendPrompt(
+        "Generate an image of a cat",
+        [],
+        1,
+        0,
+        executeTool,
+      );
+    });
+
+    expect(executeTool).toHaveBeenCalled();
+    expect(typeof executeTool.mock.calls[0][1]).toBe("function");
+  });
+
+  it("limits reference-backed image generation concurrency", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    const executeTool = vi.fn(
+      async (tc: { tool_name: string }) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        inFlight -= 1;
+        return {
+          tool_name: tc.tool_name,
+          success: true,
+          result: { asset_id: "a1" },
+          error: null,
+        };
+      },
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      mockFetch([
+        {
+          body: makeOrchestrateResponse({
+            done: false,
+            status: "awaiting_tool_results",
+            tool_calls: Array.from({ length: 5 }, (_, idx) => ({
+              tool_name: "generate_image",
+              arguments: {
+                prompt: `shot ${idx + 1}`,
+                image_urls: ["asset-ref-1", "asset-ref-2"],
+              },
+              call_id: `c${idx + 1}`,
+              task_id: "task-1",
+            })),
+            current_task_id: "task-1",
+            tasks: [
+              {
+                id: "task-1",
+                description: "Generate shots",
+                skill_id: null,
+                skill_name: null,
+                depends_on: [],
+                status: "running",
+                error: null,
+              },
+            ],
+          }),
+        },
+        {
+          body: makeOrchestrateResponse({
+            done: true,
+            status: "done",
+            tasks: [
+              {
+                id: "task-1",
+                description: "Generate shots",
+                skill_id: null,
+                skill_name: null,
+                depends_on: [],
+                status: "completed",
+                error: null,
+              },
+            ],
+          }),
+        },
+      ]),
+    );
+
+    const { result } = renderHook(() => useOrchestratedAgent());
+
+    await act(async () => {
+      await result.current.sendPrompt(
+        "Generate referenced shots",
+        [],
+        1,
+        0,
+        executeTool,
+      );
+    });
+
+    expect(maxInFlight).toBe(3);
+  });
+
   it("handles API error", async () => {
     vi.stubGlobal(
       "fetch",

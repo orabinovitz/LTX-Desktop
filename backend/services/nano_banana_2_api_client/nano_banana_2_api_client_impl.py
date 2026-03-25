@@ -8,7 +8,7 @@ import re
 import time
 from typing import Any, cast
 
-from services.http_client.http_client import HTTPClient, HttpTimeoutError
+from services.http_client.http_client import HTTPClient, HttpConnectionError, HttpTimeoutError
 from services.services_utils import JSONValue
 
 logger = logging.getLogger(__name__)
@@ -89,6 +89,16 @@ class NanoBanana2APIClientImpl:
         payload: dict[str, JSONValue],
     ) -> bytes:
         last_exc: Exception | None = None
+        reference_count = self._reference_count(payload)
+        request_mode = "edit" if reference_count > 0 else "text_to_image"
+        client_name = getattr(self._http, "client_name", "unknown")
+        logger.info(
+            "FAL NB2 request start: mode=%s endpoint=%s refs=%d client=%s",
+            request_mode,
+            endpoint,
+            reference_count,
+            client_name,
+        )
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 return self._do_submit_and_download(
@@ -98,13 +108,23 @@ class NanoBanana2APIClientImpl:
                 if not self._is_retryable(exc):
                     raise
                 last_exc = exc
-            except HttpTimeoutError as exc:
+            except (HttpTimeoutError, HttpConnectionError) as exc:
                 last_exc = exc
 
+            assert last_exc is not None
             delay = _BASE_DELAY_SECONDS * (2 ** attempt) + random.uniform(0, 0.5)
             logger.warning(
-                "FAL request failed, retry %d/%d after %.1fs: %s",
-                attempt + 1, _MAX_RETRIES, delay, last_exc,
+                "FAL NB2 request retry: mode=%s endpoint=%s refs=%d client=%s "
+                "attempt=%d/%d retry_in=%.1fs error_type=%s error=%s",
+                request_mode,
+                endpoint,
+                reference_count,
+                client_name,
+                attempt + 1,
+                _MAX_RETRIES,
+                delay,
+                type(last_exc).__name__,
+                last_exc,
             )
             time.sleep(delay)
 
@@ -145,6 +165,11 @@ class NanoBanana2APIClientImpl:
         if not match:
             return False
         return int(match.group(1)) in _RETRYABLE_STATUS_CODES
+
+    @staticmethod
+    def _reference_count(payload: dict[str, JSONValue]) -> int:
+        image_urls = payload.get("image_urls")
+        return len(image_urls) if isinstance(image_urls, list) else 0
 
     @staticmethod
     def _json_headers(api_key: str) -> dict[str, str]:

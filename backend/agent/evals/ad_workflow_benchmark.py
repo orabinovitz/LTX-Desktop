@@ -62,7 +62,7 @@ class AdWorkflowExecutionMetrics:
     generated_shot_count: int
     final_timeline_clip_count: int
     final_duration_seconds: int
-    edit_operation_names: list[str] = field(default_factory=list)
+    edit_operation_names: list[str] = field(default_factory=lambda: [])
 
     @property
     def meaningful_edit_operation_count(self) -> int:

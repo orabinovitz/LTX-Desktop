@@ -63,6 +63,7 @@ _MAX_RETRIES_PER_TASK = 2
 _MAX_DAG_TASKS = 75
 _MAX_REVIEW_ITERATIONS = 2
 _MAX_SHOTS_PER_EXPANSION = 40
+_MAX_PARALLEL_SHOT_TASKS = 4
 
 
 def _results_have_memory_writes(results: list[SubAgentResult]) -> bool:
@@ -484,6 +485,8 @@ class Orchestrator:
         if has_mutation and len(ready_tasks) > 1:
             ready_tasks = [ready_tasks[0]]
 
+        ready_tasks = self._limit_parallel_shot_tasks(session, ready_tasks)
+
         router = SkillRouter(self._registry.get_all_descriptors())
         tasks_to_dispatch: list[tuple[TaskNode, SkillContent | None, SubAgentContext]] = []
 
@@ -881,8 +884,26 @@ class Orchestrator:
         for task in list(ready_tasks):
             if task.task_type != TaskType.EXECUTION or "generation" not in task.tool_categories:
                 continue
+            lower_description = task.description.lower()
+            if task.skill_id == "scene-preproduction" or any(
+                marker in lower_description
+                for marker in (
+                    "reference sheet",
+                    "reference sheets",
+                    "character reference",
+                    "character turnaround",
+                    "location keyframe",
+                    "location keyframes",
+                )
+            ):
+                continue
 
             source_task: TaskNode | None = None
+            preferred_script_skills = {
+                "advertising-screenwriter",
+                "film-tv-screenwriting",
+            }
+            completed_creative_deps: list[TaskNode] = []
             for dep_id in task.depends_on:
                 dep_task = session.dag.get_task(dep_id)
                 if (
@@ -891,8 +912,18 @@ class Orchestrator:
                     and dep_task.task_type == TaskType.CREATIVE
                     and dep_task.result_summary
                 ):
+                    completed_creative_deps.append(dep_task)
+
+            for dep_task in completed_creative_deps:
+                if dep_task.skill_id in preferred_script_skills:
                     source_task = dep_task
                     break
+
+            if source_task is None:
+                for dep_task in completed_creative_deps:
+                    if self._parse_shot_list(dep_task.result_summary):
+                        source_task = dep_task
+                        break
 
             if source_task is None:
                 continue
@@ -947,7 +978,7 @@ class Orchestrator:
                 "[orchestrator] session=%s | inserted coverage repair task %s before %s",
                 session.id[:8], repair_id, task.id,
             )
-            changed = True
+            return True
 
         return changed
 
@@ -1140,7 +1171,7 @@ class Orchestrator:
 
         try:
             parsed = json.loads(text)
-            return parsed if isinstance(parsed, dict) else None
+            return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
             pass
 
@@ -1150,7 +1181,7 @@ class Orchestrator:
             return None
         try:
             parsed = json.loads(text[start:end + 1])
-            return parsed if isinstance(parsed, dict) else None
+            return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
             return None
 
@@ -1163,17 +1194,18 @@ class Orchestrator:
             raw_actions = payload.get("actions", [])
             actions: list[dict[str, Any]] = []
             if isinstance(raw_actions, list):
-                for action in raw_actions:
+                for action in cast(list[Any], raw_actions):
                     if not isinstance(action, dict):
                         continue
-                    kind = str(action.get("kind", "")).strip().lower()
+                    action_payload = cast(dict[str, Any], action)
+                    kind = str(action_payload.get("kind", "")).strip().lower()
                     if not kind:
                         continue
                     normalized: dict[str, Any] = {
                         "kind": kind,
-                        "reason": str(action.get("reason", summary)).strip(),
+                        "reason": str(action_payload.get("reason", summary)).strip(),
                     }
-                    shot_number = action.get("shot_number")
+                    shot_number = action_payload.get("shot_number")
                     if isinstance(shot_number, int):
                         normalized["shot_number"] = shot_number
                     actions.append(normalized)
@@ -1353,6 +1385,41 @@ class Orchestrator:
                         task.error = f"Cancelled: dependency {failed_task_id} failed"
                         cancelled.add(task.id)
                         changed = True
+
+    @staticmethod
+    def _is_parallel_shot_task(task: TaskNode) -> bool:
+        return (
+            task.task_type == TaskType.EXECUTION
+            and "generation" in task.tool_categories
+            and "-shot-" in task.id
+        )
+
+    def _limit_parallel_shot_tasks(
+        self,
+        session: OrchestratorSession,
+        ready_tasks: list[TaskNode],
+    ) -> list[TaskNode]:
+        shot_tasks = [task for task in ready_tasks if self._is_parallel_shot_task(task)]
+        if len(shot_tasks) <= _MAX_PARALLEL_SHOT_TASKS:
+            return ready_tasks
+
+        limited: list[TaskNode] = []
+        remaining_shot_slots = _MAX_PARALLEL_SHOT_TASKS
+
+        for task in ready_tasks:
+            if self._is_parallel_shot_task(task):
+                if remaining_shot_slots <= 0:
+                    continue
+                remaining_shot_slots -= 1
+            limited.append(task)
+
+        logger.info(
+            "[orchestrator] session=%s | limiting ready shot tasks from %d to %d per batch",
+            session.id[:8],
+            len(shot_tasks),
+            _MAX_PARALLEL_SHOT_TASKS,
+        )
+        return limited
 
     @staticmethod
     def _any_task_mutates(tasks: list[TaskNode]) -> bool:

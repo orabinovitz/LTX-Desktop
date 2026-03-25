@@ -2,6 +2,7 @@ export interface ToolCall {
   tool_name: string;
   arguments: Record<string, unknown>;
   call_id?: string;
+  task_id?: string | null;
 }
 
 export interface ToolResult {
@@ -92,7 +93,7 @@ export interface OrchestrateResponse {
   status: string;
   tasks: OrchestrateTaskInfo[];
   current_task_id: string | null;
-  tool_calls: Array<{ tool_name: string; arguments: Record<string, unknown>; call_id?: string }>;
+  tool_calls: Array<{ tool_name: string; arguments: Record<string, unknown>; call_id?: string; task_id?: string | null }>;
   message: string;
   done: boolean;
   memory_updated?: boolean;

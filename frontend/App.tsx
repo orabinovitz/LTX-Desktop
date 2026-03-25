@@ -21,12 +21,13 @@ import { SettingsModal, type SettingsTabId } from './components/SettingsModal'
 import { LogViewer } from './components/LogViewer'
 import { ApiGatewayModal, type ApiGatewaySection } from './components/ApiGatewayModal'
 import { Button } from './components/ui/button'
+import { isProjectAgentAvailable } from './lib/agent-session'
 
 type SetupState = 'loading' | { needsSetup: boolean; needsLicense: boolean }
 type RequiredModelsGateState = 'checking' | 'missing' | 'ready'
 
 function AppContent() {
-  const { currentView } = useProjects()
+  const { currentView, currentProjectId } = useProjects()
   const { status, processStatus, isLoading: backendLoading, error: backendError } = useBackend()
   const { settings, saveLtxApiKey, saveFalApiKey, forceApiGenerations, isLoaded, runtimePolicyLoaded } = useAppSettings()
   const {
@@ -276,6 +277,7 @@ function AppContent() {
   ) : null
 
   const showGlobalControls = currentView !== 'home' && status.connected && setupState !== 'loading' && !setupState.needsSetup
+  const canUseAgent = isProjectAgentAvailable(currentView, currentProjectId)
   const shouldBlockUntilSettingsLoaded = forceApiGenerations && !isLoaded
   const shouldShowForcedFirstRunUpsell = isForcedFirstRun && isLoaded && !settings.hasLtxApiKey
   const shouldShowGlobalForcedUpsell = forceApiGenerations && setupState !== 'loading' && !setupState.needsSetup && isLoaded && !settings.hasLtxApiKey
@@ -461,7 +463,7 @@ function AppContent() {
     <div className="relative h-screen w-screen">
       {renderView()}
 
-      {!agentOpen && (
+      {canUseAgent && !agentOpen && (
         <button
           onClick={() => setAgentOpen(true)}
           className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition-all hover:bg-blue-500 hover:shadow-xl active:scale-95"
@@ -472,7 +474,7 @@ function AppContent() {
       )}
 
       <AgentPromptBox
-        isOpen={agentOpen}
+        isOpen={agentOpen && canUseAgent}
         onClose={() => setAgentOpen(false)}
         messages={agentMessages}
         isProcessing={agentProcessing}

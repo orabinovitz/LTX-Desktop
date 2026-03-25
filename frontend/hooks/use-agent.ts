@@ -532,6 +532,7 @@ export function useAgent() {
 
   const clearChat = useCallback(() => {
     abortRef.current?.abort();
+    setIsProcessing(false);
     setMessages([]);
     conversationRef.current = [];
     sessionIdRef.current = null;

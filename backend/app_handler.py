@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from state.app_settings import AppSettings
@@ -254,6 +255,31 @@ class ServiceBundle:
     retake_pipeline_class: type[RetakePipeline]
 
 
+def _build_provider_http_clients(
+    factory: Callable[..., HTTPClient] | None = None,
+) -> tuple[HTTPClient, HTTPClient]:
+    if factory is None:
+        from services.http_client.http_client_impl import HTTPClientImpl
+
+        factory = HTTPClientImpl
+
+    default_http = factory(
+        client_name="default",
+        http2=True,
+        max_connections=20,
+        max_keepalive_connections=10,
+        keepalive_expiry=120,
+    )
+    fal_http = factory(
+        client_name="fal-nb2",
+        http2=False,
+        max_connections=8,
+        max_keepalive_connections=8,
+        keepalive_expiry=60,
+    )
+    return default_http, fal_http
+
+
 def build_default_service_bundle(config: RuntimeConfig) -> ServiceBundle:
     """Build real runtime services with lazy heavy imports isolated from tests."""
     from services.fast_video_pipeline.ltx_fast_video_pipeline import LTXFastVideoPipeline
@@ -261,7 +287,6 @@ def build_default_service_bundle(config: RuntimeConfig) -> ServiceBundle:
     from services.zit_api_client.zit_api_client_impl import ZitAPIClientImpl
     from services.gpu_cleaner.torch_cleaner import TorchCleaner
     from services.gpu_info.gpu_info_impl import GpuInfoImpl
-    from services.http_client.http_client_impl import HTTPClientImpl
     from services.a2v_pipeline.ltx_a2v_pipeline import LTXa2vPipeline
     from services.depth_processor_pipeline.midas_dpt_pipeline import MidasDPTPipeline
     from services.ic_lora_pipeline.ltx_ic_lora_pipeline import LTXIcLoraPipeline
@@ -274,7 +299,7 @@ def build_default_service_bundle(config: RuntimeConfig) -> ServiceBundle:
     from services.text_encoder.ltx_text_encoder import LTXTextEncoder
     from services.video_processor.video_processor_impl import VideoProcessorImpl
 
-    http = HTTPClientImpl()
+    http, fal_http = _build_provider_http_clients()
 
     return ServiceBundle(
         http=http,
@@ -290,7 +315,7 @@ def build_default_service_bundle(config: RuntimeConfig) -> ServiceBundle:
         task_runner=ThreadingRunner(),
         ltx_api_client=LTXAPIClientImpl(http=http, ltx_api_base_url=config.ltx_api_base_url),
         zit_api_client=ZitAPIClientImpl(http=http),
-        nano_banana_2_api_client=NanoBanana2APIClientImpl(http=http),
+        nano_banana_2_api_client=NanoBanana2APIClientImpl(http=fal_http),
         fast_video_pipeline_class=LTXFastVideoPipeline,
         image_generation_pipeline_class=ZitImageGenerationPipeline,
         ic_lora_pipeline_class=LTXIcLoraPipeline,

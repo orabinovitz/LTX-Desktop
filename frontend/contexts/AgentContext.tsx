@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -19,6 +20,7 @@ import type {
 import { useProjects } from "./ProjectContext";
 import { logger } from "@/lib/logger";
 import { backendFetch } from "@/lib/backend";
+import { getAgentProjectSessionKey } from "@/lib/agent-session";
 
 type ViewContext = "editor" | "genspace" | "playground";
 
@@ -250,9 +252,12 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const activeAgent = activeMode === "orchestrated" ? orchestratedAgent : simpleAgent;
 
   const executorRef = useRef<AgentViewExecutor | null>(null);
-  const { setCurrentTab } = useProjects();
+  const { currentProjectId, currentView, setCurrentTab } = useProjects();
   const setCurrentTabRef = useRef(setCurrentTab);
   setCurrentTabRef.current = setCurrentTab;
+  const projectSessionKey = getAgentProjectSessionKey(currentView, currentProjectId);
+  const previousProjectSessionKeyRef = useRef<string | null | undefined>(undefined);
+  const promptExecutionIdRef = useRef(0);
 
   const registerExecutor = useCallback((executor: AgentViewExecutor) => {
     executorRef.current = executor;
@@ -374,6 +379,9 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   const sendAgentPrompt = useCallback(
     async (prompt: string) => {
+      const promptExecutionId = ++promptExecutionIdRef.current;
+      const isStalePrompt = () => promptExecutionIdRef.current !== promptExecutionId;
+
       setClarificationState(null);
       const ctx = getExecutorContext();
 
@@ -396,6 +404,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         conversationHistory,
         ctx.viewCtx as Record<string, unknown> | null,
       );
+
+      if (isStalePrompt()) {
+        return;
+      }
 
       logger.info(
         `[agent-context] intent resolved: complexity=${intent.complexity}, summary="${intent.intent_summary}"`,
@@ -421,6 +433,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           ctx.executor?.viewContext,
           ctx.viewCtx as Record<string, unknown> | null,
         );
+
+        if (isStalePrompt()) {
+          return;
+        }
 
         if (clarification) {
           logger.info(`[agent-context] clarification needed — ${clarification.questions.length} questions`);
@@ -469,12 +485,34 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     [clarificationState, getExecutorContext, executePrompt, orchestratedAgent],
   );
 
-  const clearChat = useCallback(() => {
+  const resetAgentSession = useCallback((closePanel = false) => {
+    promptExecutionIdRef.current += 1;
     simpleAgent.clearChat();
     orchestratedAgent.clearChat();
     setClarificationState(null);
     setActiveMode("simple");
+    if (closePanel) {
+      setAgentOpen(false);
+    }
   }, [simpleAgent, orchestratedAgent]);
+
+  const clearChat = useCallback(() => {
+    resetAgentSession();
+  }, [resetAgentSession]);
+
+  useEffect(() => {
+    const previousProjectSessionKey = previousProjectSessionKeyRef.current;
+    if (previousProjectSessionKey === undefined) {
+      previousProjectSessionKeyRef.current = projectSessionKey;
+      return;
+    }
+
+    if (previousProjectSessionKey !== projectSessionKey) {
+      resetAgentSession(true);
+    }
+
+    previousProjectSessionKeyRef.current = projectSessionKey;
+  }, [projectSessionKey, resetAgentSession]);
 
   const stopAgent = useCallback(() => {
     orchestratedAgent.stop();

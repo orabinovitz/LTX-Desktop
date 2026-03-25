@@ -132,6 +132,7 @@ class ToolCall(BaseModel):
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
     call_id: str = Field(default="", description="Unique ID to correlate with ToolResult")
+    task_id: str | None = Field(default=None, description="Optional orchestrator task ID that requested this tool call")
 
 
 class ToolResult(BaseModel):

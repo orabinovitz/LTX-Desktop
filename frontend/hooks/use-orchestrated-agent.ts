@@ -24,6 +24,12 @@ interface ExecuteToolFn {
   (toolCall: ToolCall, onProgress?: OnToolProgress, signal?: AbortSignal): Promise<ToolResult>;
 }
 
+interface TaskBatchProgressState {
+  totalByTask: Record<string, number>;
+  completedByTask: Record<string, number>;
+  toolNamesByTask: Record<string, string[]>;
+}
+
 function logDiagnostics(prefix: string, diagnostics?: AgentDiagnostics | null) {
   if (!diagnostics) return;
   const parts = [
@@ -80,6 +86,7 @@ const PARALLEL_SAFE_TOOLS = new Set([
 ]);
 
 const MAX_PARALLEL_GENERATIONS = 10;
+const MAX_PARALLEL_REFERENCE_IMAGE_GENERATIONS = 3;
 
 const MUTATION_TOOLS = new Set([
   "add_clip_to_timeline",
@@ -184,6 +191,76 @@ function humanizeTaskLabel(id: string, description: string): string {
 
   if (description.length <= 80) return description;
   return description.slice(0, 77) + "...";
+}
+
+function buildTaskBatchProgressState(toolCalls: ToolCall[]): TaskBatchProgressState {
+  const totalByTask: Record<string, number> = {};
+  const completedByTask: Record<string, number> = {};
+  const toolNamesByTask: Record<string, string[]> = {};
+
+  for (const toolCall of toolCalls) {
+    const taskId = toolCall.task_id;
+    if (!taskId) continue;
+    totalByTask[taskId] = (totalByTask[taskId] ?? 0) + 1;
+    completedByTask[taskId] = completedByTask[taskId] ?? 0;
+    if (!toolNamesByTask[taskId]) toolNamesByTask[taskId] = [];
+    if (!toolNamesByTask[taskId].includes(toolCall.tool_name)) {
+      toolNamesByTask[taskId].push(toolCall.tool_name);
+    }
+  }
+
+  return { totalByTask, completedByTask, toolNamesByTask };
+}
+
+function makeOrchestratedToolProgressHandler(
+  toolCall: ToolCall,
+  batchState: TaskBatchProgressState,
+  actions: ReturnType<typeof useAgentProgress>,
+): OnToolProgress | undefined {
+  const taskId = toolCall.task_id;
+  if (!taskId) return undefined;
+  const total = batchState.totalByTask[taskId] ?? 0;
+  if (total <= 0) return undefined;
+
+  return (progressValue: number, detail?: string) => {
+    const completed = batchState.completedByTask[taskId] ?? 0;
+    const scaled = Math.min(
+      95,
+      Math.round(((completed + progressValue / 100) / total) * 95),
+    );
+    actions.updateTaskProgress(
+      taskId,
+      scaled,
+      detail ?? `${completed}/${total} tool calls complete`,
+    );
+  };
+}
+
+function markOrchestratedToolCompletion(
+  toolCall: ToolCall,
+  batchState: TaskBatchProgressState,
+  actions: ReturnType<typeof useAgentProgress>,
+  result: ToolResult,
+): void {
+  const taskId = toolCall.task_id;
+  if (!taskId) return;
+
+  const total = batchState.totalByTask[taskId] ?? 0;
+  if (total <= 0) return;
+
+  const completed = (batchState.completedByTask[taskId] ?? 0) + 1;
+  batchState.completedByTask[taskId] = completed;
+
+  if (result.success) {
+    const detail =
+      completed >= total
+        ? "Tool call batch complete, waiting for AI follow-up..."
+        : `${completed}/${total} tool calls complete`;
+    const progressValue = completed >= total ? 95 : Math.round((completed / total) * 95);
+    actions.updateTaskProgress(taskId, progressValue, detail);
+  } else {
+    actions.failTask(taskId, result.error ?? "Tool execution failed");
+  }
 }
 
 function taskInfoToAgentTask(info: OrchestrateTaskInfo): AgentTask {
@@ -315,10 +392,11 @@ export function useOrchestratedAgent() {
 
             const results: ToolResult[] = [];
             const toolCalls = response.tool_calls;
-            const toolNames = [...new Set(toolCalls.map((tc) => tc.tool_name))];
+            const batchState = buildTaskBatchProgressState(toolCalls);
 
-            if (response.current_task_id) {
-              pa.updateTask(response.current_task_id, {
+            for (const [taskId, toolNames] of Object.entries(batchState.toolNamesByTask)) {
+              pa.startTask(taskId);
+              pa.updateTask(taskId, {
                 activeToolCalls: toolNames,
               });
             }
@@ -329,26 +407,45 @@ export function useOrchestratedAgent() {
 
               const isParallel =
                 PARALLEL_SAFE_TOOLS.has(group.toolName) && group.calls.length > 1;
+              const parallelLimit = isParallel
+                ? getParallelLimitForGroup(group)
+                : 1;
               logger.info(
-                `[orchestrated-agent] executing ${group.calls.length}x ${group.toolName} (${isParallel ? "parallel" : "sequential"})`,
+                `[orchestrated-agent] executing ${group.calls.length}x ${group.toolName} (${isParallel ? `parallel, limit=${parallelLimit}` : "sequential"})`,
               );
 
               if (isParallel) {
                 const groupResults = await executeParallelWithLimit(
                   group.calls,
                   executeTool,
-                  MAX_PARALLEL_GENERATIONS,
+                  parallelLimit,
                   signal,
+                  progressActionsRef.current,
+                  batchState,
                 );
                 results.push(...groupResults);
               } else {
                 for (const tc of group.calls) {
                   if (stoppedRef.current) break;
                   const toolT0 = performance.now();
-                  const result = await executeTool(tc, undefined, signal);
+                  const result = await executeTool(
+                    tc,
+                    makeOrchestratedToolProgressHandler(
+                      tc,
+                      batchState,
+                      progressActionsRef.current,
+                    ),
+                    signal,
+                  );
                   const toolElapsed = Math.round(performance.now() - toolT0);
                   logger.info(
                     `[orchestrated-agent] tool ${tc.tool_name} ${result.success ? "completed" : "FAILED"} in ${toolElapsed}ms`,
+                  );
+                  markOrchestratedToolCompletion(
+                    tc,
+                    batchState,
+                    progressActionsRef.current,
+                    result,
                   );
                   results.push(result);
                 }
@@ -390,8 +487,8 @@ export function useOrchestratedAgent() {
               }
             }
 
-            if (response.current_task_id) {
-              pa.updateTask(response.current_task_id, {
+            for (const taskId of Object.keys(batchState.toolNamesByTask)) {
+              pa.updateTask(taskId, {
                 activeToolCalls: undefined,
               });
             }
@@ -542,6 +639,7 @@ export function useOrchestratedAgent() {
   const clearChat = useCallback(() => {
     abortRef.current?.abort();
     stoppedRef.current = false;
+    setIsProcessing(false);
     setMessages([]);
     sessionIdRef.current = null;
     progressActionsRef.current.reset();
@@ -567,6 +665,8 @@ async function executeParallelWithLimit(
   executeTool: ExecuteToolFn,
   limit: number,
   signal?: AbortSignal,
+  actions?: ReturnType<typeof useAgentProgress>,
+  batchState?: TaskBatchProgressState,
 ): Promise<ToolResult[]> {
   const results: ToolResult[] = new Array(calls.length);
   let nextIndex = 0;
@@ -576,11 +676,20 @@ async function executeParallelWithLimit(
       const idx = nextIndex++;
       try {
         const toolT0 = performance.now();
-        results[idx] = await executeTool(calls[idx], undefined, signal);
+        results[idx] = await executeTool(
+          calls[idx],
+          actions && batchState
+            ? makeOrchestratedToolProgressHandler(calls[idx], batchState, actions)
+            : undefined,
+          signal,
+        );
         const toolElapsed = Math.round(performance.now() - toolT0);
         logger.info(
           `[orchestrated-agent] tool ${calls[idx].tool_name} ${results[idx].success ? "completed" : "FAILED"} in ${toolElapsed}ms`,
         );
+        if (actions && batchState) {
+          markOrchestratedToolCompletion(calls[idx], batchState, actions, results[idx]);
+        }
       } catch (e) {
         results[idx] = {
           tool_name: calls[idx].tool_name,
@@ -588,6 +697,9 @@ async function executeParallelWithLimit(
           result: null,
           error: e instanceof Error ? e.message : String(e),
         };
+        if (actions && batchState) {
+          markOrchestratedToolCompletion(calls[idx], batchState, actions, results[idx]);
+        }
       }
     }
   }
@@ -618,6 +730,29 @@ function groupByToolName(toolCalls: ToolCall[]): ToolCallGroup[] {
     }
   }
   return groups;
+}
+
+function getParallelLimitForGroup(group: ToolCallGroup): number {
+  if (
+    group.toolName === "generate_image"
+    && group.calls.some(isReferenceBackedImageGenerationCall)
+  ) {
+    return MAX_PARALLEL_REFERENCE_IMAGE_GENERATIONS;
+  }
+  return MAX_PARALLEL_GENERATIONS;
+}
+
+function isReferenceBackedImageGenerationCall(call: ToolCall): boolean {
+  const args = call.arguments as Record<string, unknown> | undefined;
+  if (!args) return false;
+
+  const refs = Array.isArray(args.image_urls)
+    ? args.image_urls
+    : Array.isArray(args.imageUrls)
+      ? args.imageUrls
+      : [];
+
+  return refs.length > 0;
 }
 
 function cancelRemainingPendingTasks(

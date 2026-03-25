@@ -57,13 +57,26 @@ class HTTPClientImpl:
     up to _MAX_RETRIES times with exponential backoff before propagating.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        http2: bool = True,
+        max_connections: int = 20,
+        max_keepalive_connections: int = 10,
+        keepalive_expiry: float = 120,
+        client_name: str = "default",
+    ) -> None:
+        self.client_name = client_name
+        self.http2_enabled = http2
+        self.max_connections = max_connections
+        self.max_keepalive_connections = max_keepalive_connections
+        self.keepalive_expiry = keepalive_expiry
         self._client = httpx.Client(
-            http2=True,
+            http2=http2,
             limits=httpx.Limits(
-                max_connections=20,
-                max_keepalive_connections=10,
-                keepalive_expiry=120,
+                max_connections=max_connections,
+                max_keepalive_connections=max_keepalive_connections,
+                keepalive_expiry=keepalive_expiry,
             ),
             follow_redirects=True,
         )
@@ -104,29 +117,38 @@ class HTTPClientImpl:
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 return _HttpxResponseAdapter(fn())
-            except httpx.TimeoutException as exc:
-                logger.error("HTTP %s timed out: %s", method, url)
-                raise HttpTimeoutError(str(exc)) from exc
-            except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as exc:
+            except (
+                httpx.ConnectError,
+                httpx.ReadError,
+                httpx.WriteError,
+                httpx.RemoteProtocolError,
+                httpx.PoolTimeout,
+            ) as exc:
                 last_exc = exc
                 if attempt < _MAX_RETRIES and can_retry:
                     delay = _RETRY_BACKOFF_SECONDS[attempt]
                     logger.warning(
-                        "HTTP %s transient error on %s (attempt %d/%d, retrying in %.1fs): %s",
-                        method, url, attempt + 1, _MAX_RETRIES + 1, delay, exc,
+                        "[%s] HTTP %s transient %s on %s (attempt %d/%d, retrying in %.1fs): %s",
+                        self.client_name, method, type(exc).__name__, url,
+                        attempt + 1, _MAX_RETRIES + 1, delay, exc,
                     )
                     time.sleep(delay)
                     continue
                 if attempt == 0 and not can_retry:
                     logger.error(
-                        "HTTP %s %s failed on a non-replayable request body: %s",
-                        method, url, exc,
+                        "[%s] HTTP %s %s failed on a non-replayable request body: %s",
+                        self.client_name, method, url, exc,
                     )
                     break
-                else:
-                    logger.error("HTTP %s %s failed after %d attempts: %s", method, url, attempt + 1, exc)
+                logger.error(
+                    "[%s] HTTP %s %s failed after %d attempts (%s): %s",
+                    self.client_name, method, url, attempt + 1, type(exc).__name__, exc,
+                )
+            except httpx.TimeoutException as exc:
+                logger.error("[%s] HTTP %s timed out: %s", self.client_name, method, url)
+                raise HttpTimeoutError(str(exc)) from exc
             except httpx.HTTPError as exc:
-                logger.error("HTTP %s failed: %s (%s)", method, url, type(exc).__name__)
+                logger.error("[%s] HTTP %s failed: %s (%s)", self.client_name, method, url, type(exc).__name__)
                 raise HttpConnectionError(str(exc)) from exc
 
         raise HttpConnectionError(str(last_exc)) from last_exc

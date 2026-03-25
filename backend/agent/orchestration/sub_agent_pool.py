@@ -550,6 +550,7 @@ def _run_gemini_turn(
                 tool_name=tool_name,
                 arguments=arguments,
                 call_id=f"{tool_name}_{uuid.uuid4().hex[:8]}",
+                task_id=task_id,
             )
             if tool_def.execution_target == ExecutionTarget.BACKEND:
                 backend_calls.append(tc)

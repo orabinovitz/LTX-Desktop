@@ -656,6 +656,49 @@ class TestExecuteNext:
         assert session.status == OrchestratorStatus.AWAITING_TOOL_RESULTS
         assert len(resp.tool_calls) >= 1
 
+    def test_expanded_shot_tasks_dispatch_in_bounded_batches(self):
+        http = FakeHTTPClient()
+        orch = self._make_orchestrator(http)
+        expected_limit = 4
+
+        script_task = _task(
+            "task-1",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.CREATIVE,
+            result_summary=(
+                "Shot 1 (6s): Wide beach wreckage.\n"
+                "Shot 2 (6s): Elara opens her eyes in the surf.\n"
+                "Shot 3 (6s): Twisted metal in shallow water.\n"
+                "Shot 4 (6s): Elara rises and looks down the beach.\n"
+                "Shot 5 (6s): Smoke billows from the fuselage.\n"
+                "Shot 6 (6s): Julian bursts from the jungle edge."
+            ),
+            skill_id="film-tv-screenwriting",
+        )
+        generation_task = _task(
+            "task-2",
+            depends_on=["task-1"],
+            tool_categories=["generation"],
+        )
+        dag = _dag([script_task, generation_task])
+        session = _session(dag)
+        _sessions[session.id] = session
+
+        for shot_num in range(6):
+            http.queue("post", _gemini_response(f"Shot {shot_num + 1} complete"))
+
+        resp = orch._execute_next(session)
+
+        shot_tasks = [t for t in session.dag.tasks if t.id.startswith("task-2-shot-")]
+        completed = [t for t in shot_tasks if t.status == TaskStatus.COMPLETED]
+        pending = [t for t in shot_tasks if t.status == TaskStatus.PENDING]
+
+        assert generation_task.status == TaskStatus.CANCELLED
+        assert len(shot_tasks) == 6
+        assert len(completed) == expected_limit
+        assert len(pending) == 6 - expected_limit
+        assert resp.done is False
+
 
 # ====================================================================
 # Orchestrator._handle_review_result tests
@@ -913,6 +956,88 @@ class TestCoverageGuard:
 
         assert changed is False
         assert [t for t in session.dag.tasks if t.id.startswith("coverage-repair-task-4")] == []
+
+    def test_scene_preproduction_tasks_do_not_trigger_coverage_repair(self):
+        orch = Orchestrator.__new__(Orchestrator)
+        script_task = _task(
+            "task-1",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.CREATIVE,
+            result_summary=(
+                "Shot 1 (8s): Stadium tension.\n"
+                "Shot 2 (6s): Pepsi can opens.\n"
+                "Shot 3 (8s): Ball hits net.\n"
+                "Shot 4 (8s): Fans celebrate."
+            ),
+            skill_id="advertising-screenwriter",
+        )
+        preprod_task = _task(
+            "task-4",
+            depends_on=["task-1"],
+            tool_categories=["generation"],
+            skill_id="scene-preproduction",
+        )
+        dag = TaskDAG(
+            tasks=[script_task, preprod_task],
+            original_prompt="Create a 30-second Pepsi World Cup ad",
+            target_duration_seconds=30,
+            creative_profile=CreativeProfile.BRAND_CINEMATIC,
+            coverage_contract=build_coverage_contract(
+                profile=CreativeProfile.BRAND_CINEMATIC,
+                target_duration_seconds=30,
+            ),
+        )
+        session = _session(dag)
+
+        changed = orch._apply_coverage_guard(session, dag.get_ready_tasks())
+
+        assert changed is False
+        assert [t for t in session.dag.tasks if t.id.startswith("coverage-repair-")] == []
+
+    def test_coverage_repair_prefers_script_source_not_other_creative_dependency(self):
+        orch = Orchestrator.__new__(Orchestrator)
+        script_task = _task(
+            "task-1",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.CREATIVE,
+            result_summary=(
+                "Shot 1 (8s): Stadium tension.\n"
+                "Shot 2 (6s): Pepsi can opens.\n"
+                "Shot 3 (8s): Ball hits net.\n"
+                "Shot 4 (8s): Fans celebrate."
+            ),
+            skill_id="advertising-screenwriter",
+        )
+        style_task = _task(
+            "task-3",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.CREATIVE,
+            result_summary="NB2_STYLE_BLOCK:\ncamera: ARRI ALEXA 35\nfilm_stock: Kodak VISION3 500T 5219",
+            skill_id="cinematography",
+        )
+        gen_task = _task(
+            "task-6",
+            depends_on=["task-1", "task-3"],
+            tool_categories=["generation"],
+        )
+        dag = TaskDAG(
+            tasks=[script_task, style_task, gen_task],
+            original_prompt="Create a 30-second Pepsi World Cup ad",
+            target_duration_seconds=30,
+            creative_profile=CreativeProfile.BRAND_CINEMATIC,
+            coverage_contract=build_coverage_contract(
+                profile=CreativeProfile.BRAND_CINEMATIC,
+                target_duration_seconds=30,
+            ),
+        )
+        session = _session(dag)
+
+        changed = orch._apply_coverage_guard(session, dag.get_ready_tasks())
+
+        assert changed is True
+        repair_task = next(t for t in session.dag.tasks if t.id.startswith("coverage-repair-"))
+        assert "Shot 1 (8s): Stadium tension." in repair_task.description
+        assert "NB2_STYLE_BLOCK" not in repair_task.description
 
 
 # ====================================================================
