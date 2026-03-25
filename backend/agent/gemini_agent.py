@@ -1495,9 +1495,8 @@ def _handle_query_brain(tool_call: ToolCall, project_id: str | None = None) -> T
 
     # Search only the scoped project brain.
     all_results: list[dict] = []
-    project_ids = [scoped_project_id]
-    for project_id in project_ids:
-        results = brain_module.query_brain(project_id, query)
+    for target_project_id in [scoped_project_id]:
+        results = brain_module.query_brain(target_project_id, query)
         for clip in results:
             entry = clip.model_dump(mode="json")
             # Include source_in/source_out for topic segments so the

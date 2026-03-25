@@ -873,6 +873,47 @@ class TestCoverageGuard:
         repair_tasks = [t for t in session.dag.tasks if t.id.startswith("coverage-repair-")]
         assert len(repair_tasks) == 1
 
+    def test_raw_coverage_script_does_not_repair_again(self):
+        orch = Orchestrator.__new__(Orchestrator)
+        script_task = _task(
+            "coverage-repair-task-2-1",
+            status=TaskStatus.COMPLETED,
+            task_type=TaskType.CREATIVE,
+            result_summary=(
+                'Shot 1 (8s): Tokyo arcade hook. Editorial Opportunity: cut on the stare.\\n'
+                'Shot 2 (6s): Pepsi can crack. Editorial Opportunity: cut on the pop.\\n'
+                'Shot 3 (6s): Match-cut football spin. Editorial Opportunity: use as transition.\\n'
+                'Shot 4 (8s): Rio chest trap. Dialogue: FAN: "Minha vez!" Editorial Opportunity: trim to contact.\\n'
+                'Shot 5 (6s): Sneaker volley insert. Editorial Opportunity: cut on impact.\\n'
+                'Shot 6 (8s): London pub catch and raise. Editorial Opportunity: cut on the lift.\\n'
+                'Shot 7 (6s): Crowd reaction. Editorial Opportunity: speed ramp.\\n'
+                'Shot 8 (6s): Speaker cone bass hit. Editorial Opportunity: percussion insert.\\n'
+                'Shot 9 (8s): Stadium tag. Editorial Opportunity: hold logo resolve.'
+            ),
+            skill_id="advertising-screenwriter",
+        )
+        gen_task = _task(
+            "task-4",
+            depends_on=["coverage-repair-task-2-1"],
+            tool_categories=["generation"],
+        )
+        dag = TaskDAG(
+            tasks=[script_task, gen_task],
+            original_prompt="Create a 30-second Pepsi World Cup ad",
+            target_duration_seconds=30,
+            creative_profile=CreativeProfile.BRAND_CINEMATIC,
+            coverage_contract=build_coverage_contract(
+                profile=CreativeProfile.BRAND_CINEMATIC,
+                target_duration_seconds=30,
+            ),
+        )
+        session = _session(dag)
+
+        changed = orch._apply_coverage_guard(session, dag.get_ready_tasks())
+
+        assert changed is False
+        assert [t for t in session.dag.tasks if t.id.startswith("coverage-repair-task-4")] == []
+
 
 # ====================================================================
 # Orchestrator.start tests

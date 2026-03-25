@@ -56,13 +56,15 @@ def test_validate_shot_plan_accepts_dense_brand_ad() -> None:
         target_duration_seconds=30,
     )
     script = """
-Shot 1 (4s): Faces hold their breath in the tunnel.
-Shot 2 (4s): Boots jitter against concrete.
-Shot 3 (4s): Cold Pepsi can sweats in a clenched hand.
-Shot 4 (4s): Eyes lock on the ball.
-Shot 5 (5s): The deep breath before release.
-Shot 6 (4s): A first burst of movement.
-Shot 7 (5s): Confetti and bodies explode into frame.
+Shot 1 (8s): Faces hold their breath in the tunnel. Editorial Opportunity: trim to the eye flicker.
+Shot 2 (6s): Boots jitter against concrete. Editorial Opportunity: use as a percussion insert.
+Shot 3 (6s): Cold Pepsi can sweats in a clenched hand. Editorial Opportunity: cut on the drop.
+Shot 4 (6s): Eyes lock on the ball. Editorial Opportunity: hold to the inhale.
+Shot 5 (8s): The deep breath before release. Editorial Opportunity: split before the plunge.
+Shot 6 (6s): A first burst of movement. Editorial Opportunity: cut on impact.
+Shot 7 (8s): Confetti and bodies explode into frame. Editorial Opportunity: flash-cut the crowd.
+Shot 8 (6s): A boombox speaker vibrates to the bass kick. Editorial Opportunity: punctuate the rhythm.
+Shot 9 (8s): The final tag lands over the stadium crowd. Editorial Opportunity: hold the logo resolve.
 """
 
     issues = validate_shot_plan(script, contract)

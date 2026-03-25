@@ -13,10 +13,10 @@ _SHOT_RE = re.compile(
     r"Shot\s+\d+(?:\s*\((?P<duration>\d+)s\))?\s*:\s*(?P<body>.+?)(?=Shot\s+\d+|\Z)",
     re.IGNORECASE | re.DOTALL,
 )
-_DIALOGUE_RE = re.compile(
-    r'["“][^"”]{3,}["”]|\bVO:|\bvoiceover\b|\bdialogue\b|\b[A-Z][A-Z\s]{1,20}:',
-    re.IGNORECASE,
-)
+_QUOTED_DIALOGUE_RE = re.compile(r'["“][^"”]{3,}["”]')
+_VOICEOVER_RE = re.compile(r"\bVO\s*:|\bvoiceover\b", re.IGNORECASE)
+_DIALOGUE_FIELD_RE = re.compile(r"\bDialogue\s*:", re.IGNORECASE)
+_SPEAKER_CUE_RE = re.compile(r"\b[A-Z][A-Z0-9\s]{1,20}:\s*[A-Za-z]")
 _TEXT_OVERLAY_RE = re.compile(
     r"\b(?:text overlay|on-screen text)\s*:\s*[\"“][^\"”]+[\"”]",
     re.IGNORECASE,
@@ -45,6 +45,8 @@ class ShotPlanMetrics(BaseModel):
     dialogue_shot_count: int = 0
     dialogue_seconds: int = 0
     dialogue_share: float = 0.0
+    dialogue_shot_share: float = 0.0
+    editorial_opportunity_count: int = 0
 
 
 class CoverageContract(BaseModel):
@@ -57,6 +59,8 @@ class CoverageContract(BaseModel):
     requires_structured_review: bool = True
     requires_timeline_review: bool = True
     max_duration_delta_seconds: int = 2
+    raw_coverage_mode: bool = False
+    max_total_coverage_multiplier: float = Field(default=3.0, gt=1.0)
 
 
 class _ProfileThresholds(BaseModel):
@@ -136,6 +140,7 @@ def build_coverage_contract(
         max_average_shot_seconds=thresholds.max_average_shot_seconds,
         max_dialogue_share=thresholds.max_dialogue_share,
         min_meaningful_edit_operations=thresholds.min_meaningful_edit_operations,
+        raw_coverage_mode=(profile != CreativeProfile.DIALOGUE_SCENE),
     )
 
 
@@ -145,11 +150,14 @@ def extract_shot_plan_metrics(script_text: str, target_duration_seconds: float) 
     total_planned_seconds = 0
     dialogue_shot_count = 0
     dialogue_seconds = 0
+    editorial_opportunity_count = 0
 
     for match in _SHOT_RE.finditer(script_text):
         shot_count += 1
         duration = _parse_duration(match.group("duration"), match.group("body"))
         total_planned_seconds += duration
+        if "editorial opportunity" in match.group("body").lower():
+            editorial_opportunity_count += 1
         if _shot_has_dialogue(match.group("body")):
             dialogue_shot_count += 1
             dialogue_seconds += duration
@@ -157,6 +165,7 @@ def extract_shot_plan_metrics(script_text: str, target_duration_seconds: float) 
     average_shot_seconds = total_planned_seconds / shot_count if shot_count else 0.0
     duration_basis = total_planned_seconds or target_duration_seconds or 1
     dialogue_share = dialogue_seconds / duration_basis
+    dialogue_shot_share = dialogue_shot_count / shot_count if shot_count else 0.0
 
     return ShotPlanMetrics(
         shot_count=shot_count,
@@ -165,6 +174,8 @@ def extract_shot_plan_metrics(script_text: str, target_duration_seconds: float) 
         dialogue_shot_count=dialogue_shot_count,
         dialogue_seconds=dialogue_seconds,
         dialogue_share=dialogue_share,
+        dialogue_shot_share=dialogue_shot_share,
+        editorial_opportunity_count=editorial_opportunity_count,
     )
 
 
@@ -173,19 +184,31 @@ def validate_shot_plan(script_text: str, contract: CoverageContract) -> list[Cov
     metrics = extract_shot_plan_metrics(script_text, contract.target_duration_seconds)
     issues: list[CoverageValidationIssue] = []
 
-    if (
-        metrics.shot_count < contract.min_shot_count
-        or (metrics.average_shot_seconds and metrics.average_shot_seconds > contract.max_average_shot_seconds)
-    ):
-        issues.append(CoverageValidationIssue.UNDER_COVERED)
+    if contract.raw_coverage_mode:
+        if metrics.shot_count < contract.min_shot_count:
+            issues.append(CoverageValidationIssue.UNDER_COVERED)
+        if metrics.dialogue_shot_share > contract.max_dialogue_share:
+            issues.append(CoverageValidationIssue.DIALOGUE_HEAVY)
+        if metrics.total_planned_seconds == 0:
+            issues.append(CoverageValidationIssue.DURATION_MISMATCH)
+        elif metrics.total_planned_seconds < contract.target_duration_seconds:
+            issues.append(CoverageValidationIssue.DURATION_MISMATCH)
+        elif metrics.total_planned_seconds > contract.target_duration_seconds * contract.max_total_coverage_multiplier:
+            issues.append(CoverageValidationIssue.DURATION_MISMATCH)
+    else:
+        if (
+            metrics.shot_count < contract.min_shot_count
+            or (metrics.average_shot_seconds and metrics.average_shot_seconds > contract.max_average_shot_seconds)
+        ):
+            issues.append(CoverageValidationIssue.UNDER_COVERED)
 
-    if metrics.dialogue_share > contract.max_dialogue_share:
-        issues.append(CoverageValidationIssue.DIALOGUE_HEAVY)
+        if metrics.dialogue_share > contract.max_dialogue_share:
+            issues.append(CoverageValidationIssue.DIALOGUE_HEAVY)
 
-    if metrics.total_planned_seconds == 0:
-        issues.append(CoverageValidationIssue.DURATION_MISMATCH)
-    elif abs(metrics.total_planned_seconds - contract.target_duration_seconds) > contract.max_duration_delta_seconds:
-        issues.append(CoverageValidationIssue.DURATION_MISMATCH)
+        if metrics.total_planned_seconds == 0:
+            issues.append(CoverageValidationIssue.DURATION_MISMATCH)
+        elif abs(metrics.total_planned_seconds - contract.target_duration_seconds) > contract.max_duration_delta_seconds:
+            issues.append(CoverageValidationIssue.DURATION_MISMATCH)
 
     return issues
 
@@ -203,4 +226,9 @@ def _parse_duration(raw_duration: str | None, shot_body: str) -> int:
 
 def _shot_has_dialogue(shot_body: str) -> bool:
     sanitized = _TEXT_OVERLAY_RE.sub("", shot_body)
-    return bool(_DIALOGUE_RE.search(sanitized))
+    return bool(
+        _QUOTED_DIALOGUE_RE.search(sanitized)
+        or _VOICEOVER_RE.search(sanitized)
+        or _DIALOGUE_FIELD_RE.search(sanitized)
+        or _SPEAKER_CUE_RE.search(sanitized)
+    )

@@ -847,6 +847,12 @@ class Orchestrator:
         contract: object,
     ) -> str:
         issue_names = ", ".join(issue.value for issue in issues)
+        raw_coverage_note = ""
+        if getattr(contract, "raw_coverage_mode", False):
+            raw_coverage_note = (
+                "For this profile, the shot list is raw generation coverage, not the final edit. "
+                "It may run longer than the target as long as it gives the editor enough usable beats. "
+            )
         return (
             "Rewrite and expand the existing shot plan so it satisfies the "
             f"coverage contract ({issue_names}). Keep the strongest core idea, "
@@ -854,6 +860,7 @@ class Orchestrator:
             f"{getattr(getattr(contract, 'profile', None), 'value', 'creative')} piece. "
             f"Minimum shot count: {getattr(contract, 'min_shot_count', 'unknown')}. "
             f"Maximum dialogue share: {getattr(contract, 'max_dialogue_share', 0):.0%}. "
+            f"{raw_coverage_note}"
             "Add silent visual beats, editorially useful inserts, and clearer pacing contrast. "
             f"Revise this prior shot plan rather than starting from scratch:\n\n{source_task.result_summary}"
         )
@@ -901,15 +908,16 @@ class Orchestrator:
             ):
                 continue
 
-            repair_count = session.coverage_repair_count.get(source_task.id, 0)
+            repair_key = task.id
+            repair_count = session.coverage_repair_count.get(repair_key, 0)
             if repair_count >= _MAX_RETRIES_PER_TASK:
                 logger.warning(
                     "[orchestrator] session=%s | coverage repair limit reached for %s",
-                    session.id[:8], source_task.id,
+                    session.id[:8], repair_key,
                 )
                 continue
 
-            repair_id = f"coverage-repair-{source_task.id}-{repair_count + 1}"
+            repair_id = f"coverage-repair-{repair_key}-{repair_count + 1}"
             if session.dag.get_task(repair_id) is not None:
                 continue
 
@@ -924,7 +932,7 @@ class Orchestrator:
                 context_requirements=["prior_results"],
             )
             session.dag.tasks.append(repair_task)
-            session.coverage_repair_count[source_task.id] = repair_count + 1
+            session.coverage_repair_count[repair_key] = repair_count + 1
 
             for downstream in session.dag.tasks:
                 if downstream.id == repair_id:
