@@ -1,12 +1,20 @@
-import { useCallback, useRef, useState, type MutableRefObject } from "react";
-import { logger } from "@/lib/logger";
-import { backendFetch } from "@/lib/backend";
-import type { TimelineClip } from "@/types/project";
+import { type MutableRefObject,useCallback, useRef, useState } from "react";
+
+import {
+  backendFetch,
+  createBackendRequestContext,
+  createTraceId,
+} from "@/lib/backend";
+import {
+  clearRendererLogContext,
+  logger,
+  setRendererLogContext,
+  updateRendererLogContext,
+} from "@/lib/logger";
 import type {
   ToolCall,
   ToolResult,
 } from "@/types/agent-progress";
-import { useAgentProgress } from "./use-agent-progress";
 import type {
   AgentDiagnostics,
   AgentProgress,
@@ -17,6 +25,9 @@ import type {
   OrchestrateTaskInfo,
   OrchestratorStatus,
 } from "@/types/agent-progress";
+import type { TimelineClip } from "@/types/project";
+
+import { useAgentProgress } from "./use-agent-progress";
 
 export type { AgentProgress, ChatMessage, OnToolProgress };
 
@@ -279,6 +290,8 @@ export function useOrchestratedAgent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
+  const traceIdRef = useRef<string | null>(null);
+  const rendererLogContextIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const stoppedRef = useRef(false);
 
@@ -298,12 +311,17 @@ export function useOrchestratedAgent() {
       viewContext?: "editor" | "genspace" | "playground",
       assetsContext?: Record<string, unknown> | null,
       displayPrompt?: string,
+      providedTraceId?: string,
     ) => {
       setIsProcessing(true);
       stoppedRef.current = false;
       abortRef.current?.abort();
       abortRef.current = new AbortController();
       const { signal } = abortRef.current;
+      const activeTraceId = providedTraceId ?? createTraceId();
+      traceIdRef.current = activeTraceId;
+      const rendererLogContextId = setRendererLogContext({ traceId: activeTraceId });
+      rendererLogContextIdRef.current = rendererLogContextId;
 
       const pa = progressActionsRef.current;
       pa.startSession();
@@ -316,10 +334,17 @@ export function useOrchestratedAgent() {
       setMessages((prev) => [...prev, { role: "user", content: displayPrompt ?? prompt }]);
 
       const t0 = performance.now();
-      logger.info(`[orchestrated-agent] session start — prompt: ${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}`);
+      logger.info(
+        `[orchestrated-agent] session start (prompt_chars=${prompt.length})`,
+        {
+          category: "agent.session",
+          traceId: activeTraceId,
+        },
+      );
 
       try {
         const timelineState = buildTimelineState(clips, trackCount, currentTime);
+        const orchestrateRequest = createBackendRequestContext(activeTraceId);
 
         const res = await backendFetch("/api/agent/orchestrate", {
           method: "POST",
@@ -332,7 +357,7 @@ export function useOrchestratedAgent() {
             ...(assetsContext ? { assets_context: assetsContext } : {}),
           }),
           signal,
-        });
+        }, orchestrateRequest);
 
         if (!res.ok) {
           const body = await res.json().catch(() => ({})) as { error?: string };
@@ -343,13 +368,25 @@ export function useOrchestratedAgent() {
 
         if (response.session_id) {
           sessionIdRef.current = response.session_id;
+          updateRendererLogContext(rendererLogContextId, {
+            traceId: activeTraceId,
+            agentSessionId: response.session_id,
+          });
         }
         if (response.memory_updated) {
           window.dispatchEvent(new CustomEvent('memory-updated'));
         }
 
         const orchestratedTasks = response.tasks.map(taskInfoToAgentTask);
-        logger.info(`[orchestrated-agent] plan received — ${orchestratedTasks.length} task(s), status=${response.status}`);
+        logger.info(
+          `[orchestrated-agent] plan received — ${orchestratedTasks.length} task(s), status=${response.status}`,
+          {
+            category: "agent.plan",
+            traceId: activeTraceId,
+            requestId: orchestrateRequest.requestId,
+            agentSessionId: response.session_id,
+          },
+        );
         pa.setPlan(orchestratedTasks);
         pa.update({
           isOrchestrated: true,
@@ -372,8 +409,13 @@ export function useOrchestratedAgent() {
           }
 
           turns++;
-          logger.info(
+          logger.debug(
             `[orchestrated-agent] turn ${turns} — status=${response.status}, tool_calls=${response.tool_calls.length}, current_task=${response.current_task_id ?? "none"}`,
+            {
+              category: "agent.turn",
+              traceId: activeTraceId,
+              agentSessionId: sessionIdRef.current ?? response.session_id,
+            },
           );
           pa.incrementTurn();
           syncTaskStatuses(response.tasks, pa, pa.progressRef);
@@ -410,8 +452,13 @@ export function useOrchestratedAgent() {
               const parallelLimit = isParallel
                 ? getParallelLimitForGroup(group)
                 : 1;
-              logger.info(
+              logger.debug(
                 `[orchestrated-agent] executing ${group.calls.length}x ${group.toolName} (${isParallel ? `parallel, limit=${parallelLimit}` : "sequential"})`,
+                {
+                  category: "agent.dispatch",
+                  traceId: activeTraceId,
+                  agentSessionId: sessionIdRef.current ?? response.session_id,
+                },
               );
 
               if (isParallel) {
@@ -422,6 +469,8 @@ export function useOrchestratedAgent() {
                   signal,
                   progressActionsRef.current,
                   batchState,
+                  activeTraceId,
+                  sessionIdRef.current ?? response.session_id,
                 );
                 results.push(...groupResults);
               } else {
@@ -438,8 +487,15 @@ export function useOrchestratedAgent() {
                     signal,
                   );
                   const toolElapsed = Math.round(performance.now() - toolT0);
-                  logger.info(
+                  logger.debug(
                     `[orchestrated-agent] tool ${tc.tool_name} ${result.success ? "completed" : "FAILED"} in ${toolElapsed}ms`,
+                    {
+                      category: "agent.tool",
+                      traceId: activeTraceId,
+                      agentSessionId: sessionIdRef.current ?? response.session_id,
+                      taskId: tc.task_id ?? undefined,
+                      toolCallId: tc.call_id,
+                    },
                   );
                   markOrchestratedToolCompletion(
                     tc,
@@ -509,6 +565,7 @@ export function useOrchestratedAgent() {
                 }),
                 signal,
               },
+              createBackendRequestContext(activeTraceId),
             );
 
             if (!contRes.ok) {
@@ -542,6 +599,7 @@ export function useOrchestratedAgent() {
                 }),
                 signal,
               },
+              createBackendRequestContext(activeTraceId),
             );
 
             if (!contRes.ok) {
@@ -560,7 +618,14 @@ export function useOrchestratedAgent() {
 
         syncTaskStatuses(response.tasks, pa, pa.progressRef);
         const totalElapsed = ((performance.now() - t0) / 1000).toFixed(1);
-        logger.info(`[orchestrated-agent] session complete — ${turns} turn(s) in ${totalElapsed}s`);
+        logger.info(
+          `[orchestrated-agent] session complete — ${turns} turn(s) in ${totalElapsed}s`,
+          {
+            category: "agent.session",
+            traceId: activeTraceId,
+            agentSessionId: sessionIdRef.current ?? response.session_id,
+          },
+        );
         pa.endSession();
 
         const finalText = response.message || "All tasks completed.";
@@ -588,16 +653,28 @@ export function useOrchestratedAgent() {
         const errorMsg = err instanceof Error ? err.message : "Unknown error";
         logger.error(
           `[orchestrated-agent] error after ${((performance.now() - t0) / 1000).toFixed(1)}s: ${errorMsg}`,
+          {
+            category: "agent.error",
+            traceId: activeTraceId,
+            agentSessionId: sessionIdRef.current ?? undefined,
+          },
         );
         progressActionsRef.current.endSession(errorMsg);
+        const userFacingError = errorMsg !== "Unknown error"
+          ? `${errorMsg} (Trace ID: ${activeTraceId})`
+          : `Something went wrong. Please try again. Trace ID: ${activeTraceId}`;
         setMessages((prev) => [
           ...prev,
           {
             role: "agent",
-            content: errorMsg !== "Unknown error" ? errorMsg : "Something went wrong. Please try again.",
+            content: userFacingError,
           },
         ]);
       } finally {
+        clearRendererLogContext(rendererLogContextId);
+        if (rendererLogContextIdRef.current === rendererLogContextId) {
+          rendererLogContextIdRef.current = null;
+        }
         setIsProcessing(false);
         window.dispatchEvent(new CustomEvent('agent-action-complete'));
       }
@@ -608,7 +685,11 @@ export function useOrchestratedAgent() {
   const stop = useCallback(() => {
     stoppedRef.current = true;
     abortRef.current?.abort();
-    backendFetch("/api/generate/cancel", { method: "POST" }).catch(() => {});
+    backendFetch(
+      "/api/generate/cancel",
+      { method: "POST" },
+      createBackendRequestContext(traceIdRef.current ?? undefined),
+    ).catch(() => {});
   }, []);
 
   const skipTask = useCallback(
@@ -617,20 +698,29 @@ export function useOrchestratedAgent() {
       const pa = progressActionsRef.current;
       pa.skipTask(taskId);
       try {
-        const res = await backendFetch("/api/agent/orchestrate/skip-task", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            session_id: sessionIdRef.current,
-            task_id: taskId,
-          }),
-        });
+        const res = await backendFetch(
+          "/api/agent/orchestrate/skip-task",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: sessionIdRef.current,
+              task_id: taskId,
+            }),
+          },
+          createBackendRequestContext(traceIdRef.current ?? undefined),
+        );
         if (res.ok) {
           const data: OrchestrateResponse = await res.json();
           syncTaskStatuses(data.tasks, pa, pa.progressRef);
         }
       } catch {
-        logger.warn("[orchestrated-agent] skip-task request failed");
+        logger.warn("[orchestrated-agent] skip-task request failed", {
+          category: "agent.api",
+          traceId: traceIdRef.current ?? undefined,
+          agentSessionId: sessionIdRef.current ?? undefined,
+          taskId,
+        });
       }
     },
     [],
@@ -642,6 +732,9 @@ export function useOrchestratedAgent() {
     setIsProcessing(false);
     setMessages([]);
     sessionIdRef.current = null;
+    traceIdRef.current = null;
+    clearRendererLogContext(rendererLogContextIdRef.current ?? undefined);
+    rendererLogContextIdRef.current = null;
     progressActionsRef.current.reset();
   }, []);
 
@@ -667,6 +760,8 @@ async function executeParallelWithLimit(
   signal?: AbortSignal,
   actions?: ReturnType<typeof useAgentProgress>,
   batchState?: TaskBatchProgressState,
+  traceId?: string,
+  agentSessionId?: string | null,
 ): Promise<ToolResult[]> {
   const results: ToolResult[] = new Array(calls.length);
   let nextIndex = 0;
@@ -684,8 +779,15 @@ async function executeParallelWithLimit(
           signal,
         );
         const toolElapsed = Math.round(performance.now() - toolT0);
-        logger.info(
+        logger.debug(
           `[orchestrated-agent] tool ${calls[idx].tool_name} ${results[idx].success ? "completed" : "FAILED"} in ${toolElapsed}ms`,
+          {
+            category: "agent.tool",
+            traceId,
+            agentSessionId: agentSessionId ?? undefined,
+            taskId: calls[idx].task_id ?? undefined,
+            toolCallId: calls[idx].call_id,
+          },
         );
         if (actions && batchState) {
           markOrchestratedToolCompletion(calls[idx], batchState, actions, results[idx]);

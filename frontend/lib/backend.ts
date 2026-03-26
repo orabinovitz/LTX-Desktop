@@ -18,13 +18,42 @@ function generateRequestId(): string {
   return `${ts}-${seq}`
 }
 
-export async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
+export interface BackendRequestContext {
+  requestId?: string
+  traceId?: string
+}
+
+export function createTraceId(): string {
+  const ts = Date.now().toString(36)
+  const rand = Math.random().toString(36).slice(2, 10)
+  return `trace-${ts}-${rand}`
+}
+
+export function createBackendRequestContext(traceId?: string): BackendRequestContext {
+  return {
+    requestId: generateRequestId(),
+    traceId,
+  }
+}
+
+function applyRequestContext(headers: Headers, context?: BackendRequestContext): void {
+  if (!headers.has('X-Request-ID')) {
+    headers.set('X-Request-ID', context?.requestId ?? generateRequestId())
+  }
+  if (context?.traceId && !headers.has('X-Trace-ID')) {
+    headers.set('X-Trace-ID', context.traceId)
+  }
+}
+
+export async function backendFetch(
+  path: string,
+  init?: RequestInit,
+  context?: BackendRequestContext,
+): Promise<Response> {
   const { url, token } = await getBackendCredentials()
   const headers = new Headers(init?.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  if (!headers.has('X-Request-ID')) {
-    headers.set('X-Request-ID', generateRequestId())
-  }
+  applyRequestContext(headers, context)
   return fetch(`${url}${path}`, { ...init, headers })
 }
 
@@ -40,8 +69,9 @@ export interface SSEEvent {
 export async function* backendSSE(
   path: string,
   init?: RequestInit,
+  context?: BackendRequestContext,
 ): AsyncGenerator<SSEEvent, void, undefined> {
-  const response = await backendFetch(path, init);
+  const response = await backendFetch(path, init, context);
   if (!response.ok) throw new Error(`SSE request failed: ${response.status}`);
   if (!response.body) return;
 

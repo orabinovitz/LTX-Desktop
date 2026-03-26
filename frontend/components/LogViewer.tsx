@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
-import { X, FolderOpen, RefreshCw, ChevronDown, ChevronUp, Download } from 'lucide-react'
-import { Button } from './ui/button'
+import { ChevronDown, ChevronUp, Download,FolderOpen, RefreshCw, X } from 'lucide-react'
+import { useEffect, useMemo, useRef,useState } from 'react'
+
 import { logger } from '@/lib/logger'
+
+import { parseLogLine } from '../../shared/logging'
+import { Button } from './ui/button'
 
 interface LogViewerProps {
   isOpen: boolean
@@ -12,8 +15,15 @@ interface LogViewerProps {
 export function LogViewer({ isOpen, onClose, embedded = false }: LogViewerProps) {
   const [logs, setLogs] = useState<string[]>([])
   const [logPath, setLogPath] = useState('')
+  const [totalLines, setTotalLines] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [levelFilter, setLevelFilter] = useState<'all' | 'INFO' | 'WARNING' | 'ERROR' | 'DEBUG'>('all')
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'Backend' | 'Renderer' | 'Electron'>('all')
+  const [traceFilter, setTraceFilter] = useState('')
+  const [sessionFilter, setSessionFilter] = useState('')
+  const [taskFilter, setTaskFilter] = useState('')
+  const [textFilter, setTextFilter] = useState('')
   const logContainerRef = useRef<HTMLDivElement>(null)
 
   const fetchLogs = async () => {
@@ -21,9 +31,10 @@ export function LogViewer({ isOpen, onClose, embedded = false }: LogViewerProps)
     
     setIsLoading(true)
     try {
-      const result = await window.electronAPI.getLogs()
+      const result = await window.electronAPI.getLogs({ limit: 2000 })
       setLogs(result.lines || [])
       setLogPath(result.logPath || '')
+      setTotalLines(result.totalLines ?? result.lines?.length ?? 0)
     } catch (error) {
       logger.error(`Failed to fetch logs: ${error}`)
     } finally {
@@ -31,11 +42,75 @@ export function LogViewer({ isOpen, onClose, embedded = false }: LogViewerProps)
     }
   }
 
+  const filteredLogs = useMemo(() => {
+    const traceNeedle = traceFilter.trim().toLowerCase()
+    const sessionNeedle = sessionFilter.trim().toLowerCase()
+    const taskNeedle = taskFilter.trim().toLowerCase()
+    const textNeedle = textFilter.trim().toLowerCase()
+
+    const matchesStructuredFilters = (line: string): boolean => {
+      const parsed = parseLogLine(line)
+      if (levelFilter !== 'all' && parsed?.level !== levelFilter) {
+        return false
+      }
+      if (sourceFilter !== 'all' && parsed?.source !== sourceFilter) {
+        return false
+      }
+      if (traceNeedle && !parsed?.context.trace_id?.toLowerCase().includes(traceNeedle)) {
+        return false
+      }
+      if (sessionNeedle && !parsed?.context.agent_session_id?.toLowerCase().includes(sessionNeedle)) {
+        return false
+      }
+      if (taskNeedle && !parsed?.context.task_id?.toLowerCase().includes(taskNeedle)) {
+        return false
+      }
+      if (textNeedle && !line.toLowerCase().includes(textNeedle)) {
+        return false
+      }
+      return true
+    }
+
+    const results: string[] = []
+    let includeContinuation = false
+
+    for (const line of logs) {
+      const parsed = parseLogLine(line)
+      if (parsed) {
+        includeContinuation = matchesStructuredFilters(line)
+        if (includeContinuation) {
+          results.push(line)
+        }
+        continue
+      }
+
+      if (includeContinuation) {
+        results.push(line)
+        continue
+      }
+
+      if (
+        levelFilter === 'all'
+        && sourceFilter === 'all'
+        && !traceNeedle
+        && !sessionNeedle
+        && !taskNeedle
+        && (!textNeedle || line.toLowerCase().includes(textNeedle))
+      ) {
+        results.push(line)
+      }
+    }
+
+    return results
+  }, [levelFilter, logs, sessionFilter, sourceFilter, taskFilter, textFilter, traceFilter])
+
   useEffect(() => {
     if (isOpen) {
-      fetchLogs()
+      void fetchLogs()
       // Auto-refresh every 2 seconds when open
-      const interval = setInterval(fetchLogs, 2000)
+      const interval = setInterval(() => {
+        void fetchLogs()
+      }, 2000)
       return () => clearInterval(interval)
     }
   }, [isOpen])
@@ -44,7 +119,7 @@ export function LogViewer({ isOpen, onClose, embedded = false }: LogViewerProps)
     if (autoScroll && logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
     }
-  }, [logs, autoScroll])
+  }, [filteredLogs, autoScroll])
 
   const handleOpenFolder = async () => {
     if (window.electronAPI?.openLogFolder) {
@@ -53,7 +128,7 @@ export function LogViewer({ isOpen, onClose, embedded = false }: LogViewerProps)
   }
 
   const handleDownload = () => {
-    const content = logs.join('\n')
+    const content = filteredLogs.join('\n')
     const blob = new Blob([content], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -127,18 +202,68 @@ export function LogViewer({ isOpen, onClose, embedded = false }: LogViewerProps)
           </div>
         </div>
 
+        <div className="grid grid-cols-2 gap-2 border-b border-zinc-700 p-3 md:grid-cols-6">
+          <select
+            value={levelFilter}
+            onChange={(event) => setLevelFilter(event.target.value as typeof levelFilter)}
+            className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200"
+            aria-label="Level"
+          >
+            <option value="all">All Levels</option>
+            <option value="ERROR">Error</option>
+            <option value="WARNING">Warning</option>
+            <option value="INFO">Info</option>
+            <option value="DEBUG">Debug</option>
+          </select>
+          <select
+            value={sourceFilter}
+            onChange={(event) => setSourceFilter(event.target.value as typeof sourceFilter)}
+            className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200"
+            aria-label="Source"
+          >
+            <option value="all">All Sources</option>
+            <option value="Backend">Backend</option>
+            <option value="Renderer">Renderer</option>
+            <option value="Electron">Electron</option>
+          </select>
+          <input
+            value={traceFilter}
+            onChange={(event) => setTraceFilter(event.target.value)}
+            placeholder="Trace ID"
+            className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-500"
+          />
+          <input
+            value={sessionFilter}
+            onChange={(event) => setSessionFilter(event.target.value)}
+            placeholder="Session ID"
+            className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-500"
+          />
+          <input
+            value={taskFilter}
+            onChange={(event) => setTaskFilter(event.target.value)}
+            placeholder="Task ID"
+            className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-500"
+          />
+          <input
+            value={textFilter}
+            onChange={(event) => setTextFilter(event.target.value)}
+            placeholder="Search logs"
+            className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-500"
+          />
+        </div>
+
         {/* Log content */}
         <div
           ref={logContainerRef}
           className="flex-1 overflow-auto p-4 font-mono text-xs bg-black"
         >
-          {logs.length === 0 ? (
+          {filteredLogs.length === 0 ? (
             <div className="text-zinc-500 text-center py-8">
-              No logs yet...
+              {logs.length === 0 ? 'No logs yet...' : 'No matching logs.'}
             </div>
           ) : (
             <div className="space-y-0.5">
-              {logs.map((line, index) => {
+              {filteredLogs.map((line, index) => {
                 // Color code log levels
                 let lineClass = 'text-zinc-300'
                 if (line.includes(' - ERROR - ') || line.includes(' - CRITICAL - ')) {
@@ -163,7 +288,11 @@ export function LogViewer({ isOpen, onClose, embedded = false }: LogViewerProps)
 
         {/* Footer */}
         <div className="flex items-center justify-between p-3 border-t border-zinc-700 text-xs text-zinc-500">
-          <span>{logs.length} lines (last 200)</span>
+          <span>
+            {filteredLogs.length} matching line(s)
+            {logs.length > 0 ? ` from ${logs.length} loaded` : ''}
+            {totalLines > logs.length ? ` of ${totalLines} total` : ''}
+          </span>
           <span>Auto-refreshing every 2s</span>
         </div>
       </div>

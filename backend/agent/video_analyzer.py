@@ -500,7 +500,7 @@ def _run_multipass_analysis(
         scene_future = pool.submit(_multipass_scenes, file_uri, mime_type, duration, gemini_api_key, http_client)
         summary_result = summary_future.result()
         scene_result = scene_future.result()
-    logger.info("[multipass] passes 1+2 (parallel) took %.1fs for %s", time.monotonic() - t0_parallel, asset_id)
+    logger.debug("[multipass] passes 1+2 (parallel) took %.1fs for %s", time.monotonic() - t0_parallel, asset_id)
 
     summary: str = summary_result.get("summary", "")
     topics = _parse_topics(summary_result.get("topics", []))
@@ -515,7 +515,7 @@ def _run_multipass_analysis(
             file_uri, mime_type, duration, gemini_api_key, http_client,
             max_output_tokens=16384,
         )
-        logger.info("[multipass] pass 1 retry took %.1fs for %s", time.monotonic() - t0, asset_id)
+        logger.debug("[multipass] pass 1 retry took %.1fs for %s", time.monotonic() - t0, asset_id)
         if not summary:
             summary = summary_result.get("summary", "")
         retry_topics = _parse_topics(summary_result.get("topics", []))
@@ -542,7 +542,7 @@ def _run_multipass_analysis(
         dialogue = _multipass_dialogue_chunked(
             file_uri, mime_type, duration, gemini_api_key, http_client,
         )
-        logger.info("[multipass] pass 3 (chunked dialogue) took %.1fs for %s", time.monotonic() - t0, asset_id)
+        logger.debug("[multipass] pass 3 (chunked dialogue) took %.1fs for %s", time.monotonic() - t0, asset_id)
     except Exception:
         logger.error(
             "Pass 3 (dialogue) failed for %s after %.1fs — saving results from passes 1+2",
@@ -1230,7 +1230,8 @@ def _extract_audio_mp3(video_path: str, output_path: str) -> str:
         import shutil
         ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        raise RuntimeError("ffmpeg not found — required for audio extraction")
+        message = "ffmpeg not found — required for audio extraction"
+        raise RuntimeError(message)
 
     cmd = [
         ffmpeg, "-y",
@@ -1265,7 +1266,8 @@ def _split_audio_chunks(
         import shutil
         ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        raise RuntimeError("ffmpeg not found")
+        message = "ffmpeg not found"
+        raise RuntimeError(message)
 
     probe_cmd = [
         ffmpeg.replace("ffmpeg", "ffprobe") if "ffmpeg" in ffmpeg else "ffprobe",

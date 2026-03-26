@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback,useEffect, useState } from 'react'
+
 import { backendFetch, backendWsUrl, getWsProtocols, resetBackendCredentials } from '@/lib/backend'
 import { logger } from '@/lib/logger'
 
@@ -66,12 +67,18 @@ export function useBackend(): UseBackendReturn {
 
   const checkHealth = useCallback(async (): Promise<boolean> => {
     try {
-      logger.info('Checking backend health...')
+      logger.debug('Checking backend health...', {
+        category: 'backend.health',
+        sinks: { sessionFile: false },
+      })
       const response = await backendFetch('/health')
 
       if (response.ok) {
         const data = await response.json()
-        logger.info(`Backend health: ${JSON.stringify(data)}`)
+        logger.debug(`Backend health connected=${Boolean(data.models_loaded)}`, {
+          category: 'backend.health',
+          sinks: { sessionFile: false },
+        })
 
         setStatus({
           connected: true,
@@ -81,10 +88,14 @@ export function useBackend(): UseBackendReturn {
         setError(null)
         return true
       }
-      logger.warn(`Backend health check failed with status: ${response.status}`)
+      logger.warn(`Backend health check failed with status: ${response.status}`, {
+        category: 'backend.health',
+      })
       return false
     } catch (err) {
-      logger.error(`Backend health check error: ${err}`)
+      logger.error(`Backend health check error: ${err}`, {
+        category: 'backend.health',
+      })
       setStatus(prev => ({ ...prev, connected: false }))
       return false
     }

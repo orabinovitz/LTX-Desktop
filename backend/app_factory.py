@@ -27,7 +27,8 @@ from _routes.suggest_gap_prompt import router as suggest_gap_prompt_router
 from _routes.retake import router as retake_router
 from _routes.runtime_policy import router as runtime_policy_router
 from _routes.settings import router as settings_router
-from logging_policy import log_http_error, log_unhandled_exception
+from log_context import bind_log_context, ensure_request_context, reset_log_context
+from logging_policy import log_http_error, log_unhandled_exception, log_validation_error
 from state import init_state_service
 
 if TYPE_CHECKING:
@@ -64,40 +65,72 @@ def create_app(
         request: Request,
         call_next: Callable[[Request], Awaitable[StarletteResponse]],
     ) -> StarletteResponse:
-        if not auth_token:
-            return await call_next(request)
-        if request.method == "OPTIONS":
-            return await call_next(request)
-        def _token_matches(candidate: str) -> bool:
-            return hmac.compare_digest(candidate, auth_token)
+        request_id, trace_id = ensure_request_context(request)
+        tokens = bind_log_context(request_id=request_id, trace_id=trace_id)
+        try:
+            if not auth_token:
+                response = await call_next(request)
+                response.headers.setdefault("X-Request-ID", request_id)
+                response.headers.setdefault("X-Trace-ID", trace_id)
+                return response
+            if request.method == "OPTIONS":
+                response = await call_next(request)
+                response.headers.setdefault("X-Request-ID", request_id)
+                response.headers.setdefault("X-Trace-ID", trace_id)
+                return response
 
-        # WebSocket: check Sec-WebSocket-Protocol header (bearer.<token>) or query param (legacy)
-        if request.headers.get("upgrade", "").lower() == "websocket":
-            ws_protocols = request.headers.get("sec-websocket-protocol", "")
-            for proto in ws_protocols.split(","):
-                proto = proto.strip()
-                if proto.startswith("bearer.") and _token_matches(proto[7:]):
-                    return await call_next(request)
-            if _token_matches(request.query_params.get("token", "")):
-                return await call_next(request)
-            return JSONResponse(status_code=401, content={"error": "Unauthorized"})
-        # HTTP: Bearer or Basic auth
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer ") and _token_matches(auth_header[7:]):
-            return await call_next(request)
-        if auth_header.startswith("Basic "):
-            try:
-                decoded = base64.b64decode(auth_header[6:]).decode()
-                _, _, password = decoded.partition(":")
-                if _token_matches(password):
-                    return await call_next(request)
-            except Exception:
-                _logger.warning(
-                    "Malformed Basic auth on %s %s",
-                    request.method,
-                    request.url.path,
+            def _token_matches(candidate: str) -> bool:
+                return hmac.compare_digest(candidate, auth_token)
+
+            # WebSocket: check Sec-WebSocket-Protocol header (bearer.<token>) or query param (legacy)
+            if request.headers.get("upgrade", "").lower() == "websocket":
+                ws_protocols = request.headers.get("sec-websocket-protocol", "")
+                for proto in ws_protocols.split(","):
+                    proto = proto.strip()
+                    if proto.startswith("bearer.") and _token_matches(proto[7:]):
+                        response = await call_next(request)
+                        response.headers.setdefault("X-Request-ID", request_id)
+                        response.headers.setdefault("X-Trace-ID", trace_id)
+                        return response
+                if _token_matches(request.query_params.get("token", "")):
+                    response = await call_next(request)
+                    response.headers.setdefault("X-Request-ID", request_id)
+                    response.headers.setdefault("X-Trace-ID", trace_id)
+                    return response
+                return JSONResponse(
+                    status_code=401,
+                    content={"error": "Unauthorized"},
+                    headers={"X-Request-ID": request_id, "X-Trace-ID": trace_id},
                 )
-        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+            # HTTP: Bearer or Basic auth
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer ") and _token_matches(auth_header[7:]):
+                response = await call_next(request)
+                response.headers.setdefault("X-Request-ID", request_id)
+                response.headers.setdefault("X-Trace-ID", trace_id)
+                return response
+            if auth_header.startswith("Basic "):
+                try:
+                    decoded = base64.b64decode(auth_header[6:]).decode()
+                    _, _, password = decoded.partition(":")
+                    if _token_matches(password):
+                        response = await call_next(request)
+                        response.headers.setdefault("X-Request-ID", request_id)
+                        response.headers.setdefault("X-Trace-ID", trace_id)
+                        return response
+                except Exception:
+                    _logger.warning(
+                        "Malformed Basic auth on %s %s",
+                        request.method,
+                        request.url.path,
+                    )
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Unauthorized"},
+                headers={"X-Request-ID": request_id, "X-Trace-ID": trace_id},
+            )
+        finally:
+            reset_log_context(tokens)
 
     _FALLBACK = "An unexpected error occurred"
 
@@ -111,6 +144,7 @@ def create_app(
 
     async def _validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
         if isinstance(exc, RequestValidationError):
+            log_validation_error(request, exc)
             return JSONResponse(status_code=422, content={"error": _VALIDATION_MSG})
         return JSONResponse(status_code=422, content={"error": _VALIDATION_MSG})
 

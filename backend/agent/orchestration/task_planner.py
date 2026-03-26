@@ -851,8 +851,9 @@ def _structured_fallback_dag(prompt: str) -> TaskDAG | None:
         return None
 
     logger.info(
-        "[task-planner] structured fallback produced %d task(s) for prompt: %.80s",
-        len(tasks), prompt,
+        "[task-planner] structured fallback produced %d task(s) (prompt_chars=%d)",
+        len(tasks),
+        len(prompt),
     )
     return TaskDAG(tasks=tasks, original_prompt=prompt)
 
@@ -1009,7 +1010,7 @@ class TaskPlanner:
                 timeout=60,
             )
             elapsed_ms = int((time.monotonic() - t0) * 1000)
-            logger.info("[task-planner] Gemini responded HTTP %d in %dms", resp.status_code, elapsed_ms)
+            logger.debug("[task-planner] Gemini responded HTTP %d in %dms", resp.status_code, elapsed_ms)
 
             if resp.status_code != 200:
                 logger.error(
@@ -1056,16 +1057,11 @@ class TaskPlanner:
             if fallback is not None:
                 return _apply_creative_contracts(fallback, prompt)
 
-        task_summaries = [
-            f"  {t.id} ({t.task_type.value}): {t.description[:60]}"
-            for t in tasks
-        ]
         logger.info(
-            "[task-planner] produced %d task(s) for prompt: %.80s | target_duration=%s\n%s",
+            "[task-planner] produced %d task(s) (prompt_chars=%d, target_duration=%s)",
             len(tasks),
-            prompt,
+            len(prompt),
             target_duration,
-            "\n".join(task_summaries),
         )
         dag = TaskDAG(
             tasks=tasks,

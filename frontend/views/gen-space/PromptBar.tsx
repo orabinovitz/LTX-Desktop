@@ -1,11 +1,14 @@
-import { useState, useRef, useEffect } from 'react'
 import {
-  Image, Video, X, Sparkles, Scissors, Music,
-  Clock, Monitor, ChevronUp, Film
-} from 'lucide-react'
+ChevronUp,   Clock, Film,
+  Image, Monitor, Music,
+Scissors, Sparkles, Video, X} from 'lucide-react'
+import { useEffect,useRef, useState } from 'react'
+
 import type { ICLoraConditioningType } from '@/components/ICLoraPanel'
 import { CONDITIONING_TYPES } from '@/components/ICLoraPanel'
+import { logger } from '@/lib/logger'
 import type { Asset } from '@/types/project'
+
 import { urlToDataUri } from '../editor/utils/agent-generation-helper'
 
 function SettingsDropdown({ 
@@ -232,7 +235,9 @@ export function PromptBar({
           const dataUri = await urlToDataUri(asset.url)
           onEditImagesChange([...editImages, { dataUri, name: asset.prompt || 'image' }])
         }
-      } catch (err) { console.error('NB2 drop failed:', err) }
+      } catch (err) {
+        logger.error(`NB2 drop failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
       return
     }
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))

@@ -6,6 +6,7 @@ import json
 import queue
 import threading
 from collections.abc import Generator
+from contextvars import copy_context
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -88,10 +89,10 @@ def route_agent_execute_stream(
       - ``error``: an error occurred
     """
     event_queue: queue.Queue[str | None] = queue.Queue()
+    request_context = copy_context()
 
     thread = threading.Thread(
-        target=_run_agent_streamed,
-        args=(handler, req, event_queue),
+        target=lambda: request_context.run(_run_agent_streamed, handler, req, event_queue),
         daemon=True,
     )
     thread.start()

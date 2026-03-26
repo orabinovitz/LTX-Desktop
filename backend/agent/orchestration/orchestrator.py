@@ -23,6 +23,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from agent.logging_utils import agent_log_extra
 from agent.model_policy import AgentStage, select_model
 from agent.orchestration.creative_contracts import (
     CoverageValidationIssue,
@@ -213,8 +214,13 @@ class Orchestrator:
             conversation_ctx = "\n".join(conv_lines)
 
         logger.info(
-            "[orchestrator] session=%s | planning: %.80s",
-            session_id[:8], request.prompt,
+            "[orchestrator] session=%s | planning request (prompt_chars=%d)",
+            session_id[:8],
+            len(request.prompt),
+            extra=agent_log_extra(
+                category="agent.plan",
+                session_id=session_id,
+            ),
         )
         planner_selection = select_model(AgentStage.ORCHESTRATOR_PLANNER, prompt=request.prompt)
 
@@ -248,11 +254,15 @@ class Orchestrator:
             planning_ms=int(planning_elapsed * 1000),
         )
         logger.info(
-            "[orchestrator] session=%s | DAG has %d task(s) (planned in %.1fs): %s",
+            "[orchestrator] session=%s | DAG has %d task(s) (planned in %.1fs)",
             session_id[:8],
             len(dag.tasks),
             planning_elapsed,
-            [(t.id, t.task_type.value) for t in dag.tasks],
+            extra=agent_log_extra(
+                category="agent.plan",
+                session_id=session_id,
+                duration_ms=int(planning_elapsed * 1000),
+            ),
         )
 
         return _build_response(
@@ -291,7 +301,16 @@ class Orchestrator:
 
         task.status = TaskStatus.CANCELLED
         task.error = "Skipped by user"
-        logger.info("[orchestrator] session=%s | task %s skipped by user", session_id[:8], task_id)
+        logger.info(
+            "[orchestrator] session=%s | task %s skipped by user",
+            session_id[:8],
+            task_id,
+            extra=agent_log_extra(
+                category="agent.task",
+                session_id=session_id,
+                task_id=task_id,
+            ),
+        )
 
         return _build_response(session, self._registry)
 
@@ -349,7 +368,16 @@ class Orchestrator:
             if all_succeeded:
                 task.status = TaskStatus.COMPLETED
                 task.result_summary = self._summarize_results(tool_results)
-                logger.info("[orchestrator] session=%s | task %s completed", session_id[:8], task_id)
+                logger.info(
+                    "[orchestrator] session=%s | task %s completed",
+                    session_id[:8],
+                    task_id,
+                    extra=agent_log_extra(
+                        category="agent.task",
+                        session_id=session_id,
+                        task_id=task_id,
+                    ),
+                )
             else:
                 failed = [r for r in tool_results if not r.success]
                 error_msg = "; ".join(r.error or "unknown" for r in failed)
@@ -453,6 +481,11 @@ class Orchestrator:
                 logger.info(
                     "[orchestrator] session=%s | task %s completed after resume",
                     session.id[:8], task_id,
+                    extra=agent_log_extra(
+                        category="agent.task",
+                        session_id=session.id,
+                        task_id=task_id,
+                    ),
                 )
 
         memory_updated = _results_have_memory_writes(all_resumed)
@@ -495,6 +528,10 @@ class Orchestrator:
             logger.info(
                 "[orchestrator] session=%s | all tasks done — %d completed, %d failed, %d cancelled",
                 session.id[:8], completed, failed, cancelled,
+                extra=agent_log_extra(
+                    category="agent.session",
+                    session_id=session.id,
+                ),
             )
             return _build_response(
                 session, self._registry,
@@ -559,6 +596,7 @@ class Orchestrator:
 
             ctx = SubAgentContext(
                 task=task,
+                session_id=session.id,
                 timeline_context=session.timeline_context,
                 assets_context=session.assets_context,
                 prior_task_results=prior_results,
@@ -575,6 +613,10 @@ class Orchestrator:
             session.id[:8],
             len(tasks_to_dispatch),
             [(t[0].id, t[0].skill_id or "general") for t in tasks_to_dispatch],
+            extra=agent_log_extra(
+                category="agent.dispatch",
+                session_id=session.id,
+            ),
         )
 
         results = self._pool.execute_parallel(tasks_to_dispatch)
@@ -1319,6 +1361,11 @@ class Orchestrator:
                 logger.warning(
                     "[orchestrator] session=%s | coverage repair limit reached for %s",
                     session.id[:8], repair_key,
+                    extra=agent_log_extra(
+                        category="agent.review",
+                        session_id=session.id,
+                        task_id=repair_key,
+                    ),
                 )
                 continue
 
@@ -1351,6 +1398,11 @@ class Orchestrator:
             logger.info(
                 "[orchestrator] session=%s | inserted coverage repair task %s before %s",
                 session.id[:8], repair_id, task.id,
+                extra=agent_log_extra(
+                    category="agent.review",
+                    session_id=session.id,
+                    task_id=task.id,
+                ),
             )
             return True
 
@@ -1384,6 +1436,8 @@ class Orchestrator:
             if task.task_type != TaskType.EXECUTION:
                 continue
             if "generation" not in task.tool_categories:
+                continue
+            if self._is_parallel_shot_task(task):
                 continue
             if task.skill_id == "scene-preproduction":
                 continue
@@ -1681,6 +1735,11 @@ class Orchestrator:
             logger.info(
                 "[orchestrator] session=%s | review %s hit max iterations (%d), proceeding",
                 session.id[:8], review_key, _MAX_REVIEW_ITERATIONS,
+                extra=agent_log_extra(
+                    category="agent.review",
+                    session_id=session.id,
+                    task_id=review_key,
+                ),
             )
             return
 
@@ -1689,6 +1748,11 @@ class Orchestrator:
             logger.info(
                 "[orchestrator] session=%s | review %s approved",
                 session.id[:8], review_key,
+                extra=agent_log_extra(
+                    category="agent.review",
+                    session_id=session.id,
+                    task_id=review_key,
+                ),
             )
             return
 
@@ -1720,6 +1784,11 @@ class Orchestrator:
                     logger.info(
                         "[orchestrator] session=%s | shot %s hit regeneration cap (%d)",
                         session.id[:8], regen_key, _MAX_SHOT_REGENERATIONS_PER_SHOT,
+                        extra=agent_log_extra(
+                            category="agent.review",
+                            session_id=session.id,
+                            task_id=regen_key,
+                        ),
                     )
                     continue
                 correction_task = TaskNode(
@@ -1884,6 +1953,11 @@ class Orchestrator:
         logger.info(
             "[orchestrator] session=%s | review %s requested %d correction task(s): %s",
             session.id[:8], review_key, len(created_tasks), [task.id for task in created_tasks],
+            extra=agent_log_extra(
+                category="agent.review",
+                session_id=session.id,
+                task_id=review_key,
+            ),
         )
 
     def _cancel_dependents(self, dag: TaskDAG, failed_task_id: str) -> None:
@@ -1931,6 +2005,10 @@ class Orchestrator:
             session.id[:8],
             len(shot_tasks),
             _MAX_PARALLEL_SHOT_TASKS,
+            extra=agent_log_extra(
+                category="agent.dispatch",
+                session_id=session.id,
+            ),
         )
         return limited
 

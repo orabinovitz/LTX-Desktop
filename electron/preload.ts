@@ -1,3 +1,5 @@
+import type { LogEntry } from '../shared/logging'
+
 const { contextBridge, ipcRenderer } = require('electron')
 
 const CH = {
@@ -70,7 +72,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showItemInFolder: (filePath: string): Promise<void> => ipcRenderer.invoke(CH.SHELL_SHOW_ITEM_IN_FOLDER, filePath),
 
   // Logs
-  getLogs: (): Promise<LogsResponse> => ipcRenderer.invoke(CH.LOG_GET),
+  getLogs: (options?: { limit?: number }): Promise<LogsResponse> => ipcRenderer.invoke(CH.LOG_GET, options),
   openLogFolder: (): Promise<boolean> => ipcRenderer.invoke(CH.LOG_OPEN_FOLDER),
 
   // Resources
@@ -135,8 +137,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(CH.VIDEO_EXTRACT_FRAME, videoUrl, seekTime, width, quality),
 
   // Logging
-  writeLog: (level: string, message: string): Promise<void> =>
-    ipcRenderer.invoke(CH.LOG_WRITE, level, message),
+  writeLog: (entry: LogEntry): Promise<void> =>
+    ipcRenderer.invoke(CH.LOG_WRITE, entry),
 
   // Models directory
   openModelsDirChangeDialog: (): Promise<{ success: boolean; path?: string; error?: string }> =>

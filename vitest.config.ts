@@ -12,6 +12,6 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./frontend/__tests__/setup.ts"],
-    include: ["frontend/__tests__/**/*.test.{ts,tsx}"],
+    include: ["frontend/__tests__/**/*.test.{ts,tsx}", "electron/**/*.test.ts"],
   },
 });

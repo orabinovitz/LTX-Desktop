@@ -1,6 +1,9 @@
+import type { LogEntry } from "./logging"
+
 interface LogsResponse {
   logPath: string
   lines: string[]
+  totalLines?: number
   error?: string
 }
 
@@ -24,7 +27,7 @@ interface ElectronAPI {
   openFalApiKeyPage: () => Promise<boolean>
   openParentFolderOfFile: (filePath: string) => Promise<void>
   showItemInFolder: (filePath: string) => Promise<void>
-  getLogs: () => Promise<LogsResponse>
+  getLogs: (options?: { limit?: number }) => Promise<LogsResponse>
   openLogFolder: () => Promise<boolean>
   getResourcePath: () => Promise<string | null>
   copyToProjectAssets: (srcPath: string, projectId: string) => Promise<{ success: boolean; path?: string; url?: string; error?: string }>
@@ -52,7 +55,7 @@ interface ElectronAPI {
   removePythonSetupProgress: () => void
   onBackendHealthStatus: (cb: (data: BackendHealthStatus) => void) => (() => void)
   extractVideoFrame: (videoUrl: string, seekTime: number, width?: number, quality?: number) => Promise<{ path: string; url: string }>
-  writeLog: (level: string, message: string) => Promise<void>
+  writeLog: (entry: LogEntry) => Promise<void>
   openModelsDirChangeDialog: () => Promise<{ success: boolean; path?: string; error?: string }>
   getAnalyticsState: () => Promise<{ analyticsEnabled: boolean; installationId: string }>
   setAnalyticsEnabled: (enabled: boolean) => Promise<void>

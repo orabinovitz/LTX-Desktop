@@ -17,12 +17,18 @@ def test_http_500_logs_single_traceback(caplog, client, fake_services) -> None:
     caplog.set_level(logging.WARNING)
     fake_services.image_generation_pipeline.raise_on_generate = RuntimeError("GPU OOM")
 
-    response = client.post("/api/generate-image", json={"prompt": "test"})
+    response = client.post(
+        "/api/generate-image",
+        json={"prompt": "test"},
+        headers={"x-request-id": "req-http-500", "x-trace-id": "trace-http-500"},
+    )
 
     assert response.status_code == 500
     records = _policy_records(caplog, contains="HTTP error on POST /api/generate-image: [500]")
     assert len(records) == 1
     assert records[0].exc_info is not None
+    assert getattr(records[0], "request_id", None) == "req-http-500"
+    assert getattr(records[0], "trace_id", None) == "trace-http-500"
 
 
 def test_http_400_logs_without_traceback(caplog, client) -> None:
@@ -50,19 +56,45 @@ def test_unhandled_exception_logs_single_traceback(caplog, test_state, monkeypat
     caplog.set_level(logging.ERROR)
 
     def _raise_unhandled() -> None:
-        raise RuntimeError("boom")
+        message = "boom"
+        raise RuntimeError(message)
 
     monkeypatch.setattr(test_state.health, "get_health", _raise_unhandled)
     from starlette.testclient import TestClient
     from app_factory import create_app
 
     with TestClient(create_app(handler=test_state), raise_server_exceptions=False) as test_client:
-        response = test_client.get("/health")
+        response = test_client.get(
+            "/health",
+            headers={"x-request-id": "req-health-500", "x-trace-id": "trace-health-500"},
+        )
 
     assert response.status_code == 500
     records = _policy_records(caplog, contains="Unhandled error on GET /health")
     assert len(records) == 1
     assert records[0].exc_info is not None
+    assert getattr(records[0], "request_id", None) == "req-health-500"
+    assert getattr(records[0], "trace_id", None) == "trace-health-500"
+
+
+def test_validation_errors_are_logged_with_request_context(caplog, client) -> None:
+    caplog.set_level(logging.WARNING)
+
+    response = client.post(
+        "/api/agent/execute",
+        json={},
+        headers={"x-request-id": "req-validation", "x-trace-id": "trace-validation"},
+    )
+
+    assert response.status_code == 422
+    records = _policy_records(
+        caplog,
+        contains="Request validation error on POST /api/agent/execute",
+    )
+    assert len(records) == 1
+    assert records[0].exc_info is None
+    assert getattr(records[0], "request_id", None) == "req-validation"
+    assert getattr(records[0], "trace_id", None) == "trace-validation"
 
 
 def test_background_runner_logs_once_and_calls_error_callback(caplog) -> None:
@@ -72,7 +104,8 @@ def test_background_runner_logs_once_and_calls_error_callback(caplog) -> None:
     callback_errors: list[Exception] = []
 
     def _worker() -> None:
-        raise RuntimeError("background boom")
+        message = "background boom"
+        raise RuntimeError(message)
 
     def _on_error(exc: Exception) -> None:
         callback_errors.append(exc)

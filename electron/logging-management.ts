@@ -1,6 +1,7 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
+
 import { getCurrentDir, isDev } from './config'
 import { logger, setLogFilePath } from './logger'
 export { getLogDir } from './app-paths'
@@ -53,7 +54,9 @@ export function initSessionLog(): void {
   cleanupOldLogs(logDir)
 
   setLogFilePath(currentLogFilename)
-  logger.info(`Session log file: ${currentLogFilename}`)
+  logger.info(`Session log file: ${currentLogFilename}`, {
+    category: 'desktop.process',
+  })
 }
 
 export function getCurrentLogFilename(): string {

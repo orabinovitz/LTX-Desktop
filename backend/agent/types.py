@@ -454,6 +454,7 @@ class SubAgentContext(BaseModel):
     """Context payload assembled for a sub-agent execution."""
 
     task: TaskNode
+    session_id: str | None = None
     timeline_context: str | None = None
     assets_context: str | None = None
     prior_task_results: dict[str, str] = Field(
@@ -480,6 +481,7 @@ class SubAgentResult(BaseModel):
     """Output from a sub-agent execution."""
 
     task_id: str
+    session_id: str | None = None
     success: bool = True
     tool_calls: list[ToolCall] = Field(default_factory=list, description="Frontend tool calls to execute")
     backend_tool_results: list[ToolResult] = Field(default_factory=list, description="Already-executed backend tool results")

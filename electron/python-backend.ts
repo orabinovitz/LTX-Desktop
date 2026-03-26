@@ -1,15 +1,16 @@
 import { ChildProcess, spawn } from 'child_process'
-import { IpcChannels } from './ipc/channels'
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
+
+import { type LogEntry, type LogLevel,parseLogLine } from '../shared/logging'
 import { getAppDataDir } from './app-paths'
 import { getCurrentDir, isDev } from './config'
-import { logger, writeLog } from './logger'
-import { getCurrentLogFilename } from './logging-management'
+import { IpcChannels } from './ipc/channels'
+import { logger, writeLogEntry } from './logger'
 import { getPythonDir } from './python-setup'
+import { getDecryptedApiKeys,migrateApiKeysFromSettings } from './secure-storage'
 import { getMainWindow } from './window'
-import { migrateApiKeysFromSettings, getDecryptedApiKeys } from './secure-storage'
 
 let pythonProcess: ChildProcess | null = null
 let isIntentionalShutdown = false
@@ -37,6 +38,48 @@ export interface BackendHealthStatus {
 
 let latestBackendHealthStatus: BackendHealthStatus | null = null
 
+function backendLogEntryFromLine(line: string, fallbackLevel: LogLevel): LogEntry {
+  const parsed = parseLogLine(line)
+  if (parsed) {
+    return {
+      level: parsed.level,
+      source: 'Backend',
+      category: parsed.category,
+      message: parsed.message,
+      requestId: parsed.context.request_id,
+      traceId: parsed.context.trace_id,
+      agentSessionId: parsed.context.agent_session_id,
+      taskId: parsed.context.task_id,
+      toolCallId: parsed.context.tool_call_id,
+      durationMs: parsed.context.duration_ms ? Number(parsed.context.duration_ms) : undefined,
+      statusCode: parsed.context.status_code ? Number(parsed.context.status_code) : undefined,
+      provider: parsed.context.provider,
+      retryCause: parsed.context.retry_cause,
+    }
+  }
+
+  const category = line.includes('Server running on ')
+    ? 'backend.process'
+    : fallbackLevel === 'ERROR'
+      ? 'backend.stderr'
+      : 'backend.stdout'
+
+  return {
+    level: fallbackLevel,
+    source: 'Backend',
+    category,
+    message: line,
+  }
+}
+
+function logBackendOutput(output: string, fallbackLevel: LogLevel): void {
+  for (const line of output.split('\n')) {
+    const trimmed = line.trimEnd()
+    if (!trimmed) continue
+    writeLogEntry(backendLogEntryFromLine(trimmed, fallbackLevel))
+  }
+}
+
 function publishBackendHealthStatus(status: BackendHealthStatus): void {
   latestBackendHealthStatus = status
   getMainWindow()?.webContents.send(IpcChannels.PYTHON_BACKEND_HEALTH_STATUS, status)
@@ -59,9 +102,15 @@ async function injectSecureApiKeys(): Promise<void> {
       },
       body: JSON.stringify(keys),
     })
-    logger.info('Injected %d encrypted API key(s) into backend', Object.keys(keys).length)
+    logger.info(
+      `Injected ${Object.keys(keys).length} encrypted API key(s) into backend`,
+      { category: 'backend.request' },
+    )
   } catch (err) {
-    logger.error('Failed to inject secure API keys: %s', err)
+    logger.error(
+      `Failed to inject secure API keys: ${err instanceof Error ? err.message : String(err)}`,
+      { category: 'backend.request' },
+    )
   }
 }
 
@@ -153,7 +202,9 @@ function startOwnershipTakeover(): void {
       backendOwnership = null
       await startPythonBackend()
     } catch (error) {
-      logger.error(`Failed to reclaim backend process ownership: ${error}`)
+      logger.error(`Failed to reclaim backend process ownership: ${error}`, {
+        category: 'backend.process',
+      })
       backendOwnership = null
       publishBackendHealthStatus({ status: 'dead' })
     } finally {
@@ -170,7 +221,9 @@ export function getPythonPath(): string {
       ? path.join(pythonDir, 'python.exe')
       : path.join(pythonDir, 'bin', 'python3')
     if (fs.existsSync(bundledPython)) {
-      logger.info(`Using bundled Python: ${bundledPython}`)
+      logger.info(`Using bundled Python: ${bundledPython}`, {
+        category: 'backend.process',
+      })
       return bundledPython
     }
   }
@@ -183,7 +236,9 @@ export function getPythonPath(): string {
     : path.join(backendPath, '.venv', 'bin', 'python')
 
   if (fs.existsSync(venvPython)) {
-    logger.info(`Using venv Python: ${venvPython}`)
+    logger.info(`Using venv Python: ${venvPython}`, {
+      category: 'backend.process',
+    })
     return venvPython
   }
 
@@ -243,7 +298,9 @@ export async function startPythonBackend(): Promise<void> {
     const backendPath = getBackendPath()
     const mainPy = path.join(backendPath, 'ltx2_server.py')
 
-    logger.info(`Starting Python backend: ${pythonPath} ${mainPy}`)
+    logger.info(`Starting Python backend: ${pythonPath} ${mainPy}`, {
+      category: 'backend.process',
+    })
 
     // Windows embedded Python's ._pth file suppresses normal sys.path setup —
     // the script's directory isn't added, so sibling packages (e.g. state/)
@@ -281,7 +338,7 @@ export async function startPythonBackend(): Promise<void> {
       // Python / dev
       'VIRTUAL_ENV', 'CONDA_PREFIX', 'CONDA_DEFAULT_ENV',
       // Debug flags (only forwarded if set by developer)
-      'BACKEND_DEBUG', 'USE_SAGE_ATTENTION',
+      'BACKEND_DEBUG', 'LTX_AGENT_DEBUG', 'USE_SAGE_ATTENTION',
     ]
     for (const key of PASSTHROUGH_KEYS) {
       if (process.env[key]) minimalEnv[key] = process.env[key]!
@@ -296,7 +353,6 @@ export async function startPythonBackend(): Promise<void> {
         ...(process.env.LTX_PORT ? { LTX_PORT: process.env.LTX_PORT } : {}),
         LTX_AUTH_TOKEN: authToken,
         LTX_ADMIN_TOKEN: adminToken,
-        LTX_LOG_FILE: getCurrentLogFilename(),
         LTX_APP_DATA_DIR: getAppDataDir(),
         PYTORCH_ENABLE_MPS_FALLBACK: '1',
         ...(!isDev && process.platform !== 'win32' ? {
@@ -349,30 +405,20 @@ export async function startPythonBackend(): Promise<void> {
 
     pythonProcess.stdout?.on('data', (data: Buffer) => {
       const output = data.toString()
-      for (const line of output.split('\n')) {
-        const trimmed = line.trimEnd()
-        if (trimmed) {
-          console.log(`[Backend] ${trimmed}`)
-          writeLog('INFO', 'Backend', trimmed)
-        }
-      }
+      logBackendOutput(output, 'INFO')
       checkStarted(output)
     })
 
     pythonProcess.stderr?.on('data', (data: Buffer) => {
       const output = data.toString()
-      for (const line of output.split('\n')) {
-        const trimmed = line.trimEnd()
-        if (trimmed) {
-          console.error(`[Backend] ${trimmed}`)
-          writeLog('ERROR', 'Backend', trimmed)
-        }
-      }
+      logBackendOutput(output, 'ERROR')
       checkStarted(output)
     })
 
     pythonProcess.on('error', (error) => {
-      logger.error(`Failed to start Python backend: ${error}`)
+      logger.error(`Failed to start Python backend: ${error}`, {
+        category: 'backend.process',
+      })
       if (!started) {
         backendOwnership = null
         publishBackendHealthStatus({ status: 'dead' })
@@ -381,7 +427,9 @@ export async function startPythonBackend(): Promise<void> {
     })
 
     pythonProcess.on('exit', async (code) => {
-      logger.info(`Python backend exited with code ${code}`)
+      logger.info(`Python backend exited with code ${code}`, {
+        category: 'backend.process',
+      })
       pythonProcess = null
       backendUrl = null
       authToken = null
@@ -463,7 +511,9 @@ export async function startPythonBackend(): Promise<void> {
 export function stopPythonBackend(): void {
   if (pythonProcess) {
     isIntentionalShutdown = true
-    logger.info('Stopping Python backend...')
+    logger.info('Stopping Python backend...', {
+      category: 'backend.process',
+    })
     const pid = pythonProcess.pid
     pythonProcess.kill('SIGTERM')
     pythonProcess = null

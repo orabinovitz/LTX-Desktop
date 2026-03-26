@@ -17,7 +17,8 @@ export default [
       'simple-import-sort': simpleImportSort,
     },
     rules: {
-      '@typescript-eslint/no-floating-promises': 'warn',
+      '@typescript-eslint/no-floating-promises': 'error',
+      'no-console': 'error',
       'simple-import-sort/imports': 'warn',
       'simple-import-sort/exports': 'warn',
     },

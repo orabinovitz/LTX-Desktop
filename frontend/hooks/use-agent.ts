@@ -1,20 +1,32 @@
 import { useCallback, useRef, useState } from "react";
-import { logger } from "@/lib/logger";
-import { backendFetch, backendSSE } from "@/lib/backend";
-import type { TimelineClip } from "@/types/project";
+
+import {
+  backendFetch,
+  backendSSE,
+  createBackendRequestContext,
+  createTraceId,
+} from "@/lib/backend";
+import {
+  clearRendererLogContext,
+  logger,
+  setRendererLogContext,
+  updateRendererLogContext,
+} from "@/lib/logger";
+import {
+  groupToolCalls,
+  mapGroupsToTasks,
+  parsePlanToTasks,
+  resetTaskIdCounter,
+} from "@/lib/parse-plan";
 import type {
   AgentDiagnostics,
   ToolCall,
   ToolResult,
 } from "@/types/agent-progress";
-import { useAgentProgress } from "./use-agent-progress";
-import {
-  parsePlanToTasks,
-  groupToolCalls,
-  mapGroupsToTasks,
-  resetTaskIdCounter,
-} from "@/lib/parse-plan";
 import type { AgentProgress, AgentTask, ChatMessage, OnToolProgress } from "@/types/agent-progress";
+import type { TimelineClip } from "@/types/project";
+
+import { useAgentProgress } from "./use-agent-progress";
 
 export type { ToolCall };
 export type { AgentProgress };
@@ -175,6 +187,8 @@ export function useAgent() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
+  const traceIdRef = useRef<string | null>(null);
+  const rendererLogContextIdRef = useRef<string | null>(null);
   const conversationRef = useRef<AgentMessage[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -195,11 +209,16 @@ export function useAgent() {
       assetsContext?: Record<string, unknown> | null,
       externalConversationHistory?: AgentMessage[],
       displayPrompt?: string,
+      providedTraceId?: string,
     ) => {
       setIsProcessing(true);
       abortRef.current?.abort();
       abortRef.current = new AbortController();
       const { signal } = abortRef.current;
+      const activeTraceId = providedTraceId ?? createTraceId();
+      traceIdRef.current = activeTraceId;
+      const rendererLogContextId = setRendererLogContext({ traceId: activeTraceId });
+      rendererLogContextIdRef.current = rendererLogContextId;
 
       resetTaskIdCounter();
       const pa = progressActionsRef.current;
@@ -209,7 +228,13 @@ export function useAgent() {
       conversationRef.current.push({ role: "user", content: prompt });
 
       const t0 = performance.now();
-      logger.info(`[agent] session start — prompt: ${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}`);
+      logger.info(
+        `[agent] session start (prompt_chars=${prompt.length})`,
+        {
+          category: "agent.session",
+          traceId: activeTraceId,
+        },
+      );
 
       try {
         const timelineState = buildTimelineState(
@@ -238,18 +263,25 @@ export function useAgent() {
         try {
           // Use SSE streaming for real-time status during the Gemini call
           let sseResult: AgentResponse | null = null;
+          const executeRequest = createBackendRequestContext(activeTraceId);
           for await (const event of backendSSE("/api/agent/execute/stream", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: requestBody,
             signal,
-          })) {
+          }, executeRequest)) {
             if (event.event === "thinking") {
-              logger.info("[agent] SSE: thinking event received");
+              logger.debug("[agent] SSE: thinking event received", {
+                category: "agent.api",
+                traceId: activeTraceId,
+              });
               pa.setThinking("AI is thinking...");
             } else if (event.event === "result") {
               sseResult = event.data as AgentResponse;
-              logger.info(`[agent] SSE: result received — done=${sseResult.done}, tools=${sseResult.tool_calls.length}`);
+              logger.debug(`[agent] SSE: result received — done=${sseResult.done}, tools=${sseResult.tool_calls.length}`, {
+                category: "agent.api",
+                traceId: activeTraceId,
+              });
             } else if (event.event === "error") {
               const err = event.data as { message?: string };
               throw new Error(err.message ?? "Agent streaming error");
@@ -260,13 +292,17 @@ export function useAgent() {
         } catch (sseErr) {
           if (sseErr instanceof DOMException && sseErr.name === "AbortError") throw sseErr;
           // Fallback to regular endpoint if SSE fails
-          logger.warn(`[agent] SSE failed, falling back to regular endpoint: ${sseErr instanceof Error ? sseErr.message : sseErr}`);
+          logger.warn(`[agent] SSE failed, falling back to regular endpoint: ${sseErr instanceof Error ? sseErr.message : sseErr}`, {
+            category: "agent.api",
+            traceId: activeTraceId,
+          });
+          const executeRequest = createBackendRequestContext(activeTraceId);
           const res = await backendFetch("/api/agent/execute", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: requestBody,
             signal,
-          });
+          }, executeRequest);
           if (!res.ok) {
             const body = await res.json().catch(() => ({})) as { error?: string };
             throw new Error(body.error ?? `Agent API error: ${res.status}`);
@@ -277,6 +313,10 @@ export function useAgent() {
         logDiagnostics("agent", response.diagnostics);
         if (response.session_id) {
           sessionIdRef.current = response.session_id;
+          updateRendererLogContext(rendererLogContextId, {
+            traceId: activeTraceId,
+            agentSessionId: response.session_id,
+          });
         }
         if (response.memory_updated) {
           window.dispatchEvent(new CustomEvent('memory-updated'));
@@ -291,7 +331,11 @@ export function useAgent() {
         let currentTasks: AgentTask[] = [];
         while (!response.done && turns < 20) {
           turns++;
-          logger.info(`[agent] turn ${turns} — tool_calls=${response.tool_calls.length}, has_plan=${!!response.plan}`);
+          logger.debug(`[agent] turn ${turns} — tool_calls=${response.tool_calls.length}, has_plan=${!!response.plan}`, {
+            category: "agent.turn",
+            traceId: activeTraceId,
+            agentSessionId: sessionIdRef.current ?? response.session_id,
+          });
           pa.incrementTurn();
 
           // Parse plan into tasks + reasoning on the first turn that has one
@@ -353,7 +397,13 @@ export function useAgent() {
             const executeOne = async (toolIdx: number) => {
               const tc = response.tool_calls[toolIdx];
               const toolT0 = performance.now();
-              logger.info(`[agent] executing tool: ${tc.tool_name}`);
+              logger.debug(`[agent] executing tool: ${tc.tool_name}`, {
+                category: "agent.tool",
+                traceId: activeTraceId,
+                agentSessionId: sessionIdRef.current ?? response.session_id,
+                taskId,
+                toolCallId: tc.call_id,
+              });
               const onProgress: OnToolProgress = (p, detail) => {
                 const groupDetail =
                   count > 1
@@ -363,7 +413,13 @@ export function useAgent() {
               };
               const result = await executeTool(tc, onProgress);
               const toolElapsed = ((performance.now() - toolT0) / 1000).toFixed(1);
-              logger.info(`[agent] tool ${tc.tool_name} ${result.success ? "completed" : "FAILED"} in ${toolElapsed}s`);
+              logger.debug(`[agent] tool ${tc.tool_name} ${result.success ? "completed" : "FAILED"} in ${toolElapsed}s`, {
+                category: "agent.tool",
+                traceId: activeTraceId,
+                agentSessionId: sessionIdRef.current ?? response.session_id,
+                taskId,
+                toolCallId: tc.call_id,
+              });
               results[toolIdx] = result;
               completedInGroup++;
               if (count > 1) {
@@ -471,7 +527,7 @@ export function useAgent() {
               ...(updatedContext ? { updated_context: updatedContext } : {}),
             }),
             signal,
-          });
+          }, createBackendRequestContext(activeTraceId));
 
           if (!contRes.ok) {
             const contBody = await contRes.json().catch(() => ({})) as { error?: string };
@@ -486,7 +542,14 @@ export function useAgent() {
 
         const finalText = response.message || response.plan || "Done.";
         const totalElapsed = ((performance.now() - t0) / 1000).toFixed(1);
-        logger.info(`[agent] session complete — ${turns} turn(s) in ${totalElapsed}s`);
+        logger.info(
+          `[agent] session complete — ${turns} turn(s) in ${totalElapsed}s`,
+          {
+            category: "agent.session",
+            traceId: activeTraceId,
+            agentSessionId: sessionIdRef.current ?? response.session_id,
+          },
+        );
 
         pa.endSession();
 
@@ -513,16 +576,30 @@ export function useAgent() {
           return;
         }
         const errorMsg = err instanceof Error ? err.message : "Unknown error";
-        logger.error(`[agent] error after ${((performance.now() - t0) / 1000).toFixed(1)}s: ${errorMsg}`);
+        logger.error(
+          `[agent] error after ${((performance.now() - t0) / 1000).toFixed(1)}s: ${errorMsg}`,
+          {
+            category: "agent.error",
+            traceId: activeTraceId,
+            agentSessionId: sessionIdRef.current ?? undefined,
+          },
+        );
         progressActionsRef.current.endSession(errorMsg);
+        const userFacingError = errorMsg !== "Unknown error"
+          ? `${errorMsg} (Trace ID: ${activeTraceId})`
+          : `Something went wrong. Please try again. Trace ID: ${activeTraceId}`;
         setMessages((prev) => [
           ...prev,
           {
             role: "agent",
-            content: errorMsg !== "Unknown error" ? errorMsg : "Something went wrong. Please try again.",
+            content: userFacingError,
           },
         ]);
       } finally {
+        clearRendererLogContext(rendererLogContextId);
+        if (rendererLogContextIdRef.current === rendererLogContextId) {
+          rendererLogContextIdRef.current = null;
+        }
         setIsProcessing(false);
         window.dispatchEvent(new CustomEvent('agent-action-complete'));
       }
@@ -536,6 +613,9 @@ export function useAgent() {
     setMessages([]);
     conversationRef.current = [];
     sessionIdRef.current = null;
+    traceIdRef.current = null;
+    clearRendererLogContext(rendererLogContextIdRef.current ?? undefined);
+    rendererLogContextIdRef.current = null;
     progressActionsRef.current.reset();
   }, []);
 

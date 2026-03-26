@@ -178,7 +178,7 @@ def resolve_intent(
             timeout=10,
         )
         elapsed_ms = int((time.monotonic() - t0) * 1000)
-        logger.info("[intent-resolver] Gemini responded HTTP %d in %dms", resp.status_code, elapsed_ms)
+        logger.debug("[intent-resolver] Gemini responded HTTP %d in %dms", resp.status_code, elapsed_ms)
 
         if resp.status_code != 200:
             logger.warning(
@@ -204,10 +204,10 @@ def resolve_intent(
         llm_ms=elapsed_ms,
     )
     logger.info(
-        "[intent-resolver] result: complexity=%s, intent=%s, grounded=%.80s",
+        "[intent-resolver] result: complexity=%s, has_intent_summary=%s, grounded_chars=%d",
         resolution.complexity,
-        resolution.intent_summary or "(none)",
-        resolution.grounded_prompt,
+        bool(resolution.intent_summary),
+        len(resolution.grounded_prompt),
     )
     return resolution
 
@@ -243,8 +243,9 @@ def _heuristic_fallback(prompt: str) -> IntentResolution:
     """Fall back to heuristic classification with the raw prompt."""
     complexity = classify_complexity(prompt)
     logger.info(
-        "[intent-resolver] heuristic fallback: complexity=%s, prompt=%.80s",
-        complexity, prompt,
+        "[intent-resolver] heuristic fallback: complexity=%s, prompt_chars=%d",
+        complexity,
+        len(prompt),
     )
     return IntentResolution(
         grounded_prompt=prompt,

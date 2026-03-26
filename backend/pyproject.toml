@@ -60,7 +60,12 @@ select = [
     "B904",   # raise-without-from-inside-except
     "E722",   # bare-except
     "EM101",  # raw string in exception
+    "T201",   # print
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"ltx2_server.py" = ["T201"]
+"generate_api_docs.py" = ["T201"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

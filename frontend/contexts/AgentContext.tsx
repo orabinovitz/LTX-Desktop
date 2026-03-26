@@ -7,20 +7,26 @@ import {
   useRef,
   useState,
 } from "react";
-import { useAgent, type ChatMessage, type OnToolProgress, type AgentMessage } from "@/hooks/use-agent";
+
+import { type AgentMessage,type ChatMessage, type OnToolProgress, useAgent } from "@/hooks/use-agent";
 import { useOrchestratedAgent } from "@/hooks/use-orchestrated-agent";
+import { getAgentProjectSessionKey } from "@/lib/agent-session";
+import {
+  backendFetch,
+  createBackendRequestContext,
+  createTraceId,
+} from "@/lib/backend";
+import { logger } from "@/lib/logger";
 import type { AgentDiagnostics, AgentProgress } from "@/types/agent-progress";
 import type { ToolCall, ToolResult } from "@/types/agent-progress";
-import type { TimelineClip, ProjectTab } from "@/types/project";
 import type {
   ClarificationAnswer,
   ClarificationState,
   ClarifyResponse,
 } from "@/types/clarification";
+import type { ProjectTab,TimelineClip } from "@/types/project";
+
 import { useProjects } from "./ProjectContext";
-import { logger } from "@/lib/logger";
-import { backendFetch } from "@/lib/backend";
-import { getAgentProjectSessionKey } from "@/lib/agent-session";
 
 type ViewContext = "editor" | "genspace" | "playground";
 
@@ -113,6 +119,7 @@ async function resolveIntent(
   viewContext?: string,
   conversationHistory?: AgentMessage[],
   assetsContext?: Record<string, unknown> | null,
+  traceId?: string,
 ): Promise<IntentResolution> {
   try {
     const body: Record<string, unknown> = { prompt };
@@ -127,7 +134,7 @@ async function resolveIntent(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    });
+    }, createBackendRequestContext(traceId));
     if (res.ok) {
       const data: IntentResolution = await res.json();
       logDiagnostics("agent-context", data.diagnostics);
@@ -158,6 +165,7 @@ async function fetchClarification(
   projectId: string | null,
   viewContext?: string,
   assetsContext?: Record<string, unknown> | null,
+  traceId?: string,
 ): Promise<ClarifyResponse | null> {
   try {
     const body: Record<string, unknown> = { prompt };
@@ -193,7 +201,7 @@ async function fetchClarification(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    });
+    }, createBackendRequestContext(traceId));
     if (res.ok) {
       const data: ClarifyResponse = await res.json();
       logDiagnostics("agent-context", data.diagnostics);
@@ -258,6 +266,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const projectSessionKey = getAgentProjectSessionKey(currentView, currentProjectId);
   const previousProjectSessionKeyRef = useRef<string | null | undefined>(undefined);
   const promptExecutionIdRef = useRef(0);
+  const activeTraceIdRef = useRef<string | null>(null);
 
   const registerExecutor = useCallback((executor: AgentViewExecutor) => {
     executorRef.current = executor;
@@ -337,6 +346,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       complexity: "simple" | "orchestrated",
       ctx: ReturnType<typeof getExecutorContext>,
       originalPrompt?: string,
+      traceId?: string,
     ) => {
       setActiveMode(complexity);
       const { executor, timelineState, wrappedExecuteTool, viewCtx } = ctx;
@@ -348,7 +358,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         const priorHistory = chatMessagesToConversationHistory(
           orchestratedAgent.messages,
         );
-        simpleAgent.sendPrompt(
+        void simpleAgent.sendPrompt(
           prompt,
           timelineState?.clips ?? [],
           timelineState?.trackCount ?? 0,
@@ -359,9 +369,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           viewCtx,
           priorHistory.length > 0 ? priorHistory : undefined,
           originalPrompt,
+          traceId,
         );
       } else {
-        orchestratedAgent.sendPrompt(
+        void orchestratedAgent.sendPrompt(
           prompt,
           timelineState?.clips ?? [],
           timelineState?.trackCount ?? 0,
@@ -371,6 +382,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           executor?.viewContext,
           viewCtx,
           originalPrompt,
+          traceId,
         );
       }
     },
@@ -381,6 +393,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     async (prompt: string) => {
       const promptExecutionId = ++promptExecutionIdRef.current;
       const isStalePrompt = () => promptExecutionIdRef.current !== promptExecutionId;
+      const traceId = createTraceId();
+      activeTraceIdRef.current = traceId;
 
       setClarificationState(null);
       const ctx = getExecutorContext();
@@ -403,6 +417,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         ctx.executor?.viewContext,
         conversationHistory,
         ctx.viewCtx as Record<string, unknown> | null,
+        traceId,
       );
 
       if (isStalePrompt()) {
@@ -410,7 +425,11 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       }
 
       logger.info(
-        `[agent-context] intent resolved: complexity=${intent.complexity}, summary="${intent.intent_summary}"`,
+        `[agent-context] intent resolved: complexity=${intent.complexity}, has_summary=${Boolean(intent.intent_summary)}`,
+        {
+          category: "agent.intent",
+          traceId,
+        },
       );
 
       const groundedPrompt = intent.grounded_prompt;
@@ -432,6 +451,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
           ctx.executor?.projectId ?? null,
           ctx.executor?.viewContext,
           ctx.viewCtx as Record<string, unknown> | null,
+          traceId,
         );
 
         if (isStalePrompt()) {
@@ -450,9 +470,9 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
         logger.info("[agent-context] no clarification needed — executing directly");
         orchestratedAgent.setMessages([]);
-        executePrompt(groundedPrompt, intent.complexity, ctx, prompt);
+        executePrompt(groundedPrompt, intent.complexity, ctx, prompt, traceId);
       } else {
-        executePrompt(groundedPrompt, intent.complexity, ctx, prompt);
+        executePrompt(groundedPrompt, intent.complexity, ctx, prompt, traceId);
       }
     },
     [getExecutorContext, executePrompt, simpleAgent, orchestratedAgent],
@@ -480,7 +500,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       const displayPrompt = clarificationState.displayPrompt;
       setClarificationState(null);
       orchestratedAgent.setMessages([]);
-      executePrompt(enrichedPrompt, "orchestrated", ctx, displayPrompt);
+      executePrompt(
+        enrichedPrompt,
+        "orchestrated",
+        ctx,
+        displayPrompt,
+        activeTraceIdRef.current ?? createTraceId(),
+      );
     },
     [clarificationState, getExecutorContext, executePrompt, orchestratedAgent],
   );
@@ -491,6 +517,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     orchestratedAgent.clearChat();
     setClarificationState(null);
     setActiveMode("simple");
+    activeTraceIdRef.current = null;
     if (closePanel) {
       setAgentOpen(false);
     }
@@ -515,12 +542,12 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   }, [projectSessionKey, resetAgentSession]);
 
   const stopAgent = useCallback(() => {
-    orchestratedAgent.stop();
+    void orchestratedAgent.stop();
   }, [orchestratedAgent]);
 
   const skipTask = useCallback(
     (taskId: string) => {
-      orchestratedAgent.skipTask(taskId);
+      void orchestratedAgent.skipTask(taskId);
     },
     [orchestratedAgent],
   );

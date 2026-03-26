@@ -21,6 +21,7 @@ import logging
 from pathlib import Path
 import threading
 
+from log_context import LogContextFilter, LtxLogFormatter
 from sentry_init import init_sentry
 
 init_sentry()
@@ -36,14 +37,23 @@ from state.app_settings import AppSettings
 
 import platform
 
+_LOG_LEVEL = logging.DEBUG if os.environ.get("LTX_AGENT_DEBUG") == "1" else logging.INFO
+
 # Backend logs to console only — Electron captures stdout/stderr and writes
 # them to the session log file. This ensures *all* output (including early
 # import errors and unhandled tracebacks) reaches the log, not just messages
 # that go through Python's logging module.
 console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
+console_handler.setLevel(_LOG_LEVEL)
+console_handler.addFilter(LogContextFilter())
+console_handler.setFormatter(
+    LtxLogFormatter(
+        "%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ),
+)
 
-logging.basicConfig(level=logging.INFO, handlers=[console_handler])
+logging.basicConfig(level=_LOG_LEVEL, handlers=[console_handler])
 
 import structlog
 
@@ -139,10 +149,11 @@ DTYPE = torch.bfloat16
 def _resolve_app_data_dir() -> Path:
     env_path = os.environ.get("LTX_APP_DATA_DIR")
     if not env_path:
-        raise RuntimeError(
+        message = (
             "LTX_APP_DATA_DIR environment variable must be set. "
             "When running standalone, set it to the desired data directory."
         )
+        raise RuntimeError(message)
     candidate = Path(env_path)
     candidate.mkdir(parents=True, exist_ok=True)
     return candidate

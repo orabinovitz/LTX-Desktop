@@ -1,21 +1,23 @@
 import { useCallback, useRef } from "react";
+
+import type { OnToolProgress } from "@/hooks/use-agent";
+import { logger } from "@/lib/logger";
+import type { ToolCall, ToolResult } from "@/types/agent-progress";
 import type {
+  Asset,
+  BinMetadata,
+  Timeline,
   TimelineClip,
   Track,
-  Asset,
-  Timeline,
   TransitionType,
-  BinMetadata,
 } from "@/types/project";
-import type { ToolCall, ToolResult } from "@/types/agent-progress";
-import { logger } from "@/lib/logger";
-import type { OnToolProgress } from "@/hooks/use-agent";
+
 import {
-  agentGenerateVideo,
-  agentGenerateImage,
-  agentRetakeSection,
   agentCancelGeneration,
+  agentGenerateImage,
+  agentGenerateVideo,
   agentGetGenerationStatus,
+  agentRetakeSection,
 } from "../utils/agent-generation-helper";
 
 export type { ToolCall, ToolResult };
@@ -1281,7 +1283,11 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
   const executeTool = useCallback(
     async (call: ToolCall, onProgress?: OnToolProgress, signal?: AbortSignal): Promise<ToolResult> => {
       const t0 = performance.now();
-      logger.info(`[agent-exec] dispatching: ${call.tool_name}`);
+      logger.debug(`[agent-exec] dispatching: ${call.tool_name}`, {
+        category: "agent.tool",
+        taskId: call.task_id ?? undefined,
+        toolCallId: call.call_id,
+      });
       try {
         const args = sanitizeArgs(call.arguments);
         const safe = { ...call, arguments: args };
@@ -1366,12 +1372,20 @@ export function useAgentExecutor(deps: AgentExecutorDeps) {
           }
         })();
         const elapsed = Math.round(performance.now() - t0);
-        logger.info(`[agent-exec] ${call.tool_name} ${result.success ? "completed" : "FAILED"} in ${elapsed}ms`);
+        logger.debug(`[agent-exec] ${call.tool_name} ${result.success ? "completed" : "FAILED"} in ${elapsed}ms`, {
+          category: "agent.tool",
+          taskId: call.task_id ?? undefined,
+          toolCallId: call.call_id,
+        });
         return result;
       } catch (err) {
         const elapsed = Math.round(performance.now() - t0);
         const msg = err instanceof Error ? err.message : String(err);
-        logger.error(`[agent-exec] ${call.tool_name} threw after ${elapsed}ms: ${msg}`);
+        logger.error(`[agent-exec] ${call.tool_name} threw after ${elapsed}ms: ${msg}`, {
+          category: "agent.tool",
+          taskId: call.task_id ?? undefined,
+          toolCallId: call.call_id,
+        });
         return fail(call.tool_name, msg);
       }
     },

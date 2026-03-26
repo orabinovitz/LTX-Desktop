@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import type { TimelineClip, Track, SubtitleClip, Asset } from '@/types/project'
-import { DEFAULT_COLOR_CORRECTION } from '@/types/project'
+import { useCallback, useEffect, useMemo,useRef, useState } from 'react'
+
 import type { GenerationSettings } from '@/components/SettingsPanel'
 import { copyToAssetFolder } from '@/lib/asset-copy'
 import { backendFetch } from '@/lib/backend'
 import { logger } from '@/lib/logger'
 import { fileUrlToPath } from '@/lib/url-to-path'
+import type { Asset,SubtitleClip, TimelineClip, Track } from '@/types/project'
+import { DEFAULT_COLOR_CORRECTION } from '@/types/project'
 
 interface UseGapGenerationParams {
   clips: TimelineClip[]
@@ -202,7 +203,7 @@ export function useGapGeneration({
         await regenGenerate(finalPrompt, imagePath, settings)
       }
     } catch (err) {
-      console.error('Gap generation failed:', err)
+      logger.error(`Gap generation failed: ${err instanceof Error ? err.message : String(err)}`)
       setGeneratingGap(null)
     }
   }, [selectedGap, gapGenerateMode, gapPrompt, gapSettings, gapImageFile, gapApplyAudioToTrack, currentProjectId, regenGenerate, regenGenerateImage])
@@ -227,7 +228,7 @@ export function useGapGeneration({
     const gapDuration = gap.endTime - gap.startTime
     const type = isImageResult ? 'image' : 'video'
 
-    ;(async () => {
+    void (async () => {
       const srcPath = origPath || origUrl
       const copied = await copyToAssetFolder(srcPath, projectId)
       const finalPath = copied?.path ?? srcPath
@@ -499,14 +500,13 @@ export function useGapGeneration({
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return
-      console.warn('Gap prompt suggestion failed:', err)
+      logger.warn(`Gap prompt suggestion failed: ${err instanceof Error ? err.message : String(err)}`)
       setGapSuggestionError(true)
     } finally {
       if (!abortController.signal.aborted) {
         setGapSuggesting(false)
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolveClipSrc])
 
   // Track whether we've already fired the initial suggestion for this gap+mode combo
@@ -531,7 +531,7 @@ export function useGapGeneration({
     if (suggestionFiredKeyRef.current === key) return
     suggestionFiredKeyRef.current = key
     
-    runSuggestion(false)
+    void runSuggestion(false)
     
     return () => { gapSuggestionAbortRef.current?.abort() }
   }, [selectedGap, gapGenerateMode, runSuggestion])
@@ -548,12 +548,12 @@ export function useGapGeneration({
     if (!selectedGap) return
     
     // Re-run suggestion with force replace since context changed
-    runSuggestion(true)
+    void runSuggestion(true)
   }, [gapImageFile, gapGenerateMode, selectedGap, runSuggestion])
 
   // Manual regenerate: force-replaces the prompt with the new suggestion
   const regenerateSuggestion = useCallback(() => {
-    runSuggestion(true)
+    void runSuggestion(true)
   }, [runSuggestion])
 
   // Cancel an in-progress gap generation

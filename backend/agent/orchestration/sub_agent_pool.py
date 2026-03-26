@@ -35,6 +35,7 @@ from agent.types import (
     ToolCall,
     ToolResult,
 )
+from log_context import bind_log_context, current_log_context, reset_log_context
 from services.http_client.http_client import HTTPClient, HttpTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -366,7 +367,7 @@ def _get_scoped_tools(
             categories = ["core", "generation", "clip_editing", "timeline_mgmt"]
         else:
             categories = inferred
-        logger.info(
+        logger.debug(
             "[sub-agent] task=%s | no categories, inferred: %s",
             task.id, categories,
         )
@@ -390,17 +391,27 @@ def _execute_backend_tool_inline(
     *,
     api_key: str,
     http_client: HTTPClient,
+    session_id: str | None = None,
     project_id: str | None = None,
+    inherited_context: dict[str, str] | None = None,
 ) -> ToolResult:
     """Execute a backend tool inline."""
     from agent.gemini_agent import _execute_backend_tool
-    return _execute_backend_tool(
-        tool_call,
-        api_key=api_key,
-        http_client=http_client,
-        session_id="sub-agent",
-        project_id=project_id,
-    )
+    merged_context = dict(inherited_context or {})
+    merged_context["agent_session_id"] = session_id
+    merged_context["task_id"] = tool_call.task_id
+    merged_context["tool_call_id"] = tool_call.call_id
+    tokens = bind_log_context(**merged_context)
+    try:
+        return _execute_backend_tool(
+            tool_call,
+            api_key=api_key,
+            http_client=http_client,
+            session_id=session_id or "sub-agent",
+            project_id=project_id,
+        )
+    finally:
+        reset_log_context(tokens)
 
 
 def _execute_backend_tools_parallel(
@@ -408,18 +419,33 @@ def _execute_backend_tools_parallel(
     *,
     api_key: str,
     http_client: HTTPClient,
+    session_id: str | None = None,
     project_id: str | None = None,
+    inherited_context: dict[str, str] | None = None,
 ) -> tuple[list[ToolResult], list[dict[str, Any]]]:
     """Execute backend tools in parallel and return (results, fn_response_parts)."""
     if len(backend_calls) == 1:
         results = [_execute_backend_tool_inline(
-            backend_calls[0], api_key=api_key, http_client=http_client, project_id=project_id,
+            backend_calls[0],
+            api_key=api_key,
+            http_client=http_client,
+            session_id=session_id,
+            project_id=project_id,
+            inherited_context=inherited_context,
         )]
     else:
+        def _run_backend_call(tool_call: ToolCall) -> ToolResult:
+            return _execute_backend_tool_inline(
+                tool_call,
+                api_key=api_key,
+                http_client=http_client,
+                session_id=session_id,
+                project_id=project_id,
+                inherited_context=inherited_context,
+            )
+
         results = list(_backend_tool_pool.map(
-            lambda bc: _execute_backend_tool_inline(
-                bc, api_key=api_key, http_client=http_client, project_id=project_id,
-            ),
+            _run_backend_call,
             backend_calls,
         ))
 
@@ -492,7 +518,8 @@ def _run_gemini_turn(
             time.sleep(wait)
         except HttpTimeoutError:
             logger.error("Sub-agent timed out for task %s (turn %d)", task_id, turn)
-            raise _GeminiTurnError("Gemini timeout while waiting for model response")
+            message = "Gemini timeout while waiting for model response"
+            raise _GeminiTurnError(message) from None
         except Exception as exc:
             logger.error("Sub-agent request failed for task %s", task_id, exc_info=True)
             raise _GeminiTurnError(
@@ -501,7 +528,8 @@ def _run_gemini_turn(
 
     if resp is None:
         logger.error("[sub-agent] task=%s | no response after retries", task_id)
-        raise _GeminiTurnError("Gemini request returned no response after retries")
+        message = "Gemini request returned no response after retries"
+        raise _GeminiTurnError(message)
 
     if resp.status_code == 503 and fallback_model and fallback_model != model:
         fallback_url = (
@@ -522,12 +550,13 @@ def _run_gemini_turn(
                 json_payload=payload,
                 timeout=_SUB_AGENT_GEMINI_TIMEOUT_SECONDS,
             )
-        except Exception:
+        except Exception as exc:
             logger.error("[sub-agent] task=%s | fallback request failed", task_id, exc_info=True)
-            raise _GeminiTurnError("Gemini fallback request failed")
+            message = "Gemini fallback request failed"
+            raise _GeminiTurnError(message) from exc
 
     elapsed = time.monotonic() - t0
-    logger.info(
+    logger.debug(
         "[sub-agent] task=%s turn=%d | HTTP %d in %.1fs",
         task_id, turn, resp.status_code, elapsed,
     )
@@ -614,6 +643,7 @@ def execute_sub_agent(
     all_frontend_tool_calls: list[ToolCall] = []
     all_backend_results: list[ToolResult] = []
     text_fragments: list[str] = []
+    inherited_context = current_log_context()
 
     search_phase = search_enabled
 
@@ -628,7 +658,9 @@ def execute_sub_agent(
             )
         except _GeminiTurnError as exc:
             return SubAgentResult(
-                task_id=task.id, success=False,
+                task_id=task.id,
+                session_id=context.session_id,
+                success=False,
                 error=str(exc),
                 sub_agent_model=model_selection.model,
                 sub_agent_fallback_model=model_selection.fallback_model,
@@ -654,7 +686,12 @@ def execute_sub_agent(
 
         if backend_calls:
             batch_results, fn_response_parts = _execute_backend_tools_parallel(
-                backend_calls, api_key=api_key, http_client=http_client, project_id=context.project_id,
+                backend_calls,
+                api_key=api_key,
+                http_client=http_client,
+                session_id=context.session_id,
+                project_id=context.project_id,
+                inherited_context=inherited_context,
             )
             all_backend_results.extend(batch_results)
             contents.append({"role": "function", "parts": fn_response_parts})
@@ -671,7 +708,7 @@ def execute_sub_agent(
 
     message = "\n".join(text_fragments).strip()
 
-    logger.info(
+    logger.debug(
         "[sub-agent] task=%s | completed: %d frontend tools, %d backend tools, %d chars text",
         task.id,
         len(all_frontend_tool_calls),
@@ -681,6 +718,7 @@ def execute_sub_agent(
 
     return SubAgentResult(
         task_id=task.id,
+        session_id=context.session_id,
         success=True,
         tool_calls=all_frontend_tool_calls,
         backend_tool_results=all_backend_results,
@@ -716,7 +754,9 @@ def resume_sub_agent(
 
     if not contents or not system_prompt:
         return SubAgentResult(
-            task_id=task_id, success=True,
+            task_id=task_id,
+            session_id=prev_result.session_id,
+            success=True,
             message=prev_result.message,
             sub_agent_model=model,
             sub_agent_fallback_model=fallback_model,
@@ -738,6 +778,7 @@ def resume_sub_agent(
     all_frontend_tool_calls: list[ToolCall] = []
     all_backend_results: list[ToolResult] = []
     text_fragments: list[str] = []
+    inherited_context = current_log_context()
 
     for turn in range(_MAX_SUB_AGENT_TURNS):
         try:
@@ -750,7 +791,9 @@ def resume_sub_agent(
             )
         except _GeminiTurnError as exc:
             return SubAgentResult(
-                task_id=task_id, success=False,
+                task_id=task_id,
+                session_id=prev_result.session_id,
+                success=False,
                 error=str(exc),
                 sub_agent_model=model,
                 sub_agent_fallback_model=fallback_model,
@@ -768,7 +811,12 @@ def resume_sub_agent(
 
         if backend_calls:
             batch_results, fn_resp = _execute_backend_tools_parallel(
-                backend_calls, api_key=api_key, http_client=http_client, project_id=project_id,
+                backend_calls,
+                api_key=api_key,
+                http_client=http_client,
+                session_id=prev_result.session_id,
+                project_id=project_id,
+                inherited_context=inherited_context,
             )
             all_backend_results.extend(batch_results)
             contents.append({"role": "function", "parts": fn_resp})
@@ -779,13 +827,14 @@ def resume_sub_agent(
 
     message = "\n".join(text_fragments).strip()
 
-    logger.info(
+    logger.debug(
         "[sub-agent] task=%s | resume completed: %d frontend tools, %d backend tools",
         task_id, len(all_frontend_tool_calls), len(all_backend_results),
     )
 
     return SubAgentResult(
         task_id=task_id,
+        session_id=prev_result.session_id,
         success=True,
         tool_calls=all_frontend_tool_calls,
         backend_tool_results=all_backend_results,
@@ -812,10 +861,18 @@ class SubAgentPool:
         skill_content: SkillContent | None,
         context: SubAgentContext,
     ) -> SubAgentResult:
-        return execute_sub_agent(
-            task, skill_content, context,
-            self._api_key, self._http_client,
-        )
+        inherited_context = current_log_context()
+        merged_context = dict(inherited_context)
+        merged_context["agent_session_id"] = context.session_id
+        merged_context["task_id"] = task.id
+        tokens = bind_log_context(**merged_context)
+        try:
+            return execute_sub_agent(
+                task, skill_content, context,
+                self._api_key, self._http_client,
+            )
+        finally:
+            reset_log_context(tokens)
 
     def resume_single(
         self,
@@ -823,11 +880,19 @@ class SubAgentPool:
         tool_results: list[ToolResult],
         project_id: str | None = None,
     ) -> SubAgentResult:
-        return resume_sub_agent(
-            prev_result, tool_results,
-            self._api_key, self._http_client,
-            project_id=project_id,
-        )
+        inherited_context = current_log_context()
+        merged_context = dict(inherited_context)
+        merged_context["agent_session_id"] = prev_result.session_id
+        merged_context["task_id"] = prev_result.task_id
+        tokens = bind_log_context(**merged_context)
+        try:
+            return resume_sub_agent(
+                prev_result, tool_results,
+                self._api_key, self._http_client,
+                project_id=project_id,
+            )
+        finally:
+            reset_log_context(tokens)
 
     def execute_parallel(
         self,
@@ -840,13 +905,33 @@ class SubAgentPool:
         results: list[SubAgentResult] = [
             SubAgentResult(task_id="", success=False, error="not executed")
         ] * len(tasks_with_context)
+        inherited_context = current_log_context()
 
         with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(tasks_with_context))) as pool:
+            def _execute_sub_agent_with_context(
+                task: TaskNode,
+                skill: SkillContent | None,
+                ctx: SubAgentContext,
+            ) -> SubAgentResult:
+                merged_context = dict(inherited_context)
+                merged_context["agent_session_id"] = ctx.session_id
+                merged_context["task_id"] = task.id
+                tokens = bind_log_context(**merged_context)
+                try:
+                    return execute_sub_agent(
+                        task,
+                        skill,
+                        ctx,
+                        self._api_key,
+                        self._http_client,
+                    )
+                finally:
+                    reset_log_context(tokens)
+
             future_to_idx = {
                 pool.submit(
-                    execute_sub_agent,
+                    _execute_sub_agent_with_context,
                     task, skill, ctx,
-                    self._api_key, self._http_client,
                 ): i
                 for i, (task, skill, ctx) in enumerate(tasks_with_context)
             }

@@ -509,6 +509,90 @@ class TestGenerationBudgets:
         shot_tasks = [task for task in session.dag.tasks if task.id.startswith("task-2-shot-")]
         assert len(shot_tasks) == 27
 
+    def test_per_shot_children_do_not_reexpand(self):
+        script = "\n".join(
+            f"Shot {index} (8s): Dialogue beat {index} on the beach."
+            for index in range(1, 4)
+        )
+        dag = TaskDAG(
+            tasks=[
+                _task(
+                    "task-1",
+                    status=TaskStatus.COMPLETED,
+                    task_type=TaskType.CREATIVE,
+                    result_summary=script,
+                    skill_id="film-tv-screenwriting",
+                ),
+                _task(
+                    "task-2",
+                    depends_on=["task-1"],
+                    tool_categories=["generation"],
+                ),
+            ],
+            original_prompt="A short dialogue scene.",
+            target_duration_seconds=30,
+            creative_profile=CreativeProfile.DIALOGUE_SCENE,
+        )
+        session = _session(dag)
+        orch = Orchestrator.__new__(Orchestrator)
+
+        changed = orch._try_expand_shot_tasks(session, dag.get_ready_tasks())
+        assert changed is True
+
+        changed_again = orch._try_expand_shot_tasks(session, dag.get_ready_tasks())
+
+        assert changed_again is False
+        assert session.dag.get_task("task-2-shot-1-shot-1") is None
+        assert session.dag.get_task("task-2-shot-2-shot-1") is None
+
+    def test_rewrite_root_expands_once_but_rewrite_children_do_not_reexpand(self):
+        rewritten_script = "\n".join(
+            f"Shot {index} (8s): Rewritten dialogue beat {index} on the beach."
+            for index in range(1, 4)
+        )
+        dag = TaskDAG(
+            tasks=[
+                _task(
+                    "correction-review-1-script-1",
+                    status=TaskStatus.COMPLETED,
+                    task_type=TaskType.CREATIVE,
+                    result_summary=rewritten_script,
+                    skill_id="film-tv-screenwriting",
+                ),
+                _task(
+                    "task-2",
+                    status=TaskStatus.COMPLETED,
+                    task_type=TaskType.CREATIVE,
+                    result_summary="NB2_STYLE_BLOCK:\ncamera: ARRI ALEXA 35",
+                    skill_id="cinematography",
+                ),
+                _task(
+                    "task-3-rewrite-1",
+                    depends_on=["correction-review-1-script-1", "task-2"],
+                    tool_categories=["generation"],
+                ),
+            ],
+            original_prompt="A short dialogue scene.",
+            target_duration_seconds=30,
+            creative_profile=CreativeProfile.DIALOGUE_SCENE,
+        )
+        session = _session(dag)
+        orch = Orchestrator.__new__(Orchestrator)
+
+        changed = orch._try_expand_shot_tasks(session, dag.get_ready_tasks())
+        assert changed is True
+
+        rewrite_shot_tasks = [
+            task for task in session.dag.tasks
+            if task.id.startswith("task-3-rewrite-1-shot-")
+        ]
+        assert len(rewrite_shot_tasks) == 3
+
+        changed_again = orch._try_expand_shot_tasks(session, dag.get_ready_tasks())
+
+        assert changed_again is False
+        assert session.dag.get_task("task-3-rewrite-1-shot-1-shot-1") is None
+
 
 class TestExecutionDiagnostics:
     def test_execution_diagnostics_report_generation_and_retry_metrics(self):

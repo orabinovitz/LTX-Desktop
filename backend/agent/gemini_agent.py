@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
+from agent.logging_utils import agent_log_extra
 from agent.model_policy import AgentStage, EDITING_TOOL_CATEGORIES, prompt_has_editing_signals, select_model
 from agent.tool_knowledge_base import (
     build_category_catalog,
@@ -48,6 +49,7 @@ from agent import brain as brain_module
 from agent import project_memory
 from agent import video_analyzer
 from agent.scene_decomposer import decompose_to_scenes
+from log_context import bind_log_context, current_log_context, reset_log_context
 from services.http_client.http_client import HTTPClient, HttpConnectionError, HttpTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -739,7 +741,15 @@ def create_session(
         memory_write_risk=memory_write_risk,
         destructive_risk=destructive_risk,
     )
-    logger.info("Created agent session %s (total: %d)", session_id, len(_sessions))
+    logger.info(
+        "Created agent session %s (total: %d)",
+        session_id,
+        len(_sessions),
+        extra=agent_log_extra(
+            category="agent.session",
+            session_id=session_id,
+        ),
+    )
     return session_id
 
 
@@ -825,7 +835,14 @@ def execute_prompt(
     )
     if existing:
         session_id = request.session_id  # type: ignore[assignment]
-        logger.info("Reusing existing session %s", session_id)
+        logger.info(
+            "Reusing existing session %s",
+            session_id,
+            extra=agent_log_extra(
+                category="agent.session",
+                session_id=session_id,
+            ),
+        )
         sd = _get_session(session_id)
         if sd is not None:
             sd.scoped_categories = scoped_categories
@@ -942,20 +959,29 @@ def execute_prompt(
         )
 
     logger.info(
-        "[agent] session=%s | execute_prompt: %.120s",
+        "[agent] session=%s | execute_prompt (prompt_chars=%d)",
         session_id[:8],
-        request.prompt,
+        len(request.prompt),
+        extra=agent_log_extra(
+            category="agent.session",
+            session_id=session_id,
+        ),
     )
 
     t0 = time.monotonic()
     response = _call_gemini(session_id, gemini_api_key, http_client, project_id=request.project_id)
     elapsed = time.monotonic() - t0
-    logger.info(
+    logger.debug(
         "[agent] session=%s | execute_prompt completed in %.1fs (done=%s, tools=%d)",
         session_id[:8],
         elapsed,
         response.done,
         len(response.tool_calls),
+        extra=agent_log_extra(
+            category="agent.turn",
+            session_id=session_id,
+            duration_ms=int(elapsed * 1000),
+        ),
     )
     return session_id, response
 
@@ -994,25 +1020,30 @@ def continue_with_results(
             {"role": "user", "parts": [{"text": updated_context}]}
         )
 
-    result_summary = [
-        f"{tr.tool_name}:{'ok' if tr.success else 'FAIL'}"
-        for tr in tool_results
-    ]
-    logger.info(
-        "[agent] session=%s | continue_with_results: %s",
+    logger.debug(
+        "[agent] session=%s | continue_with_results (%d result(s))",
         session_id[:8],
-        result_summary,
+        len(tool_results),
+        extra=agent_log_extra(
+            category="agent.turn",
+            session_id=session_id,
+        ),
     )
 
     t0 = time.monotonic()
     response = _call_gemini(session_id, gemini_api_key, http_client, project_id=sd.project_id)
     elapsed = time.monotonic() - t0
-    logger.info(
+    logger.debug(
         "[agent] session=%s | continue completed in %.1fs (done=%s, tools=%d)",
         session_id[:8],
         elapsed,
         response.done,
         len(response.tool_calls),
+        extra=agent_log_extra(
+            category="agent.turn",
+            session_id=session_id,
+            duration_ms=int(elapsed * 1000),
+        ),
     )
     return response
 
@@ -1159,7 +1190,19 @@ def _call_gemini(
             time.sleep(wait)
         except HttpTimeoutError:
             elapsed = time.monotonic() - t0
-            logger.error("[agent] session=%s | Gemini timed out after %.1fs", session_id[:8], elapsed, exc_info=True)
+            logger.error(
+                "[agent] session=%s | Gemini timed out after %.1fs",
+                session_id[:8],
+                elapsed,
+                exc_info=True,
+                extra=agent_log_extra(
+                    category="agent.api",
+                    session_id=session_id,
+                    duration_ms=int(elapsed * 1000),
+                    provider="gemini",
+                    retry_cause="timeout",
+                ),
+            )
             return AgentExecuteResponse(
                 message="The AI service timed out. Please try again.",
                 done=True,
@@ -1181,7 +1224,18 @@ def _call_gemini(
             )
         except Exception:
             elapsed = time.monotonic() - t0
-            logger.error("[agent] session=%s | Gemini request failed after %.1fs", session_id[:8], elapsed, exc_info=True)
+            logger.error(
+                "[agent] session=%s | Gemini request failed after %.1fs",
+                session_id[:8],
+                elapsed,
+                exc_info=True,
+                extra=agent_log_extra(
+                    category="agent.api",
+                    session_id=session_id,
+                    duration_ms=int(elapsed * 1000),
+                    provider="gemini",
+                ),
+            )
             return AgentExecuteResponse(
                 message="Failed to reach the AI service. Please check your connection and try again.",
                 done=True,
@@ -1219,13 +1273,33 @@ def _call_gemini(
                 timeout=300,
             )
         except HttpTimeoutError:
-            logger.error("[agent] session=%s | Fallback model also timed out", session_id[:8], exc_info=True)
+            logger.error(
+                "[agent] session=%s | Fallback model also timed out",
+                session_id[:8],
+                exc_info=True,
+                extra=agent_log_extra(
+                    category="agent.api",
+                    session_id=session_id,
+                    provider="gemini",
+                    retry_cause="fallback_timeout",
+                ),
+            )
             return AgentExecuteResponse(
                 message="The AI service timed out on both primary and fallback models.",
                 done=True,
             )
         except Exception:
-            logger.error("[agent] session=%s | Fallback model request failed", session_id[:8], exc_info=True)
+            logger.error(
+                "[agent] session=%s | Fallback model request failed",
+                session_id[:8],
+                exc_info=True,
+                extra=agent_log_extra(
+                    category="agent.api",
+                    session_id=session_id,
+                    provider="gemini",
+                    retry_cause="fallback_error",
+                ),
+            )
             return AgentExecuteResponse(
                 message="Failed to reach the AI service.",
                 done=True,
@@ -1342,8 +1416,27 @@ def _call_gemini(
                 _execute_backend_tool(backend_tool_calls[0], api_key=api_key, http_client=http_client, session_id=session_id, project_id=project_id)
             ]
         else:
+            inherited_context = current_log_context()
+
+            def _execute_backend_tool_with_context(tool_call: ToolCall) -> ToolResult:
+                tokens = bind_log_context(
+                    **inherited_context,
+                    agent_session_id=session_id,
+                    tool_call_id=tool_call.call_id,
+                )
+                try:
+                    return _execute_backend_tool(
+                        tool_call,
+                        api_key=api_key,
+                        http_client=http_client,
+                        session_id=session_id,
+                        project_id=project_id,
+                    )
+                finally:
+                    reset_log_context(tokens)
+
             backend_results = list(_backend_tool_pool.map(
-                lambda tc: _execute_backend_tool(tc, api_key=api_key, http_client=http_client, session_id=session_id, project_id=project_id),
+                _execute_backend_tool_with_context,
                 backend_tool_calls,
             ))
 
@@ -1409,7 +1502,15 @@ def _execute_backend_tool(
     project_id: str | None = None,
 ) -> ToolResult:
     """Execute a backend-side tool and return the result."""
-    logger.info("Executing backend tool: %s(%s)", tool_call.tool_name, tool_call.arguments)
+    logger.debug(
+        "Executing backend tool: %s",
+        tool_call.tool_name,
+        extra=agent_log_extra(
+            category="agent.tool",
+            session_id=session_id,
+            tool_call_id=tool_call.call_id,
+        ),
+    )
 
     def _review_quality(tc: ToolCall) -> ToolResult:
         return _handle_review_edit_quality(tc, api_key=api_key, http_client=http_client)
@@ -1453,6 +1554,11 @@ def _execute_backend_tool(
         logger.error(
             "[agent] session=%s | Backend tool '%s' raised an exception",
             session_id[:8], tool_call.tool_name, exc_info=True,
+            extra=agent_log_extra(
+                category="agent.tool",
+                session_id=session_id,
+                tool_call_id=tool_call.call_id,
+            ),
         )
         return ToolResult(
             call_id=tool_call.call_id,
@@ -1772,7 +1878,17 @@ def _gemini_review_call(
 
         text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
         result = json.loads(text)
-        logger.info("%s completed in %.1fs", label, time.monotonic() - t0)
+        logger.debug(
+            "%s completed in %.1fs",
+            label,
+            time.monotonic() - t0,
+            extra=agent_log_extra(
+                category="agent.tool",
+                session_id=session_id,
+                tool_call_id=tool_call.call_id,
+                duration_ms=int((time.monotonic() - t0) * 1000),
+            ),
+        )
 
         return ToolResult(
             call_id=tool_call.call_id,
@@ -1780,7 +1896,19 @@ def _gemini_review_call(
             result=result,
         )
     except Exception as exc:
-        logger.error("%s failed after %.1fs (call_id=%s)", label, time.monotonic() - t0, tool_call.call_id, exc_info=True)
+        logger.error(
+            "%s failed after %.1fs (call_id=%s)",
+            label,
+            time.monotonic() - t0,
+            tool_call.call_id,
+            exc_info=True,
+            extra=agent_log_extra(
+                category="agent.tool",
+                session_id=session_id,
+                tool_call_id=tool_call.call_id,
+                duration_ms=int((time.monotonic() - t0) * 1000),
+            ),
+        )
         return ToolResult(
             call_id=tool_call.call_id,
             success=False,
