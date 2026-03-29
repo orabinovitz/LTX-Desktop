@@ -168,9 +168,10 @@ def test_upload_file_returns_storage_uri(tmp_path) -> None:
     assert http.calls[1].method == "put"
 
 
-def test_upload_file_retries_with_fresh_upload_url_after_transport_failure(tmp_path) -> None:
+def test_upload_file_retries_with_fresh_upload_url_after_transport_failure(tmp_path, monkeypatch) -> None:
     audio_path = tmp_path / "input.wav"
     audio_path.write_bytes(b"fake-audio")
+    monkeypatch.setattr("services.ltx_api_client.ltx_api_client_impl._REPLAYABLE_UPLOAD_MAX_BYTES", 0)
 
     http = FakeHTTPClient()
     http.queue(
@@ -318,6 +319,70 @@ def test_upload_file_exposes_structured_transport_reason_after_retry_exhaustion(
     assert exc_info.value.stage == "upload_put"
     assert exc_info.value.reason == "transient_transport"
     assert "category=transient_transport" in str(exc_info.value)
+
+
+def test_upload_file_retries_with_fresh_upload_url_after_os_error(tmp_path) -> None:
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"fake-audio")
+
+    http = FakeHTTPClient()
+    http.queue(
+        "post",
+        FakeResponse(
+            status_code=200,
+            json_payload={
+                "upload_url": "https://upload.example.com/audio-first",
+                "storage_uri": "storage://audio/first",
+                "required_headers": {"x-ms-blob-type": "BlockBlob"},
+            },
+        ),
+        FakeResponse(
+            status_code=200,
+            json_payload={
+                "upload_url": "https://upload.example.com/audio-second",
+                "storage_uri": "storage://audio/second",
+                "required_headers": {"x-ms-blob-type": "BlockBlob"},
+            },
+        ),
+    )
+    http.queue(
+        "put",
+        OSError("resource temporarily unavailable"),
+        FakeResponse(status_code=200),
+    )
+
+    client = LTXAPIClientImpl(http=http, ltx_api_base_url="https://api.ltx.video")
+    out = client.upload_file(api_key="test-key", file_path=str(audio_path))
+
+    assert out == "storage://audio/second"
+    assert [call.method for call in http.calls] == ["post", "put", "post", "put"]
+
+
+def test_upload_file_buffers_small_files_for_replayable_puts(tmp_path, monkeypatch) -> None:
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"fake-audio")
+    monkeypatch.setattr("services.ltx_api_client.ltx_api_client_impl._REPLAYABLE_UPLOAD_MAX_BYTES", 1024)
+
+    http = FakeHTTPClient()
+    http.queue(
+        "post",
+        FakeResponse(
+            status_code=200,
+            json_payload={
+                "upload_url": "https://upload.example.com/audio",
+                "storage_uri": "storage://audio/123",
+                "required_headers": {"x-ms-blob-type": "BlockBlob"},
+            },
+        ),
+    )
+    http.queue("put", FakeResponse(status_code=200))
+
+    client = LTXAPIClientImpl(http=http, ltx_api_base_url="https://api.ltx.video")
+    out = client.upload_file(api_key="test-key", file_path=str(audio_path))
+
+    assert out == "storage://audio/123"
+    assert isinstance(http.calls[1].data, bytes)
+    assert http.calls[1].data == b"fake-audio"
 
 
 def test_generate_audio_to_video_with_audio_uri_downloads_video() -> None:
@@ -548,7 +613,9 @@ def test_retake_422_maps_to_safety_filter_error(tmp_path) -> None:
     assert exc.value.status_code == 422
 
 
-def test_retake_upload_init_failure_maps_message() -> None:
+def test_retake_upload_init_failure_maps_message(tmp_path) -> None:
+    input_path = tmp_path / "input.mp4"
+    input_path.write_bytes(b"fake-video")
     http = FakeHTTPClient()
     http.queue("post", FakeResponse(status_code=401, text="Unauthorized"))
 
@@ -556,7 +623,7 @@ def test_retake_upload_init_failure_maps_message() -> None:
     with pytest.raises(LTXAPIClientError, match="Failed to get upload URL: Unauthorized") as exc:
         client.retake(
             api_key="test-key",
-            video_path="/tmp/input.mp4",
+            video_path=str(input_path),
             start_time=1.0,
             duration=3.0,
             prompt="test",

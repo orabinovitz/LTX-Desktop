@@ -83,6 +83,7 @@ class VideoMetadata(BaseModel):
     topics: list[TopicTag] = Field(default_factory=list, description="Thematic topics detected in the video")
     full_transcript: str = Field(default="", description="Complete transcript of all dialogue")
     analysis_status: AnalysisStatus = Field(default=AnalysisStatus.PENDING)
+    analysis_error: str = Field(default="", description="Failure reason when analysis_status is failed")
     analysis_version: int = Field(default=1, description="Schema version for cache invalidation")
 
 
@@ -235,6 +236,8 @@ class AgentDiagnostics(BaseModel):
     retry_causes: dict[str, int] = Field(default_factory=dict, description="Categorized retry and failure causes observed during the session.")
     sub_agent_timeouts: int | None = Field(default=None, description="Count of categorized sub-agent timeout failures.")
     provider_errors: int | None = Field(default=None, description="Count of categorized provider-side errors observed during the session.")
+    background_analysis_failures: int | None = Field(default=None, description="Count of asynchronous video analysis failures observed for generated session assets.")
+    cancelled_tasks: int | None = Field(default=None, description="Count of tasks cancelled due to dependency failures.")
 
 
 class AgentExecuteResponse(BaseModel):
@@ -483,6 +486,7 @@ class SubAgentResult(BaseModel):
     task_id: str
     session_id: str | None = None
     success: bool = True
+    error_category: str | None = Field(default=None, description="Structured sub-agent failure category when success is false")
     tool_calls: list[ToolCall] = Field(default_factory=list, description="Frontend tool calls to execute")
     backend_tool_results: list[ToolResult] = Field(default_factory=list, description="Already-executed backend tool results")
     message: str = Field(default="", description="Summary for orchestrator")

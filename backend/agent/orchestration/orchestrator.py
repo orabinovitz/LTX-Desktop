@@ -40,6 +40,7 @@ from agent.orchestration.task_planner import TaskPlanner
 from agent.skills.skill_registry import SkillRegistry, get_skill_registry
 from agent.types import (
     AgentDiagnostics,
+    AnalysisStatus,
     MEMORY_WRITE_TOOLS,
     OrchestrateRequest,
     OrchestrateResponse,
@@ -54,6 +55,7 @@ from agent.types import (
     TaskType,
     ToolCall,
     ToolResult,
+    VideoMetadata,
 )
 from services.http_client.http_client import HTTPClient
 
@@ -66,8 +68,13 @@ _MAX_COVERAGE_REPAIRS_PER_TASK = 1
 _MAX_DAG_TASKS = 75
 _MAX_REVIEW_ITERATIONS = 2
 _MAX_SHOTS_PER_EXPANSION = 40
-_MAX_PARALLEL_SHOT_TASKS = 4
+_MAX_PARALLEL_SHOT_TASKS = 2
 _MAX_SHOT_REGENERATIONS_PER_SHOT = 1
+_RETRYABLE_SUB_AGENT_ERROR_CATEGORIES: frozenset[str] = frozenset({
+    "timeout",
+    "transient_transport",
+    "provider_overloaded",
+})
 
 
 def _results_have_memory_writes(results: list[SubAgentResult]) -> bool:
@@ -98,15 +105,18 @@ class OrchestratorSession:
     shot_regeneration_count: dict[str, int] = field(default_factory=lambda: dict[str, int]())
     generated_image_count: int = 0
     generated_video_count: int = 0
+    generated_video_asset_ids: set[str] = field(default_factory=lambda: set[str]())
     reference_hit_count: int = 0
     reference_miss_count: int = 0
     retry_cause_counts: dict[str, int] = field(default_factory=lambda: dict[str, int]())
     sub_agent_timeout_count: int = 0
     provider_error_count: int = 0
+    background_analysis_failures: dict[str, str] = field(default_factory=lambda: dict[str, str]())
     last_diagnostics: AgentDiagnostics | None = None
 
 
 _sessions: OrderedDict[str, OrchestratorSession] = OrderedDict()
+_analysis_callback_registered = False
 
 
 def _evict_stale_sessions() -> None:
@@ -124,6 +134,74 @@ def _get_session(session_id: str) -> OrchestratorSession | None:
         s.last_access = time.monotonic()
         _sessions.move_to_end(session_id)
     return s
+
+
+def _record_background_analysis_result_for_session(
+    session: OrchestratorSession,
+    asset_id: str,
+    metadata: VideoMetadata | None,
+) -> None:
+    if metadata is None or metadata.analysis_status == AnalysisStatus.FAILED:
+        reason = (
+            metadata.analysis_error.strip()
+            if metadata is not None and metadata.analysis_error.strip()
+            else "Video analysis failed"
+        )
+        session.background_analysis_failures[asset_id] = reason
+        return
+    session.background_analysis_failures.pop(asset_id, None)
+
+
+def _build_execution_diagnostics(session: OrchestratorSession) -> AgentDiagnostics:
+    planned_shots = sum(1 for task in session.dag.tasks if "-shot-" in task.id)
+    executed_shots = sum(
+        1 for task in session.dag.tasks
+        if "-shot-" in task.id and task.status == TaskStatus.COMPLETED
+    )
+    total_reference_decisions = session.reference_hit_count + session.reference_miss_count
+    hit_rate = (
+        session.reference_hit_count / total_reference_decisions
+        if total_reference_decisions
+        else None
+    )
+    image_video_ratio = (
+        session.generated_image_count / session.generated_video_count
+        if session.generated_video_count
+        else None
+    )
+    cancelled_tasks = sum(
+        1 for task in session.dag.tasks if task.status == TaskStatus.CANCELLED
+    )
+    previous = session.last_diagnostics or AgentDiagnostics()
+    return AgentDiagnostics(
+        selected_model=previous.selected_model,
+        stage_name="orchestrator_execution",
+        llm_ms=previous.llm_ms,
+        tool_ms=previous.tool_ms,
+        planning_ms=previous.planning_ms,
+        used_fallback_model=previous.used_fallback_model,
+        planned_shots=planned_shots,
+        executed_shots=executed_shots,
+        generated_images=session.generated_image_count,
+        generated_videos=session.generated_video_count,
+        image_video_ratio=image_video_ratio,
+        reference_hit_rate=hit_rate,
+        coverage_repairs=sum(session.coverage_repair_count.values()),
+        retry_causes=dict(session.retry_cause_counts),
+        sub_agent_timeouts=session.sub_agent_timeout_count,
+        provider_errors=session.provider_error_count,
+        background_analysis_failures=len(session.background_analysis_failures),
+        cancelled_tasks=cancelled_tasks,
+    )
+
+
+def _handle_video_analysis_complete(asset_id: str, metadata: VideoMetadata | None) -> None:
+    for session in _sessions.values():
+        if asset_id not in session.generated_video_asset_ids:
+            continue
+        _record_background_analysis_result_for_session(session, asset_id, metadata)
+        if session.last_diagnostics is not None:
+            session.last_diagnostics = _build_execution_diagnostics(session)
 
 
 def _task_to_info(task: TaskNode, registry: SkillRegistry) -> OrchestrateTaskInfo:
@@ -177,11 +255,17 @@ class Orchestrator:
         http_client: HTTPClient,
         skill_registry: SkillRegistry | None = None,
     ) -> None:
+        global _analysis_callback_registered
         self._api_key = api_key
         self._http_client = http_client
         self._registry = skill_registry or get_skill_registry()
         self._planner = TaskPlanner(api_key, http_client)
         self._pool = SubAgentPool(api_key, http_client)
+        if not _analysis_callback_registered:
+            from agent import video_analyzer
+
+            video_analyzer.on_analysis_complete(_handle_video_analysis_complete)
+            _analysis_callback_registered = True
 
     def classify_request(self, prompt: str) -> RequestComplexity:
         return classify_complexity(prompt)
@@ -458,8 +542,8 @@ class Orchestrator:
 
             if not resumed.success:
                 if resumed.error:
-                    self._record_retry_cause(session, resumed.error)
-                if task.retry_count < _MAX_TASK_RETRIES:
+                    self._record_retry_cause(session, resumed.error, category=resumed.error_category)
+                if self._should_retry_sub_agent_result(resumed) and task.retry_count < _MAX_TASK_RETRIES:
                     task.retry_count += 1
                     task.status = TaskStatus.PENDING
                     task.error = f"Resume error: {resumed.error}"
@@ -634,8 +718,8 @@ class Orchestrator:
 
             if not result.success:
                 if result.error:
-                    self._record_retry_cause(session, result.error)
-                if task.retry_count < _MAX_TASK_RETRIES:
+                    self._record_retry_cause(session, result.error, category=result.error_category)
+                if self._should_retry_sub_agent_result(result) and task.retry_count < _MAX_TASK_RETRIES:
                     task.retry_count += 1
                     task.status = TaskStatus.PENDING
                     task.error = f"Sub-agent error (retry {task.retry_count}): {result.error}"
@@ -759,14 +843,30 @@ class Orchestrator:
         session: OrchestratorSession,
         tool_results: list[ToolResult],
     ) -> None:
-        session.generated_image_count += sum(
-            1 for result in tool_results
-            if result.success and result.tool_name == "generate_image"
-        )
-        session.generated_video_count += sum(
-            1 for result in tool_results
-            if result.success and result.tool_name == "generate_video"
-        )
+        for result in tool_results:
+            if not result.success:
+                continue
+            if result.tool_name == "generate_image":
+                session.generated_image_count += 1
+                continue
+            if result.tool_name != "generate_video":
+                continue
+            session.generated_video_count += 1
+            raw_result = cast(object, result.result)
+            if not isinstance(raw_result, dict):
+                continue
+            value_dict = cast(dict[str, object], raw_result)
+            asset_id = value_dict.get("assetId") or value_dict.get("asset_id")
+            if isinstance(asset_id, str):
+                session.generated_video_asset_ids.add(asset_id)
+
+    @staticmethod
+    def _record_background_analysis_result(
+        session: OrchestratorSession,
+        asset_id: str,
+        metadata: VideoMetadata | None,
+    ) -> None:
+        _record_background_analysis_result_for_session(session, asset_id, metadata)
 
     @staticmethod
     def _record_reference_usage(
@@ -784,57 +884,33 @@ class Orchestrator:
     def _record_retry_cause(
         session: OrchestratorSession,
         error_text: str,
+        *,
+        category: str | None = None,
     ) -> None:
         lower = error_text.lower()
-        match = re.search(r"category=([a-z_]+)", lower)
-        category = match.group(1) if match else None
-        if category:
-            session.retry_cause_counts[category] = session.retry_cause_counts.get(category, 0) + 1
-            if category.startswith("fal_") or category == "provider_response":
+        normalized_category = category.lower() if category is not None else None
+        if normalized_category is None:
+            match = re.search(r"category=([a-z_]+)", lower)
+            normalized_category = match.group(1) if match else None
+        if normalized_category:
+            session.retry_cause_counts[normalized_category] = session.retry_cause_counts.get(normalized_category, 0) + 1
+            if normalized_category.startswith("fal_") or normalized_category in {"provider_response", "provider_http", "provider_overloaded"}:
                 session.provider_error_count += 1
-        if "timeout" in lower:
+        if normalized_category == "timeout" or "timeout" in lower:
             session.sub_agent_timeout_count += 1
             session.retry_cause_counts["timeout"] = session.retry_cause_counts.get("timeout", 0) + 1
-        elif category is None and ("http 5" in lower or "provider" in lower):
+        elif normalized_category is None and ("http 5" in lower or "provider" in lower):
             session.provider_error_count += 1
 
     @staticmethod
+    def _should_retry_sub_agent_result(result: SubAgentResult) -> bool:
+        if result.error_category is None:
+            return True
+        return result.error_category in _RETRYABLE_SUB_AGENT_ERROR_CATEGORIES
+
+    @staticmethod
     def _execution_diagnostics(session: OrchestratorSession) -> AgentDiagnostics:
-        planned_shots = sum(1 for task in session.dag.tasks if "-shot-" in task.id)
-        executed_shots = sum(
-            1 for task in session.dag.tasks
-            if "-shot-" in task.id and task.status == TaskStatus.COMPLETED
-        )
-        total_reference_decisions = session.reference_hit_count + session.reference_miss_count
-        hit_rate = (
-            session.reference_hit_count / total_reference_decisions
-            if total_reference_decisions
-            else None
-        )
-        image_video_ratio = (
-            session.generated_image_count / session.generated_video_count
-            if session.generated_video_count
-            else None
-        )
-        previous = session.last_diagnostics or AgentDiagnostics()
-        return AgentDiagnostics(
-            selected_model=previous.selected_model,
-            stage_name="orchestrator_execution",
-            llm_ms=previous.llm_ms,
-            tool_ms=previous.tool_ms,
-            planning_ms=previous.planning_ms,
-            used_fallback_model=previous.used_fallback_model,
-            planned_shots=planned_shots,
-            executed_shots=executed_shots,
-            generated_images=session.generated_image_count,
-            generated_videos=session.generated_video_count,
-            image_video_ratio=image_video_ratio,
-            reference_hit_rate=hit_rate,
-            coverage_repairs=sum(session.coverage_repair_count.values()),
-            retry_causes=dict(session.retry_cause_counts),
-            sub_agent_timeouts=session.sub_agent_timeout_count,
-            provider_errors=session.provider_error_count,
-        )
+        return _build_execution_diagnostics(session)
 
     @staticmethod
     def _extract_dialogue(shot_desc: str) -> str | None:
@@ -903,6 +979,34 @@ class Orchestrator:
         return cleaned.strip(" ,.;:-")
 
     @staticmethod
+    def _sanitize_safety_sensitive_shot_desc(shot_desc: str) -> str:
+        cleaned = shot_desc
+        replacements: tuple[tuple[str, str], ...] = (
+            (r"\bbloodied corpses?\b", "still figures"),
+            (r"\bbloody corpses?\b", "still figures"),
+            (r"\bdead bod(?:y|ies)\b", "still figures"),
+            (r"\bmangled limbs?\b", "twisted debris"),
+            (r"\bbody parts?\b", "scattered debris"),
+            (r"\bcorpses?\b", "still figures"),
+            (r"\bcadavers?\b", "still figures"),
+            (r"\bblood(?:ied|y|stained|soaked)?\b", "dirt-streaked"),
+            (r"\bbleeding\b", "injured"),
+            (r"\bgore\b", "aftermath"),
+            (r"\bgory\b", "aftermath"),
+            (r"\bgruesome\b", "distressing"),
+            (r"\bmangled\b", "damaged"),
+            (r"\bsevered\b", "damaged"),
+            (r"\bdismembered\b", "damaged"),
+            (r"\bopen wounds?\b", "visible injuries"),
+            (r"\bgashes?\b", "injuries"),
+        )
+        for pattern, replacement in replacements:
+            cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+        return cleaned.strip(" ,.;:-")
+
+    @staticmethod
     def _sanitize_cinematic_style_block(visual_style_block: str | None) -> str:
         if not visual_style_block:
             return ""
@@ -942,6 +1046,7 @@ class Orchestrator:
     ) -> dict[str, Any]:
         """Build a structured still/motion contract for an expanded shot task."""
         static_source = Orchestrator._sanitize_still_frame_source(shot_desc) or shot_desc
+        safe_source = Orchestrator._sanitize_safety_sensitive_shot_desc(static_source) or static_source
         sanitized_style_block = Orchestrator._sanitize_cinematic_style_block(visual_style_block)
         style_prefix = ""
         if sanitized_style_block:
@@ -952,22 +1057,25 @@ class Orchestrator:
 
         still_frame_prompt = (
             f"{style_prefix}Choose a single decisive still frame from this shot description: "
-            f"\"{static_source}\". Describe only what is visible in one frame: subject, "
+            f"\"{safe_source}\". Describe only what is visible in one frame: subject, "
             "environment, composition, lighting, blocking, and spatial relationships. Do not "
             "include quoted dialogue, spoken text, camera moves, or multi-step temporal action. "
             "Do not write aspect ratios or frame dimensions inside the prompt text. Use natural-language "
-            "guardrails: no on-screen text, no letterbox, no film scratches, no stock overlays."
+            "guardrails: no on-screen text, no letterbox, no film scratches, no stock overlays. "
+            "If the scene implies injury, death, or disaster aftermath, keep it non-graphic and PG-13 "
+            "and imply the danger without explicit injury detail."
         )
         motion_prompt = (
-            f"Animate the established still frame for this shot: \"{static_source}\". "
+            f"Animate the established still frame for this shot: \"{safe_source}\". "
             "Describe only motion, camera movement, blocking changes, and environmental movement. "
-            "Do not restate the full still composition or add dialogue text to the image."
+            "Do not restate the full still composition or add dialogue text to the image. "
+            "Keep any danger or aftermath cinematic and non-graphic."
         )
 
         dialogue_audio_prompt = dialogue or "No spoken dialogue."
 
         return {
-            "source_shot": shot_desc,
+            "source_shot": safe_source,
             "still_frame_prompt": still_frame_prompt,
             "motion_prompt": motion_prompt,
             "dialogue_audio_prompt": dialogue_audio_prompt,
@@ -2047,7 +2155,13 @@ class Orchestrator:
             for t in failed:
                 lines.append(f"  - {t.description}: {t.error}")
         if cancelled:
-            lines.append(f"\n{len(cancelled)} task(s) cancelled due to dependency failures.")
+            lines.append(f"\n{len(cancelled)} task(s) cancelled due to dependency failures:")
+            for t in cancelled:
+                lines.append(f"  - {t.description}: {t.error}")
+        if session.background_analysis_failures:
+            lines.append(f"\n{len(session.background_analysis_failures)} background video analysis failure(s):")
+            for asset_id, reason in sorted(session.background_analysis_failures.items()):
+                lines.append(f"  - {asset_id}: {reason}")
         return "\n".join(lines) if lines else "All tasks completed."
 
     @staticmethod

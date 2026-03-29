@@ -21,6 +21,7 @@ from agent.orchestration.creative_contracts import (
     build_coverage_contract,
 )
 from agent.types import (
+    AnalysisStatus,
     OrchestrateRequest,
     OrchestratorStatus,
     SkillContent,
@@ -32,6 +33,7 @@ from agent.types import (
     TaskType,
     ToolCall,
     ToolResult,
+    VideoMetadata,
 )
 from agent.skills.skill_registry import SkillRegistry
 from tests.fakes.services import FakeHTTPClient, FakeResponse
@@ -290,6 +292,22 @@ class TestShotExpansionPromptContracts:
         assert "no letterbox" in still_prompt.lower()
         assert "no film scratches" in still_prompt.lower()
         assert "no stock overlays" in still_prompt.lower()
+
+    def test_shot_prompt_contract_softens_graphic_aftermath_language(self):
+        contract = Orchestrator._build_shot_prompt_contract(
+            "Elara staggers past bloodied corpses and mangled limbs in the smoking crash wreckage.",
+            dialogue=None,
+            api_duration=8,
+            reference_ids=[],
+            visual_style_block=None,
+        )
+
+        assert "bloodied" not in contract["source_shot"].lower()
+        assert "corpses" not in contract["source_shot"].lower()
+        assert "mangled" not in contract["source_shot"].lower()
+        assert "bloodied" not in contract["still_frame_prompt"].lower()
+        assert "corpses" not in contract["still_frame_prompt"].lower()
+        assert "mangled" not in contract["motion_prompt"].lower()
 
 
 class TestParseReferenceAssets:
@@ -610,6 +628,10 @@ class TestExecutionDiagnostics:
                     task_type=TaskType.EXECUTION,
                     tool_categories=["generation"],
                 ),
+                _task(
+                    "task-9",
+                    status=TaskStatus.CANCELLED,
+                ),
             ],
             original_prompt="A 3 minute dialogue scene.",
             target_duration_seconds=180,
@@ -624,6 +646,7 @@ class TestExecutionDiagnostics:
         session.retry_cause_counts = {"transient_transport": 2, "fal_download_status": 1}
         session.sub_agent_timeout_count = 1
         session.provider_error_count = 3
+        session.background_analysis_failures = {"asset-1": "upload blew up"}
 
         diagnostics = Orchestrator._execution_diagnostics(session)
 
@@ -637,6 +660,8 @@ class TestExecutionDiagnostics:
         assert diagnostics.retry_causes == {"transient_transport": 2, "fal_download_status": 1}
         assert diagnostics.sub_agent_timeouts == 1
         assert diagnostics.provider_errors == 3
+        assert diagnostics.background_analysis_failures == 1
+        assert diagnostics.cancelled_tasks == 1
 
     def test_retry_cause_does_not_double_count_provider_errors(self):
         session = _session(_dag([]))
@@ -648,6 +673,42 @@ class TestExecutionDiagnostics:
 
         assert session.provider_error_count == 1
         assert session.retry_cause_counts == {"fal_download_status": 1}
+
+    def test_record_generation_results_tracks_generated_video_asset_ids(self):
+        session = _session(_dag([]))
+
+        Orchestrator._record_generation_results(
+            session,
+            [
+                ToolResult(
+                    tool_name="generate_video",
+                    success=True,
+                    result={"assetId": "asset-123"},
+                ),
+            ],
+        )
+
+        assert session.generated_video_count == 1
+        assert "asset-123" in session.generated_video_asset_ids
+
+    def test_record_background_analysis_result_tracks_generated_asset_failures(self):
+        session = _session(_dag([]))
+        session.generated_video_asset_ids.add("asset-123")
+
+        Orchestrator._record_background_analysis_result(
+            session,
+            "asset-123",
+            VideoMetadata(
+                asset_id="asset-123",
+                duration=1.0,
+                resolution=(1920, 1080),
+                fps=24.0,
+                analysis_status=AnalysisStatus.FAILED,
+                analysis_error="upload blew up",
+            ),
+        )
+
+        assert session.background_analysis_failures == {"asset-123": "upload blew up"}
 
 
 class TestCancelDependents:
@@ -743,6 +804,21 @@ class TestBuildFinalSummary:
         session = _session(_dag([]))
         summary = Orchestrator._build_final_summary(session)
         assert summary == "All tasks completed."
+
+    def test_includes_cancelled_task_details_and_background_failures(self):
+        session = _session(_dag([
+            _task("t1", status=TaskStatus.FAILED),
+            _task("t2", status=TaskStatus.CANCELLED),
+        ]))
+        session.dag.tasks[1].error = "Cancelled: dependency t1 failed"
+        session.background_analysis_failures = {"asset-1": "upload blew up"}
+
+        summary = Orchestrator._build_final_summary(session)
+
+        assert "cancelled due to dependency failures" in summary
+        assert "Task t2: Cancelled: dependency t1 failed" in summary
+        assert "background video analysis failure" in summary.lower()
+        assert "asset-1: upload blew up" in summary
 
 
 # ====================================================================
@@ -958,10 +1034,35 @@ class TestExecuteNext:
         assert session.status == OrchestratorStatus.AWAITING_TOOL_RESULTS
         assert len(resp.tool_calls) >= 1
 
+    def test_malformed_sub_agent_response_fails_without_retry(self):
+        http = FakeHTTPClient()
+        orch = self._make_orchestrator(http)
+
+        t1 = _task("t1", tool_categories=["generation"])
+        dag = _dag([t1])
+        session = _session(dag)
+        _sessions[session.id] = session
+
+        http.queue(
+            "post",
+            FakeResponse(
+                status_code=200,
+                json_payload={"candidates": [{"content": {}}]},
+            ),
+        )
+
+        resp = orch._execute_next(session)
+
+        assert t1.status == TaskStatus.FAILED
+        assert t1.retry_count == 0
+        assert t1.error is not None
+        assert "malformed" in t1.error.lower()
+        assert resp.done is False
+
     def test_expanded_shot_tasks_dispatch_in_bounded_batches(self):
         http = FakeHTTPClient()
         orch = self._make_orchestrator(http)
-        expected_limit = 4
+        expected_limit = 2
 
         script_task = _task(
             "task-1",

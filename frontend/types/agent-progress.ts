@@ -27,6 +27,8 @@ export interface AgentDiagnostics {
   tool_ms?: number | null;
   planning_ms?: number | null;
   used_fallback_model?: boolean;
+  background_analysis_failures?: number | null;
+  cancelled_tasks?: number | null;
 }
 
 export type OnToolProgress = (progress: number, detail?: string) => void;

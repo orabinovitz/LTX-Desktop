@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import random
+import time
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -39,6 +41,7 @@ _CAMERA_MOTION_TO_LTX: dict[VideoCameraMotion, LTXCameraMotion | None] = {
 
 logger = logging.getLogger(__name__)
 _UPLOAD_MAX_RETRIES = 2
+_REPLAYABLE_UPLOAD_MAX_BYTES = 16 * 1024 * 1024  # 16 MB — small uploads can be retried from memory safely
 
 
 class _RetakeNestedPayload(BaseModel):
@@ -57,8 +60,14 @@ class _RetakeResponsePayload(BaseModel):
 
 
 class LTXAPIClientImpl:
-    def __init__(self, http: HTTPClient, ltx_api_base_url: str) -> None:
+    def __init__(
+        self,
+        http: HTTPClient,
+        ltx_api_base_url: str,
+        upload_http: HTTPClient | None = None,
+    ) -> None:
         self._http = http
+        self._upload_http = upload_http or http
         self._base_url = ltx_api_base_url.rstrip("/")
 
     def generate_text_to_video(
@@ -225,6 +234,9 @@ class LTXAPIClientImpl:
     def upload_file(self, *, file_path: str, api_key: str) -> str:
         path_obj = Path(file_path)
         mime = mimetypes.guess_type(path_obj.name)[0] or "application/octet-stream"
+        file_size = path_obj.stat().st_size
+        file_size_mb = file_size / (1024 * 1024)
+        replayable_upload_data = path_obj.read_bytes() if file_size <= _REPLAYABLE_UPLOAD_MAX_BYTES else None
         for attempt in range(_UPLOAD_MAX_RETRIES + 1):
             stage = "upload_init"
             try:
@@ -258,26 +270,41 @@ class LTXAPIClientImpl:
                     ) from exc
 
                 stage = "upload_put"
-                with open(path_obj, "rb") as media_file:
-                    put_resp = self._http.put(
+                if replayable_upload_data is not None:
+                    put_resp = self._upload_http.put(
                         upload_url,
-                        data=media_file,
+                        data=replayable_upload_data,
                         headers={"Content-Type": mime, **required_headers},
                         timeout=300,
                     )
-            except (HttpConnectionError, HttpTimeoutError) as exc:
+                else:
+                    with open(path_obj, "rb") as media_file:
+                        put_resp = self._upload_http.put(
+                            upload_url,
+                            data=media_file,
+                            headers={"Content-Type": mime, **required_headers},
+                            timeout=300,
+                        )
+            except (HttpConnectionError, HttpTimeoutError, ConnectionError, OSError) as exc:
                 if attempt < _UPLOAD_MAX_RETRIES:
+                    jitter_delay = random.uniform(0.5, 2.0)
                     logger.warning(
-                        "LTX upload attempt %d/%d hit a transient %s error; retrying with a fresh upload session",
+                        "LTX upload attempt %d/%d hit a transient %s error during %s for %s (%.0f MB, replayable=%s); retrying with a fresh upload session in %.1fs",
                         attempt + 1,
                         _UPLOAD_MAX_RETRIES + 1,
-                        "init" if stage == "upload_init" else "put",
+                        type(exc).__name__,
+                        stage,
+                        path_obj.name,
+                        file_size_mb,
+                        replayable_upload_data is not None,
+                        jitter_delay,
                     )
+                    time.sleep(jitter_delay)
                     continue
                 detail = (
-                    f"LTX upload init failed: {exc}"
+                    f"LTX upload init failed for {path_obj.name} ({file_size_mb:.0f} MB): {exc}"
                     if stage == "upload_init"
-                    else f"LTX upload failed: {exc}"
+                    else f"LTX upload failed during {stage} for {path_obj.name} ({file_size_mb:.0f} MB): {exc}"
                 )
                 raise LTXAPIClientError(
                     500,

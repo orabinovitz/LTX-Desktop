@@ -49,6 +49,10 @@ _backend_tool_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="sub-b
 class _GeminiTurnError(RuntimeError):
     """Raised when a Gemini turn fails with a categorized reason."""
 
+    def __init__(self, message: str, *, category: str) -> None:
+        super().__init__(message)
+        self.category = category
+
 _HIGH_STAKES_CONSISTENCY_KEYWORDS: tuple[str, ...] = (
     "continuity",
     "consistency",
@@ -478,6 +482,73 @@ def _run_gemini_turn(
 
     Returns (parts, frontend_calls, backend_calls).
     """
+    def _raise_malformed_response(detail: str, body_text: str) -> None:
+        logger.error(
+            "[sub-agent] task=%s | malformed response: %s — body: %s",
+            task_id,
+            detail,
+            body_text[:300],
+        )
+        raise _GeminiTurnError(
+            f"Gemini malformed response: {detail}",
+            category="malformed_response",
+        )
+
+    def _raise_provider_safety_block(block_reason: str, body_text: str) -> None:
+        logger.error(
+            "[sub-agent] task=%s | provider safety block: %s — body: %s",
+            task_id,
+            block_reason,
+            body_text[:300],
+        )
+        raise _GeminiTurnError(
+            f"Gemini blocked prompt (block_reason={block_reason})",
+            category="provider_safety_block",
+        )
+
+    def _extract_response_parts(body: Any, body_text: str) -> list[dict[str, Any]]:
+        if not isinstance(body, dict):
+            _raise_malformed_response("response was not a JSON object", body_text)
+
+        prompt_feedback = body.get("promptFeedback")
+        block_reason = None
+        if isinstance(prompt_feedback, dict):
+            raw_block_reason = prompt_feedback.get("blockReason")
+            if raw_block_reason is not None:
+                block_reason = str(raw_block_reason)
+
+        candidates = body.get("candidates")
+        if not isinstance(candidates, list) or not candidates:
+            if block_reason:
+                _raise_provider_safety_block(block_reason, body_text)
+            _raise_malformed_response("missing candidates", body_text)
+
+        candidate = candidates[0]
+        if not isinstance(candidate, dict):
+            _raise_malformed_response("candidate was not an object", body_text)
+
+        finish_reason = candidate.get("finishReason")
+        finish_reason_text = str(finish_reason) if finish_reason is not None else None
+        content = candidate.get("content")
+        if not isinstance(content, dict):
+            if block_reason:
+                _raise_provider_safety_block(block_reason, body_text)
+            detail = "missing content"
+            if finish_reason_text:
+                detail += f" (finish_reason={finish_reason_text})"
+            _raise_malformed_response(detail, body_text)
+
+        parts = content.get("parts")
+        if not isinstance(parts, list) or not parts:
+            if block_reason:
+                _raise_provider_safety_block(block_reason, body_text)
+            detail = "missing content parts"
+            if finish_reason_text:
+                detail += f" (finish_reason={finish_reason_text})"
+            _raise_malformed_response(detail, body_text)
+
+        return parts
+
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent"
@@ -519,17 +590,18 @@ def _run_gemini_turn(
         except HttpTimeoutError:
             logger.error("Sub-agent timed out for task %s (turn %d)", task_id, turn)
             message = "Gemini timeout while waiting for model response"
-            raise _GeminiTurnError(message) from None
+            raise _GeminiTurnError(message, category="timeout") from None
         except Exception as exc:
             logger.error("Sub-agent request failed for task %s", task_id, exc_info=True)
             raise _GeminiTurnError(
-                f"Gemini request failed ({type(exc).__name__}): {exc}"
+                f"Gemini request failed ({type(exc).__name__}): {exc}",
+                category="transient_transport",
             ) from exc
 
     if resp is None:
         logger.error("[sub-agent] task=%s | no response after retries", task_id)
         message = "Gemini request returned no response after retries"
-        raise _GeminiTurnError(message)
+        raise _GeminiTurnError(message, category="transient_transport")
 
     if resp.status_code == 503 and fallback_model and fallback_model != model:
         fallback_url = (
@@ -553,7 +625,7 @@ def _run_gemini_turn(
         except Exception as exc:
             logger.error("[sub-agent] task=%s | fallback request failed", task_id, exc_info=True)
             message = "Gemini fallback request failed"
-            raise _GeminiTurnError(message) from exc
+            raise _GeminiTurnError(message, category="transient_transport") from exc
 
     elapsed = time.monotonic() - t0
     logger.debug(
@@ -561,16 +633,27 @@ def _run_gemini_turn(
         task_id, turn, resp.status_code, elapsed,
     )
 
+    if resp.status_code in (429, 503):
+        logger.error("[sub-agent] task=%s | provider overloaded: %s", task_id, resp.text[:300])
+        raise _GeminiTurnError(
+            f"Gemini provider overloaded (HTTP {resp.status_code}): {resp.text[:300]}",
+            category="provider_overloaded",
+        )
+
     if resp.status_code != 200:
         logger.error("[sub-agent] task=%s | error: %s", task_id, resp.text[:300])
-        raise _GeminiTurnError(f"Gemini HTTP {resp.status_code}: {resp.text[:300]}")
+        raise _GeminiTurnError(
+            f"Gemini HTTP {resp.status_code}: {resp.text[:300]}",
+            category="provider_http",
+        )
 
     try:
         body = resp.json()
-        parts: list[dict[str, Any]] = body["candidates"][0]["content"]["parts"]
-    except (KeyError, IndexError, TypeError) as exc:
-        logger.error("[sub-agent] task=%s | malformed response: %s", task_id, exc)
-        raise _GeminiTurnError(f"Gemini malformed response: {exc}") from exc
+        parts = _extract_response_parts(body, resp.text)
+    except _GeminiTurnError:
+        raise
+    except Exception as exc:
+        _raise_malformed_response(str(exc), resp.text)
 
     frontend_calls: list[ToolCall] = []
     backend_calls: list[ToolCall] = []
@@ -662,6 +745,7 @@ def execute_sub_agent(
                 session_id=context.session_id,
                 success=False,
                 error=str(exc),
+                error_category=exc.category,
                 sub_agent_model=model_selection.model,
                 sub_agent_fallback_model=model_selection.fallback_model,
             )
@@ -795,6 +879,7 @@ def resume_sub_agent(
                 session_id=prev_result.session_id,
                 success=False,
                 error=str(exc),
+                error_category=exc.category,
                 sub_agent_model=model,
                 sub_agent_fallback_model=fallback_model,
             )
@@ -947,6 +1032,7 @@ class SubAgentPool:
                         task_id=task_id,
                         success=False,
                         error=str(exc),
+                        error_category="sub_agent_internal_error",
                     )
 
         return results

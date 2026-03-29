@@ -257,7 +257,7 @@ class ServiceBundle:
 
 def _build_provider_http_clients(
     factory: Callable[..., HTTPClient] | None = None,
-) -> tuple[HTTPClient, HTTPClient]:
+) -> tuple[HTTPClient, HTTPClient, HTTPClient]:
     if factory is None:
         from services.http_client.http_client_impl import HTTPClientImpl
 
@@ -277,7 +277,14 @@ def _build_provider_http_clients(
         max_keepalive_connections=8,
         keepalive_expiry=60,
     )
-    return default_http, fal_http
+    upload_http = factory(
+        client_name="upload",
+        http2=False,
+        max_connections=8,
+        max_keepalive_connections=4,
+        keepalive_expiry=30,
+    )
+    return default_http, fal_http, upload_http
 
 
 def build_default_service_bundle(config: RuntimeConfig) -> ServiceBundle:
@@ -299,7 +306,7 @@ def build_default_service_bundle(config: RuntimeConfig) -> ServiceBundle:
     from services.text_encoder.ltx_text_encoder import LTXTextEncoder
     from services.video_processor.video_processor_impl import VideoProcessorImpl
 
-    http, fal_http = _build_provider_http_clients()
+    http, fal_http, upload_http = _build_provider_http_clients()
 
     return ServiceBundle(
         http=http,
@@ -313,7 +320,7 @@ def build_default_service_bundle(config: RuntimeConfig) -> ServiceBundle:
             ltx_api_base_url=config.ltx_api_base_url,
         ),
         task_runner=ThreadingRunner(),
-        ltx_api_client=LTXAPIClientImpl(http=http, ltx_api_base_url=config.ltx_api_base_url),
+        ltx_api_client=LTXAPIClientImpl(http=http, ltx_api_base_url=config.ltx_api_base_url, upload_http=upload_http),
         zit_api_client=ZitAPIClientImpl(http=http),
         nano_banana_2_api_client=NanoBanana2APIClientImpl(http=fal_http),
         fast_video_pipeline_class=LTXFastVideoPipeline,

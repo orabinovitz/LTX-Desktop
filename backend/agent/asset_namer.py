@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -18,6 +19,8 @@ from services.http_client.http_client import HTTPClient
 logger = logging.getLogger(__name__)
 
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+_SOFT_PROVIDER_RETRY_STATUSES: frozenset[int] = frozenset({429, 503})
+_SOFT_PROVIDER_RETRY_DELAYS: tuple[float, ...] = (1.0,)
 
 _SYSTEM_PROMPT = """\
 You generate concise metadata for AI-generated media assets.
@@ -81,22 +84,41 @@ def suggest_asset_meta(
     }
 
     try:
-        resp = http_client.post(
-            url,
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": gemini_api_key,
-            },
-            json_payload=payload,
-            timeout=10,
-        )
-
-        if resp.status_code != 200:
+        attempts = len(_SOFT_PROVIDER_RETRY_DELAYS) + 1
+        resp = None
+        for attempt in range(attempts):
+            resp = http_client.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": gemini_api_key,
+                },
+                json_payload=payload,
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                break
+            if resp.status_code in _SOFT_PROVIDER_RETRY_STATUSES and attempt < attempts - 1:
+                delay = _SOFT_PROVIDER_RETRY_DELAYS[attempt]
+                logger.warning(
+                    "Asset naming Gemini soft failure [category=provider_overloaded] HTTP %d on attempt %d/%d; retrying in %.1fs: %s",
+                    resp.status_code,
+                    attempt + 1,
+                    attempts,
+                    delay,
+                    resp.text[:300],
+                )
+                time.sleep(delay)
+                continue
             logger.warning(
-                "Asset naming Gemini call failed with HTTP %d: %s",
+                "Asset naming Gemini call failed [category=%s] with HTTP %d: %s",
+                "provider_overloaded" if resp.status_code in _SOFT_PROVIDER_RETRY_STATUSES else "provider_response",
                 resp.status_code,
                 resp.text[:300],
             )
+            return None
+
+        if resp is None:
             return None
 
         body: Any = resp.json()

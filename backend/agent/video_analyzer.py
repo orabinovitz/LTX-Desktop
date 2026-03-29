@@ -20,6 +20,7 @@ import subprocess
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -59,6 +60,7 @@ _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 _PROXY_SIZE_THRESHOLD = 500 * 1024 * 1024  # 500 MB — above this, transcode before upload
 _UPLOAD_MAX_RETRIES = 2
+_REPLAYABLE_UPLOAD_MAX_BYTES = 16 * 1024 * 1024  # 16 MB — small files can be retried from memory safely
 
 _ANALYSIS_VERSION = 2
 """Bump when the analysis pipeline changes in a way that invalidates cached results."""
@@ -67,13 +69,15 @@ _DIALOGUE_CHUNK_SECONDS = 120  # 2 minutes per transcription chunk (keeps output
 _DIALOGUE_CHUNK_OVERLAP = 10   # seconds of overlap to catch boundary speech
 _DIALOGUE_PARALLEL_WORKERS = 5  # concurrent Gemini API calls for dialogue chunks
 
+AnalysisCompleteCallback = Callable[[str, VideoMetadata | None], None]
+
 # Callbacks invoked when an analysis finishes (success or failure).
 # Signature: callback(asset_id: str, metadata: VideoMetadata | None)
-# metadata is None when analysis failed.
-_on_analysis_complete_callbacks: list = []
+# metadata carries AnalysisStatus.FAILED with analysis_error when analysis failed.
+_on_analysis_complete_callbacks: list[AnalysisCompleteCallback] = []
 
 
-def on_analysis_complete(callback) -> None:
+def on_analysis_complete(callback: AnalysisCompleteCallback) -> None:
     """Register a callback to be invoked when a video analysis finishes."""
     _on_analysis_complete_callbacks.append(callback)
 
@@ -416,13 +420,26 @@ def _run_analysis(
         else:
             _run_singlepass_analysis(asset_id, file_path, duration, gemini_api_key, http_client, project_save_path)
 
-    except Exception:
+    except Exception as exc:
         logger.error("Video analysis failed for %s", asset_id, exc_info=True)
+        failed_metadata: VideoMetadata | None = None
         with _cache_lock:
             entry = _metadata_cache.get(asset_id)
             if entry is not None:
                 entry.analysis_status = AnalysisStatus.FAILED
-        _notify_analysis_complete(asset_id, None)
+                entry.analysis_error = str(exc)
+                failed_metadata = entry.model_copy(deep=True)
+            else:
+                failed_metadata = VideoMetadata(
+                    asset_id=asset_id,
+                    duration=0.0,
+                    resolution=(0, 0),
+                    fps=0.0,
+                    analysis_status=AnalysisStatus.FAILED,
+                    analysis_error=str(exc),
+                )
+                _cache_put(asset_id, failed_metadata)
+        _notify_analysis_complete(asset_id, failed_metadata)
     finally:
         _analysis_semaphore.release()
 
@@ -454,6 +471,7 @@ def _run_singlepass_analysis(
             entry.dialogue = dialogue
             entry.summary = summary
             entry.analysis_status = AnalysisStatus.COMPLETE
+            entry.analysis_error = ""
             entry.analysis_version = _ANALYSIS_VERSION
             _save_to_disk(file_path, entry)
             if project_save_path:
@@ -561,6 +579,7 @@ def _run_multipass_analysis(
             entry.topics = topics
             entry.full_transcript = full_transcript
             entry.analysis_status = AnalysisStatus.COMPLETE
+            entry.analysis_error = ""
             entry.analysis_version = _ANALYSIS_VERSION
             _save_to_disk(file_path, entry)
             if project_save_path:
@@ -1070,15 +1089,16 @@ def _do_upload(
     gemini_api_key: str,
     http_client: HTTPClient,
 ) -> str:
-    """Execute the actual Gemini File Upload with streaming, retry, and scaled timeout."""
+    """Execute the Gemini File Upload with replayable small-file retries and resumable restarts."""
     file_size = Path(upload_path).stat().st_size
     mime_type = mimetypes.guess_type(upload_path)[0] or "video/mp4"
     display_name = Path(original_path).name
     file_size_mb = file_size / (1024 * 1024)
+    replayable_upload_data = Path(upload_path).read_bytes() if file_size <= _REPLAYABLE_UPLOAD_MAX_BYTES else None
 
     logger.info(
-        "Uploading %s to Gemini (%.0f MB, proxy=%s)",
-        display_name, file_size_mb, upload_path != original_path,
+        "Uploading %s to Gemini (%.0f MB, proxy=%s, replayable=%s)",
+        display_name, file_size_mb, upload_path != original_path, replayable_upload_data is not None,
     )
 
     start_url = "https://generativelanguage.googleapis.com/upload/v1beta/files"
@@ -1086,9 +1106,11 @@ def _do_upload(
     last_error: Exception | None = None
     file_uri = ""
     file_name = ""
+    stage = "upload_init"
 
     for attempt in range(_UPLOAD_MAX_RETRIES + 1):
         try:
+            stage = "upload_init"
             start_response = http_client.post(
                 start_url,
                 headers={
@@ -1110,7 +1132,8 @@ def _do_upload(
                     f"Body: {start_response.text[:500]}"
                 )
 
-            with open(upload_path, "rb") as fh:
+            stage = "upload_put"
+            if replayable_upload_data is not None:
                 upload_response = http_client.post(
                     upload_url,
                     headers={
@@ -1118,9 +1141,21 @@ def _do_upload(
                         "X-Goog-Upload-Offset": "0",
                         "X-Goog-Upload-Command": "upload, finalize",
                     },
-                    data=fh,
+                    data=replayable_upload_data,
                     timeout=upload_timeout,
                 )
+            else:
+                with open(upload_path, "rb") as fh:
+                    upload_response = http_client.post(
+                        upload_url,
+                        headers={
+                            "Content-Length": str(file_size),
+                            "X-Goog-Upload-Offset": "0",
+                            "X-Goog-Upload-Command": "upload, finalize",
+                        },
+                        data=fh,
+                        timeout=upload_timeout,
+                    )
 
             if upload_response.status_code not in (200, 201):
                 raise RuntimeError(
@@ -1142,9 +1177,13 @@ def _do_upload(
             if attempt < _UPLOAD_MAX_RETRIES:
                 wait = 5 * (attempt + 1)
                 logger.warning(
-                    "Gemini upload attempt %d/%d failed (%s), starting a fresh resumable session in %ds",
+                    "Gemini upload attempt %d/%d failed during %s for %s (%.0f MB, replayable=%s) (%s), starting a fresh resumable session in %ds",
                     attempt + 1,
                     _UPLOAD_MAX_RETRIES + 1,
+                    stage,
+                    display_name,
+                    file_size_mb,
+                    replayable_upload_data is not None,
                     type(exc).__name__,
                     wait,
                 )
@@ -1152,7 +1191,7 @@ def _do_upload(
             else:
                 raise RuntimeError(
                     f"File upload failed after {_UPLOAD_MAX_RETRIES + 1} attempts "
-                    f"(category=transport_session_restart) "
+                    f"(category=transport_session_restart, stage={stage}) "
                     f"(file: {display_name}, {file_size_mb:.0f} MB). "
                     f"Last error: {last_error}"
                 ) from last_error

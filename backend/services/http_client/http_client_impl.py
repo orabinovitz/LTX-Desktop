@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -126,7 +127,7 @@ class HTTPClientImpl:
             ) as exc:
                 last_exc = exc
                 if attempt < _MAX_RETRIES and can_retry:
-                    delay = _RETRY_BACKOFF_SECONDS[attempt]
+                    delay = _RETRY_BACKOFF_SECONDS[attempt] + random.uniform(0, 1.0)
                     logger.warning(
                         "[%s] HTTP %s transient %s on %s (attempt %d/%d, retrying in %.1fs): %s",
                         self.client_name, method, type(exc).__name__, url,
